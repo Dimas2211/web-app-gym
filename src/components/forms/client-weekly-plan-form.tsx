@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useActionState } from "react";
 import { useFormStatus } from "react-dom";
 import type { Status } from "@prisma/client";
@@ -242,12 +243,12 @@ export function ClientWeeklyPlanForm({
 
       <div className="flex items-center gap-3 pt-2">
         <SubmitButton isEdit={isEdit} />
-        <a
+        <Link
           href="/dashboard/weekly-plans/client-plans"
           className="text-sm text-zinc-500 hover:text-zinc-800 transition-colors"
         >
           Cancelar
-        </a>
+        </Link>
       </div>
     </form>
   );

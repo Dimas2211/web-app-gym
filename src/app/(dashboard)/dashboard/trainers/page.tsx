@@ -66,12 +66,12 @@ export default async function TrainersPage({ searchParams }: Props) {
           Filtrar
         </button>
         {(sp.search || sp.status || sp.branch_id) && (
-          <a
+          <Link
             href="/dashboard/trainers"
             className="text-sm text-zinc-500 px-4 py-2 rounded-lg hover:bg-zinc-100 transition-colors"
           >
             Limpiar
-          </a>
+          </Link>
         )}
       </form>
 

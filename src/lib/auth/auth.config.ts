@@ -24,7 +24,7 @@ export const authConfig = {
      * auth.ts. Solo aplica en el contexto del middleware.
      */
     session({ session, token }) {
-      session.user.role = token.role;
+      session.user.role = token.role as typeof session.user.role;
       return session;
     },
 

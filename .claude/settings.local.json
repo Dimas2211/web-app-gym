@@ -2,7 +2,10 @@
   "permissions": {
     "allow": [
       "Bash(npm audit:*)",
-      "Bash(npx prisma:*)"
+      "Bash(npx prisma:*)",
+      "Bash(/tmp/tree_output.txt:*)",
+      "Read(//tmp/**)",
+      "Bash(npm run:*)"
     ]
   }
 }

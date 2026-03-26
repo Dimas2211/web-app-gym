@@ -192,7 +192,7 @@ export async function submitPlanDayAction(
     where: { id: plan_day_id },
     data: {
       execution_status,
-      executed_at: execution_status !== "pending" ? new Date() : null,
+      executed_at: new Date(),
       client_feedback: client_feedback ?? null,
     },
   });

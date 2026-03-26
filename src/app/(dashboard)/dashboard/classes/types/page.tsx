@@ -68,9 +68,9 @@ export default async function ClassTypesPage({ searchParams }: Props) {
           Filtrar
         </button>
         {(sp.search || sp.status) && (
-          <a href="/dashboard/classes/types" className="text-sm text-zinc-500 px-4 py-2 rounded-lg hover:bg-zinc-100">
+          <Link href="/dashboard/classes/types" className="text-sm text-zinc-500 px-4 py-2 rounded-lg hover:bg-zinc-100">
             Limpiar
-          </a>
+          </Link>
         )}
       </form>
 

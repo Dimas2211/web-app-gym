@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useActionState, useState, useEffect } from "react";
 import { useFormStatus } from "react-dom";
 import type { ClassActionState } from "@/modules/classes/actions";
@@ -340,12 +341,12 @@ export function ScheduledClassForm({
 
       {/* ── Acciones ── */}
       <div className="flex items-center justify-end gap-3">
-        <a
+        <Link
           href="/dashboard/classes"
           className="text-sm text-zinc-600 px-4 py-2.5 rounded-lg border border-zinc-300 hover:bg-zinc-50 transition-colors"
         >
           Cancelar
-        </a>
+        </Link>
         <SubmitButton label={submitLabel} />
       </div>
     </form>
