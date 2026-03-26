@@ -1,0 +1,628 @@
+// Sistema GYM - Schema principal
+// Arquitectura: monolito modular multi-sucursal
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================
+// ENUMS
+// ============================================================
+
+enum UserRole {
+  super_admin
+  branch_admin
+  reception
+  trainer
+  client
+}
+
+enum Status {
+  active
+  inactive
+  suspended
+  deleted
+}
+
+enum AccessType {
+  full
+  limited
+  classes_only
+  virtual_only
+}
+
+enum Gender {
+  male
+  female
+  other
+  prefer_not_to_say
+}
+
+enum PaymentStatus {
+  pending
+  paid
+  partial
+  overdue
+  refunded
+}
+
+enum MembershipStatus {
+  active
+  expired
+  cancelled
+  suspended
+}
+
+enum BookingStatus {
+  confirmed
+  cancelled
+  waitlisted
+}
+
+enum AttendanceStatus {
+  attended
+  absent
+  late
+  cancelled
+}
+
+enum ClassStatus {
+  scheduled
+  in_progress
+  completed
+  cancelled
+}
+
+enum PlanLevel {
+  beginner
+  intermediate
+  advanced
+}
+
+enum ExecutionStatus {
+  pending
+  completed
+  skipped
+  partial
+}
+
+// ============================================================
+// GYMS (Organizaciones raíz)
+// ============================================================
+
+model Gym {
+  id         String   @id @default(uuid())
+  name       String
+  slug       String   @unique
+  logo_url   String?
+  status     Status   @default(active)
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  branches              Branch[]
+  users                 User[]
+  membership_plans      MembershipPlan[]
+  clients               Client[]
+  client_memberships    ClientMembership[]
+  trainers              Trainer[]
+  trainer_availability  TrainerAvailability[]
+  class_types           ClassType[]
+  scheduled_classes     ScheduledClass[]
+  weekly_plan_templates WeeklyPlanTemplate[]
+  client_weekly_plans   ClientWeeklyPlan[]
+
+  @@map("gyms")
+}
+
+// ============================================================
+// BRANCHES (Sucursales)
+// ============================================================
+
+model Branch {
+  id         String   @id @default(uuid())
+  gym_id     String
+  name       String
+  address    String?
+  phone      String?
+  status     Status   @default(active)
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  gym                   Gym                   @relation(fields: [gym_id], references: [id])
+  users                 User[]
+  clients               Client[]
+  membership_plans      MembershipPlan[]
+  client_memberships    ClientMembership[]
+  trainers              Trainer[]
+  trainer_availability  TrainerAvailability[]
+  scheduled_classes     ScheduledClass[]
+  weekly_plan_templates WeeklyPlanTemplate[]
+  client_weekly_plans   ClientWeeklyPlan[]
+
+  @@index([gym_id])
+  @@map("branches")
+}
+
+// ============================================================
+// USERS (Usuarios del sistema con roles)
+// ============================================================
+
+model User {
+  id            String   @id @default(uuid())
+  gym_id        String
+  branch_id     String?
+  email         String   @unique
+  password_hash String
+  first_name    String
+  last_name     String
+  role          UserRole
+  status        Status   @default(active)
+  created_at    DateTime @default(now())
+  updated_at    DateTime @updatedAt
+
+  gym              Gym                @relation(fields: [gym_id], references: [id])
+  branch           Branch?            @relation(fields: [branch_id], references: [id])
+  clients_assigned Client[]           @relation("ClientTrainer")
+  memberships_sold ClientMembership[] @relation("MembershipSales")
+  trainer_profile  Trainer?           @relation("TrainerUserLink")
+  client_profile   Client?            @relation("ClientUserLink")
+  created_classes  ScheduledClass[]   @relation("ClassCreator")
+  created_weekly_plan_templates WeeklyPlanTemplate[] @relation("TemplateCreator")
+
+  @@index([gym_id])
+  @@index([branch_id])
+  @@index([email])
+  @@map("users")
+}
+
+// ============================================================
+// GOALS (Metas de entrenamiento — catálogo global)
+// ============================================================
+
+model Goal {
+  id          String  @id @default(uuid())
+  name        String  @unique
+  description String?
+  status      Status  @default(active)
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  clients               Client[]
+  weekly_plan_templates WeeklyPlanTemplate[] @relation("TemplateGoal")
+
+  @@map("goals")
+}
+
+// ============================================================
+// SPORTS (Deportes — catálogo global)
+// ============================================================
+
+model Sport {
+  id          String  @id @default(uuid())
+  name        String  @unique
+  description String?
+  status      Status  @default(active)
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  clients               Client[]
+  weekly_plan_templates WeeklyPlanTemplate[] @relation("TemplateSport")
+
+  @@map("sports")
+}
+
+// ============================================================
+// MEMBERSHIP PLANS (Planes de membresía por gimnasio)
+// ============================================================
+
+model MembershipPlan {
+  id             String     @id @default(uuid())
+  gym_id         String
+  branch_id      String?
+  code           String?
+  name           String
+  description    String?
+  duration_days  Int
+  sessions_limit Int?
+  price          Decimal    @db.Decimal(10, 2)
+  access_type    AccessType @default(full)
+  is_recurring   Boolean    @default(false)
+  status         Status     @default(active)
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  gym                Gym                @relation(fields: [gym_id], references: [id])
+  branch             Branch?            @relation(fields: [branch_id], references: [id])
+  client_memberships ClientMembership[]
+
+  @@index([gym_id])
+  @@index([branch_id])
+  @@map("membership_plans")
+}
+
+// ============================================================
+// CLIENTS (Clientes del gimnasio)
+// ============================================================
+
+model Client {
+  id        String @id @default(uuid())
+  gym_id    String
+  branch_id String
+  user_id   String? @unique   // cuenta de acceso vinculada (rol client)
+
+  first_name  String
+  last_name   String
+  document_id String?
+  birth_date  DateTime? @db.Date
+  gender      Gender?
+
+  email   String?
+  phone   String?
+  address String?
+
+  emergency_contact_name  String?
+  emergency_contact_phone String?
+
+  sport_id            String?
+  goal_id             String?
+  assigned_trainer_id String?
+
+  notes String?
+
+  status     Status   @default(active)
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  gym              Gym    @relation(fields: [gym_id], references: [id])
+  branch           Branch @relation(fields: [branch_id], references: [id])
+  sport            Sport? @relation(fields: [sport_id], references: [id])
+  goal             Goal?  @relation(fields: [goal_id], references: [id])
+  assigned_trainer User?  @relation("ClientTrainer", fields: [assigned_trainer_id], references: [id])
+  user             User?  @relation("ClientUserLink", fields: [user_id], references: [id])
+  memberships      ClientMembership[]
+  class_bookings   ClassBooking[]
+  class_attendance ClassAttendance[]
+  weekly_plans     ClientWeeklyPlan[]
+
+  @@index([gym_id])
+  @@index([branch_id])
+  @@index([email])
+  @@index([user_id])
+  @@index([assigned_trainer_id])
+  @@map("clients")
+}
+
+// ============================================================
+// CLIENT MEMBERSHIPS (Membresías asignadas a clientes)
+// ============================================================
+
+model ClientMembership {
+  id                 String           @id @default(uuid())
+  gym_id             String
+  branch_id          String
+  client_id          String
+  membership_plan_id String
+  start_date         DateTime         @db.Date
+  end_date           DateTime         @db.Date
+  price_at_sale      Decimal          @db.Decimal(10, 2)
+  discount_amount    Decimal          @db.Decimal(10, 2) @default(0)
+  final_amount       Decimal          @db.Decimal(10, 2)
+  payment_status     PaymentStatus    @default(pending)
+  status             MembershipStatus @default(active)
+  sold_by_user_id    String?
+  notes              String?
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  gym             Gym            @relation(fields: [gym_id], references: [id])
+  branch          Branch         @relation(fields: [branch_id], references: [id])
+  client          Client         @relation(fields: [client_id], references: [id])
+  membership_plan MembershipPlan @relation(fields: [membership_plan_id], references: [id])
+  sold_by         User?          @relation("MembershipSales", fields: [sold_by_user_id], references: [id])
+
+  @@index([gym_id])
+  @@index([branch_id])
+  @@index([client_id])
+  @@index([membership_plan_id])
+  @@index([end_date])
+  @@map("client_memberships")
+}
+
+// ============================================================
+// TRAINERS (Entrenadores — perfil profesional)
+// ============================================================
+
+model Trainer {
+  id         String  @id @default(uuid())
+  gym_id     String
+  branch_id  String
+  user_id    String? @unique
+  first_name String
+  last_name  String
+  email      String?
+  phone      String?
+  specialty  String?
+  notes      String?
+  status     Status  @default(active)
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  gym               Gym                   @relation(fields: [gym_id], references: [id])
+  branch            Branch                @relation(fields: [branch_id], references: [id])
+  user              User?                 @relation("TrainerUserLink", fields: [user_id], references: [id])
+  availability      TrainerAvailability[]
+  scheduled_classes ScheduledClass[]
+  client_weekly_plans ClientWeeklyPlan[]
+
+  @@index([gym_id])
+  @@index([branch_id])
+  @@index([user_id])
+  @@map("trainers")
+}
+
+// ============================================================
+// TRAINER AVAILABILITY (Disponibilidad semanal)
+// ============================================================
+
+model TrainerAvailability {
+  id          String @id @default(uuid())
+  gym_id      String
+  branch_id   String
+  trainer_id  String
+  day_of_week Int
+  start_time  String
+  end_time    String
+  status      Status @default(active)
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  gym     Gym     @relation(fields: [gym_id], references: [id])
+  branch  Branch  @relation(fields: [branch_id], references: [id])
+  trainer Trainer @relation(fields: [trainer_id], references: [id])
+
+  @@index([gym_id])
+  @@index([branch_id])
+  @@index([trainer_id])
+  @@map("trainer_availability")
+}
+
+// ============================================================
+// CLASS TYPES (Catálogo de tipos de clase — nivel gimnasio)
+// ============================================================
+
+model ClassType {
+  id                       String  @id @default(uuid())
+  gym_id                   String
+  code                     String?
+  name                     String
+  description              String?
+  default_duration_minutes Int?
+  capacity_default         Int?
+  status                   Status  @default(active)
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  gym               Gym              @relation(fields: [gym_id], references: [id])
+  scheduled_classes ScheduledClass[]
+
+  @@index([gym_id])
+  @@map("class_types")
+}
+
+// ============================================================
+// SCHEDULED CLASSES (Clases programadas)
+// ============================================================
+
+model ScheduledClass {
+  id              String      @id @default(uuid())
+  gym_id          String
+  branch_id       String
+  class_type_id   String
+  trainer_id      String
+  title           String
+  class_date      DateTime    @db.Date
+  start_time      String      // HH:mm
+  end_time        String      // HH:mm
+  capacity        Int
+  room_name       String?
+  is_personalized Boolean     @default(false)
+  status          ClassStatus @default(scheduled)
+  notes           String?
+  created_by      String?
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  gym        Gym             @relation(fields: [gym_id], references: [id])
+  branch     Branch          @relation(fields: [branch_id], references: [id])
+  class_type ClassType       @relation(fields: [class_type_id], references: [id])
+  trainer    Trainer         @relation(fields: [trainer_id], references: [id])
+  creator    User?           @relation("ClassCreator", fields: [created_by], references: [id])
+  bookings   ClassBooking[]
+  attendance ClassAttendance[]
+
+  @@index([gym_id])
+  @@index([branch_id])
+  @@index([class_type_id])
+  @@index([trainer_id])
+  @@index([class_date])
+  @@map("scheduled_classes")
+}
+
+// ============================================================
+// CLASS BOOKINGS (Reservas de clientes)
+// ============================================================
+
+model ClassBooking {
+  id                 String        @id @default(uuid())
+  scheduled_class_id String
+  client_id          String
+  booking_status     BookingStatus @default(confirmed)
+  booked_at          DateTime      @default(now())
+  notes              String?
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  scheduled_class ScheduledClass @relation(fields: [scheduled_class_id], references: [id])
+  client          Client         @relation(fields: [client_id], references: [id])
+
+  @@unique([scheduled_class_id, client_id])
+  @@index([scheduled_class_id])
+  @@index([client_id])
+  @@map("class_bookings")
+}
+
+// ============================================================
+// CLASS ATTENDANCE (Registro de asistencia)
+// ============================================================
+
+model ClassAttendance {
+  id                 String           @id @default(uuid())
+  scheduled_class_id String
+  client_id          String
+  attendance_status  AttendanceStatus @default(attended)
+  checked_in_at      DateTime?
+  notes              String?
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  scheduled_class ScheduledClass @relation(fields: [scheduled_class_id], references: [id])
+  client          Client         @relation(fields: [client_id], references: [id])
+
+  @@unique([scheduled_class_id, client_id])
+  @@index([scheduled_class_id])
+  @@index([client_id])
+  @@map("class_attendance")
+}
+
+// ============================================================
+// WEEKLY PLAN TEMPLATES (Plantillas de planes semanales)
+// ============================================================
+
+model WeeklyPlanTemplate {
+  id              String     @id @default(uuid())
+  gym_id          String
+  branch_id       String?
+  code            String?
+  name            String
+  target_gender   Gender?
+  target_sport_id String?
+  target_goal_id  String?
+  target_level    PlanLevel?
+  description     String?
+  status          Status     @default(active)
+  created_by      String?
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  gym          Gym                     @relation(fields: [gym_id], references: [id])
+  branch       Branch?                 @relation(fields: [branch_id], references: [id])
+  target_sport Sport?                  @relation("TemplateSport", fields: [target_sport_id], references: [id])
+  target_goal  Goal?                   @relation("TemplateGoal", fields: [target_goal_id], references: [id])
+  creator      User?                   @relation("TemplateCreator", fields: [created_by], references: [id])
+  days         WeeklyPlanTemplateDay[]
+  client_plans ClientWeeklyPlan[]
+
+  @@index([gym_id])
+  @@index([branch_id])
+  @@map("weekly_plan_templates")
+}
+
+// ============================================================
+// WEEKLY PLAN TEMPLATE DAYS (Días de plantilla)
+// ============================================================
+
+model WeeklyPlanTemplateDay {
+  id               String  @id @default(uuid())
+  template_id      String
+  weekday          Int     // 0=domingo … 6=sábado
+  session_name     String?
+  focus_area       String?
+  duration_minutes Int     @default(60)
+  exercise_block   String?
+  trainer_notes    String?
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  template WeeklyPlanTemplate @relation(fields: [template_id], references: [id])
+
+  @@unique([template_id, weekday])
+  @@index([template_id])
+  @@map("weekly_plan_template_days")
+}
+
+// ============================================================
+// CLIENT WEEKLY PLANS (Planes semanales asignados a clientes)
+// ============================================================
+
+model ClientWeeklyPlan {
+  id          String   @id @default(uuid())
+  gym_id      String
+  branch_id   String
+  client_id   String
+  template_id String?
+  trainer_id  String?
+  start_date  DateTime @db.Date
+  end_date    DateTime @db.Date
+  status      Status   @default(active)
+  notes       String?
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  gym      Gym                  @relation(fields: [gym_id], references: [id])
+  branch   Branch               @relation(fields: [branch_id], references: [id])
+  client   Client               @relation(fields: [client_id], references: [id])
+  template WeeklyPlanTemplate?  @relation(fields: [template_id], references: [id])
+  trainer  Trainer?             @relation(fields: [trainer_id], references: [id])
+  days     ClientWeeklyPlanDay[]
+
+  @@index([gym_id])
+  @@index([branch_id])
+  @@index([client_id])
+  @@index([trainer_id])
+  @@map("client_weekly_plans")
+}
+
+// ============================================================
+// CLIENT WEEKLY PLAN DAYS (Días del plan asignado al cliente)
+// ============================================================
+
+model ClientWeeklyPlanDay {
+  id                    String          @id @default(uuid())
+  client_weekly_plan_id String
+  weekday               Int             // 0=domingo … 6=sábado
+  session_name          String?
+  focus_area            String?
+  duration_minutes      Int             @default(60)
+  exercise_block        String?
+  execution_status      ExecutionStatus @default(pending)
+  executed_at           DateTime?
+  trainer_feedback      String?
+  client_feedback       String?
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  plan ClientWeeklyPlan @relation(fields: [client_weekly_plan_id], references: [id])
+
+  @@unique([client_weekly_plan_id, weekday])
+  @@index([client_weekly_plan_id])
+  @@map("client_weekly_plan_days")
+}
