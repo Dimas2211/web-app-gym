@@ -42,7 +42,15 @@ export default async function WeeklyPlanTemplateDetailPage({ params }: Props) {
         </div>
 
         {canEdit && (
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
+            {template.status === "active" && (
+              <Link
+                href={`/dashboard/weekly-plans/templates/${id}/assign-segmented`}
+                className="bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-indigo-700 transition-colors"
+              >
+                Aplicar a segmento
+              </Link>
+            )}
             <Link
               href={`/dashboard/weekly-plans/templates/${id}/edit`}
               className="bg-zinc-900 text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-zinc-800 transition-colors"
@@ -181,7 +189,11 @@ export default async function WeeklyPlanTemplateDetailPage({ params }: Props) {
                           >
                             Editar
                           </Link>
-                          <DeleteDayButton dayId={day.id} templateId={id} />
+                          <DeleteDayButton
+                            dayId={day.id}
+                            templateId={id}
+                            userRole={sessionUser.role}
+                          />
                         </div>
                       )}
                     </div>

@@ -57,6 +57,7 @@ export async function getClients(user: SessionUser, filters: ClientFilters = {})
       assigned_trainer: {
         select: { id: true, first_name: true, last_name: true },
       },
+      user: { select: { id: true, email: true, status: true } },
     },
     orderBy: [{ last_name: "asc" }, { first_name: "asc" }],
   });
@@ -77,6 +78,7 @@ export async function getClientById(id: string, user: SessionUser) {
       assigned_trainer: {
         select: { id: true, first_name: true, last_name: true },
       },
+      user: { select: { id: true, email: true, status: true } },
     },
   });
 }

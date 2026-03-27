@@ -14,7 +14,8 @@ export default async function EditUserPage({ params }: Props) {
   const { id } = await params;
 
   const target = await getUserById(id, sessionUser);
-  if (!target || !canManageUser(sessionUser, target)) notFound();
+  // Los usuarios con rol client se gestionan desde el módulo de Clientes, no desde aquí
+  if (!target || !canManageUser(sessionUser, target) || target.role === "client") notFound();
 
   const branches = await getBranchOptions(sessionUser);
 
@@ -37,6 +38,25 @@ export default async function EditUserPage({ params }: Props) {
         <span>/</span>
         <span className="text-zinc-800 font-medium">Editar</span>
       </div>
+
+      {/* Aviso de perfil de entrenador */}
+      {target.role === "trainer" && (
+        <div className="bg-blue-50 border border-blue-200 rounded-xl px-4 py-3 flex items-center justify-between gap-4">
+          <p className="text-sm text-blue-700">
+            {target.trainer_profile
+              ? "Este usuario tiene un perfil de entrenador vinculado."
+              : "Este usuario no tiene perfil de entrenador. El perfil se crea automáticamente al asignar el rol."}
+          </p>
+          {target.trainer_profile && (
+            <Link
+              href={`/dashboard/trainers/${target.trainer_profile.id}`}
+              className="text-xs font-semibold text-blue-700 border border-blue-300 px-3 py-1.5 rounded-lg hover:bg-blue-100 transition-colors whitespace-nowrap"
+            >
+              Ver perfil
+            </Link>
+          )}
+        </div>
+      )}
 
       <div className="bg-white rounded-xl border border-zinc-200 shadow-sm p-6">
         <h1 className="text-lg font-bold text-zinc-800 mb-6">Editar usuario</h1>

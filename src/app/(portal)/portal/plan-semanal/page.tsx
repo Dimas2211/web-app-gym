@@ -4,6 +4,7 @@ import {
   getMyActivePlan,
   getMyPlans,
   getMyGeneralTemplates,
+  hasActiveMembership,
 } from "@/modules/client-portal/queries";
 import { PlanDayCard } from "./plan-day-card";
 
@@ -40,11 +41,15 @@ export default async function PlanSemanalPage() {
     );
   }
 
-  const [activePlan, allPlans, generalTemplates] = await Promise.all([
+  const [activePlan, allPlans, hasMembership] = await Promise.all([
     getMyActivePlan(client.id),
     getMyPlans(client.id),
-    getMyGeneralTemplates(client),
+    hasActiveMembership(client.id),
   ]);
+
+  const generalTemplates = hasMembership
+    ? await getMyGeneralTemplates(client)
+    : [];
 
   const todayWeekday = new Date().getDay();
 
@@ -173,7 +178,17 @@ export default async function PlanSemanalPage() {
           </span>
         </div>
 
-        {generalTemplates.length > 0 ? (
+        {!hasMembership ? (
+          <div className="bg-amber-50 border border-amber-200 rounded-xl p-6 text-center">
+            <p className="text-amber-800 font-medium">
+              Membresía requerida
+            </p>
+            <p className="text-sm text-amber-700 mt-1">
+              Necesitas una membresía activa y vigente para acceder a la
+              programación general del gimnasio.
+            </p>
+          </div>
+        ) : generalTemplates.length > 0 ? (
           <div className="space-y-4">
             {generalTemplates.map((template) => (
               <div
@@ -287,7 +302,7 @@ export default async function PlanSemanalPage() {
               No hay programación general disponible para tu perfil.
             </p>
             <p className="text-sm text-zinc-500 mt-1">
-              El equipo del gimnasio puede asignarte programas según tu
+              El equipo del gimnasio puede publicar programas según tu
               deporte, meta o nivel.
             </p>
           </div>

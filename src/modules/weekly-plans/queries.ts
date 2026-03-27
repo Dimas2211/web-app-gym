@@ -298,6 +298,38 @@ export async function getGoalOptions() {
   });
 }
 
+// ── Programación general por scope ───────────────────────────
+
+/**
+ * Retorna plantillas activas visibles para el usuario según su scope.
+ * Usada por entrenadores y admins para ver la programación general del gimnasio.
+ */
+export async function getGeneralTemplatesForScope(user: SessionUser) {
+  const where: Record<string, unknown> = {
+    ...gymScope(user),
+    status: "active",
+  };
+
+  if (
+    user.role === "branch_admin" ||
+    user.role === "reception" ||
+    user.role === "trainer"
+  ) {
+    where.OR = [{ branch_id: null }, { branch_id: user.branch_id }];
+  }
+
+  return prisma.weeklyPlanTemplate.findMany({
+    where,
+    include: {
+      branch: { select: { id: true, name: true } },
+      target_sport: { select: { id: true, name: true } },
+      target_goal: { select: { id: true, name: true } },
+      _count: { select: { days: true, client_plans: true } },
+    },
+    orderBy: { name: "asc" },
+  });
+}
+
 // ── Trainer vinculado al usuario de sesión ────────────────────
 
 export async function getLinkedTrainerId(

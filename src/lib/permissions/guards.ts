@@ -12,6 +12,15 @@ export type SessionUser = {
 };
 
 const ADMIN_ROLES: UserRole[] = ["super_admin", "branch_admin"];
+
+/**
+ * Indica si un rol puede ejecutar eliminaciones definitivas de forma directa,
+ * sin requerir autorización administrativa excepcional.
+ * Solo super_admin y branch_admin tienen este privilegio.
+ */
+export function canDeleteDirectly(role: UserRole): boolean {
+  return ADMIN_ROLES.includes(role);
+}
 const CLIENT_MANAGER_ROLES: UserRole[] = ["super_admin", "branch_admin", "reception"];
 const MEMBERSHIP_MANAGER_ROLES: UserRole[] = ["super_admin", "branch_admin", "reception"];
 const CLASS_VIEWER_ROLES: UserRole[] = ["super_admin", "branch_admin", "reception", "trainer"];

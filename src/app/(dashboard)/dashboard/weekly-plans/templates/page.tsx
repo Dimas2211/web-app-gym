@@ -1,7 +1,11 @@
 import Link from "next/link";
 import { requireAdmin } from "@/lib/permissions/guards";
 import { getWeeklyPlanTemplates } from "@/modules/weekly-plans/queries";
-import { toggleTemplateStatusAction } from "@/modules/weekly-plans/actions";
+import {
+  toggleTemplateStatusAction,
+  deleteTemplateAction,
+} from "@/modules/weekly-plans/actions";
+import { DeleteAuthorizationDialog } from "@/components/forms/delete-authorization-dialog";
 import { StatusBadge } from "@/components/ui/status-badge";
 import {
   PLAN_LEVEL_LABELS,
@@ -209,6 +213,12 @@ export default async function WeeklyPlanTemplatesPage({
                             {t.status === "active" ? "Desactivar" : "Activar"}
                           </button>
                         </form>
+                        <DeleteAuthorizationDialog
+                          entityLabel={`la plantilla "${t.name}"`}
+                          userRole={sessionUser.role}
+                          hiddenFields={{ id: t.id }}
+                          action={deleteTemplateAction}
+                        />
                       </div>
                     </td>
                   </tr>

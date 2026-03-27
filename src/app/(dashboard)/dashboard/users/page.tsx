@@ -1,9 +1,10 @@
 import Link from "next/link";
 import { requireAdmin } from "@/lib/permissions/guards";
 import { getAdminUsers } from "@/modules/users/queries";
-import { toggleUserStatusAction } from "@/modules/users/actions";
+import { toggleUserStatusAction, deleteUserAction } from "@/modules/users/actions";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { ROLE_LABELS, ROLE_COLORS } from "@/lib/utils/roles";
+import { DeleteAuthorizationDialog } from "@/components/forms/delete-authorization-dialog";
 
 export default async function UsersPage() {
   const user = await requireAdmin();
@@ -82,6 +83,20 @@ export default async function UsersPage() {
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex items-center justify-end gap-2">
+                        {u.role === "trainer" && (
+                          u.trainer_profile ? (
+                            <Link
+                              href={`/dashboard/trainers/${u.trainer_profile.id}`}
+                              className="text-xs text-blue-600 hover:text-blue-800 px-2.5 py-1 rounded border border-blue-200 hover:border-blue-400 transition-colors"
+                            >
+                              Perfil
+                            </Link>
+                          ) : (
+                            <span className="text-xs text-amber-600 px-2.5 py-1 rounded border border-amber-200">
+                              Sin perfil
+                            </span>
+                          )
+                        )}
                         <Link
                           href={`/dashboard/users/${u.id}/edit`}
                           className="text-xs text-zinc-600 hover:text-zinc-900 px-2.5 py-1 rounded border border-zinc-200 hover:border-zinc-400 transition-colors"
@@ -89,19 +104,27 @@ export default async function UsersPage() {
                           Editar
                         </Link>
                         {u.id !== user.id && (
-                          <form action={toggleUserStatusAction}>
-                            <input type="hidden" name="id" value={u.id} />
-                            <button
-                              type="submit"
-                              className={`text-xs px-2.5 py-1 rounded border transition-colors ${
-                                u.status === "active"
-                                  ? "text-amber-700 border-amber-200 hover:bg-amber-50"
-                                  : "text-emerald-700 border-emerald-200 hover:bg-emerald-50"
-                              }`}
-                            >
-                              {u.status === "active" ? "Desactivar" : "Activar"}
-                            </button>
-                          </form>
+                          <>
+                            <form action={toggleUserStatusAction}>
+                              <input type="hidden" name="id" value={u.id} />
+                              <button
+                                type="submit"
+                                className={`text-xs px-2.5 py-1 rounded border transition-colors ${
+                                  u.status === "active"
+                                    ? "text-amber-700 border-amber-200 hover:bg-amber-50"
+                                    : "text-emerald-700 border-emerald-200 hover:bg-emerald-50"
+                                }`}
+                              >
+                                {u.status === "active" ? "Desactivar" : "Activar"}
+                              </button>
+                            </form>
+                            <DeleteAuthorizationDialog
+                              entityLabel={`al usuario ${u.first_name} ${u.last_name}`}
+                              userRole={user.role}
+                              hiddenFields={{ id: u.id }}
+                              action={deleteUserAction}
+                            />
+                          </>
                         )}
                       </div>
                     </td>

@@ -4,7 +4,11 @@ import { requireClientManager, canManageClient } from "@/lib/permissions/guards"
 import { getClientById } from "@/modules/clients/queries";
 import { getClientMembershipsByClientId } from "@/modules/memberships/queries";
 import { getClientWeeklyPlansByClientId } from "@/modules/weekly-plans/queries";
-import { toggleClientStatusAction } from "@/modules/clients/actions";
+import {
+  toggleClientStatusAction,
+  toggleClientPortalStatusAction,
+} from "@/modules/clients/actions";
+import { EnablePortalForm } from "@/components/forms/enable-portal-form";
 import { StatusBadge } from "@/components/ui/status-badge";
 import {
   GENDER_LABELS,
@@ -150,6 +154,55 @@ export default async function ClientDetailPage({ params }: Props) {
           </div>
         </div>
       </div>
+
+      {/* Acceso al portal */}
+      {canEdit && (
+        <div className="bg-white rounded-xl border border-zinc-200 shadow-sm p-5">
+          <h2 className="text-xs font-semibold text-zinc-400 uppercase tracking-wide mb-4">
+            Acceso al portal del cliente
+          </h2>
+
+          {client.user ? (
+            <div className="flex items-start justify-between flex-wrap gap-4">
+              <div className="space-y-1">
+                <span
+                  className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold ${
+                    client.user.status === "active"
+                      ? "bg-emerald-100 text-emerald-700"
+                      : "bg-zinc-100 text-zinc-500"
+                  }`}
+                >
+                  {client.user.status === "active" ? "Portal activo" : "Portal desactivado"}
+                </span>
+                <p className="text-sm text-zinc-500">{client.user.email}</p>
+              </div>
+              <form action={toggleClientPortalStatusAction}>
+                <input type="hidden" name="client_id" value={client.id} />
+                <button
+                  type="submit"
+                  className={`text-xs px-3 py-1.5 rounded-lg border transition-colors ${
+                    client.user.status === "active"
+                      ? "text-amber-700 border-amber-200 hover:bg-amber-50"
+                      : "text-emerald-700 border-emerald-200 hover:bg-emerald-50"
+                  }`}
+                >
+                  {client.user.status === "active"
+                    ? "Desactivar acceso"
+                    : "Reactivar acceso"}
+                </button>
+              </form>
+            </div>
+          ) : (
+            <div>
+              <p className="text-sm text-zinc-400 mb-4">
+                Este cliente no tiene acceso al portal. Puedes habilitarlo para que
+                pueda consultar sus membresías, clases reservadas y plan semanal.
+              </p>
+              <EnablePortalForm clientId={client.id} defaultEmail={client.email} />
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Membresía activa */}
       <div className="bg-white rounded-xl border border-zinc-200 shadow-sm p-5">

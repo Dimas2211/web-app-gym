@@ -6,8 +6,13 @@ import { prisma } from "@/lib/db/prisma";
 import {
   requireAdmin,
   canManageTrainer,
+  getSessionOrRedirect,
   type SessionUser,
 } from "@/lib/permissions/guards";
+import {
+  checkDeleteAuth,
+  type DeleteAuthActionState,
+} from "@/lib/permissions/delete-authorization";
 import {
   createTrainerSchema,
   updateTrainerSchema,
@@ -120,7 +125,13 @@ export async function updateTrainerAction(
 
   const { user_id, ...rest } = parsed.data;
 
-  if (user_id) {
+  // Determinar el user_id final:
+  // - Si ya tiene user_id: preservar el vínculo existente (no se puede cambiar desde aquí)
+  // - Si no tiene user_id y se envió uno nuevo: validar y vincular (linking de registros legacy)
+  // - Si no tiene user_id y no se envió: mantener null
+  let resolvedUserId = target.user_id;
+
+  if (!target.user_id && user_id) {
     const linkedUser = await prisma.user.findFirst({
       where: {
         id: user_id,
@@ -137,15 +148,72 @@ export async function updateTrainerAction(
     ) {
       return { error: "El usuario seleccionado no pertenece a tu sucursal." };
     }
+    resolvedUserId = user_id;
   }
 
   await prisma.trainer.update({
     where: { id },
-    data: { ...rest, user_id: user_id ?? null },
+    data: { ...rest, user_id: resolvedUserId },
   });
 
   revalidatePath("/dashboard/trainers");
   revalidatePath(`/dashboard/trainers/${id}`);
+  redirect("/dashboard/trainers");
+}
+
+// ──────────────────────────────────────────────
+// Eliminación definitiva con autorización
+// ──────────────────────────────────────────────
+export async function deleteTrainerAction(
+  _prev: DeleteAuthActionState,
+  formData: FormData
+): Promise<DeleteAuthActionState> {
+  const sessionUser = await getSessionOrRedirect();
+  const id = formData.get("id") as string;
+  if (!id) return { error: "Datos inválidos" };
+
+  const target = await prisma.trainer.findFirst({
+    where: { id, gym_id: sessionUser.gym_id },
+    include: {
+      _count: {
+        select: {
+          scheduled_classes: true,
+          client_weekly_plans: true,
+        },
+      },
+    },
+  });
+
+  if (!target) return { error: "Entrenador no encontrado." };
+  if (!canManageTrainer(sessionUser, target)) {
+    return { error: "Sin permisos para gestionar este entrenador." };
+  }
+
+  // Bloqueos por dependencias
+  const blocks: string[] = [];
+  if (target._count.scheduled_classes > 0)
+    blocks.push(`${target._count.scheduled_classes} clase(s) programada(s)`);
+  if (target._count.client_weekly_plans > 0)
+    blocks.push(
+      `${target._count.client_weekly_plans} plan(es) semanal(es) de clientes asignados`
+    );
+
+  if (blocks.length > 0) {
+    return {
+      error: `No se puede eliminar: el entrenador tiene ${blocks.join(", ")}. Desactívalo en su lugar, o reasigna esos registros primero.`,
+    };
+  }
+
+  const auth = await checkDeleteAuth(formData, sessionUser);
+  if (!auth.ok) return { error: auth.error };
+
+  // Eliminar disponibilidad y luego el entrenador en transacción
+  await prisma.$transaction(async (tx) => {
+    await tx.trainerAvailability.deleteMany({ where: { trainer_id: id } });
+    await tx.trainer.delete({ where: { id } });
+  });
+
+  revalidatePath("/dashboard/trainers");
   redirect("/dashboard/trainers");
 }
 

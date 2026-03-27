@@ -101,3 +101,27 @@ export const markDaySchema = z.object({
 
 export type UpdateClientPlanDayInput = z.infer<typeof updateClientPlanDaySchema>;
 export type MarkDayInput = z.infer<typeof markDaySchema>;
+
+// ── Asignación segmentada ─────────────────────────────────────
+
+export const assignSegmentedSchema = z
+  .object({
+    template_id: z.string().uuid("Plantilla requerida"),
+    branch_id: z.string().uuid().optional().nullable(),
+    trainer_id: z.string().uuid().optional().nullable(),
+    start_date: z.string().min(1, "Fecha de inicio requerida"),
+    end_date: z.string().min(1, "Fecha de fin requerida"),
+    target_gender: z
+      .enum(["male", "female", "other", "prefer_not_to_say"])
+      .optional()
+      .nullable(),
+    target_sport_id: z.string().uuid().optional().nullable(),
+    target_goal_id: z.string().uuid().optional().nullable(),
+    notes: z.string().max(1000).optional().nullable(),
+  })
+  .refine((d) => new Date(d.end_date) > new Date(d.start_date), {
+    message: "La fecha de fin debe ser posterior a la de inicio",
+    path: ["end_date"],
+  });
+
+export type AssignSegmentedInput = z.infer<typeof assignSegmentedSchema>;

@@ -156,6 +156,27 @@ export async function getMyPlans(clientId: string) {
 // ============================================================
 
 // ============================================================
+// MEMBRESÍA — VALIDACIÓN
+// ============================================================
+
+/** Devuelve true si el cliente tiene membresía activa y vigente hoy. */
+export async function hasActiveMembership(clientId: string): Promise<boolean> {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const found = await prisma.clientMembership.findFirst({
+    where: {
+      client_id: clientId,
+      status: "active",
+      payment_status: { in: ["paid", "partial"] },
+      start_date: { lte: today },
+      end_date: { gte: today },
+    },
+    select: { id: true },
+  });
+  return found !== null;
+}
+
+// ============================================================
 // PROGRAMACIÓN GENERAL
 // ============================================================
 

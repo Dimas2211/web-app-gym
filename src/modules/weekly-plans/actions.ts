@@ -7,8 +7,14 @@ import {
   requireAdmin,
   requireClassViewer,
   canManageBranch,
+  canDeleteDirectly,
+  getSessionOrRedirect,
 } from "@/lib/permissions/guards";
 import type { SessionUser } from "@/lib/permissions/guards";
+import {
+  checkDeleteAuth,
+  type DeleteAuthActionState,
+} from "@/lib/permissions/delete-authorization";
 import {
   createTemplateSchema,
   updateTemplateSchema,
@@ -17,11 +23,21 @@ import {
   updateClientPlanSchema,
   updateClientPlanDaySchema,
   markDaySchema,
+  assignSegmentedSchema,
 } from "./schemas";
 import { getLinkedTrainerId } from "./queries";
 
 export type WeeklyPlanActionState =
   | { errors?: Record<string, string[]>; error?: string }
+  | undefined;
+
+export type AssignSegmentedActionState =
+  | {
+      errors?: Record<string, string[]>;
+      error?: string;
+      assigned?: number;
+      skipped?: number;
+    }
   | undefined;
 
 function n(v: FormDataEntryValue | null): string | null {
@@ -217,22 +233,36 @@ export async function upsertTemplateDayAction(
 }
 
 export async function deleteTemplateDayAction(
+  _prev: DeleteAuthActionState,
   formData: FormData
-): Promise<void> {
-  const sessionUser = await requireAdmin();
+): Promise<DeleteAuthActionState> {
+  const sessionUser = await getSessionOrRedirect();
+
   const id = formData.get("id") as string;
   const template_id = formData.get("template_id") as string;
-  if (!id || !template_id) return;
+  if (!id || !template_id) return { error: "Datos inválidos" };
 
   const day = await prisma.weeklyPlanTemplateDay.findFirst({
     where: { id },
     include: { template: { select: { gym_id: true, branch_id: true } } },
   });
-  if (!day || day.template.gym_id !== sessionUser.gym_id) return;
-  if (!canManageTemplate(sessionUser, day.template)) return;
+
+  if (!day || day.template.gym_id !== sessionUser.gym_id) {
+    return { error: "Registro no encontrado" };
+  }
+
+  if (canDeleteDirectly(sessionUser.role)) {
+    if (!canManageTemplate(sessionUser, day.template)) {
+      return { error: "Sin permisos para gestionar esta plantilla" };
+    }
+  }
+
+  const auth = await checkDeleteAuth(formData, sessionUser);
+  if (!auth.ok) return { error: auth.error };
 
   await prisma.weeklyPlanTemplateDay.delete({ where: { id } });
   revalidatePath(`/dashboard/weekly-plans/templates/${template_id}`);
+  redirect(`/dashboard/weekly-plans/templates/${template_id}`);
 }
 
 // ══════════════════════════════════════════════
@@ -609,4 +639,253 @@ export async function addClientPlanDayAction(
 
   revalidatePath(`/dashboard/weekly-plans/client-plans/${plan_id}`);
   redirect(`/dashboard/weekly-plans/client-plans/${plan_id}`);
+}
+
+// ══════════════════════════════════════════════
+// ASIGNACIÓN SEGMENTADA / MASIVA
+// ══════════════════════════════════════════════
+
+/**
+ * Aplica una plantilla a todos los clientes activos con membresía vigente
+ * que coincidan con el segmento indicado (sucursal, género, deporte, meta).
+ *
+ * Clientes con plan solapado en el mismo periodo se omiten (skipped).
+ * Solo super_admin y branch_admin pueden ejecutar esta acción.
+ */
+export async function assignTemplateSegmentedAction(
+  _prev: AssignSegmentedActionState,
+  formData: FormData
+): Promise<AssignSegmentedActionState> {
+  const sessionUser = await requireAdmin();
+
+  const raw = {
+    template_id: formData.get("template_id"),
+    branch_id: n(formData.get("branch_id")),
+    trainer_id: n(formData.get("trainer_id")),
+    start_date: formData.get("start_date"),
+    end_date: formData.get("end_date"),
+    target_gender: n(formData.get("target_gender")),
+    target_sport_id: n(formData.get("target_sport_id")),
+    target_goal_id: n(formData.get("target_goal_id")),
+    notes: n(formData.get("notes")),
+  };
+
+  // branch_admin siempre opera en su propia sucursal
+  if (sessionUser.role === "branch_admin") {
+    raw.branch_id = sessionUser.branch_id ?? null;
+  }
+
+  const parsed = assignSegmentedSchema.safeParse(raw);
+  if (!parsed.success) return { errors: parsed.error.flatten().fieldErrors };
+
+  const {
+    template_id,
+    branch_id,
+    trainer_id,
+    start_date,
+    end_date,
+    target_gender,
+    target_sport_id,
+    target_goal_id,
+    notes,
+  } = parsed.data;
+
+  // Validar plantilla: debe existir, estar activa y ser accesible
+  const template = await prisma.weeklyPlanTemplate.findFirst({
+    where: { id: template_id, gym_id: sessionUser.gym_id, status: "active" },
+    include: { days: true },
+  });
+  if (!template) return { error: "Plantilla no encontrada o inactiva." };
+  if (!canManageTemplate(sessionUser, template)) {
+    return { error: "Sin permiso para usar esta plantilla." };
+  }
+
+  // Validar entrenador si se indicó
+  if (trainer_id) {
+    const trainer = await prisma.trainer.findFirst({
+      where: { id: trainer_id, gym_id: sessionUser.gym_id },
+    });
+    if (!trainer) return { error: "Entrenador no encontrado." };
+  }
+
+  // Construir filtro de clientes
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const clientWhere: Record<string, unknown> = {
+    gym_id: sessionUser.gym_id,
+    status: "active",
+    memberships: {
+      some: {
+        status: "active",
+        payment_status: { in: ["paid", "partial"] },
+        start_date: { lte: today },
+        end_date: { gte: today },
+      },
+    },
+  };
+
+  if (branch_id) {
+    clientWhere.branch_id = branch_id;
+  } else if (sessionUser.role === "branch_admin") {
+    clientWhere.branch_id = sessionUser.branch_id!;
+  }
+
+  if (target_gender) clientWhere.gender = target_gender;
+  if (target_sport_id) clientWhere.sport_id = target_sport_id;
+  if (target_goal_id) clientWhere.goal_id = target_goal_id;
+
+  const clients = await prisma.client.findMany({
+    where: clientWhere,
+    select: { id: true, branch_id: true },
+  });
+
+  if (clients.length === 0) {
+    return {
+      error:
+        "No se encontraron clientes activos con membresía vigente que coincidan con el segmento indicado.",
+    };
+  }
+
+  const start = new Date(start_date + "T00:00:00.000Z");
+  const end = new Date(end_date + "T00:00:00.000Z");
+
+  let assigned = 0;
+  let skipped = 0;
+
+  for (const client of clients) {
+    // Verificar solapamiento con plan existente
+    const overlap = await prisma.clientWeeklyPlan.findFirst({
+      where: {
+        client_id: client.id,
+        status: { in: ["active", "suspended"] },
+        start_date: { lte: end },
+        end_date: { gte: start },
+      },
+      select: { id: true },
+    });
+
+    if (overlap) {
+      skipped++;
+      continue;
+    }
+
+    // Crear el plan — branch del cliente si no se especificó scope de sucursal
+    const planBranchId = branch_id ?? client.branch_id;
+
+    const newPlan = await prisma.clientWeeklyPlan.create({
+      data: {
+        gym_id: sessionUser.gym_id,
+        branch_id: planBranchId,
+        client_id: client.id,
+        trainer_id,
+        template_id,
+        start_date: start,
+        end_date: end,
+        notes,
+        status: "active",
+      },
+    });
+
+    if (template.days.length > 0) {
+      await prisma.clientWeeklyPlanDay.createMany({
+        data: template.days.map((d) => ({
+          client_weekly_plan_id: newPlan.id,
+          weekday: d.weekday,
+          session_name: d.session_name,
+          focus_area: d.focus_area,
+          duration_minutes: d.duration_minutes,
+          exercise_block: d.exercise_block,
+          execution_status: "pending",
+        })),
+      });
+    }
+
+    assigned++;
+  }
+
+  revalidatePath("/dashboard/weekly-plans/client-plans");
+  revalidatePath(`/dashboard/weekly-plans/templates/${template_id}`);
+
+  return { assigned, skipped };
+}
+
+// ══════════════════════════════════════════════
+// ELIMINACIÓN DEFINITIVA: PLANTILLA COMPLETA
+// ══════════════════════════════════════════════
+
+export async function deleteTemplateAction(
+  _prev: DeleteAuthActionState,
+  formData: FormData
+): Promise<DeleteAuthActionState> {
+  const sessionUser = await getSessionOrRedirect();
+  const id = formData.get("id") as string;
+  if (!id) return { error: "Datos inválidos" };
+
+  const template = await prisma.weeklyPlanTemplate.findFirst({
+    where: { id, gym_id: sessionUser.gym_id },
+    include: { _count: { select: { client_plans: true } } },
+  });
+
+  if (!template) return { error: "Plantilla no encontrada." };
+  if (!canManageTemplate(sessionUser, template)) {
+    return { error: "Sin permisos para gestionar esta plantilla." };
+  }
+
+  if (template._count.client_plans > 0) {
+    return {
+      error: `No se puede eliminar: hay ${template._count.client_plans} plan(es) de clientes que usan esta plantilla. Desactívala en su lugar.`,
+    };
+  }
+
+  const auth = await checkDeleteAuth(formData, sessionUser);
+  if (!auth.ok) return { error: auth.error };
+
+  await prisma.$transaction(async (tx) => {
+    await tx.weeklyPlanTemplateDay.deleteMany({ where: { template_id: id } });
+    await tx.weeklyPlanTemplate.delete({ where: { id } });
+  });
+
+  revalidatePath("/dashboard/weekly-plans/templates");
+  redirect("/dashboard/weekly-plans/templates");
+}
+
+// ══════════════════════════════════════════════
+// ELIMINACIÓN DEFINITIVA: PLAN SEMANAL DE CLIENTE
+// ══════════════════════════════════════════════
+
+export async function deleteClientPlanAction(
+  _prev: DeleteAuthActionState,
+  formData: FormData
+): Promise<DeleteAuthActionState> {
+  const sessionUser = await getSessionOrRedirect();
+  const id = formData.get("id") as string;
+  if (!id) return { error: "Datos inválidos" };
+
+  const plan = await prisma.clientWeeklyPlan.findFirst({
+    where: { id, gym_id: sessionUser.gym_id },
+  });
+
+  if (!plan) return { error: "Plan no encontrado." };
+
+  const hasScope =
+    canManageClientPlan(sessionUser, plan) ||
+    (await canTrainerManagePlan(sessionUser, plan));
+
+  if (!hasScope) {
+    return { error: "Sin permisos para gestionar este plan." };
+  }
+
+  const auth = await checkDeleteAuth(formData, sessionUser);
+  if (!auth.ok) return { error: auth.error };
+
+  await prisma.$transaction(async (tx) => {
+    await tx.clientWeeklyPlanDay.deleteMany({
+      where: { client_weekly_plan_id: id },
+    });
+    await tx.clientWeeklyPlan.delete({ where: { id } });
+  });
+
+  revalidatePath("/dashboard/weekly-plans/client-plans");
+  redirect("/dashboard/weekly-plans/client-plans");
 }

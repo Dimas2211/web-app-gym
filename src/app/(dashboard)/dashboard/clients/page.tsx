@@ -3,7 +3,8 @@ import { Suspense } from "react";
 import { requireClientManager } from "@/lib/permissions/guards";
 import { getClients, getGoalOptions, getSportOptions } from "@/modules/clients/queries";
 import { getBranchOptions } from "@/modules/branches/queries";
-import { toggleClientStatusAction } from "@/modules/clients/actions";
+import { toggleClientStatusAction, deleteClientAction } from "@/modules/clients/actions";
+import { DeleteAuthorizationDialog } from "@/components/forms/delete-authorization-dialog";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { ClientFilters } from "@/components/ui/client-filters";
 import type { Status } from "@prisma/client";
@@ -130,7 +131,20 @@ export default async function ClientsPage({
                       <p className="text-zinc-400 text-xs">{c.sport?.name ?? ""}</p>
                     </td>
                     <td className="px-4 py-3">
-                      <StatusBadge status={c.status} />
+                      <div className="space-y-1">
+                        <StatusBadge status={c.status} />
+                        {c.user && (
+                          <span
+                            className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
+                              c.user.status === "active"
+                                ? "bg-sky-100 text-sky-700"
+                                : "bg-zinc-100 text-zinc-400"
+                            }`}
+                          >
+                            {c.user.status === "active" ? "Portal activo" : "Portal inactivo"}
+                          </span>
+                        )}
+                      </div>
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex items-center justify-end gap-2">
@@ -159,6 +173,12 @@ export default async function ClientsPage({
                             {c.status === "active" ? "Desactivar" : "Activar"}
                           </button>
                         </form>
+                        <DeleteAuthorizationDialog
+                          entityLabel={`al cliente ${c.first_name} ${c.last_name}`}
+                          userRole={sessionUser.role}
+                          hiddenFields={{ id: c.id }}
+                          action={deleteClientAction}
+                        />
                       </div>
                     </td>
                   </tr>

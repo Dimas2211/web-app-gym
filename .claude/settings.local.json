@@ -5,7 +5,10 @@
       "Bash(npx prisma:*)",
       "Bash(/tmp/tree_output.txt:*)",
       "Read(//tmp/**)",
-      "Bash(npm run:*)"
+      "Bash(npm run:*)",
+      "Bash(npx tsc:*)",
+      "Bash(ls \"c:\\\\jose\\\\RD\\\\IAERP\\\\PROYECTOS\\\\Sistema GYM\\\\web_app_gym\\\\src\\\\app\\\\\\(dashboard\\)\\\\dashboard\\\\weekly-plans\\\\templates\\\\[id]\")",
+      "Bash(npx next:*)"
     ]
   }
 }

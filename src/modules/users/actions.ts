@@ -4,7 +4,15 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/db/prisma";
-import { requireAdmin, canManageUser } from "@/lib/permissions/guards";
+import {
+  requireAdmin,
+  canManageUser,
+  getSessionOrRedirect,
+} from "@/lib/permissions/guards";
+import {
+  checkDeleteAuth,
+  type DeleteAuthActionState,
+} from "@/lib/permissions/delete-authorization";
 import { createUserSchema, updateUserSchema } from "./schemas";
 import { BRANCH_ADMIN_ASSIGNABLE_ROLES } from "@/lib/utils/roles";
 
@@ -52,7 +60,7 @@ export async function createUserAction(
 
   const password_hash = await bcrypt.hash(parsed.data.password, 10);
 
-  await prisma.user.create({
+  const newUser = await prisma.user.create({
     data: {
       gym_id: sessionUser.gym_id,
       branch_id: parsed.data.branch_id ?? null,
@@ -64,6 +72,21 @@ export async function createUserAction(
       status: "active",
     },
   });
+
+  // Al crear un usuario con rol trainer, crear su perfil operativo automáticamente
+  if (parsed.data.role === "trainer" && parsed.data.branch_id) {
+    await prisma.trainer.create({
+      data: {
+        gym_id: sessionUser.gym_id,
+        branch_id: parsed.data.branch_id,
+        first_name: parsed.data.first_name,
+        last_name: parsed.data.last_name,
+        user_id: newUser.id,
+        status: "active",
+      },
+    });
+    revalidatePath("/dashboard/trainers");
+  }
 
   revalidatePath("/dashboard/users");
   redirect("/dashboard/users");
@@ -80,7 +103,10 @@ export async function updateUserAction(
   const id = formData.get("id") as string;
   if (!id) return { error: "ID de usuario requerido." };
 
-  const target = await prisma.user.findUnique({ where: { id } });
+  const target = await prisma.user.findUnique({
+    where: { id },
+    include: { trainer_profile: { select: { id: true } } },
+  });
   if (!target) return { error: "Usuario no encontrado." };
 
   if (!canManageUser(sessionUser, target)) {
@@ -124,6 +150,86 @@ export async function updateUserAction(
 
   await prisma.user.update({ where: { id }, data: updateData });
 
+  // Sincronizar perfil Trainer según cambio de rol
+  const previousRole = target.role;
+  const newRole = parsed.data.role;
+
+  if (previousRole !== "trainer" && newRole === "trainer") {
+    // Rol cambió A trainer → crear perfil si no existe
+    if (!target.trainer_profile && parsed.data.branch_id) {
+      await prisma.trainer.create({
+        data: {
+          gym_id: target.gym_id,
+          branch_id: parsed.data.branch_id,
+          first_name: parsed.data.first_name,
+          last_name: parsed.data.last_name,
+          user_id: id,
+          status: "active",
+        },
+      });
+    }
+    revalidatePath("/dashboard/trainers");
+  } else if (previousRole === "trainer" && newRole !== "trainer") {
+    // Rol cambió DESDE trainer → desvincular perfil (sin borrar datos operativos)
+    if (target.trainer_profile) {
+      await prisma.trainer.update({
+        where: { id: target.trainer_profile.id },
+        data: { user_id: null },
+      });
+    }
+    revalidatePath("/dashboard/trainers");
+  }
+
+  revalidatePath("/dashboard/users");
+  redirect("/dashboard/users");
+}
+
+// ──────────────────────────────────────────────
+// Eliminación definitiva con autorización
+// ──────────────────────────────────────────────
+export async function deleteUserAction(
+  _prev: DeleteAuthActionState,
+  formData: FormData
+): Promise<DeleteAuthActionState> {
+  const sessionUser = await getSessionOrRedirect();
+  const id = formData.get("id") as string;
+  if (!id) return { error: "Datos inválidos" };
+
+  if (id === sessionUser.id) {
+    return { error: "No puedes eliminar tu propia cuenta." };
+  }
+
+  const target = await prisma.user.findFirst({
+    where: { id, gym_id: sessionUser.gym_id },
+    include: {
+      trainer_profile: { select: { id: true } },
+      client_profile: { select: { id: true } },
+    },
+  });
+
+  if (!target) return { error: "Usuario no encontrado." };
+  if (!canManageUser(sessionUser, target)) {
+    return { error: "Sin permisos para gestionar este usuario." };
+  }
+
+  // Bloqueos por dependencias
+  if (target.trainer_profile) {
+    return {
+      error:
+        "Este usuario tiene un perfil de entrenador vinculado. Elimina primero el perfil desde el módulo de Entrenadores.",
+    };
+  }
+  if (target.client_profile) {
+    return {
+      error:
+        "Este usuario tiene un portal de cliente vinculado. Deshabilita el portal desde la ficha del cliente antes de eliminar.",
+    };
+  }
+
+  const auth = await checkDeleteAuth(formData, sessionUser);
+  if (!auth.ok) return { error: auth.error };
+
+  await prisma.user.delete({ where: { id } });
   revalidatePath("/dashboard/users");
   redirect("/dashboard/users");
 }

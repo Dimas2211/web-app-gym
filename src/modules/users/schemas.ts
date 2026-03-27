@@ -1,5 +1,10 @@
 import { z } from "zod";
-import { UserRole } from "@prisma/client";
+
+/**
+ * Roles de staff válidos en el CRUD de Usuarios.
+ * El rol `client` queda excluido: se gestiona desde el módulo de Clientes.
+ */
+const STAFF_ROLES = ["super_admin", "branch_admin", "reception", "trainer"] as const;
 
 const baseUserSchema = z.object({
   email: z.string().email("Correo electrónico inválido"),
@@ -11,7 +16,7 @@ const baseUserSchema = z.object({
     .string()
     .min(2, "Mínimo 2 caracteres")
     .max(50, "Máximo 50 caracteres"),
-  role: z.nativeEnum(UserRole, { errorMap: () => ({ message: "Rol inválido" }) }),
+  role: z.enum(STAFF_ROLES, { errorMap: () => ({ message: "Rol inválido" }) }),
   branch_id: z.string().uuid("Sucursal inválida").nullable().optional(),
 });
 

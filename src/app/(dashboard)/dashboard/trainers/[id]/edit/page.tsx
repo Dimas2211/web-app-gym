@@ -15,13 +15,17 @@ export default async function EditTrainerPage({ params }: Props) {
   const sessionUser = await requireAdmin();
   const { id } = await params;
 
-  const [trainer, branches, userOptions] = await Promise.all([
+  const [trainer, branches] = await Promise.all([
     getTrainerById(id, sessionUser),
     getBranchOptions(sessionUser),
-    getAvailableUserOptions(sessionUser, id),
   ]);
 
   if (!trainer || !canManageTrainer(sessionUser, trainer)) notFound();
+
+  // Solo buscar usuarios disponibles si el entrenador no tiene cuenta vinculada
+  const userOptions = !trainer.user_id
+    ? await getAvailableUserOptions(sessionUser, id)
+    : [];
 
   const fixedBranchId =
     sessionUser.role === "branch_admin" ? sessionUser.branch_id! : undefined;
@@ -50,6 +54,7 @@ export default async function EditTrainerPage({ params }: Props) {
         action={updateTrainerAction}
         trainerId={id}
         branches={branches}
+        linkedUser={trainer.user ?? null}
         userOptions={userOptions}
         fixedBranchId={fixedBranchId}
         defaultValues={{
@@ -60,7 +65,6 @@ export default async function EditTrainerPage({ params }: Props) {
           specialty: trainer.specialty,
           notes: trainer.notes,
           branch_id: trainer.branch_id,
-          user_id: trainer.user_id,
         }}
         submitLabel="Guardar cambios"
       />

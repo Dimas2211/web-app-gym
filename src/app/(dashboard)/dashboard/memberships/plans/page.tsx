@@ -2,7 +2,8 @@ import Link from "next/link";
 import { requireAdmin } from "@/lib/permissions/guards";
 import { getMembershipPlans } from "@/modules/memberships/queries";
 import { getBranchOptions } from "@/modules/branches/queries";
-import { togglePlanStatusAction } from "@/modules/memberships/actions";
+import { togglePlanStatusAction, deletePlanAction } from "@/modules/memberships/actions";
+import { DeleteAuthorizationDialog } from "@/components/forms/delete-authorization-dialog";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { ACCESS_TYPE_LABELS } from "@/lib/utils/labels";
 import type { Status } from "@prisma/client";
@@ -187,6 +188,12 @@ export default async function MembershipPlansPage({
                             {p.status === "active" ? "Desactivar" : "Activar"}
                           </button>
                         </form>
+                        <DeleteAuthorizationDialog
+                          entityLabel={`el plan "${p.name}"`}
+                          userRole={sessionUser.role}
+                          hiddenFields={{ id: p.id }}
+                          action={deletePlanAction}
+                        />
                       </div>
                     </td>
                   </tr>

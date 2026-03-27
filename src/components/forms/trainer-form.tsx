@@ -16,14 +16,16 @@ type DefaultValues = {
   specialty?: string | null;
   notes?: string | null;
   branch_id?: string;
-  user_id?: string | null;
 };
 
 type Props = {
   action: (prev: TrainerActionState, formData: FormData) => Promise<TrainerActionState>;
   trainerId?: string; // solo en edición
   branches: BranchOption[];
-  userOptions: UserOption[];
+  /** Usuario ya vinculado al entrenador (muestra info read-only, sin selector) */
+  linkedUser?: UserOption | null;
+  /** Usuarios disponibles para vincular (solo cuando linkedUser es null) */
+  userOptions?: UserOption[];
   fixedBranchId?: string; // branch_admin no puede cambiar sucursal
   defaultValues?: DefaultValues;
   submitLabel?: string;
@@ -51,7 +53,8 @@ export function TrainerForm({
   action,
   trainerId,
   branches,
-  userOptions,
+  linkedUser,
+  userOptions = [],
   fixedBranchId,
   defaultValues = {},
   submitLabel = "Guardar entrenador",
@@ -205,27 +208,49 @@ export function TrainerForm({
             <FieldError errors={state?.errors?.branch_id} />
           </div>
 
-          {/* Usuario vinculado */}
+          {/* Cuenta de usuario vinculada */}
           <div>
             <label className="block text-sm font-medium text-zinc-700 mb-1">
-              Cuenta de usuario (acceso al sistema)
+              Cuenta de acceso al sistema
             </label>
-            <select
-              name="user_id"
-              defaultValue={defaultValues.user_id ?? ""}
-              className="w-full border border-zinc-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-zinc-400 bg-white"
-            >
-              <option value="">— Sin cuenta vinculada —</option>
-              {userOptions.map((u) => (
-                <option key={u.id} value={u.id}>
-                  {u.first_name} {u.last_name} ({u.email})
-                </option>
-              ))}
-            </select>
-            <p className="text-xs text-zinc-400 mt-1">
-              Vincula un usuario con rol entrenador para que pueda iniciar sesión.
-            </p>
-            <FieldError errors={state?.errors?.user_id} />
+            {linkedUser ? (
+              // Ya vinculado: mostrar info read-only
+              <div className="flex items-center gap-2 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2">
+                <span className="text-sm text-emerald-800 font-medium">
+                  {linkedUser.first_name} {linkedUser.last_name}
+                </span>
+                <span className="text-xs text-emerald-600">({linkedUser.email})</span>
+              </div>
+            ) : userOptions.length > 0 ? (
+              // Sin vínculo y hay usuarios disponibles: permitir vincular (registros legacy)
+              <>
+                <select
+                  name="user_id"
+                  defaultValue=""
+                  className="w-full border border-zinc-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-zinc-400 bg-white"
+                >
+                  <option value="">— Sin cuenta vinculada —</option>
+                  {userOptions.map((u) => (
+                    <option key={u.id} value={u.id}>
+                      {u.first_name} {u.last_name} ({u.email})
+                    </option>
+                  ))}
+                </select>
+                <p className="text-xs text-zinc-400 mt-1">
+                  Vincula un usuario con rol entrenador existente para que pueda iniciar sesión.
+                  Los nuevos entrenadores se crean desde el módulo de Usuarios.
+                </p>
+                <FieldError errors={state?.errors?.user_id} />
+              </>
+            ) : (
+              // Sin vínculo y sin opciones disponibles
+              <div className="bg-zinc-50 border border-zinc-200 rounded-lg px-3 py-2">
+                <p className="text-sm text-zinc-400">Sin cuenta vinculada</p>
+                <p className="text-xs text-zinc-400 mt-0.5">
+                  Para vincular una cuenta, crea un usuario con rol Entrenador desde el módulo de Usuarios.
+                </p>
+              </div>
+            )}
           </div>
         </div>
       </div>

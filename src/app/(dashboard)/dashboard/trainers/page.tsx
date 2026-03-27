@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { requireAdmin } from "@/lib/permissions/guards";
 import { getTrainers } from "@/modules/trainers/queries";
-import { toggleTrainerStatusAction } from "@/modules/trainers/actions";
+import { toggleTrainerStatusAction, deleteTrainerAction } from "@/modules/trainers/actions";
+import { DeleteAuthorizationDialog } from "@/components/forms/delete-authorization-dialog";
 import { StatusBadge } from "@/components/ui/status-badge";
 import type { Status } from "@prisma/client";
 
@@ -33,7 +34,7 @@ export default async function TrainersPage({ searchParams }: Props) {
           </p>
         </div>
         <Link
-          href="/dashboard/trainers/new"
+          href="/dashboard/users/new"
           className="bg-zinc-900 text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-zinc-800 transition-colors"
         >
           + Nuevo entrenador
@@ -80,7 +81,7 @@ export default async function TrainersPage({ searchParams }: Props) {
         <div className="bg-white rounded-xl border border-zinc-200 shadow-sm p-10 text-center">
           <p className="text-zinc-400 text-sm">No se encontraron entrenadores.</p>
           <Link
-            href="/dashboard/trainers/new"
+            href="/dashboard/users/new"
             className="inline-block mt-4 text-sm text-zinc-600 border border-zinc-300 px-4 py-2 rounded-lg hover:bg-zinc-50 transition-colors"
           >
             Registrar primer entrenador
@@ -177,6 +178,12 @@ export default async function TrainersPage({ searchParams }: Props) {
                             {t.status === "active" ? "Desactivar" : "Activar"}
                           </button>
                         </form>
+                        <DeleteAuthorizationDialog
+                          entityLabel={`al entrenador ${t.first_name} ${t.last_name}`}
+                          userRole={sessionUser.role}
+                          hiddenFields={{ id: t.id }}
+                          action={deleteTrainerAction}
+                        />
                       </div>
                     </td>
                   </tr>

@@ -1,7 +1,14 @@
 import Link from "next/link";
 import { requireClassViewer } from "@/lib/permissions/guards";
-import { getClientWeeklyPlans } from "@/modules/weekly-plans/queries";
-import { toggleClientPlanStatusAction } from "@/modules/weekly-plans/actions";
+import {
+  getClientWeeklyPlans,
+  getGeneralTemplatesForScope,
+} from "@/modules/weekly-plans/queries";
+import {
+  toggleClientPlanStatusAction,
+  deleteClientPlanAction,
+} from "@/modules/weekly-plans/actions";
+import { DeleteAuthorizationDialog } from "@/components/forms/delete-authorization-dialog";
 import { StatusBadge } from "@/components/ui/status-badge";
 import type { Status } from "@prisma/client";
 
@@ -28,12 +35,15 @@ export default async function ClientWeeklyPlansPage({
   const sessionUser = await requireClassViewer();
   const sp = await searchParams;
 
-  const plans = await getClientWeeklyPlans(sessionUser, {
-    search: sp.search,
-    status: sp.status as Status | undefined,
-    trainer_id: sp.trainer_id,
-    client_id: sp.client_id,
-  });
+  const [plans, generalTemplates] = await Promise.all([
+    getClientWeeklyPlans(sessionUser, {
+      search: sp.search,
+      status: sp.status as Status | undefined,
+      trainer_id: sp.trainer_id,
+      client_id: sp.client_id,
+    }),
+    getGeneralTemplatesForScope(sessionUser),
+  ]);
 
   return (
     <div className="space-y-6">
@@ -185,6 +195,12 @@ export default async function ClientWeeklyPlansPage({
                             {p.status === "active" ? "Desactivar" : "Activar"}
                           </button>
                         </form>
+                        <DeleteAuthorizationDialog
+                          entityLabel={`el plan de ${p.client.first_name} ${p.client.last_name}`}
+                          userRole={sessionUser.role}
+                          hiddenFields={{ id: p.id }}
+                          action={deleteClientPlanAction}
+                        />
                       </div>
                     </td>
                   </tr>
@@ -235,6 +251,160 @@ export default async function ClientWeeklyPlansPage({
       )}
 
       <p className="text-xs text-zinc-400">{plans.length} plan(es) encontrado(s).</p>
+
+      {/* ── PROGRAMACIÓN GENERAL DEL GIMNASIO ─────────────────── */}
+      <div className="mt-10 space-y-4">
+        <div className="flex items-center gap-2">
+          <h2 className="text-base font-semibold text-zinc-700">
+            Programación general activa
+          </h2>
+          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-sky-100 text-sky-700">
+            Plantillas publicadas
+          </span>
+        </div>
+        <p className="text-xs text-zinc-500">
+          Plantillas activas visibles para clientes según su perfil. Los clientes las ven en
+          su portal si tienen membresía vigente y coinciden con la segmentación.
+        </p>
+
+        {generalTemplates.length === 0 ? (
+          <div className="bg-white rounded-xl border border-zinc-200 p-6 text-center">
+            <p className="text-zinc-400 text-sm">
+              No hay plantillas activas publicadas para este scope.
+            </p>
+            {(sessionUser.role === "super_admin" ||
+              sessionUser.role === "branch_admin") && (
+              <Link
+                href="/dashboard/weekly-plans/templates"
+                className="mt-2 inline-block text-sm text-zinc-600 border border-zinc-300 px-4 py-2 rounded-lg hover:bg-zinc-50"
+              >
+                Gestionar plantillas
+              </Link>
+            )}
+          </div>
+        ) : (
+          <div className="bg-white rounded-xl border border-zinc-200 shadow-sm overflow-hidden">
+            <div className="hidden md:block overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-sky-50 border-b border-sky-100">
+                  <tr>
+                    <th className="text-left px-5 py-3 text-xs font-semibold text-sky-700 uppercase tracking-wide">
+                      Plantilla
+                    </th>
+                    <th className="text-left px-4 py-3 text-xs font-semibold text-sky-700 uppercase tracking-wide">
+                      Segmentación
+                    </th>
+                    <th className="text-center px-4 py-3 text-xs font-semibold text-sky-700 uppercase tracking-wide">
+                      Días
+                    </th>
+                    <th className="text-center px-4 py-3 text-xs font-semibold text-sky-700 uppercase tracking-wide">
+                      Planes asignados
+                    </th>
+                    <th className="text-left px-4 py-3 text-xs font-semibold text-sky-700 uppercase tracking-wide">
+                      Alcance
+                    </th>
+                    {(sessionUser.role === "super_admin" ||
+                      sessionUser.role === "branch_admin") && (
+                      <th className="text-right px-5 py-3" />
+                    )}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-sky-50">
+                  {generalTemplates.map((t) => (
+                    <tr key={t.id} className="hover:bg-sky-50/50 transition-colors">
+                      <td className="px-5 py-3.5">
+                        <Link
+                          href={`/dashboard/weekly-plans/templates/${t.id}`}
+                          className="font-medium text-zinc-800 hover:text-zinc-600"
+                        >
+                          {t.name}
+                        </Link>
+                      </td>
+                      <td className="px-4 py-3.5">
+                        <div className="flex flex-wrap gap-1">
+                          {t.target_sport && (
+                            <span className="text-xs bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded">
+                              {t.target_sport.name}
+                            </span>
+                          )}
+                          {t.target_goal && (
+                            <span className="text-xs bg-emerald-50 text-emerald-700 px-1.5 py-0.5 rounded">
+                              {t.target_goal.name}
+                            </span>
+                          )}
+                          {!t.target_sport && !t.target_goal && (
+                            <span className="text-xs text-zinc-400 italic">General</span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="px-4 py-3.5 text-center text-zinc-600 font-medium">
+                        {t._count.days}
+                      </td>
+                      <td className="px-4 py-3.5 text-center text-zinc-500">
+                        {t._count.client_plans}
+                      </td>
+                      <td className="px-4 py-3.5 text-zinc-500 text-xs">
+                        {t.branch?.name ?? (
+                          <span className="italic text-zinc-400">Global</span>
+                        )}
+                      </td>
+                      {(sessionUser.role === "super_admin" ||
+                        sessionUser.role === "branch_admin") && (
+                        <td className="px-5 py-3.5 text-right">
+                          <Link
+                            href={`/dashboard/weekly-plans/templates/${t.id}/assign-segmented`}
+                            className="text-xs text-indigo-600 border border-indigo-200 hover:bg-indigo-50 px-2.5 py-1 rounded transition-colors"
+                          >
+                            Aplicar a segmento
+                          </Link>
+                        </td>
+                      )}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Móvil */}
+            <div className="md:hidden divide-y divide-sky-50">
+              {generalTemplates.map((t) => (
+                <div key={t.id} className="p-4 space-y-1.5">
+                  <Link
+                    href={`/dashboard/weekly-plans/templates/${t.id}`}
+                    className="font-medium text-zinc-800 text-sm"
+                  >
+                    {t.name}
+                  </Link>
+                  <div className="flex flex-wrap gap-1">
+                    {t.target_sport && (
+                      <span className="text-xs bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded">
+                        {t.target_sport.name}
+                      </span>
+                    )}
+                    {t.target_goal && (
+                      <span className="text-xs bg-emerald-50 text-emerald-700 px-1.5 py-0.5 rounded">
+                        {t.target_goal.name}
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-xs text-zinc-500">
+                    {t._count.days} día(s) · {t._count.client_plans} plan(es) asignado(s)
+                  </p>
+                  {(sessionUser.role === "super_admin" ||
+                    sessionUser.role === "branch_admin") && (
+                    <Link
+                      href={`/dashboard/weekly-plans/templates/${t.id}/assign-segmented`}
+                      className="inline-block text-xs text-indigo-600 border border-indigo-200 px-2.5 py-1 rounded hover:bg-indigo-50"
+                    >
+                      Aplicar a segmento
+                    </Link>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

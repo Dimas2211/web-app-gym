@@ -3,7 +3,11 @@ import { Suspense } from "react";
 import { requireMembershipManager } from "@/lib/permissions/guards";
 import { getClientMemberships } from "@/modules/memberships/queries";
 import { getBranchOptions } from "@/modules/branches/queries";
-import { toggleClientMembershipStatusAction } from "@/modules/memberships/actions";
+import {
+  toggleClientMembershipStatusAction,
+  deleteClientMembershipAction,
+} from "@/modules/memberships/actions";
+import { DeleteAuthorizationDialog } from "@/components/forms/delete-authorization-dialog";
 import { MembershipFilters } from "@/components/ui/membership-filters";
 import {
   PAYMENT_STATUS_LABELS,
@@ -208,6 +212,12 @@ export default async function ClientMembershipsPage({
                               {m.status === "active" ? "Cancelar" : "Activar"}
                             </button>
                           </form>
+                          <DeleteAuthorizationDialog
+                            entityLabel={`la membresía de ${m.client.first_name} ${m.client.last_name}`}
+                            userRole={sessionUser.role}
+                            hiddenFields={{ id: m.id }}
+                            action={deleteClientMembershipAction}
+                          />
                         </div>
                       </td>
                     </tr>

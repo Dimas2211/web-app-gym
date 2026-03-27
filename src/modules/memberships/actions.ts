@@ -8,7 +8,12 @@ import {
   requireMembershipManager,
   canManagePlan,
   canManageMembership,
+  getSessionOrRedirect,
 } from "@/lib/permissions/guards";
+import {
+  checkDeleteAuth,
+  type DeleteAuthActionState,
+} from "@/lib/permissions/delete-authorization";
 import {
   planSchema,
   createClientMembershipSchema,
@@ -289,6 +294,68 @@ export async function updateClientMembershipAction(
 
   revalidatePath("/dashboard/memberships/client-memberships");
   revalidatePath(`/dashboard/clients/${existing.client_id}`);
+  redirect("/dashboard/memberships/client-memberships");
+}
+
+// ── ELIMINACIÓN DEFINITIVA: PLAN ─────────────────────────────
+
+export async function deletePlanAction(
+  _prev: DeleteAuthActionState,
+  formData: FormData
+): Promise<DeleteAuthActionState> {
+  const sessionUser = await getSessionOrRedirect();
+  const id = formData.get("id") as string;
+  if (!id) return { error: "Datos inválidos" };
+
+  const plan = await prisma.membershipPlan.findFirst({
+    where: { id, gym_id: sessionUser.gym_id },
+    include: { _count: { select: { client_memberships: true } } },
+  });
+
+  if (!plan) return { error: "Plan no encontrado." };
+  if (!canManagePlan(sessionUser, plan)) {
+    return { error: "Sin permisos para gestionar este plan." };
+  }
+
+  if (plan._count.client_memberships > 0) {
+    return {
+      error: `No se puede eliminar: hay ${plan._count.client_memberships} membresía(s) de clientes asignada(s) a este plan. Desactiva el plan en su lugar.`,
+    };
+  }
+
+  const auth = await checkDeleteAuth(formData, sessionUser);
+  if (!auth.ok) return { error: auth.error };
+
+  await prisma.membershipPlan.delete({ where: { id } });
+  revalidatePath("/dashboard/memberships/plans");
+  redirect("/dashboard/memberships/plans");
+}
+
+// ── ELIMINACIÓN DEFINITIVA: MEMBRESÍA DE CLIENTE ─────────────
+
+export async function deleteClientMembershipAction(
+  _prev: DeleteAuthActionState,
+  formData: FormData
+): Promise<DeleteAuthActionState> {
+  const sessionUser = await getSessionOrRedirect();
+  const id = formData.get("id") as string;
+  if (!id) return { error: "Datos inválidos" };
+
+  const membership = await prisma.clientMembership.findFirst({
+    where: { id, gym_id: sessionUser.gym_id },
+  });
+
+  if (!membership) return { error: "Membresía no encontrada." };
+  if (!canManageMembership(sessionUser, membership)) {
+    return { error: "Sin permisos para gestionar esta membresía." };
+  }
+
+  const auth = await checkDeleteAuth(formData, sessionUser);
+  if (!auth.ok) return { error: auth.error };
+
+  await prisma.clientMembership.delete({ where: { id } });
+  revalidatePath("/dashboard/memberships/client-memberships");
+  revalidatePath(`/dashboard/clients/${membership.client_id}`);
   redirect("/dashboard/memberships/client-memberships");
 }
 
