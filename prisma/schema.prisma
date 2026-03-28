@@ -394,16 +394,17 @@ model ClientWeeklyPlan {
   trainer_id  String?
   start_date  DateTime              @db.Date
   end_date    DateTime              @db.Date
-  status      Status                @default(active)
-  notes       String?
-  created_at  DateTime              @default(now())
-  updated_at  DateTime              @updatedAt
-  days        ClientWeeklyPlanDay[]
-  branch      Branch                @relation(fields: [branch_id], references: [id])
-  client      Client                @relation(fields: [client_id], references: [id])
-  gym         Gym                   @relation(fields: [gym_id], references: [id])
-  template    WeeklyPlanTemplate?   @relation(fields: [template_id], references: [id])
-  trainer     Trainer?              @relation(fields: [trainer_id], references: [id])
+  status          Status                @default(active)
+  assignment_type AssignmentType        @default(individual)
+  notes           String?
+  created_at      DateTime              @default(now())
+  updated_at      DateTime              @updatedAt
+  days            ClientWeeklyPlanDay[]
+  branch          Branch                @relation(fields: [branch_id], references: [id])
+  client          Client                @relation(fields: [client_id], references: [id])
+  gym             Gym                   @relation(fields: [gym_id], references: [id])
+  template        WeeklyPlanTemplate?   @relation(fields: [template_id], references: [id])
+  trainer         Trainer?              @relation(fields: [trainer_id], references: [id])
 
   @@index([gym_id])
   @@index([branch_id])
@@ -508,4 +509,9 @@ enum ExecutionStatus {
   completed
   skipped
   partial
+}
+
+enum AssignmentType {
+  individual
+  segmented
 }

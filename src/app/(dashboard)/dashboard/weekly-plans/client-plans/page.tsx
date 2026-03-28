@@ -10,7 +10,22 @@ import {
 } from "@/modules/weekly-plans/actions";
 import { DeleteAuthorizationDialog } from "@/components/forms/delete-authorization-dialog";
 import { StatusBadge } from "@/components/ui/status-badge";
-import type { Status } from "@prisma/client";
+import type { Status, AssignmentType } from "@prisma/client";
+
+function AssignmentTypeBadge({ type }: { type: AssignmentType }) {
+  if (type === "segmented") {
+    return (
+      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-indigo-50 text-indigo-700">
+        Segmentado
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-zinc-100 text-zinc-500">
+      Individual
+    </span>
+  );
+}
 
 type SearchParams = Promise<{
   search?: string;
@@ -44,6 +59,17 @@ export default async function ClientWeeklyPlansPage({
     }),
     getGeneralTemplatesForScope(sessionUser),
   ]);
+
+  // Para entrenadores: mapa de cuántos de sus planes usan cada plantilla general
+  const trainerPlansByTemplate: Record<string, number> = {};
+  if (sessionUser.role === "trainer") {
+    for (const p of plans) {
+      if (p.template?.id) {
+        trainerPlansByTemplate[p.template.id] =
+          (trainerPlansByTemplate[p.template.id] ?? 0) + 1;
+      }
+    }
+  }
 
   return (
     <div className="space-y-6">
@@ -130,6 +156,9 @@ export default async function ClientWeeklyPlansPage({
                     Días
                   </th>
                   <th className="text-left px-4 py-3 text-xs font-semibold text-zinc-500 uppercase tracking-wide">
+                    Tipo
+                  </th>
+                  <th className="text-left px-4 py-3 text-xs font-semibold text-zinc-500 uppercase tracking-wide">
                     Estado
                   </th>
                   <th className="text-right px-5 py-3" />
@@ -164,6 +193,9 @@ export default async function ClientWeeklyPlansPage({
                     </td>
                     <td className="px-4 py-3.5 text-center text-zinc-600 font-medium">
                       {p._count.days}
+                    </td>
+                    <td className="px-4 py-3.5">
+                      <AssignmentTypeBadge type={p.assignment_type} />
                     </td>
                     <td className="px-4 py-3.5">
                       <StatusBadge status={p.status} />
@@ -262,10 +294,21 @@ export default async function ClientWeeklyPlansPage({
             Plantillas publicadas
           </span>
         </div>
-        <p className="text-xs text-zinc-500">
-          Plantillas activas visibles para clientes según su perfil. Los clientes las ven en
-          su portal si tienen membresía vigente y coinciden con la segmentación.
-        </p>
+        {sessionUser.role === "trainer" ? (
+          <p className="text-xs text-zinc-500">
+            Rutinas generales publicadas para el gimnasio. Tus clientes las ven en su portal si
+            tienen membresía vigente y su perfil (deporte, meta, género) coincide con la
+            segmentación de cada plantilla. La columna <strong>Mis planes</strong> indica cuántos
+            de tus planes activos utilizan esa plantilla como base.
+          </p>
+        ) : (
+          <p className="text-xs text-zinc-500">
+            Plantillas activas visibles para clientes según su perfil. Los clientes las ven en
+            su portal si tienen membresía vigente y coinciden con la segmentación. Las marcadas
+            como <strong>Segmentado</strong> fueron asignadas masivamente; las{" "}
+            <strong>Individual</strong>, de forma manual.
+          </p>
+        )}
 
         {generalTemplates.length === 0 ? (
           <div className="bg-white rounded-xl border border-zinc-200 p-6 text-center">
@@ -300,6 +343,11 @@ export default async function ClientWeeklyPlansPage({
                     <th className="text-center px-4 py-3 text-xs font-semibold text-sky-700 uppercase tracking-wide">
                       Planes asignados
                     </th>
+                    {sessionUser.role === "trainer" && (
+                      <th className="text-center px-4 py-3 text-xs font-semibold text-sky-700 uppercase tracking-wide">
+                        Mis planes
+                      </th>
+                    )}
                     <th className="text-left px-4 py-3 text-xs font-semibold text-sky-700 uppercase tracking-wide">
                       Alcance
                     </th>
@@ -343,6 +391,17 @@ export default async function ClientWeeklyPlansPage({
                       <td className="px-4 py-3.5 text-center text-zinc-500">
                         {t._count.client_plans}
                       </td>
+                      {sessionUser.role === "trainer" && (
+                        <td className="px-4 py-3.5 text-center">
+                          {(trainerPlansByTemplate[t.id] ?? 0) > 0 ? (
+                            <span className="text-xs font-semibold text-indigo-700">
+                              {trainerPlansByTemplate[t.id]}
+                            </span>
+                          ) : (
+                            <span className="text-xs text-zinc-400">—</span>
+                          )}
+                        </td>
+                      )}
                       <td className="px-4 py-3.5 text-zinc-500 text-xs">
                         {t.branch?.name ?? (
                           <span className="italic text-zinc-400">Global</span>
@@ -389,6 +448,12 @@ export default async function ClientWeeklyPlansPage({
                   </div>
                   <p className="text-xs text-zinc-500">
                     {t._count.days} día(s) · {t._count.client_plans} plan(es) asignado(s)
+                    {sessionUser.role === "trainer" &&
+                      (trainerPlansByTemplate[t.id] ?? 0) > 0 && (
+                        <span className="ml-1 text-indigo-700 font-semibold">
+                          · {trainerPlansByTemplate[t.id]} mis planes
+                        </span>
+                      )}
                   </p>
                   {(sessionUser.role === "super_admin" ||
                     sessionUser.role === "branch_admin") && (

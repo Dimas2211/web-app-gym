@@ -366,6 +366,7 @@ export async function createClientPlanAction(
       end_date: new Date(end_date + "T00:00:00.000Z"),
       notes,
       status: "active",
+      assignment_type: "individual",
     },
   });
 
@@ -784,6 +785,7 @@ export async function assignTemplateSegmentedAction(
         end_date: end,
         notes,
         status: "active",
+        assignment_type: "segmented",
       },
     });
 

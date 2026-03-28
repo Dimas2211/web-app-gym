@@ -56,6 +56,11 @@ const NAV_LINKS = [
     label: "Planes Sem.",
     roles: ["super_admin", "branch_admin", "reception", "trainer"] as UserRole[],
   },
+  {
+    href: "/dashboard/reports",
+    label: "Reportes",
+    roles: ["super_admin", "branch_admin", "reception"] as UserRole[],
+  },
 ];
 
 type NavBarProps = {

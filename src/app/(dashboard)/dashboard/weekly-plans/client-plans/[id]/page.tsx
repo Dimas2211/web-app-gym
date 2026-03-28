@@ -102,6 +102,15 @@ export default async function ClientWeeklyPlanDetailPage({ params }: Props) {
           </div>
           <div className="flex items-center gap-2 flex-wrap">
             <StatusBadge status={plan.status} />
+            {plan.assignment_type === "segmented" ? (
+              <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-indigo-50 text-indigo-700">
+                Asignación segmentada
+              </span>
+            ) : (
+              <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-zinc-100 text-zinc-500">
+                Asignación individual
+              </span>
+            )}
             {plan.branch && (
               <span className="text-xs text-zinc-400 bg-zinc-100 px-2.5 py-1 rounded-full">
                 {plan.branch.name}

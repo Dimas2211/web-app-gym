@@ -8,7 +8,16 @@
       "Bash(npm run:*)",
       "Bash(npx tsc:*)",
       "Bash(ls \"c:\\\\jose\\\\RD\\\\IAERP\\\\PROYECTOS\\\\Sistema GYM\\\\web_app_gym\\\\src\\\\app\\\\\\(dashboard\\)\\\\dashboard\\\\weekly-plans\\\\templates\\\\[id]\")",
-      "Bash(npx next:*)"
+      "Bash(npx next:*)",
+      "Bash(find . -type f -name *.prisma)",
+      "Bash(find \"/c/jose/RD/IAERP/PROYECTOS/Sistema GYM/web_app_gym/src/app/\\(dashboard\\)/dashboard\" -type d)",
+      "Bash(ls -la \"/c/jose/RD/IAERP/PROYECTOS/Sistema GYM/web_app_gym/src/app/\\(dashboard\\)/dashboard/\")",
+      "Bash(for dir:*)",
+      "Bash(do echo:*)",
+      "Bash(find 'c:\\\\jose\\\\RD\\\\IAERP\\\\PROYECTOS\\\\Sistema GYM\\\\web_app_gym\\\\src' -path */reports* -type f)",
+      "Bash(npm install:*)",
+      "Bash(node -e \"require\\(''xlsx''\\); console.log\\(''xlsx ok''\\)\")",
+      "Bash(node -e \"require\\(''jspdf''\\); console.log\\(''jspdf ok''\\)\")"
     ]
   }
 }

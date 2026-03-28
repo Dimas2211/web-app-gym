@@ -1,0 +1,28 @@
+export const runtime = "nodejs";
+
+import { NextRequest, NextResponse } from "next/server";
+import { auth } from "@/lib/auth/auth";
+import type { SessionUser } from "@/lib/permissions/guards";
+import { getExpiringMemberships } from "@/modules/reports/queries";
+
+const ALLOWED_ROLES = ["super_admin", "branch_admin", "reception"];
+
+export async function GET(req: NextRequest) {
+  const session = await auth();
+  if (!session?.user) return NextResponse.json({ error: "No autorizado" }, { status: 401 });
+
+  const user = session.user as SessionUser;
+  if (!ALLOWED_ROLES.includes(user.role)) return NextResponse.json({ error: "Acceso denegado" }, { status: 403 });
+
+  const { searchParams } = req.nextUrl;
+  const daysAhead = Number(searchParams.get("daysAhead") ?? "30");
+  const branchIdParam = searchParams.get("branchId") ?? undefined;
+
+  const branchId =
+    user.role === "branch_admin" || user.role === "reception"
+      ? (user.branch_id ?? undefined)
+      : branchIdParam;
+
+  const data = await getExpiringMemberships({ gymId: user.gym_id, branchId, daysAhead });
+  return NextResponse.json(data);
+}
