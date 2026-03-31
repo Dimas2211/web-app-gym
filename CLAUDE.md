@@ -548,3 +548,47 @@ Antes de introducir cambios grandes:
 La combinación de trabajo esperada es:
 
 **Claude Code + VS Code + terminal + Prisma + PostgreSQL**, usando **pgAdmin** como panel de inspección y validación visual, no como fuente principal de diseño.
+
+## Regla obligatoria para cambios de Prisma y migraciones
+
+Este proyecto puede trabajar con dos bases distintas al mismo tiempo:
+
+- `DATABASE_URL` → base local usada por la app en runtime (`next dev`, `npm run dev`)
+- `DIRECT_URL` → base remota/publicada usada por Prisma CLI para migraciones o despliegue
+
+Por lo tanto, cada vez que se modifique `prisma/schema.prisma`, se cree una migración o se toque cualquier parte relacionada con la base de datos, debes asumir que puede existir desincronización entre la base local y la base remota.
+
+### Obligaciones en cada cambio de schema o migración
+
+Siempre debes indicar explícitamente en tu respuesta:
+
+1. Si hubo o no cambios en `schema.prisma`
+2. Si se generó o no una migración nueva
+3. A qué base de datos se aplicó realmente esa migración
+4. Si la base local y la base remota/publicada pueden quedar desincronizadas
+5. Qué comandos exactos debe ejecutar el usuario para dejar ambas alineadas
+6. Si hace falta aplicar una corrección adicional en la base local para que la app en runtime funcione sin errores
+7. Si hace falta crear o actualizar un script auxiliar para sincronización local/remota
+
+### Regla de seguridad
+
+Nunca asumas que una migración aplicada por Prisma ya dejó sincronizada automáticamente la base que usa la app local en runtime.
+
+Si `DATABASE_URL` y `DIRECT_URL` apuntan a bases distintas, debes advertirlo explícitamente y dar instrucciones concretas para evitar que:
+
+- la app local use una base atrasada
+- la base publicada tenga columnas/tablas distintas al entorno local
+- aparezcan errores por schema desalineado
+
+### Sección obligatoria en tus resúmenes
+
+Cada resumen técnico que involucre Prisma, schema, migraciones o seeds debe incluir una sección llamada:
+
+**Impacto en bases de datos y sincronización local/remota**
+
+Esa sección debe explicar con claridad:
+- qué base se tocó
+- qué base no se tocó
+- qué quedó sincronizado
+- qué quedó pendiente
+- qué debe ejecutar el usuario después

@@ -5,6 +5,7 @@ generator client {
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
 model Gym {
@@ -12,6 +13,10 @@ model Gym {
   name                  String
   slug                  String                @unique
   logo_url              String?
+  address               String?
+  phone                 String?
+  email                 String?
+  website               String?
   status                Status                @default(active)
   created_at            DateTime              @default(now())
   updated_at            DateTime              @updatedAt
