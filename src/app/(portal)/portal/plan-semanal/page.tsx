@@ -5,8 +5,28 @@ import {
   getMyPlans,
   getMyGeneralTemplates,
   hasActiveMembership,
+  getLastExpiredMembership,
 } from "@/modules/client-portal/queries";
 import { PlanDayCard } from "./plan-day-card";
+
+/**
+ * Cuenta días hábiles (lun–vie) transcurridos desde `date` hasta hoy,
+ * sin incluir el día de vencimiento (empieza a contar el día siguiente).
+ */
+function countBusinessDaysSince(date: Date): number {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const cursor = new Date(date);
+  cursor.setHours(0, 0, 0, 0);
+  cursor.setDate(cursor.getDate() + 1);
+  let count = 0;
+  while (cursor <= today) {
+    const dow = cursor.getDay();
+    if (dow !== 0 && dow !== 6) count++;
+    cursor.setDate(cursor.getDate() + 1);
+  }
+  return count;
+}
 
 function formatDate(date: Date | string) {
   return new Date(date).toLocaleDateString("es-MX", {
@@ -47,6 +67,25 @@ export default async function PlanSemanalPage() {
     hasActiveMembership(client.id),
   ]);
 
+  // ── Regla de visibilidad de planes tras vencimiento ───────────
+  // Si no hay membresía activa, verificar si pasaron 3+ días hábiles desde el vencimiento.
+  let plansVisible = true;
+  let expiredDate: string | null = null;
+
+  if (!hasMembership) {
+    const lastExpired = await getLastExpiredMembership(client.id);
+    if (lastExpired) {
+      expiredDate = new Date(lastExpired.end_date).toLocaleDateString("es-MX", {
+        day: "2-digit",
+        month: "short",
+        year: "numeric",
+      });
+      const businessDays = countBusinessDaysSince(new Date(lastExpired.end_date));
+      if (businessDays >= 3) plansVisible = false;
+    }
+  }
+  // ─────────────────────────────────────────────────────────────
+
   const generalTemplates = hasMembership
     ? await getMyGeneralTemplates(client)
     : [];
@@ -60,8 +99,19 @@ export default async function PlanSemanalPage() {
     <div className="space-y-8">
       <h1 className="text-xl font-bold text-zinc-800">Mi plan semanal</h1>
 
+      {/* Aviso de planes bloqueados (membresía caducada > 3 días hábiles) */}
+      {!plansVisible && (
+        <div className="bg-red-50 border border-red-200 rounded-xl p-6 text-center">
+          <p className="text-red-800 font-semibold">Planes no disponibles</p>
+          <p className="text-sm text-red-700 mt-1">
+            Tu membresía venció el {expiredDate} y han pasado más de 3 días hábiles sin renovación.
+            Acércate a recepción para reactivar tu acceso.
+          </p>
+        </div>
+      )}
+
       {/* ── PROGRAMACIÓN PERSONALIZADA ─────────────────────────── */}
-      <section className="space-y-4">
+      {plansVisible && <section className="space-y-4">
         <div className="flex items-center gap-2">
           <h2 className="text-base font-semibold text-zinc-700">
             Programación personalizada
@@ -165,10 +215,10 @@ export default async function PlanSemanalPage() {
             </ul>
           </div>
         )}
-      </section>
+      </section>}
 
       {/* ── PROGRAMACIÓN GENERAL ───────────────────────────────── */}
-      <section className="space-y-4">
+      {plansVisible && <section className="space-y-4">
         <div className="flex items-center gap-2">
           <h2 className="text-base font-semibold text-zinc-700">
             Programación general
@@ -307,7 +357,7 @@ export default async function PlanSemanalPage() {
             </p>
           </div>
         )}
-      </section>
+      </section>}
     </div>
   );
 }

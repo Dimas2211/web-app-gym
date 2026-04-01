@@ -15,6 +15,7 @@ import {
 } from "@/lib/permissions/delete-authorization";
 import { createUserSchema, updateUserSchema } from "./schemas";
 import { BRANCH_ADMIN_ASSIGNABLE_ROLES } from "@/lib/utils/roles";
+import { suggestNextStaffCode, generateQrToken } from "@/lib/utils/operational-codes";
 
 export type UserActionState =
   | { errors?: Record<string, string[]>; error?: string }
@@ -60,6 +61,10 @@ export async function createUserAction(
 
   const password_hash = await bcrypt.hash(parsed.data.password, 10);
 
+  // Generar código operativo y token QR para el nuevo usuario
+  const operational_code = await suggestNextStaffCode(sessionUser.gym_id);
+  const qr_token = generateQrToken();
+
   const newUser = await prisma.user.create({
     data: {
       gym_id: sessionUser.gym_id,
@@ -70,6 +75,8 @@ export async function createUserAction(
       last_name: parsed.data.last_name,
       role: parsed.data.role,
       status: "active",
+      operational_code,
+      qr_token,
     },
   });
 

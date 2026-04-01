@@ -9,6 +9,7 @@ export async function getAdminUsers(user: SessionUser) {
   const include = {
     branch: { select: { name: true } },
     trainer_profile: { select: { id: true } },
+    // operational_code y qr_token se incluyen automáticamente por el select por defecto
   };
 
   if (user.role === "super_admin") {
@@ -44,6 +45,9 @@ export async function getAdminUsers(user: SessionUser) {
 export async function getUserById(id: string, user: SessionUser) {
   return prisma.user.findFirst({
     where: { id, gym_id: user.gym_id },
-    include: { trainer_profile: { select: { id: true } } },
+    include: {
+      trainer_profile: { select: { id: true } },
+      branch: { select: { name: true } },
+    },
   });
 }

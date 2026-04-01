@@ -66,6 +66,11 @@ const NAV_LINKS = [
     label: "Configuración",
     roles: ["super_admin"] as UserRole[],
   },
+  {
+    href: "/dashboard/credential",
+    label: "Mi Carnet",
+    roles: ["trainer", "reception"] as UserRole[],
+  },
 ];
 
 type NavBarProps = {

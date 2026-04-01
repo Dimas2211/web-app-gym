@@ -47,3 +47,46 @@ export const goalSchema = z.object({
 
 export type SportFormData = z.infer<typeof sportSchema>;
 export type GoalFormData = z.infer<typeof goalSchema>;
+
+// ──────────────────────────────────────────────
+// GymSettings — Configuración de códigos operativos
+// ──────────────────────────────────────────────
+
+export const gymSettingsSchema = z.object({
+  staff_code_prefix: z
+    .string()
+    .min(1, "El prefijo debe tener al menos 1 carácter")
+    .max(5, "Máximo 5 caracteres")
+    .regex(/^[A-Z0-9]+$/, "Solo letras mayúsculas y números (ej: A, STAFF, S1)"),
+  staff_code_digits: z.coerce
+    .number()
+    .int()
+    .min(1, "Mínimo 1 dígito")
+    .max(8, "Máximo 8 dígitos"),
+  staff_code_start: z.coerce
+    .number()
+    .int()
+    .min(1, "El número inicial debe ser mayor a 0"),
+  client_code_prefix: z
+    .string()
+    .min(1, "El prefijo debe tener al menos 1 carácter")
+    .max(5, "Máximo 5 caracteres")
+    .regex(/^[A-Z0-9]+$/, "Solo letras mayúsculas y números (ej: C, CLI, C1)"),
+  client_code_digits: z.coerce
+    .number()
+    .int()
+    .min(1, "Mínimo 1 dígito")
+    .max(8, "Máximo 8 dígitos"),
+  client_code_start: z.coerce
+    .number()
+    .int()
+    .min(1, "El número inicial debe ser mayor a 0"),
+}).refine(
+  (data) => data.staff_code_prefix !== data.client_code_prefix,
+  {
+    message: "El prefijo de personal y el de clientes deben ser distintos.",
+    path: ["client_code_prefix"],
+  }
+);
+
+export type GymSettingsFormData = z.infer<typeof gymSettingsSchema>;

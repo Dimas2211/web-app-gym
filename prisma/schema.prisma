@@ -31,6 +31,7 @@ model Gym {
   trainers              Trainer[]
   users                 User[]
   weekly_plan_templates WeeklyPlanTemplate[]
+  settings              GymSettings?
 
   @@map("gyms")
 }
@@ -69,6 +70,9 @@ model User {
   last_name                     String
   role                          UserRole
   status                        Status               @default(active)
+  operational_code              String?
+  avatar_url                    String?
+  qr_token                      String?              @unique
   created_at                    DateTime             @default(now())
   updated_at                    DateTime             @updatedAt
   memberships_sold              ClientMembership[]   @relation("MembershipSales")
@@ -80,6 +84,7 @@ model User {
   gym                           Gym                  @relation(fields: [gym_id], references: [id])
   created_weekly_plan_templates WeeklyPlanTemplate[] @relation("TemplateCreator")
 
+  @@unique([gym_id, operational_code])
   @@index([gym_id])
   @@index([branch_id])
   @@index([email])
@@ -156,6 +161,9 @@ model Client {
   assigned_trainer_id     String?
   notes                   String?
   status                  Status             @default(active)
+  operational_code        String?
+  avatar_url              String?
+  qr_token                String?            @unique
   created_at              DateTime           @default(now())
   updated_at              DateTime           @updatedAt
   class_attendance        ClassAttendance[]
@@ -169,6 +177,7 @@ model Client {
   sport                   Sport?             @relation(fields: [sport_id], references: [id])
   user                    User?              @relation("ClientUserLink", fields: [user_id], references: [id])
 
+  @@unique([gym_id, operational_code])
   @@index([gym_id])
   @@index([branch_id])
   @@index([email])
@@ -437,6 +446,22 @@ model ClientWeeklyPlanDay {
   @@unique([client_weekly_plan_id, weekday])
   @@index([client_weekly_plan_id])
   @@map("client_weekly_plan_days")
+}
+
+model GymSettings {
+  id                  String   @id @default(uuid())
+  gym_id              String   @unique
+  staff_code_prefix   String   @default("A")
+  staff_code_digits   Int      @default(4)
+  staff_code_start    Int      @default(1010)
+  client_code_prefix  String   @default("C")
+  client_code_digits  Int      @default(4)
+  client_code_start   Int      @default(1010)
+  created_at          DateTime @default(now())
+  updated_at          DateTime @updatedAt
+  gym                 Gym      @relation(fields: [gym_id], references: [id])
+
+  @@map("gym_settings")
 }
 
 enum UserRole {

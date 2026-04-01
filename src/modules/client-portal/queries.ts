@@ -45,6 +45,25 @@ export async function getMyActiveMembership(clientId: string) {
   });
 }
 
+/**
+ * Retorna la membresía más reciente que ya venció (end_date en el pasado) y fue pagada.
+ * Se usa para mostrar el aviso de membresía caducada y calcular días hábiles desde el vencimiento.
+ */
+export async function getLastExpiredMembership(clientId: string) {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return prisma.clientMembership.findFirst({
+    where: {
+      client_id: clientId,
+      end_date: { lt: today },
+      status: { not: "cancelled" },
+      payment_status: { in: ["paid", "partial"] },
+    },
+    select: { id: true, end_date: true },
+    orderBy: { end_date: "desc" },
+  });
+}
+
 /** Historial completo de membresías del cliente. */
 export async function getMyMemberships(clientId: string) {
   return prisma.clientMembership.findMany({

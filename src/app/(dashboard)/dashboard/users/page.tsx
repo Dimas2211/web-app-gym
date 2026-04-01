@@ -37,6 +37,9 @@ export default async function UsersPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-zinc-100 bg-zinc-50">
+                  <th className="text-left px-4 py-3 text-xs font-semibold text-zinc-500 uppercase tracking-wide hidden sm:table-cell">
+                    Código
+                  </th>
                   <th className="text-left px-4 py-3 text-xs font-semibold text-zinc-500 uppercase tracking-wide">
                     Nombre
                   </th>
@@ -60,6 +63,15 @@ export default async function UsersPage() {
               <tbody className="divide-y divide-zinc-100">
                 {users.map((u) => (
                   <tr key={u.id} className="hover:bg-zinc-50 transition-colors">
+                    <td className="px-4 py-3 hidden sm:table-cell">
+                      {u.operational_code ? (
+                        <span className="font-mono text-xs font-bold text-zinc-700 bg-zinc-100 px-2 py-1 rounded">
+                          {u.operational_code}
+                        </span>
+                      ) : (
+                        <span className="text-zinc-300 text-xs">—</span>
+                      )}
+                    </td>
                     <td className="px-4 py-3">
                       <p className="font-medium text-zinc-800">
                         {u.first_name} {u.last_name}
@@ -97,6 +109,12 @@ export default async function UsersPage() {
                             </span>
                           )
                         )}
+                        <Link
+                          href={`/dashboard/users/${u.id}/credential`}
+                          className="text-xs text-zinc-600 hover:text-zinc-900 px-2.5 py-1 rounded border border-zinc-200 hover:border-zinc-400 transition-colors"
+                        >
+                          ID
+                        </Link>
                         <Link
                           href={`/dashboard/users/${u.id}/edit`}
                           className="text-xs text-zinc-600 hover:text-zinc-900 px-2.5 py-1 rounded border border-zinc-200 hover:border-zinc-400 transition-colors"

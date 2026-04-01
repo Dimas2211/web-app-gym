@@ -6,7 +6,28 @@ import {
   getMyActivePlan,
   getMyBookings,
   getMyGeneralTemplates,
+  getLastExpiredMembership,
 } from "@/modules/client-portal/queries";
+import { MembershipAlertBanner } from "@/components/ui/membership-alert-banner";
+
+/**
+ * Cuenta días hábiles (lun–vie) transcurridos desde `date` hasta hoy,
+ * sin incluir el día de vencimiento (empieza a contar el día siguiente).
+ */
+function countBusinessDaysSince(date: Date): number {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const cursor = new Date(date);
+  cursor.setHours(0, 0, 0, 0);
+  cursor.setDate(cursor.getDate() + 1);
+  let count = 0;
+  while (cursor <= today) {
+    const dow = cursor.getDay();
+    if (dow !== 0 && dow !== 6) count++;
+    cursor.setDate(cursor.getDate() + 1);
+  }
+  return count;
+}
 
 function formatDate(date: Date | string) {
   return new Date(date).toLocaleDateString("es-MX", {
@@ -55,6 +76,41 @@ export default async function PortalHomePage() {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
+  // ── Aviso de vencimiento ──────────────────────────────────────
+  type AlertBannerProps =
+    | { type: "expiring_soon"; daysRemaining: number; expirationDate: string }
+    | { type: "expired"; expirationDate: string }
+    | null;
+
+  let membershipAlert: AlertBannerProps = null;
+  let plansVisible = true;
+
+  if (activeMembership) {
+    const endDate = new Date(activeMembership.end_date);
+    endDate.setHours(0, 0, 0, 0);
+    const daysRemaining = Math.round(
+      (endDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24)
+    );
+    if (daysRemaining <= 7) {
+      membershipAlert = {
+        type: "expiring_soon",
+        daysRemaining,
+        expirationDate: formatDate(activeMembership.end_date),
+      };
+    }
+  } else {
+    const lastExpired = await getLastExpiredMembership(client.id);
+    if (lastExpired) {
+      membershipAlert = {
+        type: "expired",
+        expirationDate: formatDate(lastExpired.end_date),
+      };
+      const businessDays = countBusinessDaysSince(new Date(lastExpired.end_date));
+      if (businessDays >= 3) plansVisible = false;
+    }
+  }
+  // ─────────────────────────────────────────────────────────────
+
   const upcomingBookings = allBookings
     .filter(
       (b) =>
@@ -68,19 +124,30 @@ export default async function PortalHomePage() {
 
   return (
     <div className="space-y-6">
+      {/* Aviso de vencimiento de membresía */}
+      {membershipAlert && <MembershipAlertBanner {...membershipAlert} />}
+
       {/* Bienvenida */}
-      <div>
-        <h1 className="text-2xl font-bold text-zinc-800">
-          Hola, {client.first_name}
-        </h1>
-        <p className="text-zinc-500 text-sm mt-1">
-          {today.toLocaleDateString("es-MX", {
-            weekday: "long",
-            year: "numeric",
-            month: "long",
-            day: "numeric",
-          })}
-        </p>
+      <div className="flex items-start justify-between flex-wrap gap-3">
+        <div>
+          <h1 className="text-2xl font-bold text-zinc-800">
+            Hola, {client.first_name}
+          </h1>
+          <p className="text-zinc-500 text-sm mt-1">
+            {today.toLocaleDateString("es-MX", {
+              weekday: "long",
+              year: "numeric",
+              month: "long",
+              day: "numeric",
+            })}
+          </p>
+        </div>
+        <Link
+          href="/portal/credencial"
+          className="text-xs font-semibold px-3 py-1.5 rounded-full border border-zinc-300 text-zinc-600 hover:border-zinc-500 hover:bg-zinc-100 hover:text-zinc-800 transition-colors whitespace-nowrap"
+        >
+          Mi Carnet
+        </Link>
       </div>
 
       {/* Estado de membresía */}
@@ -125,7 +192,7 @@ export default async function PortalHomePage() {
       </div>
 
       {/* Actividad de hoy */}
-      {activePlan && (
+      {activePlan && plansVisible && (
         <div className="bg-white rounded-xl border border-zinc-200 shadow-sm p-5">
           <div className="flex items-center justify-between mb-3">
             <p className="text-xs font-semibold text-zinc-400 uppercase tracking-wide">
@@ -213,7 +280,7 @@ export default async function PortalHomePage() {
       </div>
 
       {/* Resumen del plan semanal personalizado */}
-      {activePlan && (
+      {activePlan && plansVisible && (
         <div className="bg-white rounded-xl border border-zinc-200 shadow-sm p-5">
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-2">
@@ -270,7 +337,7 @@ export default async function PortalHomePage() {
       )}
 
       {/* Programación general (cuando no hay plan personalizado activo) */}
-      {!activePlan && generalTemplates.length > 0 && (
+      {!activePlan && generalTemplates.length > 0 && plansVisible && (
         <div className="bg-sky-50 border border-sky-200 rounded-xl p-5">
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-2">
@@ -340,6 +407,27 @@ export default async function PortalHomePage() {
           )}
         </div>
       </div>
+
+      {/* Acceso rápido a credencial */}
+      <Link
+        href="/portal/credencial"
+        className="flex items-center justify-between bg-white rounded-xl border border-zinc-200 shadow-sm p-5 hover:border-zinc-400 hover:shadow-md transition-all group"
+      >
+        <div>
+          <p className="text-xs font-semibold text-zinc-400 uppercase tracking-wide mb-1">
+            Mi carnet digital
+          </p>
+          {client.operational_code ? (
+            <p className="font-mono text-lg font-bold text-zinc-800">
+              {client.operational_code}
+            </p>
+          ) : (
+            <p className="text-sm text-zinc-500">Ver credencial con QR</p>
+          )}
+          <p className="text-xs text-zinc-400 mt-0.5">Incluye código QR para acceso rápido</p>
+        </div>
+        <span className="text-zinc-400 group-hover:text-zinc-700 transition-colors text-lg">→</span>
+      </Link>
     </div>
   );
 }

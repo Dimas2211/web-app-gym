@@ -11,6 +11,25 @@ export async function getGym(user: SessionUser) {
 }
 
 // ──────────────────────────────────────────────
+// GymSettings
+// ──────────────────────────────────────────────
+
+/** Devuelve la configuración del gym o los valores por defecto si no existe */
+export async function getGymSettings(gymId: string) {
+  const s = await prisma.gymSettings.findUnique({ where: { gym_id: gymId } });
+  return {
+    id: s?.id ?? null,
+    gym_id: gymId,
+    staff_code_prefix: s?.staff_code_prefix ?? "A",
+    staff_code_digits: s?.staff_code_digits ?? 4,
+    staff_code_start: s?.staff_code_start ?? 1010,
+    client_code_prefix: s?.client_code_prefix ?? "C",
+    client_code_digits: s?.client_code_digits ?? 4,
+    client_code_start: s?.client_code_start ?? 1010,
+  };
+}
+
+// ──────────────────────────────────────────────
 // Sports
 // ──────────────────────────────────────────────
 

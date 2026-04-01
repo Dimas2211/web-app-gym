@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { requireAdmin, canManageWeeklyPlanTemplate } from "@/lib/permissions/guards";
+import { requireClassViewer, canManageWeeklyPlanTemplate } from "@/lib/permissions/guards";
 import { getWeeklyPlanTemplateById } from "@/modules/weekly-plans/queries";
 import { toggleTemplateStatusAction } from "@/modules/weekly-plans/actions";
 import { DeleteDayButton } from "./delete-day-button";
@@ -17,7 +17,7 @@ import type { PlanLevel, Gender } from "@prisma/client";
 type Props = { params: Promise<{ id: string }> };
 
 export default async function WeeklyPlanTemplateDetailPage({ params }: Props) {
-  const sessionUser = await requireAdmin();
+  const sessionUser = await requireClassViewer();
   const { id } = await params;
 
   const template = await getWeeklyPlanTemplateById(id, sessionUser);
@@ -34,9 +34,15 @@ export default async function WeeklyPlanTemplateDetailPage({ params }: Props) {
       {/* Breadcrumb + acciones */}
       <div className="flex items-start justify-between flex-wrap gap-4">
         <div className="flex items-center gap-2 text-sm text-zinc-500">
-          <Link href="/dashboard/weekly-plans/templates" className="hover:text-zinc-800">
-            Plantillas
-          </Link>
+          {canEdit ? (
+            <Link href="/dashboard/weekly-plans/templates" className="hover:text-zinc-800">
+              Plantillas
+            </Link>
+          ) : (
+            <Link href="/dashboard/weekly-plans/client-plans" className="hover:text-zinc-800">
+              Planes semanales
+            </Link>
+          )}
           <span>/</span>
           <span className="text-zinc-800 font-medium">{template.name}</span>
         </div>

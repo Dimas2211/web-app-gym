@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db/prisma";
 import { requireSuperAdmin } from "@/lib/permissions/guards";
-import { gymSchema, sportSchema, goalSchema } from "./schemas";
+import { gymSchema, sportSchema, goalSchema, gymSettingsSchema } from "./schemas";
 
 export type SettingsActionState =
   | { errors?: Record<string, string[]>; error?: string }
@@ -223,4 +223,134 @@ export async function toggleGoalStatusAction(formData: FormData): Promise<void> 
   });
 
   revalidatePath("/dashboard/settings/goals");
+}
+
+// ══════════════════════════════════════════════
+// GYM SETTINGS — Códigos operativos
+// ══════════════════════════════════════════════
+
+export async function updateGymSettingsAction(
+  _prev: SettingsActionState,
+  formData: FormData
+): Promise<SettingsActionState> {
+  const user = await requireSuperAdmin();
+
+  const parsed = gymSettingsSchema.safeParse({
+    staff_code_prefix: formData.get("staff_code_prefix"),
+    staff_code_digits: formData.get("staff_code_digits"),
+    staff_code_start: formData.get("staff_code_start"),
+    client_code_prefix: formData.get("client_code_prefix"),
+    client_code_digits: formData.get("client_code_digits"),
+    client_code_start: formData.get("client_code_start"),
+  });
+
+  if (!parsed.success) {
+    return { errors: parsed.error.flatten().fieldErrors };
+  }
+
+  await prisma.gymSettings.upsert({
+    where: { gym_id: user.gym_id },
+    create: { gym_id: user.gym_id, ...parsed.data },
+    update: parsed.data,
+  });
+
+  revalidatePath("/dashboard/settings/codes");
+  revalidatePath("/dashboard/settings");
+  redirect("/dashboard/settings/codes");
+}
+
+// ══════════════════════════════════════════════
+// Código operativo individual — Usuario
+// ══════════════════════════════════════════════
+
+export async function updateUserOperationalCodeAction(
+  _prev: SettingsActionState,
+  formData: FormData
+): Promise<SettingsActionState> {
+  const sessionUser = await requireSuperAdmin();
+
+  const id = formData.get("entity_id") as string;
+  if (!id) return { error: "ID requerido." };
+
+  const code = (formData.get("operational_code") as string)?.trim() || null;
+
+  // Si hay código, verificar que no esté duplicado
+  if (code) {
+    const duplicate = await prisma.user.findFirst({
+      where: { gym_id: sessionUser.gym_id, operational_code: code, id: { not: id } },
+    });
+    if (duplicate) {
+      return { errors: { operational_code: ["Este código ya está en uso por otro usuario."] } };
+    }
+  }
+
+  await prisma.user.update({ where: { id }, data: { operational_code: code } });
+
+  revalidatePath("/dashboard/users");
+  revalidatePath(`/dashboard/users/${id}/edit`);
+  revalidatePath(`/dashboard/users/${id}/credential`);
+  return undefined;
+}
+
+// ══════════════════════════════════════════════
+// Código operativo individual — Cliente
+// ══════════════════════════════════════════════
+
+export async function updateClientOperationalCodeAction(
+  _prev: SettingsActionState,
+  formData: FormData
+): Promise<SettingsActionState> {
+  const sessionUser = await requireSuperAdmin();
+
+  const id = formData.get("entity_id") as string;
+  if (!id) return { error: "ID requerido." };
+
+  const code = (formData.get("operational_code") as string)?.trim() || null;
+
+  if (code) {
+    const duplicate = await prisma.client.findFirst({
+      where: { gym_id: sessionUser.gym_id, operational_code: code, id: { not: id } },
+    });
+    if (duplicate) {
+      return { errors: { operational_code: ["Este código ya está en uso por otro cliente."] } };
+    }
+  }
+
+  await prisma.client.update({ where: { id }, data: { operational_code: code } });
+
+  revalidatePath("/dashboard/clients");
+  revalidatePath(`/dashboard/clients/${id}`);
+  revalidatePath(`/dashboard/clients/${id}/edit`);
+  revalidatePath(`/dashboard/clients/${id}/credential`);
+  return undefined;
+}
+
+// ══════════════════════════════════════════════
+// Avatar — Usuario
+// ══════════════════════════════════════════════
+
+export async function updateUserAvatarAction(formData: FormData): Promise<void> {
+  await requireSuperAdmin();
+  const id = formData.get("entity_id") as string;
+  const url = formData.get("avatar_url") as string;
+  if (!id || !url) return;
+
+  await prisma.user.update({ where: { id }, data: { avatar_url: url } });
+  revalidatePath(`/dashboard/users/${id}/edit`);
+  revalidatePath(`/dashboard/users/${id}/credential`);
+}
+
+// ══════════════════════════════════════════════
+// Avatar — Cliente
+// ══════════════════════════════════════════════
+
+export async function updateClientAvatarAction(formData: FormData): Promise<void> {
+  await requireSuperAdmin();
+  const id = formData.get("entity_id") as string;
+  const url = formData.get("avatar_url") as string;
+  if (!id || !url) return;
+
+  await prisma.client.update({ where: { id }, data: { avatar_url: url } });
+  revalidatePath(`/dashboard/clients/${id}`);
+  revalidatePath(`/dashboard/clients/${id}/credential`);
 }

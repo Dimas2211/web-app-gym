@@ -1,6 +1,11 @@
 import Link from "next/link";
 import { auth } from "@/lib/auth/auth";
 import { ROLE_LABELS, ROLE_COLORS } from "@/lib/utils/roles";
+import type { UserRole } from "@prisma/client";
+
+function credentialHref(role: UserRole): string {
+  return role === "client" ? "/portal/credencial" : "/dashboard/credential";
+}
 
 const MODULES = [
   { label: "Sucursales", href: "/dashboard/branches", roles: ["super_admin"] },
@@ -38,9 +43,17 @@ export default async function DashboardPage() {
             })}
           </p>
         </div>
-        <span className={`text-xs font-semibold px-3 py-1.5 rounded-full ${ROLE_COLORS[user.role]}`}>
-          {ROLE_LABELS[user.role]}
-        </span>
+        <div className="flex items-center gap-2">
+          <span className={`text-xs font-semibold px-3 py-1.5 rounded-full ${ROLE_COLORS[user.role]}`}>
+            {ROLE_LABELS[user.role]}
+          </span>
+          <Link
+            href={credentialHref(user.role)}
+            className="text-xs font-semibold px-3 py-1.5 rounded-full border border-zinc-300 text-zinc-600 hover:border-zinc-500 hover:bg-zinc-100 hover:text-zinc-800 transition-colors whitespace-nowrap"
+          >
+            Mi Carnet
+          </Link>
+        </div>
       </div>
 
       {/* Info de sesión */}

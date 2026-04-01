@@ -15,6 +15,7 @@ import {
   type DeleteAuthActionState,
 } from "@/lib/permissions/delete-authorization";
 import { createClientSchema, updateClientSchema } from "./schemas";
+import { suggestNextClientCode, generateQrToken } from "@/lib/utils/operational-codes";
 
 export type ClientActionState =
   | { errors?: Record<string, string[]>; error?: string }
@@ -71,6 +72,10 @@ export async function createClientAction(
 
   const { branch_id, birth_date, gender, ...rest } = parsed.data;
 
+  // Generar código operativo y token QR para el nuevo cliente
+  const operational_code = await suggestNextClientCode(sessionUser.gym_id);
+  const qr_token = generateQrToken();
+
   await prisma.client.create({
     data: {
       gym_id: sessionUser.gym_id,
@@ -79,6 +84,8 @@ export async function createClientAction(
       birth_date: birth_date ? new Date(birth_date) : null,
       gender: gender ?? null,
       status: "active",
+      operational_code,
+      qr_token,
     },
   });
 

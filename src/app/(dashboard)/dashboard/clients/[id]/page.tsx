@@ -107,6 +107,12 @@ export default async function ClientDetailPage({ params }: Props) {
         {canEdit && (
           <div className="flex items-center flex-wrap gap-2">
             <Link
+              href={`/dashboard/clients/${client.id}/credential`}
+              className="text-sm text-zinc-600 border border-zinc-300 px-4 py-2 rounded-lg hover:border-zinc-400 hover:bg-zinc-50 transition-colors"
+            >
+              Credencial
+            </Link>
+            <Link
               href={`/dashboard/memberships/client-memberships/new?client_id=${client.id}`}
               className="text-sm text-zinc-600 border border-zinc-300 px-4 py-2 rounded-lg hover:border-zinc-400 hover:bg-zinc-50 transition-colors"
             >
@@ -142,9 +148,16 @@ export default async function ClientDetailPage({ params }: Props) {
             <h1 className="text-xl font-bold text-zinc-800">
               {client.first_name} {client.last_name}
             </h1>
-            {client.document_id && (
-              <p className="text-sm text-zinc-500 mt-0.5">{client.document_id}</p>
-            )}
+            <div className="flex items-center gap-2 mt-1 flex-wrap">
+              {client.operational_code && (
+                <span className="font-mono text-xs font-bold text-zinc-700 bg-zinc-100 px-2 py-0.5 rounded">
+                  {client.operational_code}
+                </span>
+              )}
+              {client.document_id && (
+                <p className="text-sm text-zinc-500">{client.document_id}</p>
+              )}
+            </div>
           </div>
           <div className="flex items-center gap-2">
             <StatusBadge status={client.status} />

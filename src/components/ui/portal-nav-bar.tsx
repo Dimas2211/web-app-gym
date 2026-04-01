@@ -10,6 +10,7 @@ const PORTAL_LINKS = [
   { href: "/portal/clases", label: "Clases", exact: false },
   { href: "/portal/plan-semanal", label: "Mi Plan", exact: false },
   { href: "/portal/historial", label: "Historial", exact: false },
+  { href: "/portal/credencial", label: "Mi Carnet", exact: false },
 ];
 
 export function PortalNavBar() {
