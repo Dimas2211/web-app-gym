@@ -56,7 +56,7 @@ export async function createPlanAction(
     is_recurring: formData.get("is_recurring") === "on",
     branch_id:
       sessionUser.role === "branch_admin"
-        ? sessionUser.branch_id
+        ? sessionUser.location_id
         : norm(formData.get("branch_id")),
   };
 
@@ -68,7 +68,7 @@ export async function createPlanAction(
   // branch_admin solo puede crear planes para su sucursal
   if (
     sessionUser.role === "branch_admin" &&
-    parsed.data.branch_id !== sessionUser.branch_id
+    parsed.data.branch_id !== sessionUser.location_id
   ) {
     return { error: "Solo puedes crear planes para tu propia sucursal." };
   }
@@ -76,6 +76,7 @@ export async function createPlanAction(
   await prisma.membershipPlan.create({
     data: {
       gym_id: sessionUser.gym_id,
+      tenant_id: sessionUser.tenant_id,
       branch_id: parsed.data.branch_id ?? null,
       code: parsed.data.code ?? null,
       name: parsed.data.name,
@@ -171,7 +172,7 @@ export async function createClientMembershipAction(
     membership_plan_id: formData.get("membership_plan_id"),
     branch_id:
       sessionUser.role !== "super_admin"
-        ? sessionUser.branch_id
+        ? sessionUser.location_id
         : formData.get("branch_id"),
     start_date: formData.get("start_date"),
     price_at_sale: formData.get("price_at_sale"),
@@ -196,12 +197,12 @@ export async function createClientMembershipAction(
 
   // Verificar cliente en el scope correcto
   const client = await prisma.client.findFirst({
-    where: { id: parsed.data.client_id, gym_id: sessionUser.gym_id },
+    where: { id: parsed.data.client_id, tenant_id: sessionUser.tenant_id },
   });
   if (!client) return { errors: { client_id: ["Cliente no encontrado."] } };
   if (
     sessionUser.role !== "super_admin" &&
-    client.branch_id !== sessionUser.branch_id
+    client.branch_id !== sessionUser.location_id
   ) {
     return { errors: { client_id: ["El cliente no pertenece a tu sucursal."] } };
   }
@@ -216,6 +217,7 @@ export async function createClientMembershipAction(
   await prisma.clientMembership.create({
     data: {
       gym_id: sessionUser.gym_id,
+      tenant_id: sessionUser.tenant_id,
       branch_id: parsed.data.branch_id,
       client_id: parsed.data.client_id,
       membership_plan_id: parsed.data.membership_plan_id,
@@ -308,7 +310,7 @@ export async function deletePlanAction(
   if (!id) return { error: "Datos inválidos" };
 
   const plan = await prisma.membershipPlan.findFirst({
-    where: { id, gym_id: sessionUser.gym_id },
+    where: { id, tenant_id: sessionUser.tenant_id },
     include: { _count: { select: { client_memberships: true } } },
   });
 
@@ -342,7 +344,7 @@ export async function deleteClientMembershipAction(
   if (!id) return { error: "Datos inválidos" };
 
   const membership = await prisma.clientMembership.findFirst({
-    where: { id, gym_id: sessionUser.gym_id },
+    where: { id, tenant_id: sessionUser.tenant_id },
   });
 
   if (!membership) return { error: "Membresía no encontrada." };

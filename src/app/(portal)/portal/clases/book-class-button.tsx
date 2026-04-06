@@ -1,6 +1,7 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { bookClassAction, cancelBookingAction } from "@/modules/client-portal/actions";
 
 type Props = {
@@ -11,8 +12,17 @@ type Props = {
 };
 
 export function BookClassButton({ classId, bookingId, isConfirmed, isFull }: Props) {
+  const router = useRouter();
   const [bookState, bookAction, bookPending] = useActionState(bookClassAction, undefined);
   const [cancelState, cancelAction, cancelPending] = useActionState(cancelBookingAction, undefined);
+
+  useEffect(() => {
+    if (cancelState && "success" in cancelState) router.refresh();
+  }, [cancelState]);
+
+  useEffect(() => {
+    if (bookState && "success" in bookState) router.refresh();
+  }, [bookState]);
 
   if (isConfirmed && bookingId) {
     return (

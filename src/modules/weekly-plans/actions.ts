@@ -54,7 +54,7 @@ function canManageTemplate(
   if (user.role === "super_admin") return true;
   if (user.role === "branch_admin") {
     return (
-      template.branch_id === null || template.branch_id === user.branch_id
+      template.branch_id === null || template.branch_id === user.location_id
     );
   }
   return false;
@@ -66,7 +66,7 @@ function canManageClientPlan(
 ): boolean {
   if (user.role === "super_admin") return true;
   if (user.role === "branch_admin" || user.role === "reception") {
-    return plan.branch_id === user.branch_id;
+    return plan.branch_id === user.location_id;
   }
   // trainer: verifica el campo trainer_id más abajo con linked trainer
   return false;
@@ -79,7 +79,7 @@ async function canTrainerManagePlan(
   if (user.role !== "trainer") return false;
   const linked = await getLinkedTrainerId(user.id, user.gym_id);
   if (!linked) return false;
-  return plan.trainer_id === linked && plan.branch_id === user.branch_id;
+  return plan.trainer_id === linked && plan.branch_id === user.location_id;
 }
 
 // ══════════════════════════════════════════════
@@ -107,7 +107,7 @@ export async function createTemplateAction(
   if (
     sessionUser.role === "branch_admin" &&
     raw.branch_id !== null &&
-    raw.branch_id !== sessionUser.branch_id
+    raw.branch_id !== sessionUser.location_id
   ) {
     return { error: "Solo puedes crear plantillas en tu propia sucursal." };
   }
@@ -118,6 +118,7 @@ export async function createTemplateAction(
   await prisma.weeklyPlanTemplate.create({
     data: {
       gym_id: sessionUser.gym_id,
+      tenant_id: sessionUser.tenant_id,
       created_by: sessionUser.id,
       status: "active",
       ...parsed.data,
@@ -137,7 +138,7 @@ export async function updateTemplateAction(
   if (!id) return { error: "ID requerido." };
 
   const existing = await prisma.weeklyPlanTemplate.findFirst({
-    where: { id, gym_id: sessionUser.gym_id },
+    where: { id, tenant_id: sessionUser.tenant_id },
   });
   if (!existing) return { error: "Plantilla no encontrada." };
   if (!canManageTemplate(sessionUser, existing)) {
@@ -173,7 +174,7 @@ export async function toggleTemplateStatusAction(
   if (!id) return;
 
   const target = await prisma.weeklyPlanTemplate.findFirst({
-    where: { id, gym_id: sessionUser.gym_id },
+    where: { id, tenant_id: sessionUser.tenant_id },
   });
   if (!target || !canManageTemplate(sessionUser, target)) return;
 
@@ -198,7 +199,7 @@ export async function upsertTemplateDayAction(
   if (!template_id) return { error: "Plantilla requerida." };
 
   const template = await prisma.weeklyPlanTemplate.findFirst({
-    where: { id: template_id, gym_id: sessionUser.gym_id },
+    where: { id: template_id, tenant_id: sessionUser.tenant_id },
   });
   if (!template) return { error: "Plantilla no encontrada." };
   if (!canManageTemplate(sessionUser, template)) {
@@ -244,10 +245,10 @@ export async function deleteTemplateDayAction(
 
   const day = await prisma.weeklyPlanTemplateDay.findFirst({
     where: { id },
-    include: { template: { select: { gym_id: true, branch_id: true } } },
+    include: { template: { select: { tenant_id: true, branch_id: true } } },
   });
 
-  if (!day || day.template.gym_id !== sessionUser.gym_id) {
+  if (!day || day.template.tenant_id !== sessionUser.tenant_id) {
     return { error: "Registro no encontrado" };
   }
 
@@ -311,7 +312,7 @@ export async function createClientPlanAction(
   // Scope: branch_admin/reception solo crean en su sucursal
   if (
     (sessionUser.role === "branch_admin" || sessionUser.role === "reception") &&
-    raw.branch_id !== sessionUser.branch_id
+    raw.branch_id !== sessionUser.location_id
   ) {
     return { error: "Solo puedes asignar planes en tu propia sucursal." };
   }
@@ -324,12 +325,12 @@ export async function createClientPlanAction(
 
   // Validar cliente en scope
   const client = await prisma.client.findFirst({
-    where: { id: client_id, gym_id: sessionUser.gym_id },
+    where: { id: client_id, tenant_id: sessionUser.tenant_id },
   });
   if (!client) return { error: "Cliente no encontrado." };
   if (
     (sessionUser.role === "branch_admin" || sessionUser.role === "reception") &&
-    client.branch_id !== sessionUser.branch_id
+    client.branch_id !== sessionUser.location_id
   ) {
     return { error: "El cliente no pertenece a tu sucursal." };
   }
@@ -337,7 +338,7 @@ export async function createClientPlanAction(
   // Validar trainer si se indicó
   if (trainer_id) {
     const trainer = await prisma.trainer.findFirst({
-      where: { id: trainer_id, gym_id: sessionUser.gym_id },
+      where: { id: trainer_id, tenant_id: sessionUser.tenant_id },
     });
     if (!trainer) return { error: "Entrenador no encontrado." };
   }
@@ -358,6 +359,7 @@ export async function createClientPlanAction(
   const newPlan = await prisma.clientWeeklyPlan.create({
     data: {
       gym_id: sessionUser.gym_id,
+      tenant_id: sessionUser.tenant_id,
       branch_id,
       client_id,
       trainer_id,
@@ -404,7 +406,7 @@ export async function updateClientPlanAction(
   if (!id) return { error: "ID requerido." };
 
   const plan = await prisma.clientWeeklyPlan.findFirst({
-    where: { id, gym_id: sessionUser.gym_id },
+    where: { id, tenant_id: sessionUser.tenant_id },
   });
   if (!plan) return { error: "Plan no encontrado." };
 
@@ -468,7 +470,7 @@ export async function toggleClientPlanStatusAction(
   if (!id) return;
 
   const plan = await prisma.clientWeeklyPlan.findFirst({
-    where: { id, gym_id: sessionUser.gym_id },
+    where: { id, tenant_id: sessionUser.tenant_id },
   });
   if (!plan) return;
 
@@ -501,7 +503,7 @@ export async function updateClientPlanDayAction(
   if (!day_id || !plan_id) return { error: "IDs requeridos." };
 
   const plan = await prisma.clientWeeklyPlan.findFirst({
-    where: { id: plan_id, gym_id: sessionUser.gym_id },
+    where: { id: plan_id, tenant_id: sessionUser.tenant_id },
   });
   if (!plan) return { error: "Plan no encontrado." };
 
@@ -543,7 +545,7 @@ export async function markClientPlanDayAction(
   if (!day_id || !plan_id) return;
 
   const plan = await prisma.clientWeeklyPlan.findFirst({
-    where: { id: plan_id, gym_id: sessionUser.gym_id },
+    where: { id: plan_id, tenant_id: sessionUser.tenant_id },
   });
   if (!plan) return;
 
@@ -591,7 +593,7 @@ export async function addClientPlanDayAction(
   if (!plan_id) return { error: "Plan requerido." };
 
   const plan = await prisma.clientWeeklyPlan.findFirst({
-    where: { id: plan_id, gym_id: sessionUser.gym_id },
+    where: { id: plan_id, tenant_id: sessionUser.tenant_id },
   });
   if (!plan) return { error: "Plan no encontrado." };
 
@@ -673,7 +675,7 @@ export async function assignTemplateSegmentedAction(
 
   // branch_admin siempre opera en su propia sucursal
   if (sessionUser.role === "branch_admin") {
-    raw.branch_id = sessionUser.branch_id ?? null;
+    raw.branch_id = sessionUser.location_id ?? null;
   }
 
   const parsed = assignSegmentedSchema.safeParse(raw);
@@ -693,7 +695,7 @@ export async function assignTemplateSegmentedAction(
 
   // Validar plantilla: debe existir, estar activa y ser accesible
   const template = await prisma.weeklyPlanTemplate.findFirst({
-    where: { id: template_id, gym_id: sessionUser.gym_id, status: "active" },
+    where: { id: template_id, tenant_id: sessionUser.tenant_id, status: "active" },
     include: { days: true },
   });
   if (!template) return { error: "Plantilla no encontrada o inactiva." };
@@ -704,7 +706,7 @@ export async function assignTemplateSegmentedAction(
   // Validar entrenador si se indicó
   if (trainer_id) {
     const trainer = await prisma.trainer.findFirst({
-      where: { id: trainer_id, gym_id: sessionUser.gym_id },
+      where: { id: trainer_id, tenant_id: sessionUser.tenant_id },
     });
     if (!trainer) return { error: "Entrenador no encontrado." };
   }
@@ -714,7 +716,7 @@ export async function assignTemplateSegmentedAction(
   today.setHours(0, 0, 0, 0);
 
   const clientWhere: Record<string, unknown> = {
-    gym_id: sessionUser.gym_id,
+    tenant_id: sessionUser.tenant_id,
     status: "active",
     memberships: {
       some: {
@@ -729,7 +731,7 @@ export async function assignTemplateSegmentedAction(
   if (branch_id) {
     clientWhere.branch_id = branch_id;
   } else if (sessionUser.role === "branch_admin") {
-    clientWhere.branch_id = sessionUser.branch_id!;
+    clientWhere.branch_id = sessionUser.location_id!;
   }
 
   if (target_gender) clientWhere.gender = target_gender;
@@ -777,6 +779,7 @@ export async function assignTemplateSegmentedAction(
     const newPlan = await prisma.clientWeeklyPlan.create({
       data: {
         gym_id: sessionUser.gym_id,
+        tenant_id: sessionUser.tenant_id,
         branch_id: planBranchId,
         client_id: client.id,
         trainer_id,
@@ -825,7 +828,7 @@ export async function deleteTemplateAction(
   if (!id) return { error: "Datos inválidos" };
 
   const template = await prisma.weeklyPlanTemplate.findFirst({
-    where: { id, gym_id: sessionUser.gym_id },
+    where: { id, tenant_id: sessionUser.tenant_id },
     include: { _count: { select: { client_plans: true } } },
   });
 
@@ -865,7 +868,7 @@ export async function deleteClientPlanAction(
   if (!id) return { error: "Datos inválidos" };
 
   const plan = await prisma.clientWeeklyPlan.findFirst({
-    where: { id, gym_id: sessionUser.gym_id },
+    where: { id, tenant_id: sessionUser.tenant_id },
   });
 
   if (!plan) return { error: "Plan no encontrado." };

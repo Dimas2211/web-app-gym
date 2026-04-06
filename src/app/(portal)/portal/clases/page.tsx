@@ -7,7 +7,8 @@ import {
 import { BookClassButton } from "./book-class-button";
 
 function formatDate(date: Date | string) {
-  return new Date(date).toLocaleDateString("es-MX", {
+  const d = typeof date === "string" ? new Date(date + "T12:00:00") : new Date(date);
+  return d.toLocaleDateString("es-MX", {
     weekday: "short",
     day: "2-digit",
     month: "short",
@@ -47,7 +48,8 @@ export default async function ClasesPage() {
   // Agrupar por fecha
   const byDate = new Map<string, typeof classes>();
   for (const cls of classes) {
-    const key = cls.class_date.toString().slice(0, 10);
+    const d = new Date(cls.class_date);
+    const key = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`;
     if (!byDate.has(key)) byDate.set(key, []);
     byDate.get(key)!.push(cls);
   }

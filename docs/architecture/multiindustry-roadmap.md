@@ -132,8 +132,8 @@ branches      → tenant_id (nullable, backfilled desde gym_id)
 
 | Aspecto | Estado |
 |---|---|
-| Demo local | Funcionando — intacta post Etapa 9A |
-| Demo Vercel publicada | Funcionando — intacta post Etapa 9A |
+| Demo local | Funcionando — intacta al cierre de subfase 9A |
+| Demo Vercel publicada | Funcionando — intacta al cierre de subfase 9A |
 | Prisma schema | Actualizado con `tenant_id` / `location_id` (no destructivo) |
 | Migraciones | `20260402235334_add_tenant_location_ids` aplicada en local y remoto |
 | Sistema GYM (módulos, rutas, auth) | Intacto y funcional |
@@ -162,9 +162,10 @@ y writes del sistema, reemplazando progresivamente `gym_id` y `branch_id` como c
 
 Esta etapa no toca auth ni JWT — los aliases en sesión ya están activos desde Etapa 6.
 
-#### Subfase 9A — Lecturas operativas ✅
+#### Subfase 9A — Lecturas operativas ✅ — CERRADA
 
 Backfill verificado SQL antes de cada módulo: 0 filas con `tenant_id` NULL en todas las tablas afectadas.
+Commit de cierre: `dc757e6` — `refactor: complete stage 9A operational reads migration`
 
 | Módulo | Estado |
 |---|---|
@@ -175,29 +176,30 @@ Backfill verificado SQL antes de cada módulo: 0 filas con `tenant_id` NULL en t
 | `classes/queries.ts` | Reads migrados — `getLinkedTrainerId` excluido deliberadamente |
 | `settings/queries.ts` | `getGym` migrado — `getGymSettings` excluido (parámetro externo) |
 | `weekly-plans/queries.ts` | Reads migrados via helpers — `getLinkedTrainerId` excluido |
+| `branches/queries.ts` | Reads migrados — entidad `Branch` filtrada por `tenant_id` + `id: location_id` |
 
-**Módulos excluidos de 9A deliberadamente:**
+**Demo local:** funcionando — intacta al cierre de 9A
+**Demo Vercel publicada:** funcionando — intacta al cierre de 9A
+**Writes:** no tocados en esta subfase
+**JWT bridge:** activo e intacto — no se modifica hasta 9D
 
-| Módulo | Razón |
+**Funciones excluidas deliberadamente de 9A:**
+
+| Función / Módulo | Razón |
 |---|---|
 | `getLinkedTrainerId` (classes y weekly-plans) | Firma pública con `gymId: string` externo — requiere rastrear llamadores |
 | `getGymSettings(gymId)` | Mismo motivo — parámetro externo, no de sesión |
-| `branches/queries.ts` | Gestiona la entidad `Branch` directamente — pendiente subfase 9A cierre |
-| `users/queries.ts` | Módulo de staff con lógica de roles más sensible |
+| `users/queries.ts` | Módulo de staff con lógica de roles más sensible — pendiente subfase propia |
 | `reports/queries.ts` | Parámetros `gymId`/`branchId` externos con aggregations complejas |
 | `client-portal/queries.ts` | Lee desde campos del registro DB del cliente, no de sesión |
 | Todos los `**/actions.ts` | Writes — subfase 9B |
-| JWT bridge en `auth.ts` | No hasta que reads y writes estén completamente migrados |
+| JWT bridge en `auth.ts` | No hasta completar subfase 9D |
 
-#### Subfase 9A cierre — pendiente
-
-- `branches/queries.ts` — último módulo de lectura operativa pendiente (patrón inline, ~5 cambios)
-
-#### Subfase 9B — Writes operativos (pendiente)
+#### Subfase 9B — Writes operativos (activa)
 
 Orden propuesto: `trainers` → `clients` → `memberships` → `classes` → `weekly-plans`
 
-Cada módulo requiere verificación de que los reads del mismo módulo ya estén consolidados antes de migrar sus writes.
+Cada módulo requiere verificación de que los reads del mismo módulo ya estén consolidados antes de migrar sus writes. La subfase 9A garantiza esa condición para todos los módulos del orden propuesto.
 
 #### Subfase 9C — Funciones con parámetros externos (pendiente)
 
@@ -215,7 +217,7 @@ Cada módulo requiere verificación de que los reads del mismo módulo ya estén
 
 ## Siguiente movimiento
 
-**`branches/queries.ts`** — cerrar la subfase 9A de lecturas antes de abrir writes.
+**Subfase 9B — `trainers/actions.ts`** — primer write operativo a migrar.
 
 ---
 

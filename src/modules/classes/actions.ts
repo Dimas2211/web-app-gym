@@ -48,7 +48,7 @@ export async function createClassTypeAction(
   if (!parsed.success) return { errors: parsed.error.flatten().fieldErrors };
 
   await prisma.classType.create({
-    data: { gym_id: sessionUser.gym_id, ...parsed.data, status: "active" },
+    data: { gym_id: sessionUser.gym_id, tenant_id: sessionUser.tenant_id, ...parsed.data, status: "active" },
   });
 
   revalidatePath("/dashboard/classes/types");
@@ -64,7 +64,7 @@ export async function updateClassTypeAction(
   if (!id) return { error: "ID requerido." };
 
   const existing = await prisma.classType.findFirst({
-    where: { id, gym_id: sessionUser.gym_id },
+    where: { id, tenant_id: sessionUser.tenant_id },
   });
   if (!existing) return { error: "Tipo de clase no encontrado." };
 
@@ -93,7 +93,7 @@ export async function toggleClassTypeStatusAction(
   if (!id) return;
 
   const target = await prisma.classType.findFirst({
-    where: { id, gym_id: sessionUser.gym_id },
+    where: { id, tenant_id: sessionUser.tenant_id },
   });
   if (!target) return;
 
@@ -156,7 +156,7 @@ export async function createScheduledClassAction(
   // Scope check: branch_admin solo puede crear en su sucursal
   if (
     sessionUser.role === "branch_admin" &&
-    raw.branch_id !== sessionUser.branch_id
+    raw.branch_id !== sessionUser.location_id
   ) {
     return { error: "Solo puedes programar clases en tu propia sucursal." };
   }
@@ -169,12 +169,12 @@ export async function createScheduledClassAction(
 
   // Validar que el entrenador pertenezca a la sucursal correcta
   const trainer = await prisma.trainer.findFirst({
-    where: { id: trainer_id, gym_id: sessionUser.gym_id },
+    where: { id: trainer_id, tenant_id: sessionUser.tenant_id },
   });
   if (!trainer) return { error: "Entrenador no encontrado." };
   if (
     sessionUser.role === "branch_admin" &&
-    trainer.branch_id !== sessionUser.branch_id
+    trainer.branch_id !== sessionUser.location_id
   ) {
     return { error: "El entrenador no pertenece a tu sucursal." };
   }
@@ -199,6 +199,7 @@ export async function createScheduledClassAction(
   await prisma.scheduledClass.create({
     data: {
       gym_id: sessionUser.gym_id,
+      tenant_id: sessionUser.tenant_id,
       branch_id,
       class_type_id,
       trainer_id,
@@ -237,7 +238,7 @@ export async function updateScheduledClassAction(
     parsed.data;
 
   const trainer = await prisma.trainer.findFirst({
-    where: { id: trainer_id, gym_id: sessionUser.gym_id },
+    where: { id: trainer_id, tenant_id: sessionUser.tenant_id },
   });
   if (!trainer) return { error: "Entrenador no encontrado." };
 
@@ -330,12 +331,12 @@ export async function createBookingAction(
 
   // Verificar cliente en scope
   const client = await prisma.client.findFirst({
-    where: { id: client_id, gym_id: sessionUser.gym_id },
+    where: { id: client_id, tenant_id: sessionUser.tenant_id },
   });
   if (!client) return { error: "Cliente no encontrado." };
   if (
     (sessionUser.role === "branch_admin" || sessionUser.role === "reception") &&
-    client.branch_id !== sessionUser.branch_id
+    client.branch_id !== sessionUser.location_id
   ) {
     return { error: "El cliente no pertenece a tu sucursal." };
   }

@@ -81,6 +81,7 @@ export async function createUserAction(
     await prisma.trainer.create({
       data: {
         gym_id: sessionUser.gym_id,
+        tenant_id: sessionUser.tenant_id,
         branch_id: parsed.data.branch_id,
         first_name: parsed.data.first_name,
         last_name: parsed.data.last_name,
@@ -152,6 +153,7 @@ export async function updateUserAction(
         where: { id: target.trainer_profile.id },
         data: {
           status: "active",
+          tenant_id: target.tenant_id ?? undefined,
           branch_id: gymParsed.data.branch_id ?? undefined,
           first_name: gymParsed.data.first_name,
           last_name: gymParsed.data.last_name,
@@ -162,6 +164,7 @@ export async function updateUserAction(
       await prisma.trainer.create({
         data: {
           gym_id: target.gym_id,
+          tenant_id: target.tenant_id ?? undefined,
           branch_id: gymParsed.data.branch_id,
           first_name: gymParsed.data.first_name,
           last_name: gymParsed.data.last_name,

@@ -60,7 +60,7 @@ export async function createClientAction(
 
   // reception solo puede crear en su sucursal
   if (sessionUser.role === "reception") {
-    if (raw.branch_id !== sessionUser.branch_id) {
+    if (raw.branch_id !== sessionUser.location_id) {
       return { error: "Solo puedes registrar clientes en tu propia sucursal." };
     }
   }
@@ -79,6 +79,7 @@ export async function createClientAction(
   await prisma.client.create({
     data: {
       gym_id: sessionUser.gym_id,
+      tenant_id: sessionUser.tenant_id,
       branch_id,
       ...rest,
       birth_date: birth_date ? new Date(birth_date) : null,
@@ -254,7 +255,7 @@ export async function deleteClientAction(
   if (!id) return { error: "Datos inválidos" };
 
   const target = await prisma.client.findFirst({
-    where: { id, gym_id: sessionUser.gym_id },
+    where: { id, tenant_id: sessionUser.tenant_id },
     include: {
       _count: {
         select: {

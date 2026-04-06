@@ -55,7 +55,7 @@ export async function createTrainerAction(
   // branch_admin solo puede crear en su sucursal
   if (
     sessionUser.role === "branch_admin" &&
-    raw.branch_id !== sessionUser.branch_id
+    raw.branch_id !== sessionUser.location_id
   ) {
     return { error: "Solo puedes registrar entrenadores en tu propia sucursal." };
   }
@@ -72,7 +72,7 @@ export async function createTrainerAction(
     const linkedUser = await prisma.user.findFirst({
       where: {
         id: user_id,
-        gym_id: sessionUser.gym_id,
+        tenant_id: sessionUser.tenant_id,
         role: "trainer",
       },
     });
@@ -81,7 +81,7 @@ export async function createTrainerAction(
     }
     if (
       sessionUser.role === "branch_admin" &&
-      linkedUser.branch_id !== sessionUser.branch_id
+      linkedUser.branch_id !== sessionUser.location_id
     ) {
       return { error: "El usuario seleccionado no pertenece a tu sucursal." };
     }
@@ -90,6 +90,7 @@ export async function createTrainerAction(
   await prisma.trainer.create({
     data: {
       gym_id: sessionUser.gym_id,
+      tenant_id: sessionUser.tenant_id,
       ...rest,
       user_id: user_id ?? null,
       status: "active",
@@ -135,7 +136,7 @@ export async function updateTrainerAction(
     const linkedUser = await prisma.user.findFirst({
       where: {
         id: user_id,
-        gym_id: sessionUser.gym_id,
+        tenant_id: sessionUser.tenant_id,
         role: "trainer",
       },
     });
@@ -144,7 +145,7 @@ export async function updateTrainerAction(
     }
     if (
       sessionUser.role === "branch_admin" &&
-      linkedUser.branch_id !== sessionUser.branch_id
+      linkedUser.branch_id !== sessionUser.location_id
     ) {
       return { error: "El usuario seleccionado no pertenece a tu sucursal." };
     }
@@ -173,7 +174,7 @@ export async function deleteTrainerAction(
   if (!id) return { error: "Datos inválidos" };
 
   const target = await prisma.trainer.findFirst({
-    where: { id, gym_id: sessionUser.gym_id },
+    where: { id, tenant_id: sessionUser.tenant_id },
     include: {
       _count: {
         select: {
@@ -290,6 +291,7 @@ export async function addAvailabilitySlotAction(
   await prisma.trainerAvailability.create({
     data: {
       gym_id: trainer.gym_id,
+      tenant_id: trainer.tenant_id ?? undefined,
       branch_id: trainer.branch_id,
       trainer_id,
       day_of_week,
