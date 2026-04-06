@@ -51,6 +51,8 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         token.role = user.role;
         token.gym_id = user.gym_id;
         token.branch_id = user.branch_id;
+        token.tenant_id = user.gym_id;    // Etapa 6: copia de gym_id, alias cross-industry
+        token.location_id = user.branch_id; // Etapa 6: copia de branch_id, alias cross-industry
       }
       return token;
     },
@@ -61,6 +63,9 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       session.user.role = token.role as UserRole;
       session.user.gym_id = token.gym_id as string;
       session.user.branch_id = token.branch_id as string | null;
+      // Etapa 6: tenant_id y location_id con fallback para sesiones emitidas antes de este cambio
+      session.user.tenant_id   = (token.tenant_id ?? token.gym_id) as string;
+      session.user.location_id = (token.location_id !== undefined ? token.location_id : token.branch_id) as string | null;
       return session;
     },
   },

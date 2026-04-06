@@ -20,7 +20,7 @@ export interface ScheduledClassFilters {
 
 function branchScope(user: SessionUser): Record<string, unknown> {
   if (user.role === "branch_admin" || user.role === "reception") {
-    return { branch_id: user.branch_id! };
+    return { branch_id: user.location_id! };
   }
   return {};
 }
@@ -31,7 +31,7 @@ export async function getClassTypes(
   user: SessionUser,
   filters: ClassTypeFilters = {}
 ) {
-  const where: Record<string, unknown> = { gym_id: user.gym_id };
+  const where: Record<string, unknown> = { tenant_id: user.tenant_id };
 
   if (filters.status) {
     where.status = filters.status;
@@ -54,13 +54,13 @@ export async function getClassTypes(
 
 export async function getClassTypeById(id: string, user: SessionUser) {
   return prisma.classType.findFirst({
-    where: { id, gym_id: user.gym_id },
+    where: { id, tenant_id: user.tenant_id },
   });
 }
 
 export async function getClassTypeOptions(user: SessionUser) {
   return prisma.classType.findMany({
-    where: { gym_id: user.gym_id, status: "active" },
+    where: { tenant_id: user.tenant_id, status: "active" },
     select: {
       id: true,
       name: true,
@@ -78,7 +78,7 @@ export async function getScheduledClasses(
   filters: ScheduledClassFilters = {}
 ) {
   const where: Record<string, unknown> = {
-    gym_id: user.gym_id,
+    tenant_id: user.tenant_id,
     ...branchScope(user),
   };
 
@@ -115,7 +115,7 @@ export async function getScheduledClasses(
 export async function getScheduledClassById(id: string, user: SessionUser) {
   const where: Record<string, unknown> = {
     id,
-    gym_id: user.gym_id,
+    tenant_id: user.tenant_id,
     ...branchScope(user),
   };
 
@@ -152,11 +152,11 @@ export async function getScheduledClassById(id: string, user: SessionUser) {
 
 export async function getTrainerOptionsForClass(user: SessionUser) {
   const where: Record<string, unknown> = {
-    gym_id: user.gym_id,
+    tenant_id: user.tenant_id,
     status: "active",
   };
   if (user.role === "branch_admin" || user.role === "reception") {
-    where.branch_id = user.branch_id!;
+    where.branch_id = user.location_id!;
   }
   return prisma.trainer.findMany({
     where,
@@ -173,11 +173,11 @@ export async function getTrainerOptionsForClass(user: SessionUser) {
 
 export async function getBranchOptionsForClass(user: SessionUser) {
   const where: Record<string, unknown> = {
-    gym_id: user.gym_id,
+    tenant_id: user.tenant_id,
     status: "active",
   };
   if (user.role === "branch_admin" || user.role === "reception") {
-    where.id = user.branch_id!;
+    where.id = user.location_id!;
   }
   return prisma.branch.findMany({
     where,
@@ -202,7 +202,7 @@ export async function getAvailableClientsForBooking(
   const excludeIds = bookedIds.map((b) => b.client_id);
 
   const where: Record<string, unknown> = {
-    gym_id: user.gym_id,
+    tenant_id: user.tenant_id,
     status: "active",
     id: excludeIds.length ? { notIn: excludeIds } : undefined,
     ...branchScope(user),
@@ -240,7 +240,7 @@ export async function getTrainerUpcomingClasses(
 
   const where: Record<string, unknown> = {
     trainer_id: trainerId,
-    gym_id: user.gym_id,
+    tenant_id: user.tenant_id,
     class_date: { gte: today },
     status: { in: ["scheduled", "in_progress"] },
     ...branchScope(user),

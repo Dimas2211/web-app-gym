@@ -5,12 +5,12 @@ import type { Status } from "@prisma/client";
 // ── Helpers de scope ─────────────────────────────────────────
 
 function gymScope(user: SessionUser) {
-  return { gym_id: user.gym_id };
+  return { tenant_id: user.tenant_id };
 }
 
 function branchScope(user: SessionUser): Record<string, unknown> {
   if (user.role === "branch_admin" || user.role === "reception") {
-    return { branch_id: user.branch_id! };
+    return { branch_id: user.location_id! };
   }
   return {};
 }
@@ -45,7 +45,7 @@ export async function getWeeklyPlanTemplates(
 
   // branch_admin y reception: solo plantillas globales + de su sucursal
   if (user.role === "branch_admin" || user.role === "reception") {
-    where.OR = [{ branch_id: null }, { branch_id: user.branch_id }];
+    where.OR = [{ branch_id: null }, { branch_id: user.location_id }];
   } else if (user.role === "super_admin" && filters.branch_id) {
     where.branch_id = filters.branch_id;
   }
@@ -110,7 +110,7 @@ export async function getTemplateOptions(user: SessionUser) {
   };
 
   if (user.role === "branch_admin" || user.role === "reception") {
-    where.OR = [{ branch_id: null }, { branch_id: user.branch_id }];
+    where.OR = [{ branch_id: null }, { branch_id: user.location_id }];
   }
 
   return prisma.weeklyPlanTemplate.findMany({
@@ -244,7 +244,7 @@ export async function getTrainerOptionsForPlan(user: SessionUser) {
     status: "active",
   };
   if (user.role === "branch_admin" || user.role === "reception") {
-    where.branch_id = user.branch_id!;
+    where.branch_id = user.location_id!;
   }
   return prisma.trainer.findMany({
     where,
@@ -259,7 +259,7 @@ export async function getBranchOptionsForPlan(user: SessionUser) {
     status: "active",
   };
   if (user.role === "branch_admin" || user.role === "reception") {
-    where.id = user.branch_id!;
+    where.id = user.location_id!;
   }
   return prisma.branch.findMany({
     where,
@@ -315,7 +315,7 @@ export async function getGeneralTemplatesForScope(user: SessionUser) {
     user.role === "reception" ||
     user.role === "trainer"
   ) {
-    where.OR = [{ branch_id: null }, { branch_id: user.branch_id }];
+    where.OR = [{ branch_id: null }, { branch_id: user.location_id }];
   }
 
   return prisma.weeklyPlanTemplate.findMany({

@@ -5,12 +5,12 @@ import type { Status, PaymentStatus, MembershipStatus } from "@prisma/client";
 // ── Helpers de scope ────────────────────────────────────────
 
 function gymScope(user: SessionUser) {
-  return { gym_id: user.gym_id };
+  return { tenant_id: user.tenant_id };
 }
 
 function branchScope(user: SessionUser): Record<string, unknown> {
   if (user.role === "super_admin") return {};
-  return { branch_id: user.branch_id! };
+  return { branch_id: user.location_id! };
 }
 
 // ── Planes de membresía ─────────────────────────────────────
@@ -26,7 +26,7 @@ export async function getMembershipPlans(user: SessionUser, filters: PlanFilters
 
   if (user.role !== "super_admin") {
     // branch_admin ve planes globales + los de su sucursal
-    where.OR = [{ branch_id: null }, { branch_id: user.branch_id }];
+    where.OR = [{ branch_id: null }, { branch_id: user.location_id }];
   } else if (filters.branch_id) {
     where.branch_id = filters.branch_id;
   }
@@ -72,7 +72,7 @@ export async function getActivePlansForAssignment(user: SessionUser) {
   };
 
   if (user.role !== "super_admin") {
-    where.OR = [{ branch_id: null }, { branch_id: user.branch_id }];
+    where.OR = [{ branch_id: null }, { branch_id: user.location_id }];
   }
 
   const plans = await prisma.membershipPlan.findMany({

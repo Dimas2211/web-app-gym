@@ -39,6 +39,7 @@ model Gym {
 model Branch {
   id                    String                @id @default(uuid())
   gym_id                String
+  tenant_id             String?
   name                  String
   address               String?
   phone                 String?
@@ -63,7 +64,9 @@ model Branch {
 model User {
   id                            String               @id @default(uuid())
   gym_id                        String
+  tenant_id                     String?
   branch_id                     String?
+  location_id                   String?
   email                         String               @unique
   password_hash                 String
   first_name                    String
@@ -120,7 +123,9 @@ model Sport {
 model MembershipPlan {
   id                 String             @id @default(uuid())
   gym_id             String
+  tenant_id          String?
   branch_id          String?
+  location_id        String?
   code               String?
   name               String
   description        String?
@@ -144,7 +149,9 @@ model MembershipPlan {
 model Client {
   id                      String             @id @default(uuid())
   gym_id                  String
+  tenant_id               String?
   branch_id               String
+  location_id             String?
   user_id                 String?            @unique
   first_name              String
   last_name               String
@@ -189,7 +196,9 @@ model Client {
 model ClientMembership {
   id                 String           @id @default(uuid())
   gym_id             String
+  tenant_id          String?
   branch_id          String
+  location_id        String?
   client_id          String
   membership_plan_id String
   start_date         DateTime         @db.Date
@@ -220,7 +229,9 @@ model ClientMembership {
 model Trainer {
   id                  String                @id @default(uuid())
   gym_id              String
+  tenant_id           String?
   branch_id           String
+  location_id         String?
   user_id             String?               @unique
   first_name          String
   last_name           String
@@ -247,7 +258,9 @@ model Trainer {
 model TrainerAvailability {
   id          String   @id @default(uuid())
   gym_id      String
+  tenant_id   String?
   branch_id   String
+  location_id String?
   trainer_id  String
   day_of_week Int
   start_time  String
@@ -268,6 +281,7 @@ model TrainerAvailability {
 model ClassType {
   id                       String           @id @default(uuid())
   gym_id                   String
+  tenant_id                String?
   code                     String?
   name                     String
   description              String?
@@ -286,7 +300,9 @@ model ClassType {
 model ScheduledClass {
   id              String            @id @default(uuid())
   gym_id          String
+  tenant_id       String?
   branch_id       String
+  location_id     String?
   class_type_id   String
   trainer_id      String
   title           String
@@ -356,7 +372,9 @@ model ClassAttendance {
 model WeeklyPlanTemplate {
   id              String                  @id @default(uuid())
   gym_id          String
+  tenant_id       String?
   branch_id       String?
+  location_id     String?
   code            String?
   name            String
   target_gender   Gender?
@@ -402,7 +420,9 @@ model WeeklyPlanTemplateDay {
 model ClientWeeklyPlan {
   id          String                @id @default(uuid())
   gym_id      String
+  tenant_id   String?
   branch_id   String
+  location_id String?
   client_id   String
   template_id String?
   trainer_id  String?
@@ -451,6 +471,7 @@ model ClientWeeklyPlanDay {
 model GymSettings {
   id                  String   @id @default(uuid())
   gym_id              String   @unique
+  tenant_id           String?
   staff_code_prefix   String   @default("A")
   staff_code_digits   Int      @default(4)
   staff_code_start    Int      @default(1010)

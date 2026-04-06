@@ -7,7 +7,7 @@ import type { SessionUser } from "@/lib/permissions/guards";
 
 /** Obtiene el gimnasio del usuario de sesión */
 export async function getGym(user: SessionUser) {
-  return prisma.gym.findUnique({ where: { id: user.gym_id } });
+  return prisma.gym.findUnique({ where: { id: user.tenant_id } });
 }
 
 // ──────────────────────────────────────────────

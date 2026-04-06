@@ -12,11 +12,11 @@ export interface ClientFilters {
 }
 
 function buildWhereClause(user: SessionUser, filters: ClientFilters) {
-  const where: Record<string, unknown> = { gym_id: user.gym_id };
+  const where: Record<string, unknown> = { tenant_id: user.tenant_id };
 
   // branch_admin y reception solo ven su sucursal
   if (user.role === "branch_admin" || user.role === "reception") {
-    where.branch_id = user.branch_id!;
+    where.branch_id = user.location_id!;
   } else if (filters.branch_id) {
     where.branch_id = filters.branch_id;
   }
@@ -64,9 +64,9 @@ export async function getClients(user: SessionUser, filters: ClientFilters = {})
 }
 
 export async function getClientById(id: string, user: SessionUser) {
-  const where: Record<string, unknown> = { id, gym_id: user.gym_id };
+  const where: Record<string, unknown> = { id, tenant_id: user.tenant_id };
   if (user.role === "branch_admin" || user.role === "reception") {
-    where.branch_id = user.branch_id!;
+    where.branch_id = user.location_id!;
   }
 
   return prisma.client.findFirst({
@@ -85,13 +85,13 @@ export async function getClientById(id: string, user: SessionUser) {
 
 export async function getTrainersForClient(user: SessionUser) {
   const where: Record<string, unknown> = {
-    gym_id: user.gym_id,
+    tenant_id: user.tenant_id,
     role: "trainer",
     status: "active",
   };
 
   if (user.role === "branch_admin" || user.role === "reception") {
-    where.branch_id = user.branch_id!;
+    where.branch_id = user.location_id!;
   }
 
   return prisma.user.findMany({

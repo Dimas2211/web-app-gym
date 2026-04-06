@@ -2,9 +2,12 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { prisma } from "@/lib/db/prisma";
 import { requireAdmin, requireSuperAdmin, canManageBranch } from "@/lib/permissions/guards";
-import { branchSchema } from "./schemas";
+import {
+  createLocation,
+  updateLocation,
+  toggleLocationStatus,
+} from "@/core/modules/locations/actions";
 
 export type BranchActionState =
   | { errors?: Record<string, string[]>; error?: string }
@@ -19,23 +22,13 @@ export async function createBranchAction(
 ): Promise<BranchActionState> {
   const user = await requireSuperAdmin();
 
-  const parsed = branchSchema.safeParse({
+  const result = await createLocation(user.tenant_id, {
     name: formData.get("name"),
     address: formData.get("address") || undefined,
     phone: formData.get("phone") || undefined,
   });
 
-  if (!parsed.success) {
-    return { errors: parsed.error.flatten().fieldErrors };
-  }
-
-  await prisma.branch.create({
-    data: {
-      ...parsed.data,
-      gym_id: user.gym_id,
-      status: "active",
-    },
-  });
+  if (!result.success) return result;
 
   revalidatePath("/dashboard/branches");
   redirect("/dashboard/branches");
@@ -54,20 +47,13 @@ export async function updateBranchAction(
   if (!id) return { error: "ID de sucursal requerido." };
   if (!canManageBranch(user, id)) return { error: "Sin permiso para editar esta sucursal." };
 
-  const parsed = branchSchema.safeParse({
+  const result = await updateLocation(id, user.tenant_id, {
     name: formData.get("name"),
     address: formData.get("address") || undefined,
     phone: formData.get("phone") || undefined,
   });
 
-  if (!parsed.success) {
-    return { errors: parsed.error.flatten().fieldErrors };
-  }
-
-  await prisma.branch.update({
-    where: { id },
-    data: parsed.data,
-  });
+  if (!result.success) return result;
 
   revalidatePath("/dashboard/branches");
   redirect("/dashboard/branches");
@@ -82,13 +68,7 @@ export async function toggleBranchStatusAction(formData: FormData): Promise<void
 
   if (!id || !canManageBranch(user, id)) return;
 
-  const branch = await prisma.branch.findUnique({ where: { id } });
-  if (!branch) return;
-
-  await prisma.branch.update({
-    where: { id },
-    data: { status: branch.status === "active" ? "inactive" : "active" },
-  });
+  await toggleLocationStatus(id, user.tenant_id);
 
   revalidatePath("/dashboard/branches");
 }

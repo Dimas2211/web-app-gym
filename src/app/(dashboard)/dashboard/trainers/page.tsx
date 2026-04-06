@@ -4,7 +4,6 @@ import { getTrainers } from "@/modules/trainers/queries";
 import { toggleTrainerStatusAction, deleteTrainerAction } from "@/modules/trainers/actions";
 import { DeleteAuthorizationDialog } from "@/components/forms/delete-authorization-dialog";
 import { StatusBadge } from "@/components/ui/status-badge";
-import type { Status } from "@prisma/client";
 
 type Props = {
   searchParams: Promise<{ search?: string; status?: string; branch_id?: string }>;
@@ -16,7 +15,7 @@ export default async function TrainersPage({ searchParams }: Props) {
 
   const trainers = await getTrainers(sessionUser, {
     search: sp.search,
-    status: sp.status as Status | undefined,
+    status: sp.status,
     branch_id: sp.branch_id,
   });
 
@@ -52,13 +51,13 @@ export default async function TrainersPage({ searchParams }: Props) {
         />
         <select
           name="status"
-          defaultValue={sp.status ?? ""}
+          defaultValue={sp.status || "active"}
           className="border border-zinc-300 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-zinc-400"
         >
-          <option value="">Todos los estados</option>
           <option value="active">Activo</option>
           <option value="inactive">Inactivo</option>
           <option value="suspended">Suspendido</option>
+          <option value="all">Todos los estados</option>
         </select>
         <button
           type="submit"

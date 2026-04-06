@@ -11,6 +11,8 @@ declare module "next-auth" {
     role: UserRole;
     gym_id: string;
     branch_id: string | null;
+    tenant_id?: string;   // alias de gym_id — se propaga al JWT en auth.ts
+    location_id?: string | null; // alias de branch_id — se propaga al JWT en auth.ts
   }
 
   interface Session {
@@ -19,6 +21,8 @@ declare module "next-auth" {
       role: UserRole;
       gym_id: string;
       branch_id: string | null;
+      tenant_id: string;          // copia de gym_id — backward-compatible con sesiones antiguas
+      location_id: string | null; // copia de branch_id — backward-compatible con sesiones antiguas
     } & DefaultSession["user"];
   }
 }
@@ -29,5 +33,7 @@ declare module "next-auth/jwt" {
     role: UserRole;
     gym_id: string;
     branch_id: string | null;
+    tenant_id?: string;          // opcional: ausente en tokens emitidos antes de Etapa 6
+    location_id?: string | null; // opcional: ausente en tokens emitidos antes de Etapa 6
   }
 }

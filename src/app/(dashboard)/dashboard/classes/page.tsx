@@ -48,8 +48,14 @@ export default async function ClassesAgendaPage({ searchParams }: Props) {
   const sessionUser = await requireClassViewer();
   const sp = await searchParams;
 
+  // Normaliza searchParams: colapsa arrays (params duplicados) y descarta strings vacíos
+  const sp1 = (v: string | string[] | undefined): string | undefined => {
+    const s = Array.isArray(v) ? v.find((x) => x !== "") : v;
+    return s === "" ? undefined : s;
+  };
+
   const today = new Date().toISOString().split("T")[0];
-  const selectedDate = sp.date ?? today;
+  const selectedDate = sp1(sp.date) ?? today;
   const prevDate = offsetDate(selectedDate, -1);
   const nextDate = offsetDate(selectedDate, 1);
 
@@ -65,9 +71,9 @@ export default async function ClassesAgendaPage({ searchParams }: Props) {
   const [classes, trainers] = await Promise.all([
     getScheduledClasses(sessionUser, {
       date: selectedDate,
-      branch_id: sp.branch_id,
-      trainer_id: isTrainer ? (forcedTrainerId ?? "__none__") : sp.trainer_id,
-      status: sp.status,
+      branch_id: sp1(sp.branch_id),
+      trainer_id: isTrainer ? (forcedTrainerId ?? "__none__") : sp1(sp.trainer_id),
+      status: sp1(sp.status),
     }),
     isAdmin ? getTrainerOptionsForClass(sessionUser) : Promise.resolve([]),
   ]);
@@ -125,7 +131,7 @@ export default async function ClassesAgendaPage({ searchParams }: Props) {
         {/* Navegación de días */}
         <div className="flex items-center gap-1">
           <Link
-            href={`/dashboard/classes?date=${prevDate}${!isTrainer && sp.trainer_id ? `&trainer_id=${sp.trainer_id}` : ""}`}
+            href={`/dashboard/classes?date=${prevDate}${!isTrainer && sp1(sp.trainer_id) ? `&trainer_id=${sp1(sp.trainer_id)}` : ""}`}
             className="text-sm px-3 py-2 rounded-lg border border-zinc-300 text-zinc-600 hover:bg-zinc-50 transition-colors"
           >
             ←
@@ -141,7 +147,7 @@ export default async function ClassesAgendaPage({ searchParams }: Props) {
             Hoy
           </Link>
           <Link
-            href={`/dashboard/classes?date=${nextDate}${!isTrainer && sp.trainer_id ? `&trainer_id=${sp.trainer_id}` : ""}`}
+            href={`/dashboard/classes?date=${nextDate}${!isTrainer && sp1(sp.trainer_id) ? `&trainer_id=${sp1(sp.trainer_id)}` : ""}`}
             className="text-sm px-3 py-2 rounded-lg border border-zinc-300 text-zinc-600 hover:bg-zinc-50 transition-colors"
           >
             →
@@ -150,10 +156,6 @@ export default async function ClassesAgendaPage({ searchParams }: Props) {
 
         {/* Date picker + filtros (solo para no-trainer) */}
         <form method="get" className="flex items-end gap-2 flex-wrap">
-          {!isTrainer && (
-            <input type="hidden" name="trainer_id" value={sp.trainer_id ?? ""} />
-          )}
-          <input type="hidden" name="status" value={sp.status ?? ""} />
           <div>
             <label className="block text-xs text-zinc-400 mb-1">Fecha</label>
             <input

@@ -17,7 +17,8 @@
       "Bash(find 'c:\\\\jose\\\\RD\\\\IAERP\\\\PROYECTOS\\\\Sistema GYM\\\\web_app_gym\\\\src' -path */reports* -type f)",
       "Bash(npm install:*)",
       "Bash(node -e \"require\\(''xlsx''\\); console.log\\(''xlsx ok''\\)\")",
-      "Bash(node -e \"require\\(''jspdf''\\); console.log\\(''jspdf ok''\\)\")"
+      "Bash(node -e \"require\\(''jspdf''\\); console.log\\(''jspdf ok''\\)\")",
+      "Bash(xargs grep:*)"
     ]
   }
 }

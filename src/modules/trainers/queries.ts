@@ -4,24 +4,26 @@ import type { Status } from "@prisma/client";
 
 export interface TrainerFilters {
   search?: string;
-  status?: Status;
+  status?: string; // "active" | "inactive" | "suspended" | "all" | undefined
   branch_id?: string;
 }
 
 function buildWhereClause(user: SessionUser, filters: TrainerFilters) {
-  const where: Record<string, unknown> = { gym_id: user.gym_id };
+  const where: Record<string, unknown> = { tenant_id: user.tenant_id };
 
   // branch_admin solo ve su sucursal
   if (user.role === "branch_admin") {
-    where.branch_id = user.branch_id!;
+    where.branch_id = user.location_id!;
   } else if (filters.branch_id) {
     where.branch_id = filters.branch_id;
   }
 
-  if (filters.status) {
-    where.status = filters.status;
+  if (filters.status === "all") {
+    where.status = { not: "deleted" }; // "Todos": activos + inactivos, excluye deleted
+  } else if (filters.status) {
+    where.status = filters.status; // "active", "inactive", "suspended"
   } else {
-    where.status = { not: "deleted" };
+    where.status = "active"; // default (sin filtro): solo activos
   }
 
   if (filters.search) {
@@ -54,9 +56,9 @@ export async function getTrainers(
 }
 
 export async function getTrainerById(id: string, user: SessionUser) {
-  const where: Record<string, unknown> = { id, gym_id: user.gym_id };
+  const where: Record<string, unknown> = { id, tenant_id: user.tenant_id };
   if (user.role === "branch_admin") {
-    where.branch_id = user.branch_id!;
+    where.branch_id = user.location_id!;
   }
 
   return prisma.trainer.findFirst({
@@ -86,13 +88,13 @@ export async function getAssignedClients(trainer: { user_id: string | null }, us
   if (!trainer.user_id) return [];
 
   const where: Record<string, unknown> = {
-    gym_id: user.gym_id,
+    tenant_id: user.tenant_id,
     assigned_trainer_id: trainer.user_id,
     status: { not: "deleted" },
   };
 
   if (user.role === "branch_admin") {
-    where.branch_id = user.branch_id!;
+    where.branch_id = user.location_id!;
   }
 
   return prisma.client.findMany({
@@ -120,7 +122,7 @@ export async function getAssignedClients(trainer: { user_id: string | null }, us
 // (usuarios que aún no tienen perfil de entrenador)
 export async function getAvailableUserOptions(user: SessionUser, excludeTrainerId?: string) {
   const where: Record<string, unknown> = {
-    gym_id: user.gym_id,
+    tenant_id: user.tenant_id,
     role: "trainer",
     status: "active",
     // Excluir usuarios ya vinculados a otro trainer
@@ -128,7 +130,7 @@ export async function getAvailableUserOptions(user: SessionUser, excludeTrainerI
   };
 
   if (user.role === "branch_admin") {
-    where.branch_id = user.branch_id!;
+    where.branch_id = user.location_id!;
   }
 
   const available = await prisma.user.findMany({
@@ -154,11 +156,11 @@ export async function getAvailableUserOptions(user: SessionUser, excludeTrainerI
 
 export async function getBranchOptions(user: SessionUser) {
   const where: Record<string, unknown> = {
-    gym_id: user.gym_id,
+    tenant_id: user.tenant_id,
     status: "active",
   };
   if (user.role === "branch_admin") {
-    where.id = user.branch_id!;
+    where.id = user.location_id!;
   }
   return prisma.branch.findMany({
     where,
