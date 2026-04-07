@@ -54,7 +54,7 @@ export async function createUserAction(
     if (!BRANCH_ADMIN_ASSIGNABLE_ROLES.includes(parsed.data.role)) {
       return { error: "No tienes permiso para crear usuarios con ese rol." };
     }
-    if (parsed.data.branch_id !== sessionUser.branch_id) {
+    if (parsed.data.branch_id !== sessionUser.location_id) {
       return { error: "Solo puedes crear usuarios en tu propia sucursal." };
     }
   }
@@ -205,7 +205,7 @@ export async function deleteUserAction(
   }
 
   const target = await prisma.user.findFirst({
-    where: { id, gym_id: sessionUser.gym_id },
+    where: { id, tenant_id: sessionUser.tenant_id },
     include: {
       trainer_profile: { select: { id: true } },
       client_profile: { select: { id: true } },

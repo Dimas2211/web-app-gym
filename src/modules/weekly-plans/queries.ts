@@ -33,6 +33,7 @@ export interface ClientPlanFilters {
   branch_id?: string;
   trainer_id?: string;
   client_id?: string;
+  end_date_gte?: Date;
 }
 
 // ── Plantillas ────────────────────────────────────────────────
@@ -143,7 +144,7 @@ export async function getClientWeeklyPlans(
 
   // trainer: solo sus planes asignados
   if (user.role === "trainer") {
-    const linked = await getLinkedTrainerId(user.id, user.gym_id);
+    const linked = await getLinkedTrainerId(user.id, user.tenant_id);
     where.trainer_id = linked ?? "__none__";
   } else if (filters.trainer_id) {
     where.trainer_id = filters.trainer_id;
@@ -155,6 +156,10 @@ export async function getClientWeeklyPlans(
     where.status = filters.status;
   } else {
     where.status = { not: "deleted" };
+  }
+
+  if (filters.end_date_gte) {
+    where.end_date = { gte: filters.end_date_gte };
   }
 
   if (filters.search) {
@@ -190,7 +195,7 @@ export async function getClientWeeklyPlanById(id: string, user: SessionUser) {
 
   // trainer: solo sus planes
   if (user.role === "trainer") {
-    const linked = await getLinkedTrainerId(user.id, user.gym_id);
+    const linked = await getLinkedTrainerId(user.id, user.tenant_id);
     where.trainer_id = linked ?? "__none__";
   }
 
@@ -334,10 +339,10 @@ export async function getGeneralTemplatesForScope(user: SessionUser) {
 
 export async function getLinkedTrainerId(
   userId: string,
-  gymId: string
+  tenantId: string
 ): Promise<string | null> {
   const trainer = await prisma.trainer.findFirst({
-    where: { user_id: userId, gym_id: gymId, status: "active" },
+    where: { user_id: userId, tenant_id: tenantId, status: "active" },
     select: { id: true },
   });
   return trainer?.id ?? null;

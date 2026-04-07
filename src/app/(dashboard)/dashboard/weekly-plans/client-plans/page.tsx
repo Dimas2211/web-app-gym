@@ -50,12 +50,18 @@ export default async function ClientWeeklyPlansPage({
   const sessionUser = await requireClassViewer();
   const sp = await searchParams;
 
+  // Sin filtro de estado explícito → vista operativa: solo planes vigentes (end_date >= hoy)
+  // Con filtro de estado explícito → historial visible completo
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
   const [plans, generalTemplates] = await Promise.all([
     getClientWeeklyPlans(sessionUser, {
       search: sp.search,
       status: sp.status as Status | undefined,
       trainer_id: sp.trainer_id,
       client_id: sp.client_id,
+      end_date_gte: sp.status ? undefined : today,
     }),
     getGeneralTemplatesForScope(sessionUser),
   ]);

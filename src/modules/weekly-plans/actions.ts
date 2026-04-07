@@ -77,7 +77,7 @@ async function canTrainerManagePlan(
   plan: { branch_id: string; trainer_id: string | null }
 ): Promise<boolean> {
   if (user.role !== "trainer") return false;
-  const linked = await getLinkedTrainerId(user.id, user.gym_id);
+  const linked = await getLinkedTrainerId(user.id, user.tenant_id);
   if (!linked) return false;
   return plan.trainer_id === linked && plan.branch_id === user.location_id;
 }

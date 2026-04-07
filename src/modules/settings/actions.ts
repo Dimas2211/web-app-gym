@@ -35,14 +35,14 @@ export async function updateGymAction(
 
   // Verificar slug único (excluyendo el gym actual)
   const slugConflict = await prisma.gym.findFirst({
-    where: { slug: parsed.data.slug, NOT: { id: user.gym_id } },
+    where: { slug: parsed.data.slug, NOT: { id: user.tenant_id } },
   });
   if (slugConflict) {
     return { errors: { slug: ["Este slug ya está en uso por otro gimnasio."] } };
   }
 
   await prisma.gym.update({
-    where: { id: user.gym_id },
+    where: { id: user.tenant_id },
     data: parsed.data,
   });
 
@@ -249,8 +249,8 @@ export async function updateGymSettingsAction(
   }
 
   await prisma.gymSettings.upsert({
-    where: { gym_id: user.gym_id },
-    create: { gym_id: user.gym_id, ...parsed.data },
+    where: { gym_id: user.tenant_id },
+    create: { gym_id: user.tenant_id, ...parsed.data },
     update: parsed.data,
   });
 
@@ -277,7 +277,7 @@ export async function updateUserOperationalCodeAction(
   // Si hay código, verificar que no esté duplicado
   if (code) {
     const duplicate = await prisma.user.findFirst({
-      where: { gym_id: sessionUser.gym_id, operational_code: code, id: { not: id } },
+      where: { tenant_id: sessionUser.tenant_id, operational_code: code, id: { not: id } },
     });
     if (duplicate) {
       return { errors: { operational_code: ["Este código ya está en uso por otro usuario."] } };
@@ -309,7 +309,7 @@ export async function updateClientOperationalCodeAction(
 
   if (code) {
     const duplicate = await prisma.client.findFirst({
-      where: { gym_id: sessionUser.gym_id, operational_code: code, id: { not: id } },
+      where: { tenant_id: sessionUser.tenant_id, operational_code: code, id: { not: id } },
     });
     if (duplicate) {
       return { errors: { operational_code: ["Este código ya está en uso por otro cliente."] } };
