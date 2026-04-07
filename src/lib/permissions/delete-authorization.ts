@@ -31,7 +31,7 @@ export type AdminDeleteAuthResult =
  */
 export async function verifyAdminDeleteCredentials(
   credentials: AdminDeleteCredentials,
-  gymId: string
+  tenantId: string
 ): Promise<AdminDeleteAuthResult> {
   if (!credentials.email?.trim() || !credentials.password) {
     return { authorized: false, error: "Credenciales requeridas" };
@@ -40,7 +40,7 @@ export async function verifyAdminDeleteCredentials(
   const admin = await prisma.user.findFirst({
     where: {
       email: credentials.email.toLowerCase().trim(),
-      gym_id: gymId,
+      gym_id: tenantId,
       role: { in: ["super_admin", "branch_admin"] },
       status: "active",
     },
@@ -85,7 +85,7 @@ export async function verifyAdminDeleteCredentials(
  */
 export async function checkDeleteAuth(
   formData: FormData,
-  sessionUser: { role: UserRole; gym_id: string }
+  sessionUser: { role: UserRole; gym_id: string; tenant_id: string }
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   if (canDeleteDirectly(sessionUser.role)) {
     const word = (formData.get("confirmation_word") as string) ?? "";
@@ -106,7 +106,7 @@ export async function checkDeleteAuth(
     }
     const result = await verifyAdminDeleteCredentials(
       { email, password },
-      sessionUser.gym_id
+      sessionUser.tenant_id
     );
     if (!result.authorized) {
       return { ok: false, error: result.error };

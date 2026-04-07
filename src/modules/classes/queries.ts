@@ -220,10 +220,10 @@ export async function getAvailableClientsForBooking(
 
 export async function getLinkedTrainerId(
   userId: string,
-  gymId: string
+  tenantId: string
 ): Promise<string | null> {
   const trainer = await prisma.trainer.findFirst({
-    where: { user_id: userId, gym_id: gymId, status: "active" },
+    where: { user_id: userId, tenant_id: tenantId, status: "active" },
     select: { id: true },
   });
   return trainer?.id ?? null;

@@ -23,7 +23,7 @@ export default async function UserCredentialPage({ params }: Props) {
   const [target, gym, nextCode] = await Promise.all([
     getUserById(id, sessionUser),
     getGym(sessionUser),
-    suggestNextStaffCode(sessionUser.gym_id),
+    suggestNextStaffCode(sessionUser.tenant_id),
   ]);
 
   if (!target || !canManageUser(sessionUser, target) || target.role === "client") notFound();

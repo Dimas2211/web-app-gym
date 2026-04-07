@@ -60,7 +60,7 @@ export async function createUserAction(
   }
 
   // Generar códigos operativos GYM antes de delegar al core
-  const operational_code = await suggestNextStaffCode(sessionUser.gym_id);
+  const operational_code = await suggestNextStaffCode(sessionUser.tenant_id);
   const qr_token = generateQrToken();
 
   const result = await createCoreUser(sessionUser.tenant_id, {

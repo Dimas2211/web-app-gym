@@ -22,7 +22,7 @@ export default async function ClientCredentialPage({ params }: Props) {
   const [client, gym, nextCode] = await Promise.all([
     getClientById(id, sessionUser),
     getGym(sessionUser),
-    suggestNextClientCode(sessionUser.gym_id),
+    suggestNextClientCode(sessionUser.tenant_id),
   ]);
 
   if (!client || !canManageClient(sessionUser, client)) notFound();

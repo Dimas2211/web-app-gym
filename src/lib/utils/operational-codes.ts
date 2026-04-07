@@ -10,8 +10,8 @@ function formatCode(prefix: string, num: number, digits: number): string {
   return `${prefix}${String(num).padStart(digits, "0")}`;
 }
 
-async function getSettings(gymId: string) {
-  const s = await prisma.gymSettings.findUnique({ where: { gym_id: gymId } });
+async function getSettings(tenantId: string) {
+  const s = await prisma.gymSettings.findUnique({ where: { gym_id: tenantId } });
   return {
     staff: {
       prefix: s?.staff_code_prefix ?? STAFF_DEFAULTS.prefix,
@@ -30,12 +30,12 @@ async function getSettings(gymId: string) {
  * Sugiere el siguiente código de personal (staff) disponible para el gym.
  * Busca el número más alto ya usado con el mismo prefijo y lo incrementa.
  */
-export async function suggestNextStaffCode(gymId: string): Promise<string> {
-  const { staff } = await getSettings(gymId);
+export async function suggestNextStaffCode(tenantId: string): Promise<string> {
+  const { staff } = await getSettings(tenantId);
   const { prefix, digits, start } = staff;
 
   const users = await prisma.user.findMany({
-    where: { gym_id: gymId, operational_code: { startsWith: prefix } },
+    where: { gym_id: tenantId, operational_code: { startsWith: prefix } },
     select: { operational_code: true },
   });
 
@@ -52,12 +52,12 @@ export async function suggestNextStaffCode(gymId: string): Promise<string> {
 /**
  * Sugiere el siguiente código de cliente disponible para el gym.
  */
-export async function suggestNextClientCode(gymId: string): Promise<string> {
-  const { client } = await getSettings(gymId);
+export async function suggestNextClientCode(tenantId: string): Promise<string> {
+  const { client } = await getSettings(tenantId);
   const { prefix, digits, start } = client;
 
   const clients = await prisma.client.findMany({
-    where: { gym_id: gymId, operational_code: { startsWith: prefix } },
+    where: { gym_id: tenantId, operational_code: { startsWith: prefix } },
     select: { operational_code: true },
   });
 
@@ -81,13 +81,13 @@ export function generateQrToken(): string {
  * Devuelve true si está disponible.
  */
 export async function isStaffCodeAvailable(
-  gymId: string,
+  tenantId: string,
   code: string,
   excludeUserId?: string
 ): Promise<boolean> {
   const existing = await prisma.user.findFirst({
     where: {
-      gym_id: gymId,
+      gym_id: tenantId,
       operational_code: code,
       ...(excludeUserId ? { id: { not: excludeUserId } } : {}),
     },
@@ -100,13 +100,13 @@ export async function isStaffCodeAvailable(
  * Valida que un código no esté ya en uso por otro cliente del mismo gym.
  */
 export async function isClientCodeAvailable(
-  gymId: string,
+  tenantId: string,
   code: string,
   excludeClientId?: string
 ): Promise<boolean> {
   const existing = await prisma.client.findFirst({
     where: {
-      gym_id: gymId,
+      gym_id: tenantId,
       operational_code: code,
       ...(excludeClientId ? { id: { not: excludeClientId } } : {}),
     },

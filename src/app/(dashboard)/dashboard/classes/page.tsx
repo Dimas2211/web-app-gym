@@ -65,7 +65,7 @@ export default async function ClassesAgendaPage({ searchParams }: Props) {
   // Para trainer: forzar filtro a sus propias clases
   let forcedTrainerId: string | null = null;
   if (isTrainer) {
-    forcedTrainerId = await getLinkedTrainerId(sessionUser.id, sessionUser.gym_id);
+    forcedTrainerId = await getLinkedTrainerId(sessionUser.id, sessionUser.tenant_id);
   }
 
   const [classes, trainers] = await Promise.all([

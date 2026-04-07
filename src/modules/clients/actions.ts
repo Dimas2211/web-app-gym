@@ -73,7 +73,7 @@ export async function createClientAction(
   const { branch_id, birth_date, gender, ...rest } = parsed.data;
 
   // Generar código operativo y token QR para el nuevo cliente
-  const operational_code = await suggestNextClientCode(sessionUser.gym_id);
+  const operational_code = await suggestNextClientCode(sessionUser.tenant_id);
   const qr_token = generateQrToken();
 
   await prisma.client.create({

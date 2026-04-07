@@ -68,7 +68,7 @@ export default async function ScheduledClassDetailPage({ params }: Props) {
 
   // Trainer solo puede ver sus propias clases
   if (isTrainer) {
-    const linkedId = await getLinkedTrainerId(sessionUser.id, sessionUser.gym_id);
+    const linkedId = await getLinkedTrainerId(sessionUser.id, sessionUser.tenant_id);
     if (!linkedId || scheduledClass.trainer.id !== linkedId) notFound();
   }
 

@@ -15,11 +15,11 @@ export async function getGym(user: SessionUser) {
 // ──────────────────────────────────────────────
 
 /** Devuelve la configuración del gym o los valores por defecto si no existe */
-export async function getGymSettings(gymId: string) {
-  const s = await prisma.gymSettings.findUnique({ where: { gym_id: gymId } });
+export async function getGymSettings(tenantId: string) {
+  const s = await prisma.gymSettings.findUnique({ where: { gym_id: tenantId } });
   return {
     id: s?.id ?? null,
-    gym_id: gymId,
+    gym_id: tenantId,
     staff_code_prefix: s?.staff_code_prefix ?? "A",
     staff_code_digits: s?.staff_code_digits ?? 4,
     staff_code_start: s?.staff_code_start ?? 1010,

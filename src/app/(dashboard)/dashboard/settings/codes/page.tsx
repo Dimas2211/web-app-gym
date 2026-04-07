@@ -9,9 +9,9 @@ export default async function CodesSettingsPage() {
   const user = await requireSuperAdmin();
 
   const [settings, nextStaff, nextClient] = await Promise.all([
-    getGymSettings(user.gym_id),
-    suggestNextStaffCode(user.gym_id),
-    suggestNextClientCode(user.gym_id),
+    getGymSettings(user.tenant_id),
+    suggestNextStaffCode(user.tenant_id),
+    suggestNextClientCode(user.tenant_id),
   ]);
 
   return (
