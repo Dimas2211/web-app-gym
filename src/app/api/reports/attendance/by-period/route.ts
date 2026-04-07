@@ -26,9 +26,9 @@ export async function GET(req: NextRequest) {
 
   const branchId =
     user.role === "branch_admin" || user.role === "reception" || user.role === "trainer"
-      ? (user.branch_id ?? undefined)
+      ? (user.location_id ?? undefined)
       : branchIdParam;
 
-  const data = await getAttendanceByPeriod({ gymId: user.gym_id, branchId, dateFrom, dateTo });
+  const data = await getAttendanceByPeriod({ tenantId: user.tenant_id, branchId, dateFrom, dateTo });
   return NextResponse.json(data);
 }

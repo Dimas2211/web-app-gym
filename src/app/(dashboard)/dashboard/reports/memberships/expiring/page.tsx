@@ -13,7 +13,7 @@ export default async function ExpiringMembershipsPage() {
   const branches =
     user.role === "super_admin"
       ? await prisma.branch.findMany({
-          where: { gym_id: user.gym_id, status: "active" },
+          where: { gym_id: user.tenant_id, status: "active" },
           select: { id: true, name: true },
           orderBy: { name: "asc" },
         })

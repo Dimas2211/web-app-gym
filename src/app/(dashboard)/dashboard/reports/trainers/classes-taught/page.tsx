@@ -14,12 +14,12 @@ export default async function ClassesTaughtPage() {
     user.role === "super_admin"
       ? await Promise.all([
           prisma.branch.findMany({
-            where: { gym_id: user.gym_id, status: "active" },
+            where: { gym_id: user.tenant_id, status: "active" },
             select: { id: true, name: true },
             orderBy: { name: "asc" },
           }),
           prisma.trainer.findMany({
-            where: { gym_id: user.gym_id, status: "active" },
+            where: { gym_id: user.tenant_id, status: "active" },
             select: { id: true, first_name: true, last_name: true },
             orderBy: { last_name: "asc" },
           }),
@@ -27,7 +27,7 @@ export default async function ClassesTaughtPage() {
       : await Promise.all([
           Promise.resolve([]),
           prisma.trainer.findMany({
-            where: { gym_id: user.gym_id, branch_id: user.branch_id ?? "", status: "active" },
+            where: { gym_id: user.tenant_id, branch_id: user.location_id ?? "", status: "active" },
             select: { id: true, first_name: true, last_name: true },
             orderBy: { last_name: "asc" },
           }),

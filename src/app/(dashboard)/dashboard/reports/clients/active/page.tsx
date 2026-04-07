@@ -13,13 +13,13 @@ export default async function ActiveClientsPage() {
   const [branches, plans] = await Promise.all([
     user.role === "super_admin"
       ? prisma.branch.findMany({
-          where: { gym_id: user.gym_id, status: "active" },
+          where: { gym_id: user.tenant_id, status: "active" },
           select: { id: true, name: true },
           orderBy: { name: "asc" },
         })
       : Promise.resolve([]),
     prisma.membershipPlan.findMany({
-      where: { gym_id: user.gym_id, status: "active" },
+      where: { gym_id: user.tenant_id, status: "active" },
       select: { id: true, name: true },
       orderBy: { name: "asc" },
     }),

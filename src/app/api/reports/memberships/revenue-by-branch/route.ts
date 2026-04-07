@@ -27,11 +27,11 @@ export async function GET(req: NextRequest) {
   // branch_admin y reception solo ven su propia sucursal
   const branchId =
     user.role === "branch_admin" || user.role === "reception"
-      ? (user.branch_id ?? undefined)
+      ? (user.location_id ?? undefined)
       : branchIdParam;
 
   const data = await getRevenueByBranch({
-    gymId: user.gym_id,
+    tenantId: user.tenant_id,
     branchId,
     dateFrom,
     dateTo,

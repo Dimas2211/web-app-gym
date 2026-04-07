@@ -22,9 +22,9 @@ export async function GET(req: NextRequest) {
 
   const branchId =
     user.role === "branch_admin" || user.role === "reception" || user.role === "trainer"
-      ? (user.branch_id ?? undefined)
+      ? (user.location_id ?? undefined)
       : branchIdParam;
 
-  const data = await getLowAdherenceClients({ gymId: user.gym_id, branchId, dateFrom, dateTo, threshold });
+  const data = await getLowAdherenceClients({ tenantId: user.tenant_id, branchId, dateFrom, dateTo, threshold });
   return NextResponse.json(data);
 }

@@ -32,10 +32,10 @@ import type {
 export async function getRevenueByBranch(
   filters: RevenueByBranchFilters
 ): Promise<RevenueByBranchResponse> {
-  const { gymId, branchId, dateFrom, dateTo } = filters;
+  const { tenantId, branchId, dateFrom, dateTo } = filters;
 
   const where: Prisma.ClientMembershipWhereInput = {
-    gym_id: gymId,
+    gym_id: tenantId,
     status: "active",
     payment_status: { in: ["paid", "partial"] },
     ...(branchId && { branch_id: branchId }),
@@ -137,7 +137,7 @@ export async function getRevenueByBranch(
 export async function getExpiringMemberships(
   filters: ExpiringMembershipsFilters
 ): Promise<ExpiringMembershipsResponse> {
-  const { gymId, branchId, daysAhead = 30 } = filters;
+  const { tenantId, branchId, daysAhead = 30 } = filters;
 
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -149,7 +149,7 @@ export async function getExpiringMemberships(
 
   const records = await prisma.clientMembership.findMany({
     where: {
-      gym_id: gymId,
+      gym_id: tenantId,
       status: "active",
       end_date: { gte: today, lte: future },
       ...(branchId && { branch_id: branchId }),
@@ -194,12 +194,12 @@ export async function getExpiringMemberships(
 export async function getActiveMembershipsByBranch(
   filters: ActiveMembershipsByBranchFilters
 ): Promise<ActiveMembershipsByBranchResponse> {
-  const { gymId, branchId } = filters;
+  const { tenantId, branchId } = filters;
 
   const grouped = await prisma.clientMembership.groupBy({
     by: ["branch_id", "membership_plan_id"],
     where: {
-      gym_id: gymId,
+      gym_id: tenantId,
       status: "active",
       ...(branchId && { branch_id: branchId }),
     },
@@ -273,11 +273,11 @@ export async function getActiveMembershipsByBranch(
 export async function getActiveClients(
   filters: ActiveClientsFilters
 ): Promise<ActiveClientsResponse> {
-  const { gymId, branchId } = filters;
+  const { tenantId, branchId } = filters;
 
   const clients = await prisma.client.findMany({
     where: {
-      gym_id: gymId,
+      gym_id: tenantId,
       status: "active",
       ...(branchId && { branch_id: branchId }),
     },
@@ -330,12 +330,12 @@ export async function getActiveClients(
 export async function getLowAdherenceClients(
   filters: LowAdherenceFilters
 ): Promise<LowAdherenceResponse> {
-  const { gymId, branchId, dateFrom, dateTo, threshold = 50 } = filters;
+  const { tenantId, branchId, dateFrom, dateTo, threshold = 50 } = filters;
 
   const attendances = await prisma.classAttendance.findMany({
     where: {
       scheduled_class: {
-        gym_id: gymId,
+        gym_id: tenantId,
         ...(branchId && { branch_id: branchId }),
         ...(dateFrom || dateTo
           ? {
@@ -428,10 +428,10 @@ export async function getLowAdherenceClients(
 export async function getTrainerClassesTaught(
   filters: TrainerClassesTaughtFilters
 ): Promise<TrainerClassesTaughtResponse> {
-  const { gymId, branchId, trainerId, dateFrom, dateTo } = filters;
+  const { tenantId, branchId, trainerId, dateFrom, dateTo } = filters;
 
   const classWhere: Prisma.ScheduledClassWhereInput = {
-    gym_id: gymId,
+    gym_id: tenantId,
     status: "completed",
     ...(branchId && { branch_id: branchId }),
     ...(trainerId && { trainer_id: trainerId }),
@@ -519,11 +519,11 @@ export async function getTrainerClassesTaught(
 export async function getAttendanceByPeriod(
   filters: AttendanceByPeriodFilters
 ): Promise<AttendanceByPeriodResponse> {
-  const { gymId, branchId, dateFrom, dateTo } = filters;
+  const { tenantId, branchId, dateFrom, dateTo } = filters;
 
   const classes = await prisma.scheduledClass.findMany({
     where: {
-      gym_id: gymId,
+      gym_id: tenantId,
       class_date: { gte: new Date(dateFrom), lte: new Date(dateTo) },
       ...(branchId && { branch_id: branchId }),
     },

@@ -36,7 +36,7 @@ export interface RevenueByBranchResponse {
 }
 
 export interface RevenueByBranchFilters {
-  gymId: string;
+  tenantId: string;
   branchId?: string;
   dateFrom?: string;
   dateTo?: string;
@@ -69,7 +69,7 @@ export interface ExpiringMembershipsResponse {
 }
 
 export interface ExpiringMembershipsFilters {
-  gymId: string;
+  tenantId: string;
   branchId?: string;
   daysAhead?: number;
 }
@@ -103,7 +103,7 @@ export interface ActiveMembershipsByBranchResponse {
 }
 
 export interface ActiveMembershipsByBranchFilters {
-  gymId: string;
+  tenantId: string;
   branchId?: string;
 }
 
@@ -136,7 +136,7 @@ export interface ActiveClientsResponse {
 }
 
 export interface ActiveClientsFilters {
-  gymId: string;
+  tenantId: string;
   branchId?: string;
 }
 
@@ -174,7 +174,7 @@ export interface LowAdherenceResponse {
 }
 
 export interface LowAdherenceFilters {
-  gymId: string;
+  tenantId: string;
   branchId?: string;
   dateFrom?: string;
   dateTo?: string;
@@ -206,7 +206,7 @@ export interface TrainerClassesTaughtResponse {
 }
 
 export interface TrainerClassesTaughtFilters {
-  gymId: string;
+  tenantId: string;
   branchId?: string;
   trainerId?: string;
   dateFrom?: string;
@@ -250,7 +250,7 @@ export interface AttendanceByPeriodResponse {
 }
 
 export interface AttendanceByPeriodFilters {
-  gymId: string;
+  tenantId: string;
   branchId?: string;
   dateFrom: string;
   dateTo: string;
