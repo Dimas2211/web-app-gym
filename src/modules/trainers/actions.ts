@@ -89,7 +89,7 @@ export async function createTrainerAction(
 
   await prisma.trainer.create({
     data: {
-      gym_id: sessionUser.gym_id,
+      gym_id: sessionUser.tenant_id,
       tenant_id: sessionUser.tenant_id,
       ...rest,
       user_id: user_id ?? null,

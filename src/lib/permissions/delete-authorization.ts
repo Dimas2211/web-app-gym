@@ -85,7 +85,7 @@ export async function verifyAdminDeleteCredentials(
  */
 export async function checkDeleteAuth(
   formData: FormData,
-  sessionUser: { role: UserRole; gym_id: string; tenant_id: string }
+  sessionUser: { role: UserRole; tenant_id: string }
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   if (canDeleteDirectly(sessionUser.role)) {
     const word = (formData.get("confirmation_word") as string) ?? "";

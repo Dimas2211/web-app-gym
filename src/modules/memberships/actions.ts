@@ -75,7 +75,7 @@ export async function createPlanAction(
 
   await prisma.membershipPlan.create({
     data: {
-      gym_id: sessionUser.gym_id,
+      gym_id: sessionUser.tenant_id,
       tenant_id: sessionUser.tenant_id,
       branch_id: parsed.data.branch_id ?? null,
       code: parsed.data.code ?? null,
@@ -216,7 +216,7 @@ export async function createClientMembershipAction(
 
   await prisma.clientMembership.create({
     data: {
-      gym_id: sessionUser.gym_id,
+      gym_id: sessionUser.tenant_id,
       tenant_id: sessionUser.tenant_id,
       branch_id: parsed.data.branch_id,
       client_id: parsed.data.client_id,

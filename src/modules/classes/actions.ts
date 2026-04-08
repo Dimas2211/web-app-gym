@@ -48,7 +48,7 @@ export async function createClassTypeAction(
   if (!parsed.success) return { errors: parsed.error.flatten().fieldErrors };
 
   await prisma.classType.create({
-    data: { gym_id: sessionUser.gym_id, tenant_id: sessionUser.tenant_id, ...parsed.data, status: "active" },
+    data: { gym_id: sessionUser.tenant_id, tenant_id: sessionUser.tenant_id, ...parsed.data, status: "active" },
   });
 
   revalidatePath("/dashboard/classes/types");
@@ -198,7 +198,7 @@ export async function createScheduledClassAction(
 
   await prisma.scheduledClass.create({
     data: {
-      gym_id: sessionUser.gym_id,
+      gym_id: sessionUser.tenant_id,
       tenant_id: sessionUser.tenant_id,
       branch_id,
       class_type_id,

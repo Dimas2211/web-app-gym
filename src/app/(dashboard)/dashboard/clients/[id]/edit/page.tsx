@@ -23,7 +23,7 @@ export default async function EditClientPage({ params }: Props) {
   ]);
 
   const fixedBranchId =
-    sessionUser.role !== "super_admin" ? sessionUser.branch_id : null;
+    sessionUser.role !== "super_admin" ? sessionUser.location_id : null;
 
   return (
     <div className="space-y-6">

@@ -1,22 +1,20 @@
 import { auth } from "@/lib/auth/auth";
 import { redirect } from "next/navigation";
 import type { UserRole } from "@prisma/client";
-import type { GymSessionUser } from "@/core/auth/types";
+import type { CoreSessionUser } from "@/core/auth/types";
 import { getCapabilities } from "@/core/permissions/role-capabilities";
 
 /**
- * SessionUser extiende GymSessionUser para exponer también tenant_id y location_id
- * como aliases de gym_id y branch_id.
+ * Usuario de sesión autenticado en el sistema GYM.
+ * Extiende CoreSessionUser con el enum de rol GYM (UserRole) en lugar del string genérico.
  *
- * gym_id y branch_id siguen presentes e intactos — ningún módulo existente se rompe.
- * tenant_id y location_id son aliases temporales que permiten que código nuevo
- * en src/core/ opere sobre CoreSessionUser sin esperar el cambio de JWT.
+ * tenant_id  → identificador del gimnasio (antes gym_id)
+ * location_id → identificador de la sucursal (antes branch_id)
  *
- * role se narra con UserRole (enum Prisma) en lugar de string para mantener
- * type safety en los módulos GYM actuales.
+ * gym_id y branch_id fueron eliminados en 9D.4 — ya no forman parte de SessionUser.
  */
-export type SessionUser = GymSessionUser & {
-  role: UserRole; // narra el string genérico de GymSessionUser al enum GYM
+export type SessionUser = CoreSessionUser & {
+  role: UserRole;
 };
 
 /**
@@ -45,9 +43,6 @@ export async function getSessionOrRedirect(): Promise<SessionUser> {
     name: u.name,
     email: u.email,
     role: u.role as UserRole,
-    gym_id: u.gym_id,
-    branch_id: u.branch_id,
-    // Aliases core — tenant_id y location_id vienen directo del JWT desde Etapa 6
     tenant_id: u.tenant_id,
     location_id: u.location_id,
   };

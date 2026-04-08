@@ -28,7 +28,7 @@ export default async function EditTrainerPage({ params }: Props) {
     : [];
 
   const fixedBranchId =
-    sessionUser.role === "branch_admin" ? sessionUser.branch_id! : undefined;
+    sessionUser.role === "branch_admin" ? sessionUser.location_id! : undefined;
 
   return (
     <div className="space-y-6 max-w-3xl">

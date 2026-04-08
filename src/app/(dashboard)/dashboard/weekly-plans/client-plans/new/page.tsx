@@ -28,7 +28,7 @@ export default async function NewClientWeeklyPlanPage({
 
   const fixedBranchId =
     sessionUser.role === "branch_admin" || sessionUser.role === "reception"
-      ? sessionUser.branch_id!
+      ? sessionUser.location_id!
       : undefined;
 
   return (

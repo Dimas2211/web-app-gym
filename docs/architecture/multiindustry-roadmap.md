@@ -132,14 +132,14 @@ branches      → tenant_id (nullable, backfilled desde gym_id)
 
 | Aspecto | Estado |
 |---|---|
-| Demo local | Funcionando — intacta al cierre de subfase 9A |
-| Demo Vercel publicada | Funcionando — intacta al cierre de subfase 9A |
+| Demo local | Funcionando — intacta al cierre de subfase 9C |
+| Demo Vercel publicada | Funcionando — intacta al cierre de subfase 9C |
 | Prisma schema | Actualizado con `tenant_id` / `location_id` (no destructivo) |
 | Migraciones | `20260402235334_add_tenant_location_ids` aplicada en local y remoto |
 | Sistema GYM (módulos, rutas, auth) | Intacto y funcional |
 | Sesiones activas | Protegidas por fallback en session callback |
 | `gym_id` / `branch_id` en BD | Existen — siguen siendo campo operativo en writes y módulos pendientes |
-| `tenant_id` / `location_id` en BD | Backfill completo — usados en reads de 7 módulos operativos migrados |
+| `tenant_id` / `location_id` en BD | Backfill completo — campo operativo real en reads y writes de todos los módulos migrados |
 | JWT bridge (`gym_id` ↔ `tenant_id`) | Activo — no se elimina hasta completar subfase 9D |
 
 ---
@@ -195,29 +195,59 @@ Commit de cierre: `dc757e6` — `refactor: complete stage 9A operational reads m
 | Todos los `**/actions.ts` | Writes — subfase 9B |
 | JWT bridge en `auth.ts` | No hasta completar subfase 9D |
 
-#### Subfase 9B — Writes operativos (activa)
+#### Subfase 9B — Writes operativos ✅ — CERRADA
 
-Orden propuesto: `trainers` → `clients` → `memberships` → `classes` → `weekly-plans`
+Módulos migrados en orden: `trainers` → `clients` → `memberships` → `classes` → `weekly-plans` → `settings` → `branches` → `users`.
 
-Cada módulo requiere verificación de que los reads del mismo módulo ya estén consolidados antes de migrar sus writes. La subfase 9A garantiza esa condición para todos los módulos del orden propuesto.
+Cada módulo verificado con reads de 9A ya consolidados antes de migrar sus writes.
+Dual-write activo durante la transición: `gym_id` y `tenant_id` escritos simultáneamente.
 
-#### Subfase 9C — Funciones con parámetros externos (pendiente)
+**Demo local:** funcionando — intacta al cierre de 9B
+**Demo Vercel publicada:** funcionando — intacta al cierre de 9B
 
-- `getLinkedTrainerId` + sus llamadores en classes y weekly-plans
-- `getGymSettings(gymId)` + sus llamadores en settings
-- `reports/queries.ts` — parámetros `gymId`/`branchId` externos
+#### Subfase 9C — Funciones con parámetros externos ✅ — CERRADA
 
-#### Subfase 9D — JWT bridge cleanup (pendiente)
+Todas las funciones con `gymId`/`branchId` como parámetros de firma (no de sesión) migradas a `tenantId`/`locationId`. Patrón aplicado: renombrar parámetro JS, mantener columna Prisma `gym_id:`/`branch_id:` en WHERE.
 
-- Remover aliases `gym_id`/`branch_id` del JWT en `auth.ts`
-- Remover `GymSessionUser` y usar `CoreSessionUser` directamente
-- Solo ejecutar cuando reads y writes estén 100% migrados
+| Bloque | Archivos tocados | Estado |
+|---|---|---|
+| 9C.1A — `getLinkedTrainerId` en weekly-plans | `weekly-plans/queries.ts`, `weekly-plans/actions.ts` | ✅ |
+| 9C.1B — `getLinkedTrainerId` en classes | `classes/queries.ts`, `dashboard/classes/page.tsx`, `dashboard/classes/[id]/page.tsx` | ✅ |
+| 9C.2 — `suggestNextStaffCode` / `suggestNextClientCode` / `isStaffCodeAvailable` / `isClientCodeAvailable` | `lib/utils/operational-codes.ts` + 3 callers | ✅ |
+| 9C.3 — `getGymSettings(gymId)` | `modules/settings/queries.ts` + `settings/codes/page.tsx` | ✅ |
+| 9C.4 — Barrido final de `gymId`/`branchId` como parámetros externos | Todos los módulos restantes | ✅ |
+| 9C.5 — `verifyAdminDeleteCredentials` / `checkDeleteAuth` | `lib/permissions/delete-authorization.ts` | ✅ |
+| 9C.7A — Reports backend: types + queries + 7 API routes | `reports/types.ts`, `reports/queries.ts`, `api/reports/**/route.ts` × 7 | ✅ |
+| 9C.7B — Reports pages: dropdowns de sucursales/entrenadores/planes | `dashboard/reports/**/page.tsx` × 7 | ✅ |
+
+**Convención establecida:**
+- Columnas Prisma (`gym_id:`, `branch_id:`) permanecen sin renombrar — son el campo real en BD
+- Parámetros JS de función: `gymId` → `tenantId`, `branchId` → `locationId` o `branchId` según contexto semántico
+- Campos de sesión: `user.gym_id` → `user.tenant_id`, `user.branch_id` → `user.location_id`
+
+**Demo local:** funcionando — intacta al cierre de 9C
+**Demo Vercel publicada:** funcionando — intacta al cierre de 9C
+**Prisma schema:** sin cambios en esta subfase
+**JWT bridge:** activo e intacto — no se modifica hasta 9D
+
+#### Subfase 9D — JWT bridge cleanup (próxima — no iniciar sin planificación previa)
+
+**Objetivo:** eliminar los aliases `gym_id`/`branch_id` del JWT y la sesión, dejando solo `tenant_id`/`location_id` como campos operativos.
+
+**Precondición:** reads y writes 100% migrados — cumplida al cierre de 9C.
+
+**Alcance esperado:**
+- `src/lib/auth/auth.ts` — remover propagación de `gym_id`/`branch_id` al JWT y a `session.user`
+- `src/lib/auth/types.d.ts` — eliminar `gym_id`/`branch_id` de la declaración `SessionUser`
+- Verificar que ningún módulo GYM siga referenciando `user.gym_id` o `user.branch_id`
+
+**Restricción:** 9D no debe iniciarse sin un barrido previo completo que confirme que ningún consumidor activo aún depende de `gym_id`/`branch_id` en sesión. Un error aquí rompe la autenticación de toda la app.
 
 ---
 
 ## Siguiente movimiento
 
-**Subfase 9B — `trainers/actions.ts`** — primer write operativo a migrar.
+**Subfase 9D — JWT bridge cleanup** — planificación previa obligatoria antes de cualquier cambio en `auth.ts` o `types.d.ts`.
 
 ---
 

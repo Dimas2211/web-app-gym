@@ -15,7 +15,7 @@ export async function getAdminUsers(user: SessionUser) {
   if (user.role === "super_admin") {
     return prisma.user.findMany({
       where: {
-        gym_id: user.gym_id,
+        gym_id: user.tenant_id,
         status: { not: "deleted" },
         role: { not: "client" },
       },
@@ -24,12 +24,12 @@ export async function getAdminUsers(user: SessionUser) {
     });
   }
 
-  if (user.role === "branch_admin" && user.branch_id) {
+  if (user.role === "branch_admin" && user.location_id) {
     // branch_admin solo ve reception y trainer de su sucursal
     return prisma.user.findMany({
       where: {
-        gym_id: user.gym_id,
-        branch_id: user.branch_id,
+        gym_id: user.tenant_id,
+        branch_id: user.location_id,
         status: { not: "deleted" },
         role: { in: ["reception", "trainer"] },
       },
@@ -44,7 +44,7 @@ export async function getAdminUsers(user: SessionUser) {
 /** Obtiene un usuario por id, validando pertenencia al gym */
 export async function getUserById(id: string, user: SessionUser) {
   return prisma.user.findFirst({
-    where: { id, gym_id: user.gym_id },
+    where: { id, gym_id: user.tenant_id },
     include: {
       trainer_profile: { select: { id: true } },
       branch: { select: { name: true } },

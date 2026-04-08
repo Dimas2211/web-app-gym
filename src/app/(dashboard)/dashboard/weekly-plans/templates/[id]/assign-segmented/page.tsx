@@ -78,7 +78,7 @@ export default async function AssignSegmentedPage({ params }: Props) {
         goals={goals}
         trainers={trainers}
         isSuperAdmin={sessionUser.role === "super_admin"}
-        userBranchId={sessionUser.branch_id ?? null}
+        userBranchId={sessionUser.location_id ?? null}
       />
 
       {/* Enlace a planes resultantes */}

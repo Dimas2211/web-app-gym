@@ -66,7 +66,7 @@ export function toCoreSessionUser(user: GymSessionUser): CoreSessionUser {
     name: user.name,
     email: user.email,
     role: user.role,
-    tenant_id: user.gym_id,
-    location_id: user.branch_id,
+    tenant_id: user.tenant_id,
+    location_id: user.location_id,
   };
 }

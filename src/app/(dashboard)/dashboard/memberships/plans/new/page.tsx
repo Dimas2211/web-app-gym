@@ -9,7 +9,7 @@ export default async function NewPlanPage() {
   const branches = await getBranchOptions(sessionUser);
 
   const fixedBranchId =
-    sessionUser.role === "branch_admin" ? sessionUser.branch_id : null;
+    sessionUser.role === "branch_admin" ? sessionUser.location_id : null;
 
   return (
     <div className="space-y-6">

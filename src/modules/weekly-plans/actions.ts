@@ -117,7 +117,7 @@ export async function createTemplateAction(
 
   await prisma.weeklyPlanTemplate.create({
     data: {
-      gym_id: sessionUser.gym_id,
+      gym_id: sessionUser.tenant_id,
       tenant_id: sessionUser.tenant_id,
       created_by: sessionUser.id,
       status: "active",
@@ -358,7 +358,7 @@ export async function createClientPlanAction(
   // Crear el plan
   const newPlan = await prisma.clientWeeklyPlan.create({
     data: {
-      gym_id: sessionUser.gym_id,
+      gym_id: sessionUser.tenant_id,
       tenant_id: sessionUser.tenant_id,
       branch_id,
       client_id,
@@ -778,7 +778,7 @@ export async function assignTemplateSegmentedAction(
 
     const newPlan = await prisma.clientWeeklyPlan.create({
       data: {
-        gym_id: sessionUser.gym_id,
+        gym_id: sessionUser.tenant_id,
         tenant_id: sessionUser.tenant_id,
         branch_id: planBranchId,
         client_id: client.id,

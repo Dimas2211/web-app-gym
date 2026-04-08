@@ -26,7 +26,7 @@ export default async function EditScheduledClassPage({ params }: Props) {
   if (!scheduledClass || !canManageClass(sessionUser, scheduledClass)) notFound();
 
   const fixedBranchId =
-    sessionUser.role === "branch_admin" ? sessionUser.branch_id! : undefined;
+    sessionUser.role === "branch_admin" ? sessionUser.location_id! : undefined;
 
   const classDateStr = scheduledClass.class_date
     ? new Date(scheduledClass.class_date).toISOString().split("T")[0]

@@ -17,7 +17,7 @@ export default async function EditWeeklyPlanTemplatePage({ params }: Props) {
     getSportOptions(),
     getGoalOptions(),
     prisma.branch.findMany({
-      where: { gym_id: sessionUser.gym_id, status: "active" },
+      where: { gym_id: sessionUser.tenant_id, status: "active" },
       select: { id: true, name: true },
       orderBy: { name: "asc" },
     }),
@@ -26,7 +26,7 @@ export default async function EditWeeklyPlanTemplatePage({ params }: Props) {
   if (!template || !canManageWeeklyPlanTemplate(sessionUser, template)) notFound();
 
   const fixedBranchId =
-    sessionUser.role === "branch_admin" ? sessionUser.branch_id : undefined;
+    sessionUser.role === "branch_admin" ? sessionUser.location_id : undefined;
 
   return (
     <div className="space-y-6 max-w-2xl">

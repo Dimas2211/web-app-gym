@@ -17,7 +17,7 @@ export default async function NewClientPage() {
 
   // Si no es super_admin, la sucursal está fija
   const fixedBranchId =
-    sessionUser.role !== "super_admin" ? sessionUser.branch_id : null;
+    sessionUser.role !== "super_admin" ? sessionUser.location_id : null;
 
   return (
     <div className="space-y-6">

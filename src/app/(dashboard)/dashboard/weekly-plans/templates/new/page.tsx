@@ -12,14 +12,14 @@ export default async function NewWeeklyPlanTemplatePage() {
     getSportOptions(),
     getGoalOptions(),
     prisma.branch.findMany({
-      where: { gym_id: sessionUser.gym_id, status: "active" },
+      where: { gym_id: sessionUser.tenant_id, status: "active" },
       select: { id: true, name: true },
       orderBy: { name: "asc" },
     }),
   ]);
 
   const fixedBranchId =
-    sessionUser.role === "branch_admin" ? sessionUser.branch_id : undefined;
+    sessionUser.role === "branch_admin" ? sessionUser.location_id : undefined;
 
   return (
     <div className="space-y-6 max-w-2xl">

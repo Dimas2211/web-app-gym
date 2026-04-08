@@ -78,7 +78,7 @@ export async function createClientAction(
 
   await prisma.client.create({
     data: {
-      gym_id: sessionUser.gym_id,
+      gym_id: sessionUser.tenant_id,
       tenant_id: sessionUser.tenant_id,
       branch_id,
       ...rest,

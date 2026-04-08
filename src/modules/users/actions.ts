@@ -80,7 +80,7 @@ export async function createUserAction(
   if (parsed.data.role === "trainer" && parsed.data.branch_id) {
     await prisma.trainer.create({
       data: {
-        gym_id: sessionUser.gym_id,
+        gym_id: sessionUser.tenant_id,
         tenant_id: sessionUser.tenant_id,
         branch_id: parsed.data.branch_id,
         first_name: parsed.data.first_name,
