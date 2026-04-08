@@ -69,7 +69,7 @@ export default async function DashboardPage() {
           <div>
             <p className="text-xs text-zinc-400">Sucursal</p>
             <p className="text-sm text-zinc-800 font-medium">
-              {user.branch_id ? "Asignada" : "— (global)"}
+              {user.location_id ? "Asignada" : "— (global)"}
             </p>
           </div>
           <div className="col-span-2 sm:col-span-1">

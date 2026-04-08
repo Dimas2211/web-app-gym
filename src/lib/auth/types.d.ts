@@ -2,27 +2,23 @@ import type { UserRole } from "@prisma/client";
 import type { DefaultSession } from "next-auth";
 
 /**
- * Extiende los tipos de Auth.js para incluir
- * role, gym_id y branch_id en el JWT y la sesión.
+ * Extiende los tipos de Auth.js para incluir role, tenant_id y location_id
+ * en el JWT y la sesión. gym_id y branch_id eliminados en 9D.6.
  */
 
 declare module "next-auth" {
   interface User {
     role: UserRole;
-    gym_id: string;
-    branch_id: string | null;
-    tenant_id?: string;   // alias de gym_id — se propaga al JWT en auth.ts
-    location_id?: string | null; // alias de branch_id — se propaga al JWT en auth.ts
+    tenant_id: string;
+    location_id: string | null;
   }
 
   interface Session {
     user: {
       id: string;
       role: UserRole;
-      gym_id: string;
-      branch_id: string | null;
-      tenant_id: string;          // copia de gym_id — backward-compatible con sesiones antiguas
-      location_id: string | null; // copia de branch_id — backward-compatible con sesiones antiguas
+      tenant_id: string;
+      location_id: string | null;
     } & DefaultSession["user"];
   }
 }
@@ -31,9 +27,7 @@ declare module "next-auth/jwt" {
   interface JWT {
     id: string;
     role: UserRole;
-    gym_id: string;
-    branch_id: string | null;
-    tenant_id?: string;          // opcional: ausente en tokens emitidos antes de Etapa 6
-    location_id?: string | null; // opcional: ausente en tokens emitidos antes de Etapa 6
+    tenant_id: string;
+    location_id: string | null;
   }
 }

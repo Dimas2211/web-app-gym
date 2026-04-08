@@ -37,8 +37,8 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           email: user.email,
           name: `${user.first_name} ${user.last_name}`,
           role: user.role,
-          gym_id: user.gym_id,
-          branch_id: user.branch_id,
+          tenant_id: user.gym_id,
+          location_id: user.branch_id,
         };
       },
     }),
@@ -49,10 +49,8 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       if (user) {
         token.id = user.id!;
         token.role = user.role;
-        token.gym_id = user.gym_id;
-        token.branch_id = user.branch_id;
-        token.tenant_id = user.gym_id;    // Etapa 6: copia de gym_id, alias cross-industry
-        token.location_id = user.branch_id; // Etapa 6: copia de branch_id, alias cross-industry
+        token.tenant_id = user.tenant_id;
+        token.location_id = user.location_id;
       }
       return token;
     },
@@ -61,11 +59,8 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       // se requieren casts explícitos para los campos personalizados.
       session.user.id = token.id as string;
       session.user.role = token.role as UserRole;
-      session.user.gym_id = token.gym_id as string;
-      session.user.branch_id = token.branch_id as string | null;
-      // Etapa 6: tenant_id y location_id con fallback para sesiones emitidas antes de este cambio
-      session.user.tenant_id   = (token.tenant_id ?? token.gym_id) as string;
-      session.user.location_id = (token.location_id !== undefined ? token.location_id : token.branch_id) as string | null;
+      session.user.tenant_id   = token.tenant_id as string;
+      session.user.location_id = token.location_id as string | null;
       return session;
     },
   },
