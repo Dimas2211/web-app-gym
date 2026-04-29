@@ -25,8 +25,10 @@ const ADMIN_ROLES = ["super_admin", "branch_admin"];
 
 export async function PATCH(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
+  const { id: productId } = await params;
+
   const session = await auth();
   if (!session?.user) {
     return NextResponse.json({ error: "No autorizado" }, { status: 401 });
@@ -50,7 +52,7 @@ export async function PATCH(
 
   // ── Validación Zod (id viene del path param, status del body) ───
   const parsed = updateProductStatusSchema.safeParse({
-    id: params.id,
+    id: productId,
     status: (body as Record<string, unknown>)?.status,
   });
   if (!parsed.success) {

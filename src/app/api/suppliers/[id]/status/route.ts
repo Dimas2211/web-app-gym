@@ -24,8 +24,10 @@ function toHttpStatus(code: SupplierErrorCode): number {
 
 export async function PATCH(
   req: NextRequest,
-  { params }: { params: { id: string } },
+  { params }: { params: Promise<{ id: string }> },
 ) {
+  const { id } = await params;
+
   const session = await auth();
   if (!session?.user) {
     return NextResponse.json({ error: "No autorizado" }, { status: 401 });
@@ -45,7 +47,7 @@ export async function PATCH(
 
   // id del path param — inyectado al objeto antes de validar.
   const parsed = toggleSupplierStatusSchema.safeParse({
-    id:     params.id,
+    id,
     status: (body as Record<string, unknown>)?.status,
   });
   if (!parsed.success) {

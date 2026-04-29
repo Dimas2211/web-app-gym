@@ -29,8 +29,10 @@ function toHttpStatus(code: SupplierErrorCode): number {
 
 export async function GET(
   _req: NextRequest,
-  { params }: { params: { id: string } },
+  { params }: { params: Promise<{ id: string }> },
 ) {
+  const { id } = await params;
+
   const session = await auth();
   if (!session?.user) {
     return NextResponse.json({ error: "No autorizado" }, { status: 401 });
@@ -41,7 +43,7 @@ export async function GET(
     return NextResponse.json({ error: "Acceso denegado" }, { status: 403 });
   }
 
-  const supplier = await getSupplierById(user.tenant_id, params.id);
+  const supplier = await getSupplierById(user.tenant_id, id);
 
   if (!supplier) {
     return NextResponse.json({ error: "Proveedor no encontrado." }, { status: 404 });
@@ -54,8 +56,10 @@ export async function GET(
 
 export async function PATCH(
   req: NextRequest,
-  { params }: { params: { id: string } },
+  { params }: { params: Promise<{ id: string }> },
 ) {
+  const { id } = await params;
+
   const session = await auth();
   if (!session?.user) {
     return NextResponse.json({ error: "No autorizado" }, { status: 401 });
@@ -77,7 +81,7 @@ export async function PATCH(
   // Si el body incluye id, el path param tiene prioridad.
   const parsed = updateSupplierSchema.safeParse({
     ...(body as object),
-    id: params.id,
+    id,
   });
   if (!parsed.success) {
     return NextResponse.json(

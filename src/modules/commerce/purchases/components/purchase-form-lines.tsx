@@ -105,12 +105,12 @@ export function PurchaseFormLines({
 
     try {
       const result = await addPurchaseItemAction(undefined, fd);
-      if (result?.error) {
+      if (result && "error" in result && result.error) {
         setAddError(result.error);
-      } else if (result?.errors) {
+      } else if (result && "errors" in result && result.errors) {
         const first = Object.values(result.errors)[0]?.[0];
         setAddError(first ?? "Error al agregar la línea.");
-      } else if (result?.ok && result.detail) {
+      } else if (result && "ok" in result && result.ok && result.detail) {
         onItemAdded(result.detail);
         setLine(EMPTY_LINE);
         onClearProduct();
@@ -141,7 +141,7 @@ export function PurchaseFormLines({
     fd.set("item_id",     itemId);
     const result = await removePurchaseItemAction(undefined, fd);
     setRemovingIds((prev) => { const s = new Set(prev); s.delete(itemId); return s; });
-    if (result?.ok && result.detail) {
+    if (result && "ok" in result && result.ok && result.detail) {
       onItemAdded(result.detail);
     } else {
       await onRefresh();

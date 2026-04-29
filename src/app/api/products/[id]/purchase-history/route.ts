@@ -17,8 +17,10 @@ const VIEWER_ROLES = ["super_admin", "branch_admin", "reception"];
 
 export async function GET(
   _req: NextRequest,
-  { params }: { params: { id: string } },
+  { params }: { params: Promise<{ id: string }> },
 ) {
+  const { id } = await params;
+
   const session = await auth();
   if (!session?.user) {
     return NextResponse.json({ error: "No autorizado" }, { status: 401 });
@@ -31,7 +33,7 @@ export async function GET(
 
   const rows = await getProductPurchaseHistory(
     user.tenant_id,
-    params.id,
+    id,
     user.location_id ?? null,
   );
 
