@@ -1,15 +1,14 @@
 /**
  * Contratos del dominio Location.
  *
- * ESTADO: Esqueleto. Sin implementar.
- *
  * Location representa una ubicación física dentro de un tenant.
  * En el sistema GYM actual, Location equivale a Branch (tabla `branches`).
- * Este módulo recibirá implementación cuando se complete la abstracción Tenant.
  *
  * Relación con el sistema actual:
- *   Location.id        ←→  Branch.id  (branch_id en tablas actuales)
+ *   Location.id        ←→  Branch.id      (columna branch_id en tablas operativas)
  *   Location.tenant_id ←→  Branch.gym_id
+ *
+ * queries.ts, schemas.ts y actions.ts están implementados sobre la tabla `branches`.
  */
 
 import type { Tenant } from "@/core/modules/tenants/types";

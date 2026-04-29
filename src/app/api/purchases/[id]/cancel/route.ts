@@ -1,0 +1,37 @@
+// ─────────────────────────────────────────────────────────────────
+// api/purchases/[id]/cancel/route.ts
+//
+// POST /api/purchases/:id/cancel — anula una compra en DRAFT
+// ─────────────────────────────────────────────────────────────────
+
+import { NextRequest, NextResponse } from "next/server";
+import { requireAdmin } from "@/lib/permissions/guards";
+import { cancelPurchase } from "@/modules/commerce/purchases/services/purchase.service";
+
+export async function POST(
+  _req: NextRequest,
+  { params }: { params: Promise<{ id: string }> },
+) {
+  const sessionUser = await requireAdmin();
+  const tenant_id   = sessionUser.tenant_id;
+  const location_id = sessionUser.location_id;
+
+  if (!tenant_id || !location_id) {
+    return NextResponse.json({ error: "Sesión sin tenant o location activa." }, { status: 401 });
+  }
+
+  const { id: purchase_id } = await params;
+
+  const result = await cancelPurchase(
+    purchase_id,
+    tenant_id,
+    location_id,
+    sessionUser.id,
+  );
+
+  if (!result.ok) {
+    return NextResponse.json({ error: result.error }, { status: 422 });
+  }
+
+  return NextResponse.json({ ok: true });
+}

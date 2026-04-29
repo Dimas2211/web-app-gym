@@ -3,8 +3,8 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
   directUrl = env("DIRECT_URL")
 }
 
@@ -86,6 +86,17 @@ model User {
   branch                        Branch?              @relation(fields: [branch_id], references: [id])
   gym                           Gym                  @relation(fields: [gym_id], references: [id])
   created_weekly_plan_templates WeeklyPlanTemplate[] @relation("TemplateCreator")
+  products_created              Product[]            @relation("ProductCreatedBy")
+  products_updated              Product[]            @relation("ProductUpdatedBy")
+  product_locations_created     ProductLocation[]    @relation("ProductLocationCreatedBy")
+  product_locations_updated     ProductLocation[]    @relation("ProductLocationUpdatedBy")
+  inventory_movements_performed InventoryMovement[]  @relation("MovementPerformedBy")
+  purchases_confirmed           Purchase[]           @relation("PurchaseConfirmedBy")
+  purchases_cancelled           Purchase[]           @relation("PurchaseCancelledBy")
+  purchases_created             Purchase[]           @relation("PurchaseCreatedBy")
+  purchases_updated             Purchase[]           @relation("PurchaseUpdatedBy")
+  suppliers_created             Supplier[]           @relation("SupplierCreatedBy")
+  suppliers_updated             Supplier[]           @relation("SupplierUpdatedBy")
 
   @@unique([gym_id, operational_code])
   @@index([gym_id])
@@ -418,16 +429,16 @@ model WeeklyPlanTemplateDay {
 }
 
 model ClientWeeklyPlan {
-  id          String                @id @default(uuid())
-  gym_id      String
-  tenant_id   String?
-  branch_id   String
-  location_id String?
-  client_id   String
-  template_id String?
-  trainer_id  String?
-  start_date  DateTime              @db.Date
-  end_date    DateTime              @db.Date
+  id              String                @id @default(uuid())
+  gym_id          String
+  tenant_id       String?
+  branch_id       String
+  location_id     String?
+  client_id       String
+  template_id     String?
+  trainer_id      String?
+  start_date      DateTime              @db.Date
+  end_date        DateTime              @db.Date
   status          Status                @default(active)
   assignment_type AssignmentType        @default(individual)
   notes           String?
@@ -469,20 +480,35 @@ model ClientWeeklyPlanDay {
 }
 
 model GymSettings {
-  id                  String   @id @default(uuid())
-  gym_id              String   @unique
-  tenant_id           String?
-  staff_code_prefix   String   @default("A")
-  staff_code_digits   Int      @default(4)
-  staff_code_start    Int      @default(1010)
-  client_code_prefix  String   @default("C")
-  client_code_digits  Int      @default(4)
-  client_code_start   Int      @default(1010)
-  created_at          DateTime @default(now())
-  updated_at          DateTime @updatedAt
-  gym                 Gym      @relation(fields: [gym_id], references: [id])
+  id                 String   @id @default(uuid())
+  gym_id             String   @unique
+  tenant_id          String?
+  staff_code_prefix  String   @default("A")
+  staff_code_digits  Int      @default(4)
+  staff_code_start   Int      @default(1010)
+  client_code_prefix String   @default("C")
+  client_code_digits Int      @default(4)
+  client_code_start  Int      @default(1010)
+  created_at         DateTime @default(now())
+  updated_at         DateTime @updatedAt
+  gym                Gym      @relation(fields: [gym_id], references: [id])
 
   @@map("gym_settings")
+}
+
+// ── Configuración fiscal reusable del tenant ──────────────────────
+// No depende de la vertical GYM. Cualquier vertical puede usarla.
+// Contiene los parámetros que determinan si el tenant actúa como
+// agente retenedor de IVA 1% al momento de registrar compras.
+model TenantFiscalConfig {
+  id                         String    @id @default(uuid())
+  tenant_id                  String    @unique
+  is_retention_agent         Boolean   @default(false)
+  retention_threshold_amount Decimal?  @db.Decimal(10, 2)
+  created_at                 DateTime  @default(now())
+  updated_at                 DateTime  @updatedAt
+
+  @@map("tenant_fiscal_config")
 }
 
 enum UserRole {
@@ -565,4 +591,583 @@ enum ExecutionStatus {
 enum AssignmentType {
   individual
   segmented
+}
+
+// ═════════════════════════════════════════════════════════════════
+// COMMERCE — Catálogo maestro de productos (Etapa 11)
+// Datos operativos por sucursal (stock, bodega) → Etapa 12: Inventario
+// ═════════════════════════════════════════════════════════════════
+
+// ── Enums commerce/products ──────────────────────────────────────
+
+enum ProductType {
+  PRODUCT
+  SERVICE
+}
+
+// ── Enums commerce/inventory ─────────────────────────────────────
+
+enum MovementType {
+  // Operaciones disponibles en la Etapa 11
+  INITIAL_LOAD    // carga inicial de existencias
+  MANUAL_IN       // entrada manual autorizada
+  MANUAL_OUT      // salida manual autorizada
+  ADJUSTMENT_UP   // ajuste positivo por conteo físico
+  ADJUSTMENT_DOWN // ajuste negativo por conteo físico
+  // Reservados para integración futura — no implementados aún
+  PURCHASE_IN     // entrada por orden de compra (Etapa 13)
+  SALE_OUT        // salida por venta (Etapa 14)
+  TRANSFER_IN     // entrada por transferencia entre locations (futuro)
+  TRANSFER_OUT    // salida por transferencia entre locations (futuro)
+  RETURN_IN       // devolución recibida (futuro)
+  RETURN_OUT      // devolución enviada (futuro)
+}
+
+enum ProductStatus {
+  ACTIVE
+  INACTIVE
+  DISCONTINUED
+  BLOCKED_PURCHASE
+  BLOCKED_SALE
+}
+
+// ── Enums commerce/purchases ─────────────────────────────────────
+
+enum PurchaseStatus {
+  DRAFT       // borrador editable
+  CONFIRMED   // confirmado — genera movimientos PURCHASE_IN en inventory
+  CANCELLED   // anulado desde DRAFT
+}
+
+// ── Enums commerce/suppliers ─────────────────────────────────────
+
+enum TaxpayerType {
+  LARGE_TAXPAYER  // Gran contribuyente
+  SMALL_TAXPAYER  // Pequeño contribuyente
+  NON_TAXPAYER    // No contribuyente (persona natural sin NRC)
+  FOREIGN         // Proveedor extranjero
+}
+
+// ── Unidades de medida (referencia global) ───────────────────────
+
+model UnitOfMeasure {
+  id         String    @id @default(uuid())
+  name       String
+  symbol     String
+  status     Status    @default(active)
+  created_at DateTime  @default(now())
+  updated_at DateTime  @updatedAt
+  products   Product[]
+
+  @@unique([symbol])
+  @@map("units_of_measure")
+}
+
+// ── Jerarquía del catálogo: categorías → líneas → sublíneas ──────
+
+model ProductCategory {
+  id          String        @id @default(uuid())
+  tenant_id   String
+  code        String
+  name        String
+  description String?
+  status      Status        @default(active)
+  created_at  DateTime      @default(now())
+  updated_at  DateTime      @updatedAt
+  lines       ProductLine[]
+  products    Product[]
+
+  @@unique([tenant_id, code])
+  @@index([tenant_id])
+  @@map("product_categories")
+}
+
+model ProductLine {
+  id          String           @id @default(uuid())
+  tenant_id   String
+  category_id String
+  code        String
+  name        String
+  status      Status           @default(active)
+  created_at  DateTime         @default(now())
+  updated_at  DateTime         @updatedAt
+  category    ProductCategory  @relation(fields: [category_id], references: [id])
+  sublines    ProductSubline[]
+  products    Product[]
+
+  @@unique([category_id, code])
+  @@index([tenant_id])
+  @@index([category_id])
+  @@map("product_lines")
+}
+
+model ProductSubline {
+  id         String      @id @default(uuid())
+  tenant_id  String
+  line_id    String
+  code       String
+  name       String
+  status     Status      @default(active)
+  created_at DateTime    @default(now())
+  updated_at DateTime    @updatedAt
+  line       ProductLine @relation(fields: [line_id], references: [id])
+  products   Product[]
+
+  @@unique([line_id, code])
+  @@index([tenant_id])
+  @@index([line_id])
+  @@map("product_sublines")
+}
+
+// ── Tablas auxiliares del catálogo ───────────────────────────────
+
+model TaxRate {
+  id         String    @id @default(uuid())
+  tenant_id  String
+  name       String
+  rate       Decimal   @db.Decimal(5, 2)
+  status     Status    @default(active)
+  created_at DateTime  @default(now())
+  updated_at DateTime  @updatedAt
+  products   Product[]
+
+  @@index([tenant_id])
+  @@map("tax_rates")
+}
+
+// ── Catálogos globales commerce/suppliers ────────────────────────
+// Sin tenant_id — datos de sistema, cargados vía seed, no editables por usuario.
+
+// CAT-022 El Salvador DTE — tipos de identificación del contribuyente
+model IdentificationType {
+  code        String  @id    // "00", "02", "03", "13", "37"
+  name        String
+  description String?
+  status      Status  @default(active)
+
+  @@map("identification_types")
+}
+
+// CAT-019 El Salvador MH — actividades económicas del contribuyente
+model EconomicActivity {
+  code    String  @id    // código CIIU adaptado MH, e.g., "01110"
+  name    String
+  section String?        // división o sección (agrupación de búsqueda)
+  status  Status  @default(active)
+
+  @@index([name])
+  @@index([section])
+  @@map("economic_activities")
+}
+
+// CAT-013 El Salvador MH — municipios con departamento embebido
+model Municipality {
+  id        String @id @default(uuid())
+  dept_code String  // "01"–"14"
+  dept_name String
+  code      String  // código relativo al departamento, e.g., "01"
+  name      String
+  status    Status @default(active)
+
+  @@unique([dept_code, code])
+  @@index([dept_code])
+  @@index([name])
+  @@map("municipalities")
+}
+
+// Catálogo de países — ISO 3166-1 alpha-2
+model Country {
+  code   String @id   // "SV", "GT", "HN", "US", etc.
+  name   String
+  status Status @default(active)
+
+  @@map("countries")
+}
+
+// ── Maestro de proveedores — commerce/suppliers (Etapa 12) ───────
+
+model Supplier {
+  // Identidad
+  id             String  @id @default(uuid())
+  tenant_id      String
+  supplier_code  String           // código interno del sistema — único por tenant
+  account_code   String?          // código de cuenta contable (externo, opcional)
+  name           String           // nombre comercial / razón social
+  legal_name     String?          // razón social formal si difiere del nombre
+
+  // Clasificación tributaria — requerida para reglas de retención en compras
+  taxpayer_type  TaxpayerType  @default(SMALL_TAXPAYER)
+
+  // Identificación documental
+  // id_type_code referencia IdentificationType.code — sin FK formal (validado por service)
+  id_type_code   String?          // "00" | "02" | "03" | "13" | "37"
+  dui            String?          // aplica si id_type_code = "13"
+  nit            String?          // número de identificación tributaria (renta)
+  nrc            String?          // número de registro de contribuyente (IVA)
+  other_document String?          // pasaporte / carnet de residente / otro
+
+  // Actividad económica CAT-019 (denormalizado — sin FK formal)
+  activity_code  String?
+  activity_name  String?
+
+  // Dirección estructurada (denormalizada desde catálogos — sin FK formal)
+  dept_code           String?
+  dept_name           String?
+  municipality_code   String?      // código relativo al departamento
+  municipality_name   String?
+  country_code        String?      // ISO alpha-2
+  country_name        String?
+  address_complement  String?      // domicilio libre / complemento
+
+  // Contacto principal
+  contact_name  String?
+  contact_role  String?
+  phone         String?
+  phone_alt     String?
+  email         String?
+  whatsapp      String?
+
+  // Estado
+  status  Status  @default(active)
+  is_subject_to_1pct_retention  Boolean  @default(false)
+
+  // Auditoría
+  created_at  DateTime  @default(now())
+  updated_at  DateTime  @updatedAt
+  created_by  String?
+  updated_by  String?
+
+  // Relaciones
+  created_by_user  User?       @relation("SupplierCreatedBy", fields: [created_by], references: [id])
+  updated_by_user  User?       @relation("SupplierUpdatedBy", fields: [updated_by], references: [id])
+  products         Product[]
+  purchases        Purchase[]
+
+  // Índices
+  @@unique([tenant_id, supplier_code])
+  @@index([tenant_id])
+  @@index([tenant_id, status])
+  @@index([tenant_id, name])
+  @@index([nit])
+  @@index([dui])
+  @@map("suppliers")
+}
+
+// ── Catálogo maestro de productos ────────────────────────────────
+
+model Product {
+  // Identidad
+  id           String  @id @default(uuid())
+  tenant_id    String
+  product_code String
+  name         String
+  description  String?
+
+  // Tipo y estado
+  product_type   ProductType
+  status         ProductStatus @default(ACTIVE)
+  is_stockable   Boolean
+  allow_purchase Boolean
+  allow_sale     Boolean
+
+  // Clasificación
+  category_id String
+  line_id     String?
+  subline_id  String?
+  brand       String?
+
+  // Logística del catálogo (sin datos por ubicación)
+  unit_id      String
+  package_unit String?
+  supplier_id  String?
+  sku          String?
+
+  // Precios
+  cost_price  Decimal? @db.Decimal(10, 2)
+  sale_price  Decimal? @db.Decimal(10, 2)
+  tax_rate_id String?
+
+  // Auditoría
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+  created_by String?
+  updated_by String?
+
+  // Relaciones
+  category        ProductCategory @relation(fields: [category_id], references: [id])
+  line            ProductLine?    @relation(fields: [line_id], references: [id])
+  subline         ProductSubline? @relation(fields: [subline_id], references: [id])
+  unit            UnitOfMeasure   @relation(fields: [unit_id], references: [id])
+  supplier        Supplier?       @relation(fields: [supplier_id], references: [id])
+  tax_rate        TaxRate?        @relation(fields: [tax_rate_id], references: [id])
+  created_by_user User?           @relation("ProductCreatedBy", fields: [created_by], references: [id])
+  updated_by_user User?           @relation("ProductUpdatedBy", fields: [updated_by], references: [id])
+  product_locations    ProductLocation[]
+  inventory_movements  InventoryMovement[]
+  purchase_items       PurchaseItem[]
+
+  // Índices
+  @@unique([tenant_id, product_code])
+  @@index([tenant_id])
+  @@index([category_id])
+  @@index([line_id])
+  @@index([status])
+  @@index([product_type])
+  @@map("products")
+}
+
+// ═════════════════════════════════════════════════════════════════
+// COMMERCE — Inventario operativo por location (Etapa 11)
+// Capa operativa producto-location.
+// products sigue siendo catálogo maestro; inventory es el estado real.
+// ═════════════════════════════════════════════════════════════════
+
+// ── Estado operativo actual: producto en una location ────────────
+//
+// Una fila = un producto concreto operando en una location concreta.
+// Único por (tenant_id, location_id, product_id).
+// El saldo solo se altera via InventoryMovement en transacción atómica.
+
+model ProductLocation {
+  // Identidad
+  id          String @id @default(uuid())
+
+  // Identidad transversal — mismo patrón que el resto del proyecto.
+  // location_id es String sin FK formal; no existe modelo Location todavía.
+  tenant_id   String
+  location_id String
+
+  // FK al catálogo maestro
+  product_id  String
+
+  // Estado operativo actual
+  current_stock    Decimal @default(0) @db.Decimal(12, 4)
+  min_stock        Decimal @default(0) @db.Decimal(12, 4)
+  reorder_quantity Decimal @default(0) @db.Decimal(12, 4)
+
+  // Ubicación física dentro de la location
+  warehouse String?
+  shelf     String?
+  position  String?
+
+  // Activación por location (independiente del status global del producto)
+  is_active Boolean @default(true)
+
+  // Auditoría
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+  created_by String?
+  updated_by String?
+
+  // Relaciones
+  product              Product             @relation(fields: [product_id], references: [id])
+  created_by_user      User?               @relation("ProductLocationCreatedBy", fields: [created_by], references: [id])
+  updated_by_user      User?               @relation("ProductLocationUpdatedBy", fields: [updated_by], references: [id])
+  movements            InventoryMovement[]
+
+  // Una sola fila operativa por producto en cada location del tenant
+  @@unique([tenant_id, location_id, product_id])
+  @@index([tenant_id])
+  @@index([location_id])
+  @@index([product_id])
+  // Índice compuesto para la query principal: stock de una location completa
+  @@index([tenant_id, location_id])
+  // Índice para alertas derivadas (bajo mínimo, sin existencia)
+  @@index([is_active])
+  @@map("product_locations")
+}
+
+// ── Historial inmutable de hechos que explican el saldo ──────────
+//
+// Cada fila representa un evento que alteró el inventario.
+// Sin updated_at: los movimientos no se modifican, solo se crean.
+// quantity siempre > 0; la dirección (suma/resta) la determina movement_type.
+// stock_before y resulting_stock se materializan en la transacción.
+
+model InventoryMovement {
+  // Identidad
+  id String @id @default(uuid())
+
+  // Identidad transversal
+  tenant_id   String
+  location_id String
+
+  // Referencias
+  product_id          String
+  product_location_id String
+
+  // Tipo y cantidad del movimiento
+  movement_type MovementType
+  quantity      Decimal      @db.Decimal(12, 4) // siempre positivo
+
+  // Trazabilidad de costo (opcional, sin lógica de costeo avanzado)
+  unit_cost Decimal? @db.Decimal(10, 2)
+
+  // Saldos materializados en el momento del movimiento
+  stock_before    Decimal @db.Decimal(12, 4)
+  resulting_stock Decimal @db.Decimal(12, 4)
+
+  // Referencia documental opcional (para integración futura con compras/ventas)
+  reference_entity String? // ej: "purchase_order", "sale", "manual_adjustment"
+  reference_id     String?
+  reference_code   String?
+
+  // Observaciones y auditoría
+  notes        String?
+  performed_by String?
+
+  // Sin updated_at: registro inmutable
+  created_at DateTime @default(now())
+
+  // Relaciones
+  product          Product         @relation(fields: [product_id], references: [id])
+  product_location ProductLocation @relation(fields: [product_location_id], references: [id])
+  performed_by_user User?          @relation("MovementPerformedBy", fields: [performed_by], references: [id])
+
+  // Índices
+  @@index([tenant_id])
+  @@index([location_id])
+  @@index([product_id])
+  @@index([product_location_id])
+  @@index([movement_type])
+  // Índice para historial cronológico por location (query principal de historial)
+  @@index([tenant_id, location_id, created_at])
+  @@map("inventory_movements")
+}
+
+// ═════════════════════════════════════════════════════════════════
+// COMMERCE — Compras a proveedores (Etapa 12)
+//
+// Purchase     = documento de compra (cabecera)
+// PurchaseItem = línea de un documento de compra
+//
+// Al confirmar (DRAFT → CONFIRMED):
+//   - cada línea con producto stockable genera un movimiento PURCHASE_IN
+//   - el stock se actualiza exclusivamente vía inventory-movement.service
+//
+// No implementado en esta etapa: pagos, lotes, recepciones parciales,
+// devoluciones, descuentos complejos, cuentas por pagar.
+// ═════════════════════════════════════════════════════════════════
+
+model Purchase {
+  // Identidad
+  id          String @id @default(uuid())
+
+  // Identidad transversal — una compra pertenece a un tenant y una location
+  tenant_id   String
+  location_id String
+
+  // Proveedor — obligatorio
+  supplier_id String
+
+  // Código del documento — correlativo numérico mensual por location
+  purchase_code  String
+  purchase_year  Int      // año extraído de purchase_date — para unicidad mensual
+  purchase_month Int      // mes extraído de purchase_date — para unicidad mensual
+
+  // Fecha del documento (solo fecha, sin hora)
+  purchase_date DateTime @db.Date
+
+  // Estado del ciclo de vida
+  status PurchaseStatus @default(DRAFT)
+
+  // Observaciones opcionales
+  notes String?
+
+  // Totales derivados de las líneas — se recalculan al agregar/editar/eliminar items
+  subtotal     Decimal @default(0) @db.Decimal(10, 2)
+  tax_amount   Decimal @default(0) @db.Decimal(10, 2)
+  total_amount Decimal @default(0) @db.Decimal(10, 2)
+
+  // Confirmación
+  confirmed_at DateTime?
+  confirmed_by String?
+
+  // Cancelación
+  cancelled_at DateTime?
+  cancelled_by String?
+
+  // Campos documentales base
+  document_type      String?
+  document_series    String?
+  document_number    String?
+  payment_condition  String?
+  cancellation_type  String?
+
+  // Retención IVA 1%
+  retention_1pct_applies  Boolean  @default(false)
+  retention_1pct_amount   Decimal  @default(0) @db.Decimal(10, 2)
+
+  // DTE avanzado — columnas reservadas, UI stub
+  generation_code  String?
+  control_number   String?
+  reception_stamp  String?
+
+  // Auditoría
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+  created_by String?
+  updated_by String?
+
+  // Relaciones
+  supplier           Supplier       @relation(fields: [supplier_id], references: [id])
+  confirmed_by_user  User?          @relation("PurchaseConfirmedBy",  fields: [confirmed_by], references: [id])
+  cancelled_by_user  User?          @relation("PurchaseCancelledBy",  fields: [cancelled_by], references: [id])
+  created_by_user    User?          @relation("PurchaseCreatedBy",    fields: [created_by],   references: [id])
+  updated_by_user    User?          @relation("PurchaseUpdatedBy",    fields: [updated_by],   references: [id])
+  items              PurchaseItem[]
+
+  // Correlativo único por location+mes+año — permite reinicio mensual
+  @@unique([location_id, purchase_year, purchase_month, purchase_code])
+  // Índice principal de operación: compras de una location concreta
+  @@index([tenant_id, location_id])
+  // Índice de filtro combinado: listado por estado dentro de una location
+  @@index([tenant_id, location_id, status])
+  // Índice para cálculo de próximo correlativo
+  @@index([location_id, purchase_year, purchase_month])
+  @@index([supplier_id])
+  @@index([purchase_date])
+  @@map("purchases")
+}
+
+model PurchaseItem {
+  // Identidad
+  id          String @id @default(uuid())
+
+  // FK al documento
+  purchase_id String
+
+  // FK al catálogo maestro
+  product_id String
+
+  // Cantidad y costo unitario — siempre positivos
+  quantity  Decimal @db.Decimal(12, 4)
+  unit_cost Decimal @db.Decimal(10, 2)
+
+  // Impuesto por línea (opcional; 0 si no aplica)
+  tax_amount Decimal @default(0) @db.Decimal(10, 2)
+
+  // Totales de línea — derivados: line_subtotal = qty × unit_cost
+  line_subtotal Decimal @db.Decimal(10, 2)
+  line_total    Decimal @db.Decimal(10, 2)
+
+  // Observaciones opcionales por línea
+  notes String?
+
+  // Auditoría de línea
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  // Relaciones
+  purchase Purchase @relation(fields: [purchase_id], references: [id])
+  product  Product  @relation(fields: [product_id], references: [id])
+
+  // Limitación deliberada de la Etapa 12: un producto aparece como máximo una vez
+  // por compra. Simplifica el modelo y el recálculo de totales en este corte.
+  // Deberá revisarse cuando se implementen lotes, series o recepciones parciales,
+  // ya que esas funcionalidades requieren múltiples líneas del mismo producto.
+  @@unique([purchase_id, product_id])
+  @@index([purchase_id])
+  @@index([product_id])
+  @@map("purchase_items")
 }

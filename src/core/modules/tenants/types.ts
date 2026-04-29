@@ -1,16 +1,16 @@
 /**
  * Contratos del dominio Tenant.
  *
- * ESTADO: Esqueleto. Sin implementar.
- *
  * Tenant es la raíz de multi-tenancy de la plataforma.
  * En el sistema GYM actual, Tenant equivale a Gym (tabla `gyms`).
- * En Fase 3 del roadmap, se creará la tabla `tenants` en Prisma
- * y este módulo recibirá su implementación real.
  *
  * Relación con el sistema actual:
- *   Tenant.id  ←→  Gym.id  (gym_id en todas las tablas actuales)
+ *   Tenant.id   ←→  Gym.id   (columna gym_id en tablas operativas)
  *   Tenant.slug ←→  Gym.slug
+ *
+ * queries.ts y schemas.ts están implementados sobre la tabla `gyms`.
+ * actions.ts queda pendiente hasta la Fase 4 del roadmap (creación
+ * de tabla `tenants` en Prisma como entidad propia).
  */
 
 // ─── Tipo base del tenant ──────────────────────────────────────────────────────

@@ -1,15 +1,17 @@
 /**
  * Guards genéricos para la capa core de la plataforma.
  *
- * ESTADO: Fase 2 — convive con @/lib/permissions/guards.ts sin reemplazarlo.
- * Los módulos GYM existentes siguen usando sus guards actuales sin cambio.
- * Estos guards están destinados a módulos nuevos en src/core/ y src/commerce/.
+ * Operan sobre CoreSessionUser (tenant_id / location_id) y toman decisiones
+ * de acceso usando getCapabilities() en lugar de comparar nombres de rol.
+ * Son cross-industry: funcionan con cualquier mapa de capacidades registrado
+ * via registerIndustryCapabilities().
  *
- * DIFERENCIA CON LOS GUARDS GYM:
- * - Usan CoreSessionUser (tenant_id / location_id) en lugar de gym_id / branch_id.
- * - Las decisiones de acceso usan getCapabilities() en lugar de comparar
- *   nombres de rol hardcodeados.
- * - Son cross-industry: funcionan con cualquier mapa de capacidades registrado.
+ * Modelo de convivencia (permanente, no transitorio):
+ * - src/core/permissions/guards.ts → módulos core y futuras industrias
+ * - src/lib/permissions/guards.ts  → módulos del dominio GYM
+ *
+ * Los módulos GYM usan sus propios guards sin cambio. Esa separación por
+ * dominio es la arquitectura correcta, no un estado intermedio.
  *
  * DEPENDENCIAS:
  * - @/lib/auth/auth → auth() de NextAuth (no se modifica, solo se consume)

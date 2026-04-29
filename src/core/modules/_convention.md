@@ -10,7 +10,7 @@ src/core/modules/<domain>/
   types.ts      — tipos, interfaces y contratos del dominio
   schemas.ts    — validaciones Zod reutilizables
   queries.ts    — acceso a datos (Prisma), sin lógica de negocio
-  actions.ts    — server actions, usa queries + validators
+  actions.ts    — funciones async puras; el caller gestiona sesión y revalidación
 ```
 
 ## Reglas
@@ -21,10 +21,15 @@ src/core/modules/<domain>/
 4. Los guards a usar son los de `src/core/permissions/guards.ts`.
 5. Si una función es solo de GYM, no pertenece aquí.
 
-## Estado actual
+## Estado de implementación
 
-| Módulo | Estado |
-|---|---|
-| tenants | Esqueleto — sin implementar |
-| locations | Esqueleto — sin implementar |
-| users | Esqueleto — sin implementar |
+| Módulo | queries | schemas | actions | Estado general |
+|---|---|---|---|---|
+| `tenants` | ✓ | ✓ | pendiente | Parcial — actions requieren tabla `tenants` en BD (Fase 4) |
+| `locations` | ✓ | ✓ | ✓ | Implementado |
+| `users` | ✓ | ✓ | ✓ | Implementado |
+
+Las fuentes de datos actuales (`gyms`, `branches`, `users`) son temporales durante
+el período de coexistencia. Cuando se complete la Fase 4 del roadmap (renombrado
+de columnas en BD), los módulos core pasarán a operar directamente sobre
+`tenant_id`/`location_id` como columnas primarias en las tablas.

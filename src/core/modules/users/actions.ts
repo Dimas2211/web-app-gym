@@ -19,6 +19,7 @@
  */
 
 import bcrypt from "bcryptjs";
+import type { UserRole } from "@prisma/client";
 import { prisma } from "@/lib/db/prisma";
 import { updateCoreUserSchema } from "./schemas";
 
@@ -79,7 +80,7 @@ export async function createCoreUser(
       password_hash,
       first_name: input.first_name,
       last_name: input.last_name,
-      role: input.role as never, // cast: role es string genérico; Prisma espera el enum
+      role: input.role as UserRole,
       status: "active",
       operational_code: input.operational_code ?? null,
       qr_token: input.qr_token ?? null,

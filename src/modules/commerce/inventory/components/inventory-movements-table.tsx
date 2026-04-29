@@ -1,0 +1,419 @@
+"use client";
+
+// ─────────────────────────────────────────────────────────────────
+// commerce/inventory — inventory-movements-table.tsx
+//
+// Historial de movimientos de inventario.
+// Columnas: Fecha, Tipo, Dir., Código, Nombre, Cantidad,
+//           Stock antes, Stock result., Costo unit., Ref.,
+//           Notas, Realizado por
+//
+// Características operativas (idénticas a products-table.tsx):
+//   - Inmutable — no hay edición ni acciones de fila
+//   - Fila seleccionada puede gobernar un panel de detalle lateral
+//   - Navegación por teclado tipo ERP (ArrowUp/Down/Left/Right, Home, End)
+//   - Scroll vertical + horizontal, cabecera sticky
+//   - Alta densidad informativa, sin paginación visual
+//   - Primer keypress inicializa celda activa en { 0, 0 }
+//   - Scroll automático (scrollIntoView nearest)
+//
+// Dirección visual:
+//   ADDITIVE    → ↑ verde  (suma stock)
+//   SUBTRACTIVE → ↓ rojo   (resta stock)
+// ─────────────────────────────────────────────────────────────────
+
+import { useState, useEffect, useRef, useCallback } from "react";
+import type { InventoryMovementItem, MovementType } from "../types/inventory-movement.types";
+
+// ── Props ─────────────────────────────────────────────────────────
+
+interface InventoryMovementsTableProps {
+  items: InventoryMovementItem[];
+  selectedId?: string | null;
+  onSelect?: (item: InventoryMovementItem) => void;
+  isLoading?: boolean;
+}
+
+// ── Columnas ──────────────────────────────────────────────────────
+
+const COLUMNS = [
+  { key: "created_at",       label: "Fecha",        className: "w-36 shrink-0" },
+  { key: "movement_type",    label: "Tipo",         className: "w-36 shrink-0" },
+  { key: "direction",        label: "Dir.",         className: "w-12 shrink-0 text-center" },
+  { key: "product_code",     label: "Código",       className: "w-24 shrink-0" },
+  { key: "product_name",     label: "Nombre",       className: "min-w-[140px]" },
+  { key: "quantity",         label: "Cantidad",     className: "w-24 shrink-0 text-right" },
+  { key: "stock_before",     label: "Ant.",         className: "w-24 shrink-0 text-right" },
+  { key: "resulting_stock",  label: "Result.",      className: "w-24 shrink-0 text-right" },
+  { key: "unit_cost",        label: "C. unit.",     className: "w-24 shrink-0 text-right" },
+  { key: "reference_code",   label: "Referencia",   className: "w-28 shrink-0" },
+  { key: "notes",            label: "Notas",        className: "w-40 shrink-0" },
+  { key: "performed_by",     label: "Realizado por",className: "w-36 shrink-0" },
+] as const;
+
+const COL_COUNT = COLUMNS.length;
+
+// ── Etiquetas de MovementType ─────────────────────────────────────
+
+const MOVEMENT_TYPE_LABELS: Record<MovementType, string> = {
+  INITIAL_LOAD:   "Carga inicial",
+  MANUAL_IN:      "Entrada manual",
+  MANUAL_OUT:     "Salida manual",
+  ADJUSTMENT_UP:  "Ajuste positivo",
+  ADJUSTMENT_DOWN:"Ajuste negativo",
+  PURCHASE_IN:    "Entrada compra",
+  SALE_OUT:       "Salida venta",
+  TRANSFER_IN:    "Entrada transfer.",
+  TRANSFER_OUT:   "Salida transfer.",
+  RETURN_IN:      "Devolución entrada",
+  RETURN_OUT:     "Devolución salida",
+};
+
+// ── Estilos de cabecera ───────────────────────────────────────────
+
+const thCls =
+  "sticky top-0 z-10 bg-zinc-50 px-3 py-2.5 text-left text-xs font-semibold " +
+  "text-zinc-500 uppercase tracking-wide whitespace-nowrap select-none border-b border-zinc-200";
+
+// ── Helpers de formato ────────────────────────────────────────────
+
+function formatQty(value: number): string {
+  return new Intl.NumberFormat("es-CL", {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 4,
+  }).format(value);
+}
+
+function formatCost(value: number | null): string {
+  if (value === null) return "—";
+  return new Intl.NumberFormat("es-CL", {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2,
+  }).format(value);
+}
+
+// ── Tipo de celda activa ──────────────────────────────────────────
+
+interface ActiveCell {
+  rowIndex: number;
+  colIndex: number;
+}
+
+// ── Componente principal ──────────────────────────────────────────
+
+export function InventoryMovementsTable({
+  items,
+  selectedId = null,
+  onSelect,
+  isLoading = false,
+}: InventoryMovementsTableProps) {
+  const wrapperRef = useRef<HTMLDivElement>(null);
+  const [activeCell, setActiveCell] = useState<ActiveCell | null>(null);
+  const activeCellRef = useRef<HTMLTableCellElement | null>(null);
+
+  // Reset celda activa cuando cambia la lista (nuevo fetch / filtros)
+  useEffect(() => {
+    setActiveCell(null);
+  }, [items]);
+
+  // Scroll automático al mover la celda activa
+  useEffect(() => {
+    if (activeCellRef.current) {
+      activeCellRef.current.scrollIntoView({ block: "nearest", inline: "nearest" });
+    }
+  }, [activeCell]);
+
+  // ── Teclado ───────────────────────────────────────────────────
+
+  const handleKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLDivElement>) => {
+      if (!items.length) return;
+
+      const NAV_KEYS = ["ArrowDown", "ArrowUp", "ArrowLeft", "ArrowRight", "Home", "End"];
+      if (!NAV_KEYS.includes(e.key)) return;
+
+      e.preventDefault();
+
+      // Primera tecla: inicializar en (0, 0)
+      if (activeCell === null) {
+        setActiveCell({ rowIndex: 0, colIndex: 0 });
+        onSelect?.(items[0]);
+        return;
+      }
+
+      const { rowIndex, colIndex } = activeCell;
+
+      switch (e.key) {
+        case "ArrowDown": {
+          const next = rowIndex < items.length - 1 ? rowIndex + 1 : rowIndex;
+          if (next !== rowIndex) {
+            setActiveCell({ rowIndex: next, colIndex });
+            onSelect?.(items[next]);
+          }
+          break;
+        }
+        case "ArrowUp": {
+          const prev = rowIndex > 0 ? rowIndex - 1 : rowIndex;
+          if (prev !== rowIndex) {
+            setActiveCell({ rowIndex: prev, colIndex });
+            onSelect?.(items[prev]);
+          }
+          break;
+        }
+        case "ArrowRight": {
+          const nextCol = colIndex < COL_COUNT - 1 ? colIndex + 1 : colIndex;
+          setActiveCell({ rowIndex, colIndex: nextCol });
+          break;
+        }
+        case "ArrowLeft": {
+          const prevCol = colIndex > 0 ? colIndex - 1 : colIndex;
+          setActiveCell({ rowIndex, colIndex: prevCol });
+          break;
+        }
+        case "Home": {
+          setActiveCell({ rowIndex, colIndex: 0 });
+          break;
+        }
+        case "End": {
+          setActiveCell({ rowIndex, colIndex: COL_COUNT - 1 });
+          break;
+        }
+      }
+    },
+    [items, activeCell, onSelect]
+  );
+
+  // ── Click en celda ────────────────────────────────────────────
+
+  function handleCellClick(rowIndex: number, colIndex: number, item: InventoryMovementItem) {
+    setActiveCell({ rowIndex, colIndex });
+    if (item.id !== selectedId) {
+      onSelect?.(item);
+    }
+  }
+
+  // ── Helpers de celda activa ───────────────────────────────────
+
+  function isActive(rowIndex: number, colIndex: number): boolean {
+    return activeCell?.rowIndex === rowIndex && activeCell?.colIndex === colIndex;
+  }
+
+  function activeCellCls(rowIndex: number, colIndex: number): string {
+    return isActive(rowIndex, colIndex) ? " ring-2 ring-inset ring-white/40" : "";
+  }
+
+  function cellRef(rowIndex: number, colIndex: number): React.RefCallback<HTMLTableCellElement> | null {
+    if (!isActive(rowIndex, colIndex)) return null;
+    return (el) => { activeCellRef.current = el; };
+  }
+
+  // ── Render ────────────────────────────────────────────────────
+
+  return (
+    <div
+      ref={wrapperRef}
+      role="grid"
+      aria-label="Historial de movimientos de inventario"
+      tabIndex={0}
+      onKeyDown={handleKeyDown}
+      className="h-full overflow-auto focus:outline-none focus:ring-2 focus:ring-inset focus:ring-zinc-300 rounded-lg"
+    >
+      <table className="w-full text-sm border-collapse">
+        <thead>
+          <tr>
+            {COLUMNS.map((col) => (
+              <th key={col.key} className={`${thCls} ${col.className}`}>
+                {col.label}
+              </th>
+            ))}
+          </tr>
+        </thead>
+
+        <tbody>
+          {isLoading && (
+            <tr>
+              <td colSpan={COL_COUNT} className="px-4 py-8 text-center text-sm text-zinc-400">
+                Cargando…
+              </td>
+            </tr>
+          )}
+
+          {!isLoading && items.length === 0 && (
+            <tr>
+              <td colSpan={COL_COUNT} className="px-4 py-10 text-center text-sm text-zinc-400">
+                No hay movimientos que coincidan con los filtros.
+              </td>
+            </tr>
+          )}
+
+          {!isLoading &&
+            items.map((item, rowIndex) => {
+              const sel = item.id === selectedId;
+              const additive = item.movement_direction === "ADDITIVE";
+
+              return (
+                <tr
+                  key={item.id}
+                  role="row"
+                  aria-selected={sel}
+                  className={`border-b border-zinc-100 transition-colors cursor-pointer
+                    ${sel
+                      ? "bg-zinc-900 text-white"
+                      : "hover:bg-zinc-50 text-zinc-700"
+                    }`}
+                >
+                  {/* 0 — Fecha */}
+                  <td
+                    ref={cellRef(rowIndex, 0)}
+                    onClick={() => handleCellClick(rowIndex, 0, item)}
+                    className={`px-3 py-2 whitespace-nowrap font-mono text-xs${activeCellCls(rowIndex, 0)}`}
+                  >
+                    <span className={sel ? "text-zinc-300" : "text-zinc-500"}>
+                      {item.created_at_label}
+                    </span>
+                  </td>
+
+                  {/* 1 — Tipo */}
+                  <td
+                    ref={cellRef(rowIndex, 1)}
+                    onClick={() => handleCellClick(rowIndex, 1, item)}
+                    className={`px-3 py-2 whitespace-nowrap${activeCellCls(rowIndex, 1)}`}
+                  >
+                    <span className={`text-xs ${sel ? "text-zinc-200" : "text-zinc-600"}`}>
+                      {MOVEMENT_TYPE_LABELS[item.movement_type] ?? item.movement_type}
+                    </span>
+                  </td>
+
+                  {/* 2 — Dirección */}
+                  <td
+                    ref={cellRef(rowIndex, 2)}
+                    onClick={() => handleCellClick(rowIndex, 2, item)}
+                    className={`px-3 py-2 text-center whitespace-nowrap${activeCellCls(rowIndex, 2)}`}
+                  >
+                    <span
+                      className={`text-sm font-bold ${
+                        additive
+                          ? sel ? "text-emerald-400" : "text-emerald-600"
+                          : sel ? "text-red-400" : "text-red-600"
+                      }`}
+                      title={additive ? "Entrada (suma stock)" : "Salida (resta stock)"}
+                    >
+                      {additive ? "↑" : "↓"}
+                    </span>
+                  </td>
+
+                  {/* 3 — Código */}
+                  <td
+                    ref={cellRef(rowIndex, 3)}
+                    onClick={() => handleCellClick(rowIndex, 3, item)}
+                    className={`px-3 py-2 whitespace-nowrap font-mono text-xs${activeCellCls(rowIndex, 3)}`}
+                  >
+                    {item.product_code}
+                  </td>
+
+                  {/* 4 — Nombre */}
+                  <td
+                    ref={cellRef(rowIndex, 4)}
+                    onClick={() => handleCellClick(rowIndex, 4, item)}
+                    className={`px-3 py-2 whitespace-nowrap${activeCellCls(rowIndex, 4)}`}
+                  >
+                    <span className={`text-xs ${sel ? "text-zinc-200" : "text-zinc-600"}`}>
+                      {item.product_name}
+                    </span>
+                  </td>
+
+                  {/* 5 — Cantidad */}
+                  <td
+                    ref={cellRef(rowIndex, 5)}
+                    onClick={() => handleCellClick(rowIndex, 5, item)}
+                    className={`px-3 py-2 text-right whitespace-nowrap font-mono text-xs${activeCellCls(rowIndex, 5)}`}
+                  >
+                    <span className={
+                      additive
+                        ? sel ? "text-emerald-300" : "text-emerald-700 font-semibold"
+                        : sel ? "text-red-300" : "text-red-700 font-semibold"
+                    }>
+                      {additive ? "+" : "−"}{formatQty(item.quantity)}
+                    </span>
+                  </td>
+
+                  {/* 6 — Stock anterior */}
+                  <td
+                    ref={cellRef(rowIndex, 6)}
+                    onClick={() => handleCellClick(rowIndex, 6, item)}
+                    className={`px-3 py-2 text-right whitespace-nowrap font-mono text-xs${activeCellCls(rowIndex, 6)}`}
+                  >
+                    <span className={sel ? "text-zinc-300" : "text-zinc-500"}>
+                      {formatQty(item.stock_before)}
+                    </span>
+                  </td>
+
+                  {/* 7 — Stock resultante */}
+                  <td
+                    ref={cellRef(rowIndex, 7)}
+                    onClick={() => handleCellClick(rowIndex, 7, item)}
+                    className={`px-3 py-2 text-right whitespace-nowrap font-mono text-xs${activeCellCls(rowIndex, 7)}`}
+                  >
+                    <span className={
+                      item.resulting_stock <= 0
+                        ? sel ? "text-red-300" : "text-red-600 font-semibold"
+                        : sel ? "text-zinc-200" : "text-zinc-700 font-medium"
+                    }>
+                      {formatQty(item.resulting_stock)}
+                    </span>
+                  </td>
+
+                  {/* 8 — Costo unitario */}
+                  <td
+                    ref={cellRef(rowIndex, 8)}
+                    onClick={() => handleCellClick(rowIndex, 8, item)}
+                    className={`px-3 py-2 text-right whitespace-nowrap font-mono text-xs${activeCellCls(rowIndex, 8)}`}
+                  >
+                    <span className={sel ? "text-zinc-300" : "text-zinc-500"}>
+                      {formatCost(item.unit_cost)}
+                    </span>
+                  </td>
+
+                  {/* 9 — Referencia */}
+                  <td
+                    ref={cellRef(rowIndex, 9)}
+                    onClick={() => handleCellClick(rowIndex, 9, item)}
+                    className={`px-3 py-2 whitespace-nowrap${activeCellCls(rowIndex, 9)}`}
+                  >
+                    <span className={`text-xs ${sel ? "text-zinc-300" : "text-zinc-500"}`}>
+                      {item.reference_code ?? "—"}
+                    </span>
+                  </td>
+
+                  {/* 10 — Notas */}
+                  <td
+                    ref={cellRef(rowIndex, 10)}
+                    onClick={() => handleCellClick(rowIndex, 10, item)}
+                    className={`px-3 py-2 max-w-[160px]${activeCellCls(rowIndex, 10)}`}
+                  >
+                    <span
+                      className={`text-xs truncate block ${sel ? "text-zinc-300" : "text-zinc-400"}`}
+                      title={item.notes ?? undefined}
+                    >
+                      {item.notes ?? "—"}
+                    </span>
+                  </td>
+
+                  {/* 11 — Realizado por */}
+                  <td
+                    ref={cellRef(rowIndex, 11)}
+                    onClick={() => handleCellClick(rowIndex, 11, item)}
+                    className={`px-3 py-2 whitespace-nowrap${activeCellCls(rowIndex, 11)}`}
+                  >
+                    <span className={`text-xs ${sel ? "text-zinc-300" : "text-zinc-500"}`}>
+                      {item.performed_by_name ?? "—"}
+                    </span>
+                  </td>
+                </tr>
+              );
+            })}
+        </tbody>
+      </table>
+    </div>
+  );
+}

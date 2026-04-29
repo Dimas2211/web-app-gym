@@ -18,7 +18,10 @@
     "db:seed": "tsx prisma/seed.ts",
     "db:seed:demo": "cross-env SEED_MODE=demo tsx prisma/seed.ts",
     "db:seed:base": "cross-env SEED_MODE=base tsx prisma/seed.ts",
-    "db:seed:catalogs": "cross-env SEED_MODE=catalogs tsx prisma/seed.ts"
+    "db:seed:catalogs": "cross-env SEED_MODE=catalogs tsx prisma/seed.ts",
+    "db:seed:purchases": "tsx prisma/seed-purchases-demo.ts",
+    "db:import:catalog": "tsx prisma/importers/import-catalog.ts",
+    "db:import:catalogs-excel": "tsx prisma/importers/import-excel-catalogs.ts"
   },
   "dependencies": {
     "@prisma/client": "^6.5.0",

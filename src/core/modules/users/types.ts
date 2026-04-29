@@ -1,22 +1,20 @@
 /**
  * Contratos del dominio User core.
  *
- * ESTADO: Esqueleto. Sin implementar.
- *
  * User core representa cuentas de acceso cross-industry (staff y acceso).
- * Difiere del módulo GYM actual (src/modules/users/) en que:
+ * Difiere del módulo GYM (src/modules/users/) en que:
  *   - No asume la existencia de Trainer ni ningún perfil GYM-específico.
- *   - Usa tenant_id y location_id en lugar de gym_id y branch_id.
+ *   - Usa tenant_id y location_id como identidad explícita.
  *   - El campo `role` es string genérico, no el enum UserRole de Prisma.
  *
  * Relación con el sistema actual:
  *   CoreUser.id          ←→  User.id
- *   CoreUser.tenant_id   ←→  User.gym_id
- *   CoreUser.location_id ←→  User.branch_id
- *   CoreUser.role        ←→  User.role (con conversión)
+ *   CoreUser.tenant_id   ←→  User.gym_id   (columna real en BD)
+ *   CoreUser.location_id ←→  User.branch_id (columna real en BD)
+ *   CoreUser.role        ←→  User.role (cast a UserRole en la capa de acceso a datos)
  *
- * IMPORTANTE: Este módulo NO debe reemplazar src/modules/users/ hasta que
- * la migración Tenant esté completa (Fase 4 del roadmap).
+ * El módulo GYM (src/modules/users/) convive con este módulo como wrapper.
+ * No reemplaza ni es reemplazado — son capas complementarias del mismo dominio.
  */
 
 import type { Tenant } from "@/core/modules/tenants/types";

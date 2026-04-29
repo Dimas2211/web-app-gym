@@ -25,6 +25,7 @@
 import "dotenv/config";
 import { PrismaClient } from "@prisma/client";
 import { seedCatalogs } from "./seeds/seed.catalogs";
+import { seedCommerceCatalogs } from "./seeds/seed.commerce-catalogs";
 import { seedBase } from "./seeds/seed.base";
 import { seedDemo } from "./seeds/seed.demo";
 
@@ -111,9 +112,9 @@ async function main() {
 
   // --- Describir qué se va a ejecutar ---
   const PLAN: Record<SeedMode, string> = {
-    demo:     "seedCatalogs  →  seedDemo  (catálogos + todo el contenido ficticio)",
-    base:     "seedCatalogs  →  seedBase  (catálogos + gym/sucursal/admin real)",
-    catalogs: "seedCatalogs  (solo Sport y Goal — sin gym ni usuarios)",
+    demo:     "seedCatalogs  →  seedCommerceCatalogs  →  seedDemo",
+    base:     "seedCatalogs  →  seedCommerceCatalogs  →  seedBase",
+    catalogs: "seedCatalogs  →  seedCommerceCatalogs  (sin gym ni usuarios)",
   };
   console.log(`  Ejecutando          : ${PLAN[mode]}`);
 
@@ -128,12 +129,17 @@ async function main() {
   // ============================================================
   if (mode === "catalogs") {
     await seedCatalogs(prisma);
+    await seedCommerceCatalogs(prisma);
 
     console.log("\n──────────────────────────────────────────────");
     console.log("✅ Modo CATALOGS completado.");
     console.log("\n   Creado / actualizado:");
     console.log("     • Sport (15 deportes)");
     console.log("     • Goal  (7 metas de entrenamiento)");
+    console.log("     • IdentificationType (5 tipos DTE)");
+    console.log("     • EconomicActivity   (~110 actividades CAT-019)");
+    console.log("     • Municipality       (262 municipios CAT-013)");
+    console.log("     • Country            (~33 países)");
     console.log("\n   NO se creó: gym, sucursal, usuarios, planes, clases.");
     return;
   }
@@ -145,6 +151,7 @@ async function main() {
   // ============================================================
   if (mode === "base") {
     await seedCatalogs(prisma);
+    await seedCommerceCatalogs(prisma);
     const ctx = await seedBase(prisma);
 
     console.log("\n──────────────────────────────────────────────");
@@ -175,6 +182,7 @@ async function main() {
   // NO llama a seedBase. seedDemo crea su propio gym "power-gym-demo".
   // ============================================================
   await seedCatalogs(prisma);
+  await seedCommerceCatalogs(prisma);
   await seedDemo(prisma);
 
   console.log("\n──────────────────────────────────────────────");

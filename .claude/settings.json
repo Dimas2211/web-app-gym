@@ -1,0 +1,25 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(grep -v \"^$\")",
+      "Bash(PRISMA_USER_CONSENT_FOR_DANGEROUS_AI_ACTION=\"si procede\" npx prisma migrate reset --skip-seed --force)",
+      "Bash(node -e ' *)",
+      "Bash(node -e \"const p=require\\('./package.json'\\); Object.entries\\(p.scripts\\).filter\\(\\([k]\\)=>k.includes\\('seed'\\)\\).forEach\\(\\([k,v]\\)=>console.log\\(k,':',v\\)\\)\")",
+      "Bash(npx ts-node *)",
+      "Bash(node -e \"const {createRequire}=require\\('module'\\);const req=createRequire\\(import.meta?import.meta.url:__filename\\);console.log\\('ok'\\)\")",
+      "Bash(sed -n '34,42p' prisma/seeds/seed.commerce-catalogs.ts)",
+      "Bash(sed -n '229,236p' prisma/seeds/seed.commerce-catalogs.ts)",
+      "Bash(sed -n '522,528p' prisma/seeds/seed.commerce-catalogs.ts)",
+      "Bash(cross-env SEED_MODE=catalogs npx tsx prisma/seed.ts)",
+      "Bash(SEED_MODE=catalogs npx tsx prisma/seed.ts)",
+      "Bash(node --import tsx/esm -e ' *)",
+      "Bash(xargs cat *)",
+      "Bash(rm \"c:\\\\jose\\\\RD\\\\IAERP\\\\PROYECTOS\\\\Sistema GYM\\\\web_app_gym\\\\src\\\\app\\\\\\(dashboard\\)\\\\dashboard\\\\purchases\\\\[id]\\\\route.ts\")",
+      "Bash(rmdir \"c:\\\\jose\\\\RD\\\\IAERP\\\\PROYECTOS\\\\Sistema GYM\\\\web_app_gym\\\\src\\\\app\\\\\\(dashboard\\)\\\\dashboard\\\\purchases\\\\[id]\")",
+      "Bash(grep -E \"\\\\.\\(ts|tsx\\)$\")"
+    ],
+    "additionalDirectories": [
+      "c:\\jose\\RD\\IAERP\\PROYECTOS\\Sistema GYM\\web_app_gym\\src\\app\\api\\products\\[id]"
+    ]
+  }
+}
