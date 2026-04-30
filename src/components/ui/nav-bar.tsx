@@ -27,8 +27,23 @@ const NAV_LINKS = [
     roles: ["super_admin", "branch_admin", "reception"] as UserRole[],
   },
   {
+    href: "/dashboard/products",
+    label: "Productos",
+    roles: ["super_admin", "branch_admin"] as UserRole[],
+  },
+  {
+    href: "/dashboard/inventory",
+    label: "Inventario",
+    roles: ["super_admin", "branch_admin"] as UserRole[],
+  },
+  {
     href: "/dashboard/suppliers",
     label: "Proveedores",
+    roles: ["super_admin", "branch_admin"] as UserRole[],
+  },
+  {
+    href: "/dashboard/purchases",
+    label: "Compras",
     roles: ["super_admin", "branch_admin"] as UserRole[],
   },
   {
