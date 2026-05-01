@@ -663,6 +663,33 @@ export async function updatePurchaseHeader(
   }
 }
 
+// ── Eliminar compra en DRAFT (borrado físico) ─────────────────────
+
+export async function deleteDraftPurchase(
+  purchase_id: string,
+  tenant_id:   string,
+  location_id: string,
+): Promise<PurchaseResult> {
+  const purchase = await prisma.purchase.findFirst({
+    where: { id: purchase_id, tenant_id, location_id },
+    select: { id: true, status: true },
+  });
+
+  if (!purchase) {
+    return { ok: false, error: "La compra no existe o no pertenece a la location activa." };
+  }
+  if (purchase.status !== "DRAFT") {
+    return { ok: false, error: "Solo se pueden eliminar compras en estado DRAFT." };
+  }
+
+  await prisma.$transaction(async (tx) => {
+    await tx.purchaseItem.deleteMany({ where: { purchase_id } });
+    await tx.purchase.delete({ where: { id: purchase_id } });
+  });
+
+  return { ok: true };
+}
+
 // ── Cancelar compra en DRAFT ──────────────────────────────────────
 
 export async function cancelPurchase(

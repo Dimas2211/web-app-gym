@@ -105,6 +105,28 @@ export async function seedDemo(prisma: PrismaClient): Promise<void> {
   console.log(`\n  ✅ Gym: ${gym.name}`);
 
   // ----------------------------------------------------------
+  // 1b. TASA DE IMPUESTO — IVA 13%
+  // Requerida por commerce/products para asignar tax_rate_id.
+  // Idempotente: solo crea si no existe para este tenant.
+  // ----------------------------------------------------------
+  const existingIva = await prisma.taxRate.findFirst({
+    where: { tenant_id: gym.id, rate: 13 },
+  });
+  if (!existingIva) {
+    await prisma.taxRate.create({
+      data: {
+        tenant_id: gym.id,
+        name: "IVA",
+        rate: 13,
+        status: "active",
+      },
+    });
+    console.log("  ✅ TaxRate: IVA 13% creado");
+  } else {
+    console.log("  ✅ TaxRate: IVA 13% ya existe");
+  }
+
+  // ----------------------------------------------------------
   // 2. BRANCH DEMO
   // ----------------------------------------------------------
   let branch = await prisma.branch.findFirst({

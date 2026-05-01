@@ -25,7 +25,8 @@ export interface PurchaseFilters {
   supplier_search?: string;   // busca en supplier.name (contains, insensitive)
   date_from?:       string;   // ISO date "YYYY-MM-DD"
   date_to?:         string;   // ISO date "YYYY-MM-DD"
-  search?:          string;   // busca en purchase_code (contains, insensitive)
+  search?:                string;   // busca en purchase_code (contains, insensitive)
+  document_number_search?: string;   // busca en document_number (número fiscal del doc proveedor)
 
   sort_field?:      PurchaseSortField;
   sort_direction?:  "asc" | "desc";

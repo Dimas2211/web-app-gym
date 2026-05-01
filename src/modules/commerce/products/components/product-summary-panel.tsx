@@ -3,14 +3,13 @@
 // ─────────────────────────────────────────────────────────────────
 // commerce/products — product-summary-panel.tsx
 //
-// Panel de tres bloques: identidad+logística | inventario | precios.
-// El bloque de inventario consulta datos reales de product_locations
-// vía GET /api/products/[id]/inventory-summary.
+// Panel de detalle del producto seleccionado.
 //
-// Acción "Editar producto":
-//   - Solo visible si canManage && summary !== null
-//   - No abre EditProductDialog directamente
-//   - Dispara onRequestEdit() → el padre gestiona el flujo key_guard → edit_open
+// variant="full"  → grid 3 columnas: identidad | inventario | costos
+// variant="panel" → columna única: identidad (scroll) + inventario (fijo 200px)
+//
+// ProductCostsPricesStrip → strip horizontal exportado para usar
+// debajo de la grilla en el layout ERP de products-client.tsx.
 // ─────────────────────────────────────────────────────────────────
 
 import { useState, useEffect } from "react";
@@ -29,9 +28,10 @@ interface ProductSummaryPanelProps {
   canManage: boolean;
   onRequestStatusChange: () => void;
   onRequestEdit: () => void;
+  variant?: "full" | "panel";
 }
 
-// ── Sub-bloques ───────────────────────────────────────────────────
+// ── Helpers ───────────────────────────────────────────────────────
 
 function FieldRow({ label, value }: { label: string; value: React.ReactNode }) {
   return (
@@ -44,16 +44,37 @@ function FieldRow({ label, value }: { label: string; value: React.ReactNode }) {
   );
 }
 
-function formatPrice(value: number | null): string {
-  if (value === null) return "—";
-  return new Intl.NumberFormat("es-CL", {
-    style: "decimal",
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 2,
-  }).format(value);
+// Formato monetario seguro: siempre punto decimal, siempre 2 decimales, sin dependencia de locale.
+function formatMoney(value: number | null | undefined): string {
+  if (value == null) return "—";
+  return "$" + value.toFixed(2);
 }
 
-// ── Bloque vacío ─────────────────────────────────────────────────
+// Celda de precio para el strip horizontal
+function PricePill({
+  label,
+  value,
+  highlighted,
+}: {
+  label: string;
+  value: string;
+  highlighted?: boolean;
+}) {
+  return (
+    <div className="shrink-0">
+      <p className="text-[10px] text-zinc-400 leading-none mb-1 whitespace-nowrap">{label}</p>
+      <p
+        className={`font-mono leading-none font-bold ${
+          highlighted ? "text-base text-zinc-900" : "text-sm text-zinc-700"
+        }`}
+      >
+        {value}
+      </p>
+    </div>
+  );
+}
+
+// ── Bloque vacío / cargando ───────────────────────────────────────
 
 function EmptyPanel() {
   return (
@@ -68,6 +89,117 @@ function LoadingPanel() {
   return (
     <div className="flex items-center justify-center h-full p-6 text-zinc-400 text-sm">
       Cargando…
+    </div>
+  );
+}
+
+// ── Bloque de identidad (reutilizado en full y panel) ─────────────
+
+interface IdentityBlockProps {
+  summary: ProductSummary;
+  canManage: boolean;
+  onRequestStatusChange: () => void;
+  onRequestEdit: () => void;
+}
+
+function IdentityBlock({
+  summary,
+  canManage,
+  onRequestStatusChange,
+  onRequestEdit,
+}: IdentityBlockProps) {
+  return (
+    <div className="p-4">
+      {/* Identidad */}
+      <div className="flex items-start justify-between gap-2 mb-3">
+        <div className="min-w-0">
+          <p className="text-xs font-mono text-zinc-400 mb-0.5">{summary.product_code}</p>
+          <h3 className="text-sm font-semibold text-zinc-900 leading-snug">{summary.name}</h3>
+          {summary.description && (
+            <p className="text-xs text-zinc-400 mt-1 leading-relaxed line-clamp-2">
+              {summary.description}
+            </p>
+          )}
+        </div>
+        <div className="flex flex-col items-end gap-1.5 shrink-0">
+          <span
+            className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium
+              ${PRODUCT_STATUS_COLORS[summary.status]}`}
+          >
+            {PRODUCT_STATUS_LABELS[summary.status]}
+          </span>
+          <span className="text-xs text-zinc-400">
+            {PRODUCT_TYPE_LABELS[summary.product_type] ?? summary.product_type}
+          </span>
+        </div>
+      </div>
+
+      {/* Flags rápidos */}
+      <div className="flex flex-wrap gap-1.5 mb-3">
+        {summary.is_stockable && (
+          <span className="text-xs bg-sky-50 text-sky-700 border border-sky-200 px-2 py-0.5 rounded-full">
+            Controla stock
+          </span>
+        )}
+        {summary.allow_sale && (
+          <span className="text-xs bg-emerald-50 text-emerald-700 border border-emerald-200 px-2 py-0.5 rounded-full">
+            Venta
+          </span>
+        )}
+        {summary.allow_purchase && (
+          <span className="text-xs bg-violet-50 text-violet-700 border border-violet-200 px-2 py-0.5 rounded-full">
+            Compra
+          </span>
+        )}
+      </div>
+
+      {/* Clasificación */}
+      <div className="mb-3">
+        <p className="text-xs font-semibold text-zinc-400 uppercase tracking-wide mb-1">
+          Clasificación
+        </p>
+        <FieldRow label="Categoría" value={summary.category.name} />
+        <FieldRow label="Línea"     value={summary.line?.name ?? null} />
+        <FieldRow label="Sublínea"  value={summary.subline?.name ?? null} />
+        <FieldRow label="Marca"     value={summary.brand} />
+      </div>
+
+      {/* Logística */}
+      <div className="mb-3">
+        <p className="text-xs font-semibold text-zinc-400 uppercase tracking-wide mb-1">
+          Logística
+        </p>
+        <FieldRow label="Unidad"    value={`${summary.unit.name} (${summary.unit.symbol})`} />
+        <FieldRow label="Empaque"   value={summary.package_unit} />
+        <FieldRow label="Proveedor" value={summary.supplier?.name ?? null} />
+        <FieldRow label="SKU"       value={summary.sku} />
+      </div>
+
+      {/* Acciones */}
+      {canManage && (
+        <div className="flex gap-2 mt-2">
+          {summary.status !== "DISCONTINUED" && (
+            <button
+              type="button"
+              onClick={onRequestStatusChange}
+              className="flex-1 text-xs border border-zinc-200 rounded-lg py-1.5 text-zinc-600
+                         hover:border-zinc-400 hover:bg-zinc-50 transition-colors"
+            >
+              Cambiar estado
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={onRequestEdit}
+            className="flex-1 flex items-center justify-center gap-1.5 text-xs border border-zinc-200
+                       rounded-lg py-1.5 text-zinc-600 hover:border-zinc-900 hover:text-zinc-900
+                       hover:bg-zinc-50 transition-colors"
+          >
+            <Pencil size={11} />
+            Editar producto
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -168,6 +300,60 @@ function InventoryBlock({ productId }: { productId: string }) {
   );
 }
 
+// ── Strip horizontal de costos y precios (exportado) ──────────────
+// Usado debajo de la grilla en el layout ERP de products-client.tsx.
+
+export function ProductCostsPricesStrip({
+  summary,
+}: {
+  summary: ProductSummary | null;
+}) {
+  if (!summary) {
+    return (
+      <div className="flex items-center gap-2 px-4 py-3 text-xs text-zinc-300">
+        <DollarSign size={12} className="opacity-50" />
+        Selecciona un producto para ver costos y precios
+      </div>
+    );
+  }
+
+  const ivaRateStrip = summary.tax_rate ? summary.tax_rate.rate / 100 : 0.13;
+
+  const ivaAmount =
+    summary.sale_price !== null
+      ? summary.sale_price * ivaRateStrip
+      : null;
+
+  const priceWithIva =
+    summary.sale_price !== null && ivaAmount !== null
+      ? summary.sale_price + ivaAmount
+      : null;
+
+  const taxLabel = `IVA (${summary.tax_rate ? summary.tax_rate.rate : 13}%)`;
+
+  return (
+    <div className="flex items-center flex-wrap gap-x-5 gap-y-2 px-4 py-2.5 min-h-[52px]">
+      {/* Etiqueta de sección */}
+      <div className="flex items-center gap-1.5 shrink-0">
+        <DollarSign size={13} className="text-zinc-400" />
+        <span className="text-[11px] font-semibold text-zinc-400 uppercase tracking-wide whitespace-nowrap">
+          Costos y precios
+        </span>
+      </div>
+
+      <div className="hidden sm:block h-5 w-px bg-zinc-200 shrink-0" />
+
+      <PricePill label="Precio unitario" value={formatMoney(summary.cost_price)} />
+      <PricePill label="Precio sin IVA"  value={formatMoney(summary.sale_price)} />
+      <PricePill label={taxLabel}         value={formatMoney(ivaAmount)} />
+
+      <div className="hidden sm:block h-5 w-px bg-zinc-200 shrink-0" />
+
+      <PricePill label="Precio con IVA" value={formatMoney(priceWithIva)} highlighted />
+    </div>
+  );
+}
+
 // ── Panel principal ───────────────────────────────────────────────
 
 export function ProductSummaryPanel({
@@ -176,117 +362,62 @@ export function ProductSummaryPanel({
   canManage,
   onRequestStatusChange,
   onRequestEdit,
+  variant = "full",
 }: ProductSummaryPanelProps) {
   if (isLoading) return <LoadingPanel />;
   if (!summary) return <EmptyPanel />;
 
-  const taxWithIva =
-    summary.sale_price !== null && summary.tax_rate
-      ? summary.sale_price * (1 + summary.tax_rate.rate / 100)
+  // ── Modo panel: columna única, identidad (scroll) + inventario (fijo) ──
+  if (variant === "panel") {
+    return (
+      <div className="flex flex-col h-full overflow-hidden">
+        {/* Identidad + clasificación + logística + acciones */}
+        <div className="flex-1 min-h-0 overflow-y-auto">
+          <IdentityBlock
+            summary={summary}
+            canManage={canManage}
+            onRequestStatusChange={onRequestStatusChange}
+            onRequestEdit={onRequestEdit}
+          />
+        </div>
+        {/* Inventario en zona fija inferior */}
+        <div className="shrink-0 h-[200px] overflow-y-auto border-t border-zinc-100">
+          <InventoryBlock productId={summary.id} />
+        </div>
+      </div>
+    );
+  }
+
+  // ── Modo full (por defecto): grid 3 columnas ──────────────────────
+  const ivaRateFull = summary.tax_rate ? summary.tax_rate.rate / 100 : 0.13;
+
+  const ivaAmountFull =
+    summary.sale_price !== null
+      ? summary.sale_price * ivaRateFull
+      : null;
+
+  const priceWithIvaFull =
+    summary.sale_price !== null && ivaAmountFull !== null
+      ? summary.sale_price + ivaAmountFull
       : null;
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 h-full divide-y lg:divide-y-0 lg:divide-x divide-zinc-100">
 
-      {/* ── Bloque 1: Identidad + Clasificación + Logística ──────── */}
-      <div className="p-4 overflow-y-auto">
-        {/* Header de identidad */}
-        <div className="flex items-start justify-between gap-2 mb-3">
-          <div className="min-w-0">
-            <p className="text-xs font-mono text-zinc-400 mb-0.5">{summary.product_code}</p>
-            <h3 className="text-sm font-semibold text-zinc-900 leading-snug">{summary.name}</h3>
-            {summary.description && (
-              <p className="text-xs text-zinc-400 mt-1 leading-relaxed line-clamp-2">
-                {summary.description}
-              </p>
-            )}
-          </div>
-
-          <div className="flex flex-col items-end gap-1.5 shrink-0">
-            <span
-              className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium
-                ${PRODUCT_STATUS_COLORS[summary.status]}`}
-            >
-              {PRODUCT_STATUS_LABELS[summary.status]}
-            </span>
-            <span className="text-xs text-zinc-400">
-              {PRODUCT_TYPE_LABELS[summary.product_type] ?? summary.product_type}
-            </span>
-          </div>
-        </div>
-
-        {/* Flags rápidos */}
-        <div className="flex flex-wrap gap-1.5 mb-3">
-          {summary.is_stockable && (
-            <span className="text-xs bg-sky-50 text-sky-700 border border-sky-200 px-2 py-0.5 rounded-full">
-              Controla stock
-            </span>
-          )}
-          {summary.allow_sale && (
-            <span className="text-xs bg-emerald-50 text-emerald-700 border border-emerald-200 px-2 py-0.5 rounded-full">
-              Venta
-            </span>
-          )}
-          {summary.allow_purchase && (
-            <span className="text-xs bg-violet-50 text-violet-700 border border-violet-200 px-2 py-0.5 rounded-full">
-              Compra
-            </span>
-          )}
-        </div>
-
-        {/* Clasificación */}
-        <div className="mb-3">
-          <p className="text-xs font-semibold text-zinc-400 uppercase tracking-wide mb-1">
-            Clasificación
-          </p>
-          <FieldRow label="Categoría" value={summary.category.name} />
-          <FieldRow label="Línea"     value={summary.line?.name ?? null} />
-          <FieldRow label="Sublínea"  value={summary.subline?.name ?? null} />
-          <FieldRow label="Marca"     value={summary.brand} />
-        </div>
-
-        {/* Logística */}
-        <div className="mb-3">
-          <p className="text-xs font-semibold text-zinc-400 uppercase tracking-wide mb-1">
-            Logística
-          </p>
-          <FieldRow label="Unidad"    value={`${summary.unit.name} (${summary.unit.symbol})`} />
-          <FieldRow label="Empaque"   value={summary.package_unit} />
-          <FieldRow label="Proveedor" value={summary.supplier?.name ?? null} />
-          <FieldRow label="SKU"       value={summary.sku} />
-        </div>
-
-        {/* Acciones — solo si tiene permisos y el producto no está descontinuado */}
-        {canManage && (
-          <div className="flex gap-2 mt-2">
-            {summary.status !== "DISCONTINUED" && (
-              <button
-                type="button"
-                onClick={onRequestStatusChange}
-                className="flex-1 text-xs border border-zinc-200 rounded-lg py-1.5 text-zinc-600
-                           hover:border-zinc-400 hover:bg-zinc-50 transition-colors"
-              >
-                Cambiar estado
-              </button>
-            )}
-            <button
-              type="button"
-              onClick={onRequestEdit}
-              className="flex-1 flex items-center justify-center gap-1.5 text-xs border border-zinc-200
-                         rounded-lg py-1.5 text-zinc-600 hover:border-zinc-900 hover:text-zinc-900
-                         hover:bg-zinc-50 transition-colors"
-            >
-              <Pencil size={11} />
-              Editar producto
-            </button>
-          </div>
-        )}
+      {/* Bloque 1: Identidad + Clasificación + Logística */}
+      <div className="overflow-y-auto">
+        <IdentityBlock
+          summary={summary}
+          canManage={canManage}
+          onRequestStatusChange={onRequestStatusChange}
+          onRequestEdit={onRequestEdit}
+        />
       </div>
 
-      {/* ── Bloque 2: Inventario real ────────────────────────────── */}
+      {/* Bloque 2: Inventario real */}
       <InventoryBlock productId={summary.id} />
 
-      {/* ── Bloque 3: Costos y precios ────────────────────────────── */}
+      {/* Bloque 3: Costos y precios */}
       <div className="p-4 overflow-y-auto">
         <div className="flex items-center gap-2 mb-3">
           <DollarSign size={14} className="text-zinc-400" />
@@ -299,7 +430,7 @@ export function ProductSummaryPanel({
           label="Costo unitario"
           value={
             summary.cost_price !== null
-              ? <span className="font-mono">{formatPrice(summary.cost_price)}</span>
+              ? <span className="font-mono font-semibold">{formatMoney(summary.cost_price)}</span>
               : null
           }
         />
@@ -307,28 +438,27 @@ export function ProductSummaryPanel({
           label="Precio sin IVA"
           value={
             summary.sale_price !== null
-              ? <span className="font-mono">{formatPrice(summary.sale_price)}</span>
+              ? <span className="font-mono font-semibold">{formatMoney(summary.sale_price)}</span>
               : null
           }
         />
         <FieldRow
-          label="Tasa de impuesto"
+          label={summary.tax_rate ? `${summary.tax_rate.name} (${summary.tax_rate.rate}%)` : "IVA (13%)"}
           value={
-            summary.tax_rate
-              ? `${summary.tax_rate.name} (${summary.tax_rate.rate}%)`
+            ivaAmountFull !== null
+              ? <span className="font-mono font-semibold">{formatMoney(ivaAmountFull)}</span>
               : null
           }
         />
         <FieldRow
           label="Precio con IVA"
           value={
-            taxWithIva !== null
-              ? <span className="font-mono font-semibold text-zinc-900">{formatPrice(taxWithIva)}</span>
+            priceWithIvaFull !== null
+              ? <span className="font-mono font-bold text-zinc-900 text-sm">{formatMoney(priceWithIvaFull)}</span>
               : null
           }
         />
 
-        {/* Margen estimado — stub honesto */}
         <div className="mt-4 p-3 bg-zinc-50 rounded-lg border border-dashed border-zinc-200">
           <p className="text-xs text-zinc-400 text-center">
             Margen estimado disponible en{" "}

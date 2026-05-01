@@ -102,6 +102,44 @@ export function EditProductDialog({
   );
   const [isStockable, setIsStockable] = useState(summary.is_stockable);
 
+  // Estado para precios bidireccionales (valor canónico = sin IVA, inicializado desde summary)
+  const [precioSinIva, setPrecioSinIva] = useState(() =>
+    summary.sale_price != null ? summary.sale_price.toFixed(2) : ""
+  );
+  const [precioConIva, setPrecioConIva] = useState(() =>
+    summary.sale_price != null ? (summary.sale_price * 1.13).toFixed(2) : ""
+  );
+
+  // IVA 13% fijo — buscamos el tax_rate con rate === 13 para asignarlo automáticamente
+  const ivaRate13 = taxRates.find((t) => t.rate === 13);
+
+  function handleConIvaChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const raw = e.target.value;
+    setPrecioConIva(raw);
+    const num = parseFloat(raw);
+    if (!isNaN(num) && num >= 0) {
+      setPrecioSinIva((num / 1.13).toFixed(2));
+    } else {
+      setPrecioSinIva("");
+    }
+  }
+
+  function handleSinIvaChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const raw = e.target.value;
+    setPrecioSinIva(raw);
+    const num = parseFloat(raw);
+    if (!isNaN(num) && num >= 0) {
+      setPrecioConIva((num * 1.13).toFixed(2));
+    } else {
+      setPrecioConIva("");
+    }
+  }
+
+  const ivaDisplay = (() => {
+    const num = parseFloat(precioSinIva);
+    return !isNaN(num) && num >= 0 ? "$" + (num * 0.13).toFixed(2) : "—";
+  })();
+
   // Filtros en cascada client-side
   const filteredLines = selectedCategoryId
     ? allLines.filter((l) => l.category_id === selectedCategoryId)
@@ -462,7 +500,11 @@ export function EditProductDialog({
 
           {/* ── Precios ──────────────────────────────────────────── */}
           <Section title="Precios">
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            {/* IVA 13% fijo — se asigna automáticamente si existe en catálogo */}
+            {ivaRate13 && (
+              <input type="hidden" name="tax_rate_id" value={ivaRate13.id} />
+            )}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label className={labelCls}>Costo unitario</label>
                 <input
@@ -478,13 +520,27 @@ export function EditProductDialog({
               </div>
 
               <div>
-                <label className={labelCls}>Precio venta sin impuesto</label>
+                <label className={labelCls}>Precio venta con IVA</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={precioConIva}
+                  onChange={handleConIvaChange}
+                  className={inputCls}
+                  placeholder="0.00"
+                />
+              </div>
+
+              <div>
+                <label className={labelCls}>Precio venta sin IVA</label>
                 <input
                   type="number"
                   name="sale_price"
                   step="0.01"
                   min="0"
-                  defaultValue={summary.sale_price ?? ""}
+                  value={precioSinIva}
+                  onChange={handleSinIvaChange}
                   className={inputCls}
                   placeholder="0.00"
                 />
@@ -492,26 +548,10 @@ export function EditProductDialog({
               </div>
 
               <div>
-                <label className={labelCls}>Tasa de impuesto</label>
-                <div className="relative">
-                  <select
-                    name="tax_rate_id"
-                    defaultValue={summary.tax_rate_id ?? ""}
-                    className={inputCls + " appearance-none pr-8"}
-                  >
-                    <option value="">Sin impuesto</option>
-                    {taxRates.map((t) => (
-                      <option key={t.id} value={t.id}>
-                        {t.name} ({t.rate}%)
-                      </option>
-                    ))}
-                  </select>
-                  <ChevronDown
-                    size={14}
-                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-400 pointer-events-none"
-                  />
+                <label className={labelCls}>IVA 13%</label>
+                <div className="w-full border border-zinc-200 rounded-lg px-3 py-2 text-sm bg-zinc-50 text-zinc-500 font-mono select-none">
+                  {ivaDisplay}
                 </div>
-                <FieldError errors={state?.errors?.tax_rate_id} />
               </div>
             </div>
           </Section>

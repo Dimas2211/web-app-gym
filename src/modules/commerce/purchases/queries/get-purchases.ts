@@ -31,6 +31,7 @@ export async function getPurchases(
     date_from,
     date_to,
     search,
+    document_number_search,
     sort_field     = "purchase_date",
     sort_direction = "desc",
     page      = 1,
@@ -56,11 +57,13 @@ export async function getPurchases(
         OR: [
           { name: { contains: supplier_search, mode: "insensitive" } },
           { nrc:  { contains: supplier_search, mode: "insensitive" } },
+          { nit:  { contains: supplier_search, mode: "insensitive" } },
         ],
       },
     }),
-    ...(dateFilter       && { purchase_date: dateFilter }),
-    ...(search           && { purchase_code: { contains: search, mode: "insensitive" } }),
+    ...(dateFilter               && { purchase_date: dateFilter }),
+    ...(search                   && { purchase_code:    { contains: search,                   mode: "insensitive" } }),
+    ...(document_number_search   && { document_number:  { contains: document_number_search,   mode: "insensitive" } }),
   };
 
   // ── Ordenamiento tipado con el contrato de Prisma ──────────────

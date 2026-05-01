@@ -365,14 +365,14 @@ export function ProductTraceabilityTabs({ summary }: ProductTraceabilityTabsProp
 
   if (!summary) {
     return (
-      <div className="border-t border-zinc-100 flex items-center justify-center py-4 text-xs text-zinc-300">
+      <div className="h-full border-t border-zinc-100 flex items-center justify-center py-4 text-xs text-zinc-300">
         Selecciona un producto para ver trazabilidad
       </div>
     );
   }
 
   return (
-    <div className="border-t border-zinc-200 flex flex-col min-h-0">
+    <div className="h-full border-t border-zinc-200 flex flex-col min-h-0">
       {/* Barra de pestañas */}
       <div className="flex overflow-x-auto border-b border-zinc-100 bg-white shrink-0 px-2">
         {tabs.map(({ id, label, icon: Icon }) => (
@@ -389,7 +389,7 @@ export function ProductTraceabilityTabs({ summary }: ProductTraceabilityTabsProp
       </div>
 
       {/* Contenido de la pestaña activa */}
-      <div className="flex-1 overflow-auto min-h-[120px]">
+      <div className="flex-1 overflow-auto min-h-0">
         {activeTab === "resumen" && <ResumenTab summary={summary} />}
 
         {activeTab === "ventas" && (

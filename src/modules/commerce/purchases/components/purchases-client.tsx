@@ -180,6 +180,10 @@ export function PurchasesClient({ initialItems, initialTotal }: PurchasesClientP
   const [authPassword, setAuthPassword]     = useState("");
   const [authState, authFormAction, authPending] = useActionState(editPurchaseAuthAction, undefined);
 
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [deleteLoading,     setDeleteLoading]     = useState(false);
+  const [deleteError,       setDeleteError]       = useState<string | null>(null);
+
   // Cuando autorización es exitosa → navegar a edición
   useEffect(() => {
     if (authState?.ok && selectedId) {
@@ -204,11 +208,12 @@ export function PurchasesClient({ initialItems, initialTotal }: PurchasesClientP
     listAbortRef.current = ctrl;
 
     const params = new URLSearchParams({ page_size: "100" });
-    if (f.supplierSearch)     params.set("supplier_search",  f.supplierSearch);
-    if (f.purchaseCodeSearch) params.set("search",           f.purchaseCodeSearch);
-    if (f.status)             params.set("status",           f.status);
-    if (f.dateFrom)           params.set("date_from",        f.dateFrom);
-    if (f.dateTo)             params.set("date_to",          f.dateTo);
+    if (f.supplierSearch)        params.set("supplier_search",         f.supplierSearch);
+    if (f.purchaseCodeSearch)    params.set("search",                  f.purchaseCodeSearch);
+    if (f.documentNumberSearch)  params.set("document_number_search",  f.documentNumberSearch);
+    if (f.status)                params.set("status",                  f.status);
+    if (f.dateFrom)              params.set("date_from",               f.dateFrom);
+    if (f.dateTo)                params.set("date_to",                 f.dateTo);
 
     fetch(`/api/purchases?${params}`, {
       signal: ctrl.signal,
@@ -273,6 +278,30 @@ export function PurchasesClient({ initialItems, initialTotal }: PurchasesClientP
     fetchList(EMPTY_FILTERS);
   }
 
+  async function handleDeleteDraft() {
+    if (!selectedId) return;
+    setDeleteLoading(true);
+    setDeleteError(null);
+    try {
+      const res = await fetch(`/api/purchases/${selectedId}`, {
+        method: "DELETE",
+        credentials: "same-origin",
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setDeleteError(data.error ?? "Error al eliminar la compra.");
+        return;
+      }
+      setDeleteConfirmOpen(false);
+      setSelectedId(null);
+      fetchList();
+    } catch {
+      setDeleteError("Error de red al eliminar la compra.");
+    } finally {
+      setDeleteLoading(false);
+    }
+  }
+
   const selectedItem = items.find((i) => i.id === selectedId) ?? null;
 
   return (
@@ -287,7 +316,7 @@ export function PurchasesClient({ initialItems, initialTotal }: PurchasesClientP
         onClear={handleFilterClear}
       />
 
-      {/* ── Acción contextual: Editar (solo DRAFT seleccionado) ────── */}
+      {/* ── Acción contextual: Editar / Eliminar (solo DRAFT seleccionado) ── */}
       {selectedItem?.status === "DRAFT" && (
         <div className="flex-none border-b border-zinc-800 bg-zinc-900/60 px-3 py-1 flex items-center gap-2">
           <button
@@ -296,7 +325,13 @@ export function PurchasesClient({ initialItems, initialTotal }: PurchasesClientP
           >
             Editar
           </button>
-          <span className="text-xs text-zinc-600">Solo compras en borrador pueden editarse.</span>
+          <button
+            onClick={() => { setDeleteError(null); setDeleteConfirmOpen(true); }}
+            className="h-6 px-2 text-xs text-red-400 hover:text-red-200 border border-red-800/50 hover:border-red-600 rounded transition-colors"
+          >
+            Eliminar borrador
+          </button>
+          <span className="text-xs text-zinc-600">Solo compras en borrador pueden editarse o eliminarse.</span>
         </div>
       )}
 
@@ -365,6 +400,50 @@ export function PurchasesClient({ initialItems, initialTotal }: PurchasesClientP
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* ── Modal de confirmación para eliminar borrador ─────────── */}
+      {deleteConfirmOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+          <div className="bg-zinc-900 border border-zinc-700 rounded-lg p-6 w-80 shadow-xl">
+            <h2 className="text-sm font-semibold text-zinc-100 mb-1">Eliminar borrador</h2>
+            <p className="text-xs text-zinc-400 mb-4">
+              Esta acción eliminará permanentemente la compra y todas sus líneas.
+              No se puede deshacer.
+            </p>
+            <p className="text-xs text-zinc-500 mb-4">
+              Correlativo: <span className="text-zinc-300 font-medium">{selectedItem?.purchase_code ?? "—"}</span>
+              {" · "}
+              Proveedor: <span className="text-zinc-300 font-medium">{selectedItem?.supplier_name ?? "—"}</span>
+            </p>
+
+            {deleteError && (
+              <p className="mb-3 text-xs text-red-400 bg-red-900/30 border border-red-700/40 rounded px-2 py-1">
+                {deleteError}
+              </p>
+            )}
+
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setDeleteConfirmOpen(false)}
+                disabled={deleteLoading}
+                className="flex-1 h-8 text-xs border border-zinc-700 rounded text-zinc-400 hover:text-zinc-100 transition-colors disabled:opacity-50"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleDeleteDraft}
+                disabled={deleteLoading}
+                className="flex-1 h-8 text-xs bg-red-700 hover:bg-red-600 text-white rounded font-medium flex items-center justify-center gap-1 disabled:opacity-50 transition-colors"
+              >
+                {deleteLoading && <Loader2 className="h-3 w-3 animate-spin" />}
+                {deleteLoading ? "Eliminando…" : "Eliminar"}
+              </button>
+            </div>
           </div>
         </div>
       )}

@@ -5,25 +5,31 @@
 import Link from "next/link";
 import type { KeyboardEvent } from "react";
 //
-// Bloque A — barra operativa de filtros.
+// Barra operativa de filtros — todos funcionales.
 //
-// Fila 1 (reales): Proveedor · Correlativo · Estado · Desde · Hasta · Limpiar · N docs
-// Fila 2 (stubs):  Nº fiscal · NRC · Tipo doc.  (deshabilitados, estructura ERP)
+// Filtros activos:
+//   Proveedor (nombre, NRC o NIT) · Correlativo · Nº documento · Estado · Desde · Hasta
+//
+// Stubs eliminados: Nº fiscal / NRC separado / Tipo doc.
+//   - NRC y NIT ya se buscan dentro del campo "Proveedor".
+//   - Tipo doc no tiene soporte en la query actual.
 // ─────────────────────────────────────────────────────────────────
 
 // ── Tipos exportados ──────────────────────────────────────────────
 
 export interface FilterState {
-  supplierSearch:    string;
-  purchaseCodeSearch: string;
+  supplierSearch:        string;
+  purchaseCodeSearch:    string;
+  documentNumberSearch:  string;
   status:    string;
   dateFrom:  string;
   dateTo:    string;
 }
 
 export const EMPTY_FILTERS: FilterState = {
-  supplierSearch:    "",
-  purchaseCodeSearch: "",
+  supplierSearch:       "",
+  purchaseCodeSearch:   "",
+  documentNumberSearch: "",
   status:   "",
   dateFrom: "",
   dateTo:   "",
@@ -50,13 +56,6 @@ const realInputCls = [
   "focus:outline-none focus:border-zinc-500",
 ].join(" ");
 
-const stubInputCls = [
-  "h-6 rounded px-2 text-xs",
-  "bg-zinc-900 border border-zinc-800",
-  "text-zinc-700 placeholder:text-zinc-700",
-  "cursor-not-allowed",
-].join(" ");
-
 // ── Componente ────────────────────────────────────────────────────
 
 export function PurchasesFiltersBar({
@@ -69,6 +68,7 @@ export function PurchasesFiltersBar({
   const hasFilters =
     !!filters.supplierSearch ||
     !!filters.purchaseCodeSearch ||
+    !!filters.documentNumberSearch ||
     !!filters.status ||
     !!filters.dateFrom ||
     !!filters.dateTo;
@@ -81,12 +81,10 @@ export function PurchasesFiltersBar({
   }
 
   return (
-    <div className="flex-none border-b border-zinc-800 bg-zinc-900 px-3 py-2 space-y-1.5">
-
-      {/* ── Fila 1: filtros reales ──────────────────────────────── */}
+    <div className="flex-none border-b border-zinc-800 bg-zinc-900 px-3 py-2">
       <div className="flex items-end gap-2 flex-wrap">
 
-        {/* Proveedor */}
+        {/* Proveedor — busca por nombre, NRC o NIT */}
         <div>
           <label className={labelCls}>Proveedor</label>
           <input
@@ -94,12 +92,12 @@ export function PurchasesFiltersBar({
             value={filters.supplierSearch}
             onChange={(e) => onChange({ supplierSearch: e.target.value })}
             onKeyDown={handleFilterKeyDown}
-            placeholder="Nombre de proveedor…"
+            placeholder="Nombre, NRC o NIT…"
             className={`${realInputCls} w-44`}
           />
         </div>
 
-        {/* Correlativo */}
+        {/* Correlativo — busca por purchase_code interno */}
         <div>
           <label className={labelCls}>Correlativo</label>
           <input
@@ -107,8 +105,21 @@ export function PurchasesFiltersBar({
             value={filters.purchaseCodeSearch}
             onChange={(e) => onChange({ purchaseCodeSearch: e.target.value })}
             onKeyDown={handleFilterKeyDown}
-            placeholder="Código de compra…"
-            className={`${realInputCls} w-36`}
+            placeholder="Código interno…"
+            className={`${realInputCls} w-32`}
+          />
+        </div>
+
+        {/* Nº documento — busca por document_number (nº del comprobante del proveedor) */}
+        <div>
+          <label className={labelCls}>Nº documento</label>
+          <input
+            type="text"
+            value={filters.documentNumberSearch}
+            onChange={(e) => onChange({ documentNumberSearch: e.target.value })}
+            onKeyDown={handleFilterKeyDown}
+            placeholder="0001-000001…"
+            className={`${realInputCls} w-32`}
           />
         </div>
 
@@ -176,39 +187,6 @@ export function PurchasesFiltersBar({
         </span>
 
       </div>
-
-      {/* ── Fila 2: stubs honestos ──────────────────────────────── */}
-      <div className="flex items-end gap-2">
-
-        <div>
-          <label className={`${labelCls} text-zinc-700`}>Nº fiscal</label>
-          <input
-            type="text"
-            disabled
-            placeholder="—"
-            className={`${stubInputCls} w-32`}
-          />
-        </div>
-
-        <div>
-          <label className={`${labelCls} text-zinc-700`}>NRC</label>
-          <input
-            type="text"
-            disabled
-            placeholder="—"
-            className={`${stubInputCls} w-24`}
-          />
-        </div>
-
-        <div>
-          <label className={`${labelCls} text-zinc-700`}>Tipo doc.</label>
-          <select disabled className={`${stubInputCls} w-28`}>
-            <option>—</option>
-          </select>
-        </div>
-
-      </div>
-
     </div>
   );
 }

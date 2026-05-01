@@ -39,7 +39,7 @@ import { ProductSearchBar } from "./product-search-bar";
 import { ProductFilters } from "./product-filters";
 import { ProductSortSelector } from "./product-sort-selector";
 import { ProductsTable } from "./products-table";
-import { ProductSummaryPanel } from "./product-summary-panel";
+import { ProductSummaryPanel, ProductCostsPricesStrip } from "./product-summary-panel";
 import { ProductTraceabilityTabs } from "./product-traceability-tabs";
 import { ProductStatusDialog } from "./product-status-dialog";
 import { NewProductDialog } from "./new-product-dialog";
@@ -168,8 +168,14 @@ export function ProductsClient({
       const res = await fetch(url);
       if (!res.ok) return;
       const data = await res.json() as { items: ProductListItem[]; total: number };
-      setItems(data.items ?? []);
+      const newItems = data.items ?? [];
+      setItems(newItems);
       setTotal(data.total ?? 0);
+      // Si el producto seleccionado ya no está en la nueva lista, limpiar la selección.
+      // Patrón funcional: no añade selectedProduct como dependencia del useCallback.
+      setSelectedProduct((prev) =>
+        prev === null || newItems.some((item) => item.id === prev.id) ? prev : null
+      );
     } finally {
       setIsLoadingList(false);
     }
@@ -284,104 +290,132 @@ export function ProductsClient({
   // ── Render ────────────────────────────────────────────────────
 
   return (
-    <div className="space-y-4">
+    <div className="flex flex-col gap-3 lg:h-[calc(100dvh-88px)] lg:overflow-hidden">
 
-      {/* ── Encabezado ─────────────────────────────────────────── */}
-      <div className="flex items-center justify-between gap-4 flex-wrap">
-        <div>
-          <div className="flex items-center gap-2">
-            <Package size={18} className="text-zinc-400" />
-            <h1 className="text-xl font-bold text-zinc-800">Catálogo de productos</h1>
+      {/* ── Controles superiores (fijos, no shrink) ────────────── */}
+      <div className="shrink-0 flex flex-col gap-3">
+
+        {/* ── Encabezado ─────────────────────────────────────────── */}
+        <div className="flex items-center justify-between gap-4 flex-wrap">
+          <div>
+            <div className="flex items-center gap-2">
+              <Package size={18} className="text-zinc-400" />
+              <h1 className="text-xl font-bold text-zinc-800">Catálogo de productos</h1>
+            </div>
+            <p className="text-sm text-zinc-500 mt-0.5">
+              {isLoadingList
+                ? "Actualizando…"
+                : `${total} producto${total !== 1 ? "s" : ""} en el catálogo`}
+            </p>
           </div>
-          <p className="text-sm text-zinc-500 mt-0.5">
-            {isLoadingList
-              ? "Actualizando…"
-              : `${total} producto${total !== 1 ? "s" : ""} en el catálogo`}
-          </p>
-        </div>
 
-        {canManage && (
-          <button
-            type="button"
-            onClick={() => setShowNewDialog(true)}
-            className="flex items-center gap-2 bg-zinc-900 text-white px-4 py-2 rounded-lg
-                       text-sm font-semibold hover:bg-zinc-800 transition-colors shrink-0"
-          >
-            <Plus size={15} />
-            Nuevo producto
-          </button>
-        )}
-      </div>
-
-      {/* ── Barra de búsqueda + ordenamiento ─────────────────── */}
-      <div className="flex flex-wrap items-center gap-3">
-        <ProductSearchBar
-          value={filters.search_code ?? ""}
-          onChange={(v) =>
-            handleFiltersChange({ ...filters, search_code: v || undefined })
-          }
-          placeholder="Buscar por código…"
-        />
-        <ProductSearchBar
-          value={filters.search_name ?? ""}
-          onChange={(v) =>
-            handleFiltersChange({ ...filters, search_name: v || undefined })
-          }
-          placeholder="Buscar por nombre…"
-        />
-        <ProductSortSelector sort={sort} onChange={handleSortChange} />
-      </div>
-
-      {/* ── Filtros ───────────────────────────────────────────── */}
-      <ProductFilters
-        filters={filters}
-        categories={categories}
-        allLines={allLines}
-        allSublines={allSublines}
-        suppliers={suppliers}
-        onChange={handleFiltersChange}
-        onClear={handleClearFilters}
-        hasActiveFilters={hasActiveFilters}
-      />
-
-      {/* ── Grilla del catálogo ───────────────────────────────── */}
-      <div className="bg-white rounded-xl border border-zinc-200 shadow-sm overflow-hidden">
-        <div className="h-[55vh] overflow-auto">
-          <ProductsTable
-            items={items}
-            selectedId={selectedProduct?.id ?? null}
-            onSelect={setSelectedProduct}
-            sort={sort}
-            onSortChange={handleSortChange}
-            isLoading={isLoadingList}
-          />
-        </div>
-
-        {/* Indicador de total */}
-        <div className="px-4 py-2 border-t border-zinc-100 bg-zinc-50 text-xs text-zinc-400 text-right">
-          {isLoadingList
-            ? "Actualizando lista…"
-            : `${items.length} de ${total} producto${total !== 1 ? "s" : ""}`}
-          {total > PAGE_SIZE && !isLoadingList && (
-            <span className="ml-2 text-amber-500">
-              — mostrando los primeros {PAGE_SIZE}
-            </span>
+          {canManage && (
+            <button
+              type="button"
+              onClick={() => setShowNewDialog(true)}
+              className="flex items-center gap-2 bg-zinc-900 text-white px-4 py-2 rounded-lg
+                         text-sm font-semibold hover:bg-zinc-800 transition-colors shrink-0"
+            >
+              <Plus size={15} />
+              Nuevo producto
+            </button>
           )}
         </div>
+
+        {/* ── Barra de búsqueda + ordenamiento ─────────────────── */}
+        <div className="flex flex-wrap items-center gap-3">
+          <ProductSearchBar
+            value={filters.search_code ?? ""}
+            onChange={(v) =>
+              handleFiltersChange({ ...filters, search_code: v || undefined })
+            }
+            placeholder="Buscar por código…"
+          />
+          <ProductSearchBar
+            value={filters.search_name ?? ""}
+            onChange={(v) =>
+              handleFiltersChange({ ...filters, search_name: v || undefined })
+            }
+            placeholder="Buscar por nombre…"
+          />
+          <ProductSortSelector sort={sort} onChange={handleSortChange} />
+        </div>
+
+        {/* ── Filtros ───────────────────────────────────────────── */}
+        <ProductFilters
+          filters={filters}
+          categories={categories}
+          allLines={allLines}
+          allSublines={allSublines}
+          suppliers={suppliers}
+          onChange={handleFiltersChange}
+          onClear={handleClearFilters}
+          hasActiveFilters={hasActiveFilters}
+        />
+
       </div>
 
-      {/* ── Panel de detalle del producto seleccionado ────────── */}
-      <div className="bg-white rounded-xl border border-zinc-200 shadow-sm overflow-hidden">
-        <div className="min-h-[200px]">
-          <ProductSummaryPanel
-            summary={summary}
-            isLoading={isLoadingSummary}
-            canManage={canManage}
-            onRequestStatusChange={() => setShowStatusDialog(true)}
-            onRequestEdit={handleRequestEdit}
-          />
+      {/* ── Área de datos: layout ERP ─────────────────────────── */}
+      <div className="flex flex-col gap-2 lg:flex-1 lg:min-h-0">
+
+        {/* ── Fila central: columna izquierda + panel derecho ──── */}
+        <div className="flex flex-col lg:flex-row gap-2 lg:flex-1 lg:min-h-0 min-w-0">
+
+          {/* ── Columna izquierda: grilla + strip de costos + trazabilidad ──── */}
+          <div className="flex flex-col gap-2 lg:flex-1 lg:min-h-0 min-w-0">
+
+            {/* Grilla del catálogo */}
+            <div className="bg-white rounded-xl border border-zinc-200 shadow-sm overflow-hidden flex flex-col lg:flex-1 lg:min-h-0">
+              <div className="h-[45vh] lg:h-auto lg:flex-1 lg:min-h-0 overflow-auto">
+                <ProductsTable
+                  items={items}
+                  selectedId={selectedProduct?.id ?? null}
+                  onSelect={setSelectedProduct}
+                  sort={sort}
+                  onSortChange={handleSortChange}
+                  isLoading={isLoadingList}
+                />
+              </div>
+
+              {/* Indicador de total */}
+              <div className="shrink-0 px-4 py-2 border-t border-zinc-100 bg-zinc-50 text-xs text-zinc-400 text-right">
+                {isLoadingList
+                  ? "Actualizando lista…"
+                  : `${items.length} de ${total} producto${total !== 1 ? "s" : ""}`}
+                {total > PAGE_SIZE && !isLoadingList && (
+                  <span className="ml-2 text-amber-500">
+                    — mostrando los primeros {PAGE_SIZE}
+                  </span>
+                )}
+              </div>
+            </div>
+
+            {/* Strip horizontal: costos y precios */}
+            <div className="shrink-0 bg-white rounded-xl border border-zinc-200 shadow-sm">
+              <ProductCostsPricesStrip summary={summary} />
+            </div>
+
+            {/* Trazabilidad: alineada con la grilla, no con el área total */}
+            <div className="shrink-0 h-[200px] bg-white rounded-xl border border-zinc-200 shadow-sm overflow-hidden">
+              <ProductTraceabilityTabs summary={summary} />
+            </div>
+
+          </div>
+
+          {/* ── Panel derecho: detalle + inventario ──────────────── */}
+          <div className="lg:w-80 xl:w-96 shrink-0 bg-white rounded-xl border border-zinc-200 shadow-sm overflow-hidden">
+            <ProductSummaryPanel
+              summary={summary}
+              isLoading={isLoadingSummary}
+              canManage={canManage}
+              variant="panel"
+              onRequestStatusChange={() => setShowStatusDialog(true)}
+              onRequestEdit={handleRequestEdit}
+            />
+          </div>
+
         </div>
-        <ProductTraceabilityTabs summary={summary} />
+
       </div>
 
       {/* ── Diálogos ──────────────────────────────────────────── */}

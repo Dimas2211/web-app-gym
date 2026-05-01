@@ -1,30 +1,21 @@
 import Link from "next/link";
 import { auth } from "@/lib/auth/auth";
 import { ROLE_LABELS, ROLE_COLORS } from "@/lib/utils/roles";
+import { MODULE_GROUPS } from "@/lib/navigation/dashboard-nav";
 import type { UserRole } from "@prisma/client";
 
 function credentialHref(role: UserRole): string {
   return role === "client" ? "/portal/credencial" : "/dashboard/credential";
 }
 
-const MODULES = [
-  { label: "Sucursales", href: "/dashboard/branches", roles: ["super_admin"] },
-  { label: "Usuarios", href: "/dashboard/users", roles: ["super_admin", "branch_admin"] },
-  { label: "Clientes", href: "/dashboard/clients", roles: ["super_admin", "branch_admin", "reception"] },
-  { label: "Membresías", href: "/dashboard/memberships/client-memberships", roles: ["super_admin", "branch_admin", "reception"] },
-  { label: "Entrenadores", href: "/dashboard/trainers", roles: ["super_admin", "branch_admin"] },
-  { label: "Agenda", href: "/dashboard/classes", roles: ["super_admin", "branch_admin", "reception", "trainer"] },
-  { label: "Planes semanales", href: "/dashboard/weekly-plans/client-plans", roles: ["super_admin", "branch_admin", "reception", "trainer"] },
-  { label: "Inventario", href: "/dashboard/inventory", roles: ["super_admin", "branch_admin"] },
-  { label: "Ventas", href: "/dashboard/sales", roles: ["super_admin", "branch_admin", "reception"] },
-  { label: "Reportes", href: "/dashboard/reports", roles: ["super_admin", "branch_admin"] },
-];
-
 export default async function DashboardPage() {
   const session = await auth();
   const user = session!.user;
 
-  const visibleModules = MODULES.filter((m) => m.roles.includes(user.role));
+  const visibleGroups = MODULE_GROUPS.map((group) => ({
+    ...group,
+    items: group.items.filter((m) => m.roles.includes(user.role)),
+  })).filter((group) => group.items.length > 0);
 
   return (
     <div className="space-y-6">
@@ -79,25 +70,37 @@ export default async function DashboardPage() {
         </div>
       </div>
 
-      {/* Módulos disponibles */}
-      <div className="bg-white rounded-xl border border-zinc-200 shadow-sm p-5">
-        <h2 className="text-xs font-semibold text-zinc-400 uppercase tracking-wide mb-4">
-          Módulos disponibles
-        </h2>
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
-          {visibleModules.map((m) => (
-            <Link
-              key={m.href}
-              href={m.href}
-              className="border border-zinc-200 rounded-lg p-3 text-center hover:border-zinc-400 hover:bg-zinc-50 transition-colors group"
-            >
-              <p className="text-sm font-medium text-zinc-700 group-hover:text-zinc-900">
-                {m.label}
-              </p>
-            </Link>
-          ))}
+      {/* Módulos por sección */}
+      {visibleGroups.map((group) => (
+        <div key={group.id} className="bg-white rounded-xl border border-zinc-200 shadow-sm p-5">
+          <h2 className="text-xs font-semibold text-zinc-400 uppercase tracking-wide mb-4">
+            {group.label}
+          </h2>
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+            {group.items.map((m) =>
+              m.disabled ? (
+                <div
+                  key={m.href}
+                  className="border border-dashed border-zinc-200 rounded-lg p-3 text-center opacity-50 cursor-not-allowed"
+                >
+                  <p className="text-sm font-medium text-zinc-400">{m.label}</p>
+                  <p className="text-xs text-zinc-300 mt-0.5">Próximamente</p>
+                </div>
+              ) : (
+                <Link
+                  key={m.href}
+                  href={m.href}
+                  className="border border-zinc-200 rounded-lg p-3 text-center hover:border-zinc-400 hover:bg-zinc-50 transition-colors group"
+                >
+                  <p className="text-sm font-medium text-zinc-700 group-hover:text-zinc-900">
+                    {m.label}
+                  </p>
+                </Link>
+              )
+            )}
+          </div>
         </div>
-      </div>
+      ))}
     </div>
   );
 }
