@@ -6,7 +6,7 @@
 // Grilla de líneas del documento seleccionado (Bloque D).
 //
 // Columnas: Código · Producto · Cant. · C. Unitario · Gravada ·
-//           Salida (stub) · Entrada (stub)
+//           IVA · Salida (stub) · Entrada (stub)
 //
 // 4 estados explícitos:
 //   !selectedId                       → sin selección
@@ -33,6 +33,7 @@ const COLUMNS: ColDef[] = [
   { key: "quantity",     label: "Cant.",       widthCls: "w-24",  align: "right" },
   { key: "unit_cost",    label: "C. Unitario", widthCls: "w-28",  align: "right" },
   { key: "line_subtotal",label: "Gravada",     widthCls: "w-28",  align: "right" },
+  { key: "tax_amount",   label: "IVA",         widthCls: "w-24",  align: "right" },
   { key: "salida",       label: "Salida",      widthCls: "w-20",  align: "right", stub: true },
   { key: "entrada",      label: "Entrada",     widthCls: "w-20",  align: "right", stub: true },
 ];
@@ -137,6 +138,8 @@ export function PurchasesItemsTable({ selectedId, detail }: PurchasesItemsTableP
                     return cell(formatMoney(item.unit_cost));
                   case "line_subtotal":
                     return cell(formatMoney(item.line_subtotal));
+                  case "tax_amount":
+                    return cell(formatMoney(item.tax_amount));
                   case "salida":
                     return cell(<span className="text-zinc-600">—</span>);
                   case "entrada":

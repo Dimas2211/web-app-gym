@@ -16,6 +16,23 @@ interface Props {
   onSelect: (product: ProductForPurchaseLookup) => void;
 }
 
+// ── Columnas — mismo patrón que purchases-items-table ─────────────
+
+interface ColDef {
+  key:      string;
+  label:    string;
+  widthCls: string;
+  align?:   "right" | "center";
+}
+
+const COLUMNS: ColDef[] = [
+  { key: "product_code", label: "Código",     widthCls: "w-24"                   },
+  { key: "name",         label: "Producto",   widthCls: "w-56"                   },
+  { key: "unit_symbol",  label: "Unidad",     widthCls: "w-20", align: "center"  },
+  { key: "cost_price",   label: "Costo ref.", widthCls: "w-28", align: "right"   },
+  { key: "tax_rate",     label: "IVA %",      widthCls: "w-16", align: "right"   },
+];
+
 export function PurchaseFormProductSearch({ onSelect }: Props) {
   const [search,  setSearch]  = useState("");
   const [results, setResults] = useState<ProductForPurchaseLookup[]>([]);
@@ -56,45 +73,86 @@ export function PurchaseFormProductSearch({ onSelect }: Props) {
         {loading && <span className="text-[10px] text-zinc-600">buscando…</span>}
       </div>
 
-      {/* Results grid */}
+      {/* Results grid — flex layout, igual que purchases-items-table */}
       <div className="flex-1 overflow-y-auto">
-        <table className="w-full text-[11px]">
-          <thead className="sticky top-0 bg-zinc-900/90">
-            <tr className="text-left text-[10px] text-zinc-500 uppercase tracking-wide">
-              <th className="py-1 px-3 font-medium w-24">Código</th>
-              <th className="py-1 px-3 font-medium">Nombre</th>
-              <th className="py-1 px-3 font-medium w-14 text-center">Unidad</th>
-              <th className="py-1 px-3 font-medium w-24 text-right">Costo ref.</th>
-              <th className="py-1 px-3 font-medium w-16 text-right">IVA %</th>
-            </tr>
-          </thead>
-          <tbody>
-            {results.map((p) => (
-              <tr
-                key={p.id}
-                onClick={() => onSelect(p)}
-                className="border-t border-zinc-800/50 hover:bg-zinc-800 cursor-pointer transition-colors"
-              >
-                <td className="py-1 px-3 font-mono text-zinc-300">{p.product_code}</td>
-                <td className="py-1 px-3 text-zinc-200 truncate max-w-0">{p.name}</td>
-                <td className="py-1 px-3 text-center text-zinc-400">{p.unit_symbol}</td>
-                <td className="py-1 px-3 text-right font-mono text-zinc-400">
-                  {p.cost_price !== null ? `$${Number(p.cost_price).toFixed(2)}` : "—"}
-                </td>
-                <td className="py-1 px-3 text-right text-zinc-400">
-                  {p.tax_rate !== null ? `${p.tax_rate}%` : "—"}
-                </td>
-              </tr>
-            ))}
-            {!loading && results.length === 0 && (
-              <tr>
-                <td colSpan={5} className="py-4 text-center text-zinc-600 text-xs">
-                  {search ? "Sin resultados" : "No hay productos disponibles para compra"}
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
+
+        {/* Encabezado sticky */}
+        <div className="sticky top-0 z-10 flex items-center h-7 border-b border-zinc-800 bg-zinc-900 px-3">
+          {COLUMNS.map((col) => (
+            <div
+              key={col.key}
+              className={[
+                "shrink-0 pr-3 select-none text-[10px] font-semibold uppercase tracking-wide text-zinc-500",
+                col.widthCls,
+                col.align === "right"  ? "text-right"  : "",
+                col.align === "center" ? "text-center" : "",
+              ].join(" ")}
+            >
+              {col.label}
+            </div>
+          ))}
+        </div>
+
+        {/* Filas */}
+        {results.map((p) => (
+          <div
+            key={p.id}
+            onClick={() => onSelect(p)}
+            className="flex items-center h-7 px-3 border-b border-zinc-800/40 text-xs text-zinc-300 hover:bg-zinc-800 cursor-pointer transition-colors"
+          >
+            {COLUMNS.map((col) => {
+              let content: React.ReactNode;
+              switch (col.key) {
+                case "product_code":
+                  content = <span className="font-mono">{p.product_code}</span>;
+                  break;
+                case "name":
+                  content = p.name;
+                  break;
+                case "unit_symbol":
+                  content = <span className="text-zinc-400">{p.unit_symbol}</span>;
+                  break;
+                case "cost_price":
+                  content = (
+                    <span className="font-mono text-zinc-400">
+                      {p.cost_price !== null ? `$${Number(p.cost_price).toFixed(2)}` : "—"}
+                    </span>
+                  );
+                  break;
+                case "tax_rate":
+                  content = (
+                    <span className="text-zinc-400">
+                      {p.tax_rate !== null ? `${p.tax_rate}%` : "—"}
+                    </span>
+                  );
+                  break;
+                default:
+                  content = "—";
+              }
+
+              return (
+                <div
+                  key={col.key}
+                  className={[
+                    "shrink-0 pr-3 truncate",
+                    col.widthCls,
+                    col.align === "right"  ? "text-right"  : "",
+                    col.align === "center" ? "text-center" : "",
+                  ].join(" ")}
+                >
+                  {content}
+                </div>
+              );
+            })}
+          </div>
+        ))}
+
+        {!loading && results.length === 0 && (
+          <div className="py-4 text-center text-zinc-600 text-xs">
+            {search ? "Sin resultados" : "No hay productos disponibles para compra"}
+          </div>
+        )}
+
       </div>
     </div>
   );

@@ -36,13 +36,23 @@ interface LineForm {
   unit_symbol:  string;
   quantity:     string;
   unit_cost:    string;
-  tax_amount:   string;
+  tax_rate_pct: number;   // tasa del TaxRate en la base (%), solo UI
+  tax_amount:   string;   // calculado: subtotal * (tax_rate_pct/100), enviado al backend
 }
 
 const EMPTY_LINE: LineForm = {
   product_id: "", product_code: "", product_name: "",
-  unit_symbol: "", quantity: "1", unit_cost: "", tax_amount: "",
+  unit_symbol: "", quantity: "1", unit_cost: "",
+  tax_rate_pct: 13, tax_amount: "",
 };
+
+function computeTax(quantity: string, unitCost: string, ratePct: number): string {
+  const q = parseFloat(quantity) || 0;
+  const c = parseFloat(unitCost) || 0;
+  if (q <= 0 || c <= 0) return "";
+  const tax = Math.round(q * c * (ratePct / 100) * 100) / 100;
+  return tax.toFixed(2);
+}
 
 const inCls  = "h-7 bg-zinc-800 border border-zinc-700 rounded px-2 text-xs text-zinc-100 placeholder:text-zinc-600 focus:outline-none focus:border-zinc-500 w-full";
 const numCls = `${inCls} font-mono text-right`;
@@ -76,8 +86,7 @@ export function PurchaseFormLines({
   useEffect(() => {
     if (!selectedProduct) return;
     const cost    = selectedProduct.cost_price ?? 0;
-    const taxRate = selectedProduct.tax_rate   ?? 13;
-    const taxAmt  = Math.round(cost * (taxRate / 100) * 100) / 100;
+    const ratePct = selectedProduct.tax_rate   ?? 13;   // tasa desde TaxRate en la base
     setLine({
       product_id:   selectedProduct.id,
       product_code: selectedProduct.product_code,
@@ -85,7 +94,8 @@ export function PurchaseFormLines({
       unit_symbol:  selectedProduct.unit_symbol,
       quantity:     "1",
       unit_cost:    cost > 0 ? String(cost) : "",
-      tax_amount:   cost > 0 ? String(taxAmt) : "",
+      tax_rate_pct: ratePct,
+      tax_amount:   cost > 0 ? computeTax("1", String(cost), ratePct) : "",
     });
     setAddError(null);
     setTimeout(() => quantityRef.current?.focus(), 0);
@@ -156,10 +166,11 @@ export function PurchaseFormLines({
 
       {/* ── Zone B: Quick-add strip ─────────────────────────────── */}
       <div className="flex-none border-b border-zinc-800 bg-zinc-900/60 px-3 py-2">
-        <div className="flex items-center gap-2">
+        <div className="flex items-end gap-2">
 
           {/* Código */}
           <div className="w-24 shrink-0">
+            <span className="block text-[10px] text-zinc-500 mb-0.5">Código</span>
             <input
               type="text"
               value={line.product_code}
@@ -172,6 +183,7 @@ export function PurchaseFormLines({
 
           {/* Nombre */}
           <div className="flex-1 min-w-0">
+            <span className="block text-[10px] text-zinc-500 mb-0.5">Producto</span>
             <input
               type="text"
               value={line.product_name}
@@ -183,19 +195,30 @@ export function PurchaseFormLines({
           </div>
 
           {/* Unidad */}
-          <div className="w-12 shrink-0 text-center text-xs text-zinc-500 truncate">
-            {line.unit_symbol || "—"}
+          <div className="w-12 shrink-0">
+            <span className="block text-[10px] text-zinc-500 mb-0.5 text-center">Unidad</span>
+            <div className="h-7 flex items-center justify-center text-xs text-zinc-500 truncate">
+              {line.unit_symbol || "—"}
+            </div>
           </div>
 
           {/* Cantidad */}
           <div className="w-20 shrink-0">
+            <span className="block text-[10px] text-zinc-500 mb-0.5">Cantidad</span>
             <input
               ref={quantityRef}
               type="number"
               min="0.001"
               step="any"
               value={line.quantity}
-              onChange={(e) => setLine((l) => ({ ...l, quantity: e.target.value }))}
+              onChange={(e) =>
+                setLine((l) => ({
+                  ...l,
+                  quantity:   e.target.value,
+                  tax_amount: computeTax(e.target.value, l.unit_cost, l.tax_rate_pct),
+                }))
+              }
+              onFocus={(e) => e.currentTarget.select()}
               onKeyDown={(e) => {
                 if (e.key === "Enter") { e.preventDefault(); costRef.current?.focus(); }
               }}
@@ -206,34 +229,37 @@ export function PurchaseFormLines({
 
           {/* Costo unitario */}
           <div className="w-24 shrink-0">
+            <span className="block text-[10px] text-zinc-500 mb-0.5">Costo unitario</span>
             <input
               ref={costRef}
               type="number"
               min="0"
               step="0.01"
               value={line.unit_cost}
-              onChange={(e) => {
-                const cost    = parseFloat(e.target.value) || 0;
-                const taxAmt  = Math.round(cost * 0.13 * 100) / 100;
-                setLine((l) => ({ ...l, unit_cost: e.target.value, tax_amount: cost > 0 ? String(taxAmt) : l.tax_amount }));
-              }}
+              onChange={(e) =>
+                setLine((l) => ({
+                  ...l,
+                  unit_cost:  e.target.value,
+                  tax_amount: computeTax(l.quantity, e.target.value, l.tax_rate_pct),
+                }))
+              }
+              onFocus={(e) => e.currentTarget.select()}
               onKeyDown={focusAddButton}
               placeholder="Costo u."
               className={numCls}
             />
           </div>
 
-          {/* IVA */}
+          {/* IVA — calculado automáticamente, no editable */}
           <div className="w-20 shrink-0">
+            <span className="block text-[10px] text-zinc-500 mb-0.5">IVA</span>
             <input
-              type="number"
-              min="0"
-              step="0.01"
-              value={line.tax_amount}
-              onChange={(e) => setLine((l) => ({ ...l, tax_amount: e.target.value }))}
-              onKeyDown={focusAddButton}
+              type="text"
+              value={line.tax_amount ? `$${Number(line.tax_amount).toFixed(2)}` : "—"}
+              readOnly
+              tabIndex={-1}
               placeholder="IVA"
-              className={numCls}
+              className={`${numCls} text-zinc-400 cursor-default`}
             />
           </div>
 

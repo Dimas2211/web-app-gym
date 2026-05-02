@@ -29,6 +29,7 @@ import { PurchasesTable } from "./purchases-table";
 import { PurchasesItemsTable } from "./purchases-items-table";
 import { PurchasesFiltersBar, type FilterState, EMPTY_FILTERS } from "./purchases-filters-bar";
 import { editPurchaseAuthAction } from "../actions/edit-purchase-auth.action";
+import { cancelConfirmedPurchaseAction } from "../actions/cancel-confirmed-purchase.action";
 import {
   DOCUMENT_TYPE_LABELS,
   PAYMENT_CONDITION_LABELS,
@@ -184,6 +185,11 @@ export function PurchasesClient({ initialItems, initialTotal }: PurchasesClientP
   const [deleteLoading,     setDeleteLoading]     = useState(false);
   const [deleteError,       setDeleteError]       = useState<string | null>(null);
 
+  const [cancelAuthOpen,     setCancelAuthOpen]     = useState(false);
+  const [cancelAuthEmail,    setCancelAuthEmail]    = useState("");
+  const [cancelAuthPassword, setCancelAuthPassword] = useState("");
+  const [cancelState, cancelFormAction, cancelPending] = useActionState(cancelConfirmedPurchaseAction, undefined);
+
   // Cuando autorización es exitosa → navegar a edición
   useEffect(() => {
     if (authState?.ok && selectedId) {
@@ -239,6 +245,17 @@ export function PurchasesClient({ initialItems, initialTotal }: PurchasesClientP
     const id = setTimeout(() => fetchList(filters), 350);
     return () => clearTimeout(id);
   }, [filters, fetchList]);
+
+  // Cuando anulación es exitosa → cerrar modal y refrescar
+  useEffect(() => {
+    if (cancelState?.ok) {
+      setCancelAuthOpen(false);
+      setCancelAuthEmail("");
+      setCancelAuthPassword("");
+      setSelectedDetail(null);
+      fetchList();
+    }
+  }, [cancelState, fetchList]);
 
   // Campos instantáneos — estado y fechas
   // ── Fetch de detalle al seleccionar fila ──────────────────────
@@ -332,6 +349,19 @@ export function PurchasesClient({ initialItems, initialTotal }: PurchasesClientP
             Eliminar borrador
           </button>
           <span className="text-xs text-zinc-600">Solo compras en borrador pueden editarse o eliminarse.</span>
+        </div>
+      )}
+
+      {/* ── Acción contextual: Anular (solo CONFIRMED seleccionado) ── */}
+      {selectedItem?.status === "CONFIRMED" && (
+        <div className="flex-none border-b border-zinc-800 bg-zinc-900/60 px-3 py-1 flex items-center gap-2">
+          <button
+            onClick={() => { setCancelAuthEmail(""); setCancelAuthPassword(""); setCancelAuthOpen(true); }}
+            className="h-6 px-2 text-xs text-orange-400 hover:text-orange-200 border border-orange-800/50 hover:border-orange-600 rounded transition-colors"
+          >
+            Anular compra
+          </button>
+          <span className="text-xs text-zinc-600">La anulación revierte el inventario y requiere autorización.</span>
         </div>
       )}
 
@@ -444,6 +474,78 @@ export function PurchasesClient({ initialItems, initialTotal }: PurchasesClientP
                 {deleteLoading ? "Eliminando…" : "Eliminar"}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Modal de anulación para compra CONFIRMED ─────────────── */}
+      {cancelAuthOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+          <div className="bg-zinc-900 border border-zinc-700 rounded-lg p-6 w-80 shadow-xl">
+            <h2 className="text-sm font-semibold text-zinc-100 mb-1">Anular compra confirmada</h2>
+            <p className="text-xs text-zinc-400 mb-1">
+              Esta acción marcará la compra como anulada y revertirá el inventario mediante movimientos trazables.
+            </p>
+            <p className="text-xs text-zinc-500 mb-4">
+              Correlativo: <span className="text-zinc-300 font-medium">{selectedItem?.purchase_code ?? "—"}</span>
+              {" · "}
+              Proveedor: <span className="text-zinc-300 font-medium">{selectedItem?.supplier_name ?? "—"}</span>
+            </p>
+
+            {cancelState && !cancelState.ok && (
+              <p className="mb-3 text-xs text-red-400 bg-red-900/30 border border-red-700/40 rounded px-2 py-1">
+                {cancelState.error}
+              </p>
+            )}
+
+            <form action={cancelFormAction} className="space-y-3">
+              <input type="hidden" name="purchase_id" value={selectedId ?? ""} />
+              <div>
+                <label className="block text-[10px] font-medium text-zinc-500 mb-0.5 uppercase tracking-wide">
+                  Correo administrador
+                </label>
+                <input
+                  name="auth_email"
+                  type="email"
+                  value={cancelAuthEmail}
+                  onChange={(e) => setCancelAuthEmail(e.target.value)}
+                  autoComplete="username"
+                  className="w-full h-8 bg-zinc-800 border border-zinc-700 rounded px-2 text-xs text-zinc-100 placeholder:text-zinc-600 focus:outline-none focus:border-zinc-500"
+                  placeholder="admin@empresa.com"
+                />
+              </div>
+              <div>
+                <label className="block text-[10px] font-medium text-zinc-500 mb-0.5 uppercase tracking-wide">
+                  Contraseña
+                </label>
+                <input
+                  name="auth_password"
+                  type="password"
+                  value={cancelAuthPassword}
+                  onChange={(e) => setCancelAuthPassword(e.target.value)}
+                  autoComplete="current-password"
+                  className="w-full h-8 bg-zinc-800 border border-zinc-700 rounded px-2 text-xs text-zinc-100 placeholder:text-zinc-600 focus:outline-none focus:border-zinc-500"
+                />
+              </div>
+              <div className="flex gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={() => setCancelAuthOpen(false)}
+                  disabled={cancelPending}
+                  className="flex-1 h-8 text-xs border border-zinc-700 rounded text-zinc-400 hover:text-zinc-100 transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={cancelPending || !cancelAuthEmail || !cancelAuthPassword}
+                  className="flex-1 h-8 text-xs bg-orange-700 hover:bg-orange-600 text-white rounded font-medium flex items-center justify-center gap-1 disabled:opacity-50 transition-colors"
+                >
+                  {cancelPending && <Loader2 className="h-3 w-3 animate-spin" />}
+                  {cancelPending ? "Anulando…" : "Anular compra"}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

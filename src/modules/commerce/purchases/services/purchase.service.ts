@@ -5,12 +5,13 @@
 // Sin "use server" — importable desde actions y route handlers.
 //
 // Operaciones:
-//   createPurchase       — crea un documento en DRAFT
-//   addPurchaseItem      — agrega o reemplaza una línea en DRAFT
-//   updatePurchaseItem   — edita una línea existente en DRAFT
-//   removePurchaseItem   — elimina una línea en DRAFT
-//   confirmPurchase      — DRAFT → CONFIRMED + genera movimientos PURCHASE_IN
-//   cancelPurchase       — DRAFT → CANCELLED
+//   createPurchase              — crea un documento en DRAFT
+//   addPurchaseItem             — agrega o reemplaza una línea en DRAFT
+//   updatePurchaseItem          — edita una línea existente en DRAFT
+//   removePurchaseItem          — elimina una línea en DRAFT
+//   confirmPurchase             — DRAFT → CONFIRMED + genera movimientos PURCHASE_IN
+//   cancelPurchase              — DRAFT → CANCELLED
+//   cancelConfirmedPurchase     — CONFIRMED → CANCELLED + reversión RETURN_OUT por stockables
 //
 // Regla crítica de stock en confirmPurchase:
 //   Los movimientos PURCHASE_IN y el cambio de estado a CONFIRMED ocurren
@@ -724,4 +725,163 @@ export async function cancelPurchase(
   });
 
   return { ok: true };
+}
+
+// ── Anular compra CONFIRMED con reversión de inventario ───────────
+//
+// Solo acepta CONFIRMED → CANCELLED.
+// Por cada línea stockable que originó un PURCHASE_IN, se crea un
+// movimiento RETURN_OUT que revierte el stock de forma trazable.
+// Si la reversión dejaría stock negativo, la operación se bloquea.
+// Todo ocurre en una sola prisma.$transaction: si cualquier paso
+// falla, la compra queda CONFIRMED y ningún movimiento queda registrado.
+
+export async function cancelConfirmedPurchase(
+  purchase_id: string,
+  tenant_id:   string,
+  location_id: string,
+  user_id:     string,
+): Promise<PurchaseResult> {
+  // 1. Leer la compra con sus líneas stockables
+  const purchase = await prisma.purchase.findFirst({
+    where: { id: purchase_id, tenant_id, location_id },
+    select: {
+      id:            true,
+      status:        true,
+      purchase_code: true,
+      items: {
+        select: {
+          product_id: true,
+          quantity:   true,
+          unit_cost:  true,
+          product:    { select: { is_stockable: true, name: true } },
+        },
+      },
+    },
+  });
+
+  if (!purchase) {
+    return { ok: false, error: "La compra no existe o no pertenece a la location activa." };
+  }
+  if (purchase.status === "DRAFT") {
+    return { ok: false, error: "Esta acción es solo para compras confirmadas. Para borradores usa la opción de eliminar." };
+  }
+  if (purchase.status === "CANCELLED") {
+    return { ok: false, error: "La compra ya está anulada." };
+  }
+  if (purchase.status !== "CONFIRMED") {
+    return { ok: false, error: "La compra no está en estado CONFIRMED." };
+  }
+
+  // 2. Pre-validar stock suficiente para cada línea stockable antes de la tx.
+  //    Si cualquier producto no tiene stock suficiente, se bloquea todo con error.
+  const stockableItems = purchase.items.filter((i) => i.product.is_stockable);
+
+  type ReversalEntry = {
+    plId:      string;
+    productId: string;
+    name:      string;
+    quantity:  number;
+    unitCost:  number;
+  };
+
+  const reversals: ReversalEntry[] = [];
+
+  for (const item of stockableItems) {
+    const pl = await prisma.productLocation.findFirst({
+      where:  { tenant_id, location_id, product_id: item.product_id },
+      select: { id: true, current_stock: true },
+    });
+
+    if (!pl) {
+      // Sin registro de inventario → el producto nunca tuvo stock registrado aquí.
+      // La compra confirmó pero no generó PL (caso edge tras migración o eliminación manual).
+      // No hay nada que revertir para este producto.
+      continue;
+    }
+
+    const currentStock = Number(pl.current_stock);
+    const qty          = Number(item.quantity);
+
+    if (currentStock - qty < 0) {
+      return {
+        ok: false,
+        error: `No se puede anular: "${item.product.name}" tiene stock actual ${currentStock} pero la compra registró ${qty} unidades. Ajusta el inventario manualmente antes de anular.`,
+      };
+    }
+
+    reversals.push({
+      plId:      pl.id,
+      productId: item.product_id,
+      name:      item.product.name,
+      quantity:  qty,
+      unitCost:  Number(item.unit_cost),
+    });
+  }
+
+  // 3. Transacción atómica: movimientos RETURN_OUT + actualizar stock + marcar CANCELLED.
+  //    Se re-lee el stock dentro de la tx para capturar cambios concurrentes.
+  //    Si la reversión genera stock negativo dentro de la tx, se lanza excepción y rollback.
+  try {
+    await prisma.$transaction(async (tx) => {
+      for (const rev of reversals) {
+        const pl = await tx.productLocation.findFirst({
+          where:  { id: rev.plId, tenant_id, location_id },
+          select: { current_stock: true },
+        });
+
+        if (!pl) {
+          throw new Error(`Registro de inventario no encontrado para "${rev.name}" al anular.`);
+        }
+
+        const stock_before    = Number(pl.current_stock);
+        const resulting_stock = stock_before - rev.quantity;
+
+        if (resulting_stock < 0) {
+          throw new Error(
+            `Stock insuficiente para revertir "${rev.name}" (stock: ${stock_before}, a revertir: ${rev.quantity}).`,
+          );
+        }
+
+        await tx.inventoryMovement.create({
+          data: {
+            tenant_id,
+            location_id,
+            product_id:          rev.productId,
+            product_location_id: rev.plId,
+            movement_type:       "RETURN_OUT",
+            quantity:            rev.quantity,
+            unit_cost:           rev.unitCost,
+            stock_before,
+            resulting_stock,
+            reference_entity:    "purchase_cancellation",
+            reference_id:        purchase_id,
+            reference_code:      purchase.purchase_code,
+            performed_by:        user_id,
+            notes:               "Reversión por anulación de compra confirmada",
+          },
+        });
+
+        await tx.productLocation.update({
+          where: { id: rev.plId },
+          data:  { current_stock: resulting_stock, updated_by: user_id },
+        });
+      }
+
+      await tx.purchase.update({
+        where: { id: purchase_id },
+        data: {
+          status:       "CANCELLED",
+          cancelled_at: new Date(),
+          cancelled_by: user_id,
+          updated_by:   user_id,
+        },
+      });
+    });
+
+    return { ok: true };
+  } catch (e) {
+    if (e instanceof Error) return { ok: false, error: e.message };
+    throw e;
+  }
 }
