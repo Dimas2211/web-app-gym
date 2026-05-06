@@ -58,3 +58,81 @@ export interface PurchaseDteImportRecord {
   updated_at:       Date;
   created_by:       string | null;
 }
+
+// ── Tipos de matching sugerido ────────────────────────────────────
+
+export type MatchTypeSupplier =
+  | "NRC_EXACT"
+  | "NIT_EXACT"
+  | "NAME_SIMILAR"
+  | "NONE";
+
+export type MatchTypeProduct =
+  | "CODE_EXACT"
+  | "SKU_EXACT"
+  | "NAME_SIMILAR"
+  | "PARTIAL_WORDS"
+  | "NONE";
+
+export type MatchConfidence = "HIGH" | "MEDIUM" | "LOW" | "NONE";
+
+// ── Proveedor detectado desde el emisor del DTE ───────────────────
+
+export interface DteSupplierDetected {
+  nit:  string | null;
+  nrc:  string | null;
+  name: string | null;
+}
+
+export interface DteSupplierSuggestion {
+  supplier_id:   string | null;
+  supplier_code: string | null;
+  supplier_name: string | null;
+  match_type:    MatchTypeSupplier;
+  confidence:    MatchConfidence;
+  score:         number;
+}
+
+export interface DteSupplierMatch {
+  detected:     DteSupplierDetected;
+  suggestion:   DteSupplierSuggestion;
+  alternatives: DteSupplierSuggestion[];
+}
+
+// ── Producto detectado desde una línea del cuerpoDocumento ────────
+
+export interface DteItemDetected {
+  code:            string | null;
+  description:     string | null;
+  quantity:        number | null;
+  unit_code:       number | null;
+  unit_price:      number | null;
+  discount_amount: number | null;
+  taxable_amount:  number | null;
+  tax_amount:      number | null;
+  line_total:      number | null;
+}
+
+export interface DteProductSuggestion {
+  product_id:   string | null;
+  product_code: string | null;
+  product_name: string | null;
+  match_type:   MatchTypeProduct;
+  confidence:   MatchConfidence;
+  score:        number;
+}
+
+export interface DteItemMatch {
+  line_number:  number;
+  detected:     DteItemDetected;
+  suggestion:   DteProductSuggestion;
+  alternatives: DteProductSuggestion[];
+}
+
+// ── Resultado completo de matching de un DTE importado ────────────
+
+export interface DteMatchResult {
+  dte_import_id:  string;
+  supplier_match: DteSupplierMatch;
+  item_matches:   DteItemMatch[];
+}
