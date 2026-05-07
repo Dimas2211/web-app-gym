@@ -36,6 +36,14 @@ export async function getPurchaseById(
       retention_1pct_applies: true,
       retention_1pct_amount:  true,
 
+      // Campos DTE
+      source_type:          true,
+      generation_code:      true,
+      control_number:       true,
+      reception_stamp:      true,
+      dte_environment_code: true,
+      dte_processed_at:     true,
+
       // Auditoría de confirmación
       confirmed_at: true,
       confirmed_by: true,
@@ -111,6 +119,14 @@ export async function getPurchaseById(
     retention_1pct_applies: row.retention_1pct_applies,
     retention_1pct_amount:  Number(row.retention_1pct_amount),
     net_to_pay: Number(row.total_amount) - Number(row.retention_1pct_amount),
+
+    // Campos DTE
+    source_type:          row.source_type,
+    generation_code:      row.generation_code,
+    control_number:       row.control_number,
+    reception_stamp:      row.reception_stamp,
+    dte_environment_code: row.dte_environment_code,
+    dte_processed_at:     row.dte_processed_at,
 
     // Confirmación
     confirmed_at:       row.confirmed_at,

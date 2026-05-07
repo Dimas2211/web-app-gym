@@ -31,6 +31,7 @@ export interface DteMetadata {
   tax_amount:       number | null;  // resumen.totalIva
   total_amount:     number | null;  // resumen.totalPagar o resumen.montoTotalOperacion
   item_count:       number | null;  // cuerpoDocumento.length
+  reception_stamp:  string | null;  // selloRecibido desde respuestaHacienda u otras rutas
 }
 
 // ── Registro completo de importación DTE ─────────────────────────
@@ -52,6 +53,7 @@ export interface PurchaseDteImportRecord {
   tax_amount:       number | null;
   total_amount:     number | null;
   item_count:       number | null;
+  reception_stamp:  string | null;
   purchase_id:      string | null;
   raw_json:         unknown;
   created_at:       Date;
@@ -102,15 +104,17 @@ export interface DteSupplierMatch {
 // ── Producto detectado desde una línea del cuerpoDocumento ────────
 
 export interface DteItemDetected {
-  code:            string | null;
-  description:     string | null;
-  quantity:        number | null;
-  unit_code:       number | null;
-  unit_price:      number | null;
-  discount_amount: number | null;
-  taxable_amount:  number | null;
-  tax_amount:      number | null;
-  line_total:      number | null;
+  code:               string | null;
+  description:        string | null;
+  quantity:           number | null;
+  unit_code:          number | null;
+  unit_price:         number | null;
+  discount_amount:    number | null;
+  taxable_amount:     number | null;  // ventaGravada
+  exempt_amount:      number | null;  // ventaExenta
+  non_subject_amount: number | null;  // ventaNoSuj
+  tax_amount:         number | null;
+  line_total:         number | null;
 }
 
 export interface DteProductSuggestion {
@@ -132,7 +136,15 @@ export interface DteItemMatch {
 // ── Resultado completo de matching de un DTE importado ────────────
 
 export interface DteMatchResult {
-  dte_import_id:  string;
-  supplier_match: DteSupplierMatch;
-  item_matches:   DteItemMatch[];
+  dte_import_id:    string;
+  supplier_match:   DteSupplierMatch;
+  item_matches:     DteItemMatch[];
+  // Metadata documental del DTE — devuelta por el endpoint match
+  dte_type?:         string | null;
+  generation_code?:  string | null;
+  control_number?:   string | null;
+  environment_code?: string | null;
+  issued_at?:        string | null;
+  total_amount?:     number | null;
+  reception_stamp?:  string | null;
 }

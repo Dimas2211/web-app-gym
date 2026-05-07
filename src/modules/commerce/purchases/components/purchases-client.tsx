@@ -139,6 +139,17 @@ function SummaryPanel({ item, detail }: SummaryPanelProps) {
     return src !== null && !f.stub ? realValCls : stubValCls;
   }
 
+  // Bloque DTE — visible solo cuando source_type = "DTE_IMPORT" o hay campos DTE presentes
+  const isDte = detail?.source_type === "DTE_IMPORT" ||
+    !!(detail?.generation_code || detail?.control_number);
+
+  function dteEnvLabel(code: string | null | undefined): string {
+    if (!code) return "—";
+    if (code === "00") return "00 — Pruebas";
+    if (code === "01") return "01 — Producción";
+    return code;
+  }
+
   return (
     <div className="flex-none border-b border-zinc-800 bg-zinc-900 px-3 py-2 space-y-1.5">
       {/* Fila 1 */}
@@ -159,6 +170,37 @@ function SummaryPanel({ item, detail }: SummaryPanelProps) {
           </div>
         ))}
       </div>
+      {/* Bloque DTE — solo visible cuando la compra proviene de importación DTE */}
+      {isDte && (
+        <div className="border-t border-zinc-800 pt-1.5">
+          <div className="grid grid-cols-5 gap-x-3">
+            <div className="min-w-0">
+              <span className={labelCls}>Cód. generación</span>
+              <span className="block text-xs text-amber-400 font-mono truncate" title={detail?.generation_code ?? ""}>
+                {detail?.generation_code ?? "—"}
+              </span>
+            </div>
+            <div className="col-span-2 min-w-0">
+              <span className={labelCls}>Nº control completo</span>
+              <span className="block text-xs text-zinc-300 font-mono truncate" title={detail?.control_number ?? ""}>
+                {detail?.control_number ?? "—"}
+              </span>
+            </div>
+            <div className="min-w-0">
+              <span className={labelCls}>Sello recepción</span>
+              <span className="block text-xs text-zinc-400 font-mono truncate" title={detail?.reception_stamp ?? ""}>
+                {detail?.reception_stamp ?? "—"}
+              </span>
+            </div>
+            <div className="min-w-0">
+              <span className={labelCls}>Ambiente</span>
+              <span className="block text-xs text-zinc-300 truncate">
+                {dteEnvLabel(detail?.dte_environment_code)}
+              </span>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

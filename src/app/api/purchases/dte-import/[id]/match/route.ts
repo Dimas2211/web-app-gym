@@ -43,9 +43,17 @@ export async function GET(
   const result = await matchDteImport(record);
 
   return NextResponse.json({
-    ok:             true,
-    dte_import_id:  result.dte_import_id,
-    supplier_match: result.supplier_match,
-    item_matches:   result.item_matches,
+    ok:              true,
+    dte_import_id:   result.dte_import_id,
+    supplier_match:  result.supplier_match,
+    item_matches:    result.item_matches,
+    // Metadata documental del DTE para mostrar en pantalla de revisión
+    dte_type:        record.dte_type,
+    generation_code: record.generation_code,
+    control_number:  record.control_number,
+    environment_code: record.environment_code,
+    issued_at:       record.issued_at?.toISOString() ?? null,
+    total_amount:    record.total_amount,
+    reception_stamp: record.reception_stamp,
   });
 }

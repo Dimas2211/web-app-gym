@@ -16,11 +16,12 @@ import { useState, useCallback, useRef, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import type { PurchaseDetail, ProductForPurchaseLookup } from "../types/purchase.types";
 import type { SupplierForPurchaseLookup } from "@/modules/commerce/suppliers/types/supplier.types";
-import { PurchaseFormHeader }        from "./purchase-form-header";
-import { PurchaseFormLines }         from "./purchase-form-lines";
-import { PurchaseFormProductSearch } from "./purchase-form-product-search";
-import { PurchaseFormTotals }        from "./purchase-form-totals";
-import { confirmPurchaseAction }     from "../actions/confirm-purchase.action";
+import { PurchaseFormHeader }          from "./purchase-form-header";
+import { PurchaseFormLines }           from "./purchase-form-lines";
+import { PurchaseFormProductSearch }   from "./purchase-form-product-search";
+import { PurchaseFormTotals }          from "./purchase-form-totals";
+import { PurchaseDteDocumentInfo }     from "./purchase-dte-document-info";
+import { confirmPurchaseAction }       from "../actions/confirm-purchase.action";
 
 export interface PurchaseFormClientProps {
   purchaseId?:         string;
@@ -122,6 +123,23 @@ export function PurchaseFormClient({
         initialNotes={initialNotes}
         onSaved={handleHeaderSaved}
       />
+
+      {/* Zone A.5: Datos DTE — visible solo cuando la compra proviene de importación DTE */}
+      {(initialDetail?.source_type === "DTE_IMPORT" ||
+        !!(initialDetail?.generation_code || initialDetail?.control_number)) && (
+        <div className="flex-none border-b border-zinc-800 bg-zinc-900 px-3 py-2">
+          <span className="block text-[10px] font-semibold uppercase tracking-wider text-amber-500/80 mb-1.5">
+            Datos DTE
+          </span>
+          <PurchaseDteDocumentInfo
+            generation_code={initialDetail?.generation_code}
+            control_number={initialDetail?.control_number}
+            reception_stamp={initialDetail?.reception_stamp}
+            dte_environment_code={initialDetail?.dte_environment_code}
+            compact
+          />
+        </div>
+      )}
 
       {/* Middle: B + C + D (izq) y E (der) */}
       <div className="flex-1 min-h-0 flex flex-row overflow-hidden">

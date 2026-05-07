@@ -33,6 +33,7 @@ export async function getPurchaseDteImportById(
       tax_amount:       true,
       total_amount:     true,
       item_count:       true,
+      reception_stamp:  true,
       purchase_id:      true,
       raw_json:         true,
       created_at:       true,

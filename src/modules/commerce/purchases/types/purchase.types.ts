@@ -53,6 +53,7 @@ export interface PurchaseListItem {
   payment_condition: string | null;
   cancellation_type: string | null;
   status:        PurchaseStatus;
+  source_type:   string | null;
   subtotal:      number;
   tax_amount:    number;
   total_amount:  number;
@@ -73,6 +74,13 @@ export interface PurchaseDetail extends Omit<PurchaseListItem, "item_count"> {
   payment_condition: string | null;
   cancellation_type: string | null;
   supplier_nrc:      string | null;
+
+  // Campos DTE — solo presentes cuando source_type = "DTE_IMPORT"
+  generation_code:     string | null;
+  control_number:      string | null;
+  reception_stamp:     string | null;
+  dte_environment_code: string | null;
+  dte_processed_at:    Date | null;
 
   // Retención IVA 1%
   retention_1pct_applies: boolean;

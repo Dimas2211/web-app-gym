@@ -21,6 +21,7 @@ import { prisma } from "@/lib/db/prisma";
 import type { CreatePurchaseFromDteInput } from "../schemas/dte-import.schema";
 import { extractDteMetadata } from "./purchase-dte-import.service";
 import { getNextPurchaseCode } from "../queries/get-next-purchase-code";
+import { parseDteControlNumber } from "../utils/parse-dte-control-number";
 
 // ── Tipos de resultado ────────────────────────────────────────────
 
@@ -119,6 +120,11 @@ export async function createPurchaseDraftFromDteImport(
   const rawJson  = dteImport.raw_json as Record<string, unknown>;
   const metadata = extractDteMetadata(rawJson);
 
+  // Derivar serie y número documental corto desde el número de control DTE.
+  // Ejemplo: "DTE-01-S001P002-000000000057584" → series="DTE-01-S001P002", number="57584"
+  const { series: dteDocSeries, number: dteDocNumber } =
+    parseDteControlNumber(dteImport.control_number);
+
   // 7. Derivar purchase_date desde fecEmi; si no está disponible, usar fecha actual.
   let purchaseDateBase: Date;
   if (metadata.issued_at) {
@@ -196,6 +202,8 @@ export async function createPurchaseDraftFromDteImport(
           source_type:         "DTE_IMPORT",
           // Campos documentales derivados del DTE
           document_type:       metadata.dte_type            ?? null,
+          document_series:     dteDocSeries,
+          document_number:     dteDocNumber,
           generation_code:     dteImport.generation_code    ?? null,
           control_number:      dteImport.control_number     ?? null,
           reception_stamp:     dteImport.reception_stamp    ?? null,

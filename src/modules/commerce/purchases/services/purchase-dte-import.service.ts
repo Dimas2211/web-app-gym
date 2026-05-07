@@ -43,6 +43,32 @@ function safeDecimal(obj: Record<string, unknown> | null, key: string): number |
   return null;
 }
 
+// Intenta leer el sello de recepción desde las rutas conocidas del JSON DTE.
+// Orden: raíz → respuestaHacienda → recepcion → identificacion → response → mh → body.
+// También acepta nombres alternativos: sello, selloRecepcion, sello_recepcion, sello_recibido.
+// Devuelve el primer string no vacío encontrado, o null si no existe.
+function extractSello(dteJson: Record<string, unknown>): string | null {
+  const NAMES = ["selloRecibido", "sello", "selloRecepcion", "sello_recepcion", "sello_recibido"] as const;
+  const CONTAINERS = [
+    dteJson,
+    asObject(dteJson["respuestaHacienda"]),
+    asObject(dteJson["recepcion"]),
+    asObject(dteJson["identificacion"]),
+    asObject(dteJson["response"]),
+    asObject(dteJson["mh"]),
+    asObject(dteJson["body"]),
+  ] as const;
+
+  for (const container of CONTAINERS) {
+    if (!container) continue;
+    for (const name of NAMES) {
+      const val = safeString(container, name);
+      if (val) return val;
+    }
+  }
+  return null;
+}
+
 // ── Extractor de metadata DTE mínima ─────────────────────────────
 // Lee campos comunes del JSON DTE de Hacienda (SV).
 // Si un campo no existe o no tiene el tipo esperado, queda null.
@@ -85,6 +111,9 @@ export function extractDteMetadata(dteJson: Record<string, unknown>): DteMetadat
   // cuerpoDocumento — solo count, no se parsea contenido
   const item_count = Array.isArray(cuerpo) ? (cuerpo as unknown[]).length : null;
 
+  // sello de recepción — busca en múltiples rutas y nombres conocidos
+  const reception_stamp = extractSello(dteJson);
+
   return {
     dte_type,
     generation_code,
@@ -98,6 +127,7 @@ export function extractDteMetadata(dteJson: Record<string, unknown>): DteMetadat
     tax_amount,
     total_amount,
     item_count,
+    reception_stamp,
   };
 }
 
@@ -170,8 +200,9 @@ export async function createPurchaseDteImport(
         metadata.total_amount !== null
           ? new Prisma.Decimal(metadata.total_amount)
           : null,
-      item_count:  metadata.item_count ?? null,
-      created_by:  user_id,
+      item_count:       metadata.item_count      ?? null,
+      reception_stamp:  metadata.reception_stamp  ?? null,
+      created_by:       user_id,
     },
     select: {
       id:     true,

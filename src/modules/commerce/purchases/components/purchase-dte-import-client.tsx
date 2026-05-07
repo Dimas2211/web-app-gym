@@ -22,18 +22,51 @@ import { Loader2, Search, X } from "lucide-react";
 import type {
   DteMatchResult,
   DteItemMatch,
+  DteItemDetected,
   MatchConfidence,
 } from "../types/purchase-dte-import.types";
 import type {
   ProductForPurchaseLookup,
   SupplierForPurchaseLookup,
 } from "../types/purchase.types";
+import { PurchaseDteDocumentInfo } from "./purchase-dte-document-info";
 
 // ── Helpers ───────────────────────────────────────────────────────
 
 function fmt(n: number | null | undefined): string {
   if (n == null) return "—";
   return "$" + n.toFixed(2);
+}
+
+function round2(n: number): number {
+  return Math.round(n * 100) / 100;
+}
+
+function hasExplicitTaxAmount(detected: DteItemDetected): boolean {
+  return typeof detected.tax_amount === "number" && detected.tax_amount > 0;
+}
+
+function isExemptOrNonSubject(detected: DteItemDetected): boolean {
+  const hasExempt = typeof detected.exempt_amount      === "number" && detected.exempt_amount      > 0;
+  const hasNonSub = typeof detected.non_subject_amount === "number" && detected.non_subject_amount > 0;
+  const hasGravada = typeof detected.taxable_amount    === "number" && detected.taxable_amount     > 0;
+  return (hasExempt || hasNonSub) && !hasGravada;
+}
+
+function getEstimatedLineTaxAmount(detected: DteItemDetected): number {
+  if (isExemptOrNonSubject(detected)) return 0;
+  if (typeof detected.tax_amount === "number" && detected.tax_amount > 0) {
+    return detected.tax_amount;
+  }
+  if (detected.taxable_amount != null && detected.taxable_amount > 0) {
+    return round2(detected.taxable_amount * 0.13);
+  }
+  const qty   = detected.quantity  ?? 0;
+  const price = detected.unit_price ?? 0;
+  if (qty > 0 && price >= 0) {
+    return round2(qty * price * 0.13);
+  }
+  return 0;
 }
 
 function confidenceCls(c: MatchConfidence): string {
@@ -255,7 +288,13 @@ function ItemRow({
             <span>Cant: <span className="text-zinc-300">{detected.quantity ?? "—"}</span></span>
             <span>Precio unit: <span className="text-zinc-300">{fmt(detected.unit_price)}</span></span>
             <span>Gravada: <span className="text-zinc-300">{fmt(detected.taxable_amount)}</span></span>
-            <span>IVA: <span className="text-zinc-300">{fmt(detected.tax_amount)}</span></span>
+            {hasExplicitTaxAmount(detected) ? (
+              <span>IVA: <span className="text-zinc-300">{fmt(detected.tax_amount)}</span></span>
+            ) : isExemptOrNonSubject(detected) ? (
+              <span>IVA: <span className="text-zinc-300">$0.00</span></span>
+            ) : (
+              <span>IVA: <span className="text-zinc-400">{fmt(getEstimatedLineTaxAmount(detected))} <span className="text-zinc-600">(est. 13%)</span></span></span>
+            )}
             <span>Total: <span className="text-zinc-300">{fmt(detected.line_total)}</span></span>
           </div>
         </div>
@@ -664,15 +703,28 @@ export function PurchaseDteImportClient() {
       return;
     }
 
-    // Construir payload
-    const items = lines.map((line) => ({
-      line_number: line.line_number,
-      product_id:  lineSelections[line.line_number],
-      quantity:    line.detected.quantity  ?? 1,
-      unit_cost:   line.detected.unit_price ?? 0,
-      ...(line.detected.tax_amount  != null && { tax_amount:  line.detected.tax_amount  }),
-      ...(line.detected.line_total  != null && { line_total:  line.detected.line_total  }),
-    }));
+    // Construir payload de líneas con lógica de IVA:
+    //   - Exenta/no sujeta (ventaExenta>0 o ventaNoSuj>0 sin ventaGravada):
+    //       enviar tax_amount: 0 explícito → backend respeta IVA 0
+    //   - Gravada con IVA explícito en tributos:
+    //       enviar tax_amount del DTE
+    //   - Gravada sin IVA explícito:
+    //       omitir tax_amount → backend calcula 13%
+    const items = lines.map((line) => {
+      const exempt = isExemptOrNonSubject(line.detected);
+      return {
+        line_number: line.line_number,
+        product_id:  lineSelections[line.line_number],
+        quantity:    line.detected.quantity   ?? 1,
+        unit_cost:   line.detected.unit_price ?? 0,
+        ...(exempt
+          ? { tax_amount: 0 }
+          : hasExplicitTaxAmount(line.detected)
+            ? { tax_amount: line.detected.tax_amount! }
+            : {}),
+        ...(line.detected.line_total != null && { line_total: line.detected.line_total }),
+      };
+    });
 
     setCreating(true);
 
@@ -790,7 +842,26 @@ export function PurchaseDteImportClient() {
             </button>
           </div>
 
-          {/* Bloque 3: Proveedor */}
+          {/* Bloque 1: Datos del DTE — resumen documental para confirmar el documento */}
+          {(matchResult.generation_code || matchResult.control_number || matchResult.dte_type) && (
+            <section className="bg-zinc-900 border border-zinc-800 rounded-lg p-4 space-y-3">
+              <h2 className="text-xs font-semibold uppercase tracking-wider text-amber-500/80">
+                Datos del DTE
+              </h2>
+              <PurchaseDteDocumentInfo
+                generation_code={matchResult.generation_code}
+                control_number={matchResult.control_number}
+                reception_stamp={matchResult.reception_stamp}
+                dte_environment_code={matchResult.environment_code}
+                document_type={matchResult.dte_type}
+                issued_at={matchResult.issued_at}
+                total_amount={matchResult.total_amount}
+                compact={false}
+              />
+            </section>
+          )}
+
+          {/* Bloque 2: Proveedor */}
           <SupplierBlock
             matchResult={matchResult}
             selectedSupplierId={selectedSupplierId}
@@ -804,7 +875,7 @@ export function PurchaseDteImportClient() {
             onSelectSupplier={handleSelectSupplier}
           />
 
-          {/* Bloque 4: Líneas */}
+          {/* Bloque 3: Líneas */}
           <ItemsBlock
             matchResult={matchResult}
             lineSelections={lineSelections}
@@ -819,7 +890,7 @@ export function PurchaseDteImportClient() {
             onClearSelection={handleClearLineSelection}
           />
 
-          {/* Bloque 5: Crear borrador */}
+          {/* Bloque 4: Crear borrador */}
           <section className="bg-zinc-900 border border-zinc-800 rounded-lg p-4 space-y-3">
             <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-400">
               Crear compra en borrador

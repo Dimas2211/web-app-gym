@@ -140,9 +140,11 @@ function parseDteLine(
       unit_code:       safeNum(obj, "uniMedida"),
       unit_price:      safeNum(obj, "precioUni"),
       discount_amount: safeNum(obj, "montoDescu"),
-      taxable_amount:  rawVentaGravada,
-      tax_amount:      taxAmount,
-      line_total:      hasAnyAmount ? lineTotal : null,
+      taxable_amount:     rawVentaGravada,
+      exempt_amount:      rawVentaExenta,
+      non_subject_amount: rawVentaNoSuj,
+      tax_amount:         taxAmount,
+      line_total:         hasAnyAmount ? lineTotal : null,
     },
   };
 }
