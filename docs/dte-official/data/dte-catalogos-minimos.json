@@ -1,0 +1,105 @@
+{
+  "source": "Catálogo - Sistema de Transmisión (1).pdf",
+  "version": "1.2",
+  "date": "2025-10",
+  "warning": "Catalogo minimo para diseno e implementacion inicial. Validar contra fuente oficial y JSON Schemas antes de produccion.",
+  "cat001_environment": [
+    { "code": "00", "name": "Modo prueba" },
+    { "code": "01", "name": "Modo producción" }
+  ],
+  "cat002_document_type": [
+    { "code": "01", "name": "Factura", "scope": "MVP" },
+    { "code": "03", "name": "Comprobante de crédito fiscal", "scope": "MVP" },
+    { "code": "04", "name": "Nota de remisión", "scope": "future" },
+    { "code": "05", "name": "Nota de crédito", "scope": "future" },
+    { "code": "06", "name": "Nota de débito", "scope": "future" },
+    { "code": "07", "name": "Comprobante de retención", "scope": "future" },
+    { "code": "08", "name": "Comprobante de liquidación", "scope": "future" },
+    { "code": "09", "name": "Documento contable de liquidación", "scope": "future" },
+    { "code": "11", "name": "Facturas de exportación", "scope": "future" },
+    { "code": "14", "name": "Factura de sujeto excluido", "scope": "future" },
+    { "code": "15", "name": "Comprobante de donación", "scope": "future" }
+  ],
+  "cat003_billing_model": [
+    { "code": "1", "name": "Modelo Facturación previo" },
+    { "code": "2", "name": "Modelo Facturación diferido" }
+  ],
+  "cat004_transmission_type": [
+    { "code": "1", "name": "Transmisión normal" },
+    { "code": "2", "name": "Transmisión por contingencia" }
+  ],
+  "cat005_contingency_type": [
+    { "code": "1", "name": "No disponibilidad de sistema del MH" },
+    { "code": "2", "name": "No disponibilidad de sistema del emisor" },
+    { "code": "3", "name": "Falla en el suministro de servicio de Internet del Emisor" },
+    { "code": "4", "name": "Falla en el suministro de servicio de energía eléctrica del emisor que impida la transmisión de los DTE" },
+    { "code": "5", "name": "Otro", "note": "Debe digitarse motivo, maximo 500 caracteres" }
+  ],
+  "cat007_generation_type": [
+    { "code": "1", "name": "Físico" },
+    { "code": "2", "name": "Electrónico" }
+  ],
+  "cat009_establishment_type": [
+    { "code": "01", "name": "Sucursal" },
+    { "code": "02", "name": "Casa Matriz" },
+    { "code": "04", "name": "Bodega" },
+    { "code": "07", "name": "Patio" }
+  ],
+  "cat011_item_type": [
+    { "code": "1", "name": "Bienes" },
+    { "code": "2", "name": "Servicios" },
+    { "code": "3", "name": "Ambos" },
+    { "code": "4", "name": "Otros tributos por ítem" }
+  ],
+  "cat014_units_minimal": [
+    { "code": "59", "name": "Unidad" },
+    { "code": "99", "name": "Otra" },
+    { "code": "58", "name": "Docena" },
+    { "code": "57", "name": "Ciento" },
+    { "code": "55", "name": "Millar" },
+    { "code": "23", "name": "Litro" },
+    { "code": "36", "name": "Libra" },
+    { "code": "34", "name": "Kilogramo" },
+    { "code": "39", "name": "Gramo" }
+  ],
+  "cat015_tributes_minimal": [
+    { "code": "20", "name": "Impuesto al Valor Agregado 13%" },
+    { "code": "C3", "name": "Impuesto al Valor Agregado exportaciones 0%", "scope": "future" }
+  ],
+  "cat016_operation_condition": [
+    { "code": "1", "name": "Contado" },
+    { "code": "2", "name": "A crédito" },
+    { "code": "3", "name": "Otro" }
+  ],
+  "cat017_payment_form": [
+    { "code": "01", "name": "Billetes y monedas" },
+    { "code": "02", "name": "Tarjeta Débito" },
+    { "code": "03", "name": "Tarjeta Crédito" },
+    { "code": "04", "name": "Cheque" },
+    { "code": "05", "name": "Transferencia-Depósito Bancario" },
+    { "code": "08", "name": "Dinero electrónico" },
+    { "code": "09", "name": "Monedero electrónico" },
+    { "code": "11", "name": "Bitcoin" },
+    { "code": "12", "name": "Otras Criptomonedas" },
+    { "code": "13", "name": "Cuentas por pagar del receptor" },
+    { "code": "14", "name": "Giro bancario" },
+    { "code": "99", "name": "Otros" }
+  ],
+  "cat018_deadline": [
+    { "code": "01", "name": "Días" },
+    { "code": "02", "name": "Meses" },
+    { "code": "03", "name": "Años" }
+  ],
+  "cat022_receiver_id_type": [
+    { "code": "36", "name": "NIT" },
+    { "code": "13", "name": "DUI" },
+    { "code": "37", "name": "Otro" },
+    { "code": "03", "name": "Pasaporte" },
+    { "code": "02", "name": "Carnet de Residente" }
+  ],
+  "cat024_invalidation_type": [
+    { "code": "1", "name": "Error en la Información del Documento Tributario Electrónico a invalidar" },
+    { "code": "2", "name": "Rescindir de la operación realizada" },
+    { "code": "3", "name": "Otro" }
+  ]
+}

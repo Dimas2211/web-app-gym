@@ -5,10 +5,11 @@
 - Etapas 1–10 cerradas.
 - commerce/products cerrado.
 - commerce/inventory cerrado.
-- commerce/purchases en implementación UI.
-- purchases backend ya trabajado.
-- suppliers documentado como maestro necesario para compras.
-- sales pendiente.
+- commerce/purchases cerrado y operativo (UI + backend).
+- commerce/suppliers cerrado y operativo.
+- commerce/sales en diseño técnico (Fase 1 completada — sin Prisma, sin UI).
+- commerce/dte outgoing en diseño técnico (Fase 1 completada — sin Prisma, sin adaptadores, sin UI).
+- commerce/customers en diseño técnico (Fase 1 completada — sin Prisma, sin UI).
 - cash pendiente.
 
 ## Identidad activa
@@ -71,19 +72,29 @@
 ## No tocar por defecto
 - products
 - inventory
-- sales
+- purchases (cerrado)
+- suppliers (cerrado)
 - cash
 - correlativo de purchases
 - consulta de compras
 - grillas ya funcionales
 - módulos cerrados
 
+## Módulos en diseño técnico (no implementar todavía)
+- sales: ver docs/modules/sales-summary.md
+- dte outgoing: ver docs/modules/dte-outgoing-summary.md
+- customers: ver docs/modules/customers-summary.md
+
+## Próximos pasos
+- Fase 2: Prisma schema base para sales, dte, customers.
+- Fase 3+: servicios, APIs, UI de sales.
+- Fase 5+: generación JSON DTE, firma, transmisión.
+- cash pendiente de fase futura.
+
 ## Deuda técnica
 - tests automatizados
 - cierre visual completo de purchases
 - integración final suppliers → purchases
-- sales
-- cash
 
 ## Regla operativa para Claude
 Usar este archivo como contexto principal.
