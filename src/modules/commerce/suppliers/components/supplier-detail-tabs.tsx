@@ -15,7 +15,7 @@
 // Las pestañas vacías muestran estados explícitos, no arrays vacíos.
 // ─────────────────────────────────────────────────────────────────
 
-import { useActionState, useEffect, useRef, useState } from "react";
+import { useActionState, useCallback, useEffect, useRef, useState } from "react";
 import { Building, Check, FileText, MapPin, Phone, Search, ShoppingBag } from "lucide-react";
 import { updateSupplierActivityAction } from "../actions/update-supplier-activity.action";
 import type { UpdateSupplierActivityState } from "../actions/update-supplier-activity.action";
@@ -764,14 +764,155 @@ function ContactoTab({ detail }: { detail: SupplierDetail }) {
   );
 }
 
-// ── Pestaña Compras (stub honesto) ────────────────────────────────
+// ── Tipos locales para la pestaña Compras ────────────────────────
 
-function ComprasStub() {
+interface SupplierPurchaseItem {
+  id:            string;
+  purchase_code: string;
+  purchase_date_label: string;
+  document_type:     string | null;
+  document_series:   string | null;
+  document_number:   string | null;
+  status:            "DRAFT" | "CONFIRMED" | "CANCELLED";
+  source_type:       string | null;
+  payment_condition: string | null;
+  subtotal:          number;
+  tax_amount:        number;
+  total_amount:      number;
+  retention_1pct_applies: boolean;
+  retention_1pct_amount:  number;
+  net_to_pay:        number;
+  created_by_name:   string | null;
+}
+
+// ── Helpers ───────────────────────────────────────────────────────
+
+function formatCurrency(amount: number): string {
+  return new Intl.NumberFormat("es-SV", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(amount);
+}
+
+function PurchaseStatusBadge({ status }: { status: SupplierPurchaseItem["status"] }) {
+  const map: Record<SupplierPurchaseItem["status"], { label: string; cls: string }> = {
+    DRAFT:     { label: "Borrador",   cls: "bg-amber-50 text-amber-600 border-amber-200" },
+    CONFIRMED: { label: "Confirmada", cls: "bg-green-50 text-green-600 border-green-200" },
+    CANCELLED: { label: "Anulada",    cls: "bg-red-50 text-red-500 border-red-200"       },
+  };
+  const { label, cls } = map[status] ?? { label: status, cls: "bg-zinc-100 text-zinc-500 border-zinc-200" };
   return (
-    <div className="flex flex-col items-center justify-center py-8 text-center text-zinc-400">
-      <ShoppingBag size={28} className="mb-2 opacity-25" />
-      <p className="text-sm">El historial de compras estará disponible</p>
-      <p className="text-xs mt-1 text-zinc-300">al integrar commerce/purchases</p>
+    <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium border ${cls}`}>
+      {label}
+    </span>
+  );
+}
+
+// ── Pestaña Compras — historial real por proveedor ────────────────
+
+function ComprasTab({ supplierId }: { supplierId: string }) {
+  const [purchases, setPurchases] = useState<SupplierPurchaseItem[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error,     setError]     = useState<string | null>(null);
+
+  const fetchHistory = useCallback(() => {
+    let cancelled = false;
+    setIsLoading(true);
+    setError(null);
+    setPurchases([]);
+
+    fetch(`/api/suppliers/${supplierId}/purchase-history`)
+      .then(async (res) => {
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({})) as { error?: string };
+          throw new Error(data.error ?? "Error al cargar compras");
+        }
+        return res.json() as Promise<{ items: SupplierPurchaseItem[] }>;
+      })
+      .then((data) => { if (!cancelled) setPurchases(data.items ?? []); })
+      .catch((err: unknown) => {
+        if (!cancelled) setError(err instanceof Error ? err.message : "Error al cargar compras");
+      })
+      .finally(() => { if (!cancelled) setIsLoading(false); });
+
+    return () => { cancelled = true; };
+  }, [supplierId]);
+
+  useEffect(() => {
+    const cleanup = fetchHistory();
+    return cleanup;
+  }, [fetchHistory]);
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center py-8 text-zinc-400 text-sm">
+        Cargando historial…
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex flex-col items-center justify-center py-6 text-center px-4">
+        <p className="text-sm text-red-500">{error}</p>
+      </div>
+    );
+  }
+
+  if (purchases.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center py-8 text-center text-zinc-300">
+        <ShoppingBag size={28} className="mb-2 opacity-25" />
+        <p className="text-sm text-zinc-400">Este proveedor todavía no tiene compras registradas.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="overflow-auto">
+      <table className="w-full text-xs">
+        <thead>
+          <tr className="bg-zinc-50 border-b border-zinc-100 text-zinc-400 uppercase tracking-wide">
+            <th className="px-3 py-2 text-left font-medium whitespace-nowrap">Fecha</th>
+            <th className="px-3 py-2 text-left font-medium whitespace-nowrap">Correlativo</th>
+            <th className="px-3 py-2 text-left font-medium whitespace-nowrap">Nº Documento</th>
+            <th className="px-3 py-2 text-left font-medium whitespace-nowrap">Estado</th>
+            <th className="px-3 py-2 text-right font-medium whitespace-nowrap">Gravada</th>
+            <th className="px-3 py-2 text-right font-medium whitespace-nowrap">IVA</th>
+            <th className="px-3 py-2 text-right font-medium whitespace-nowrap">Total</th>
+            <th className="px-3 py-2 text-right font-medium whitespace-nowrap">Neto a pagar</th>
+          </tr>
+        </thead>
+        <tbody>
+          {purchases.map((p) => (
+            <tr key={p.id} className="border-b border-zinc-50 hover:bg-zinc-50 transition-colors">
+              <td className="px-3 py-2 text-zinc-500 whitespace-nowrap">{p.purchase_date_label}</td>
+              <td className="px-3 py-2 font-mono text-zinc-700 whitespace-nowrap">{p.purchase_code}</td>
+              <td className="px-3 py-2 text-zinc-600 whitespace-nowrap font-mono">
+                {[p.document_series, p.document_number].filter(Boolean).join("-") || "—"}
+              </td>
+              <td className="px-3 py-2 whitespace-nowrap">
+                <PurchaseStatusBadge status={p.status} />
+              </td>
+              <td className="px-3 py-2 text-right text-zinc-600 whitespace-nowrap">
+                {formatCurrency(p.subtotal)}
+              </td>
+              <td className="px-3 py-2 text-right text-zinc-600 whitespace-nowrap">
+                {formatCurrency(p.tax_amount)}
+              </td>
+              <td className="px-3 py-2 text-right text-zinc-700 font-medium whitespace-nowrap">
+                {formatCurrency(p.total_amount)}
+              </td>
+              <td className="px-3 py-2 text-right text-zinc-900 font-semibold whitespace-nowrap">
+                {formatCurrency(p.net_to_pay)}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <div className="px-3 py-2 text-right text-xs text-zinc-400 border-t border-zinc-50">
+        {purchases.length} compra{purchases.length !== 1 ? "s" : ""}
+      </div>
     </div>
   );
 }
@@ -826,7 +967,7 @@ export function SupplierDetailTabs({ detail, canManage, onRefresh }: SupplierDet
         {activeTab === "giro"           && <GiroTab detail={detail} canManage={canManage} onRefresh={onRefresh} />}
         {activeTab === "direccion"      && <DireccionTab detail={detail} canManage={canManage} onRefresh={onRefresh} />}
         {activeTab === "contacto"       && <ContactoTab       detail={detail} />}
-        {activeTab === "compras"        && <ComprasStub />}
+        {activeTab === "compras"        && <ComprasTab supplierId={detail.id} />}
       </div>
     </div>
   );
