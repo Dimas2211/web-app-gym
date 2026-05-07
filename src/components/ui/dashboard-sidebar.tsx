@@ -49,6 +49,22 @@ export function DashboardSidebar({ role }: Props) {
           <span className="text-xs font-semibold text-zinc-400 uppercase tracking-widest truncate">
             Módulos
           </span>
+          <button
+            onClick={close}
+            aria-label="Cerrar menú lateral"
+            className="w-7 h-7 flex items-center justify-center rounded text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100 transition-colors shrink-0"
+          >
+            <svg
+              width="14"
+              height="14"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              strokeWidth={2.5}
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+            </svg>
+          </button>
         </div>
 
         {/* Grupos de navegación */}

@@ -286,7 +286,7 @@ export function PurchasesTable({ items, selectedId, onSelect }: PurchasesTablePr
           </thead>
 
           {/* ── Filas ───────────────────────────────────── */}
-          <tbody>
+          <tbody className="[&>tr>td]:scroll-mt-7">
             {sortedItems.map((item, rowIndex) => {
               const isSelected = item.id === selectedId;
               const badge      = STATUS_CONFIG[item.status] ?? STATUS_CONFIG.DRAFT;
@@ -297,7 +297,7 @@ export function PurchasesTable({ items, selectedId, onSelect }: PurchasesTablePr
                   role="row"
                   aria-selected={isSelected}
                   className={[
-                    "border-b border-zinc-800/40 cursor-pointer scroll-mt-7",
+                    "border-b border-zinc-800/40 cursor-pointer",
                     isSelected
                       ? "bg-zinc-700 text-zinc-100"
                       : "text-zinc-300 hover:bg-zinc-800/50",

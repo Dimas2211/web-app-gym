@@ -290,7 +290,7 @@ export function ProductsTable({
           </tr>
         </thead>
 
-        <tbody>
+        <tbody className="[&>tr>td]:scroll-mt-10">
           {isLoading && (
             <tr>
               <td
