@@ -87,9 +87,10 @@ El proyecto ya cerró formalmente su transición base de reorganización.
 - La vertical GYM sigue activa y funcional sobre la base modular.
 - `commerce/products` está cerrado y operativo.
 - `commerce/inventory` está cerrado y operativo.
-- `commerce/purchases` está en fase de UI/correcciones funcionales.
-- `commerce/suppliers` está documentado como maestro necesario para purchases.
-- `commerce/sales` y `commerce/cash` están pendientes.
+- `commerce/suppliers` está cerrado y operativo como maestro reusable de commerce.
+- `commerce/purchases` está cerrado y operativo, incluyendo importación DTE, alias proveedor-producto, líneas repetidas e historial en suppliers.
+- `commerce/sales` es el próximo módulo a diseñar (facturación electrónica DTE outgoing).
+- `commerce/cash` está pendiente.
 
 ### Regla de interpretación
 
