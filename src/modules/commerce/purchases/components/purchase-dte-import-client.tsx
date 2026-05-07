@@ -30,6 +30,10 @@ import type {
   SupplierForPurchaseLookup,
 } from "../types/purchase.types";
 import { PurchaseDteDocumentInfo } from "./purchase-dte-document-info";
+import {
+  PurchaseDteCreateSupplierDialog,
+  type CreatedSupplierData,
+} from "./purchase-dte-create-supplier-dialog";
 
 // ── Helpers ───────────────────────────────────────────────────────
 
@@ -69,6 +73,14 @@ function getEstimatedLineTaxAmount(detected: DteItemDetected): number {
   return 0;
 }
 
+function normalizeNitDigits(nit: string): string {
+  return nit.replace(/\D/g, "");
+}
+
+function normalizeNrc(nrc: string): string {
+  return nrc.replace(/[\s\-]/g, "").toLowerCase();
+}
+
 function confidenceCls(c: MatchConfidence): string {
   switch (c) {
     case "HIGH":   return "bg-emerald-900/50 text-emerald-300 border border-emerald-700/50";
@@ -100,6 +112,7 @@ interface SupplierBlockProps {
   onShowSearch:        (v: boolean) => void;
   onSearch:            (text: string) => void;
   onSelectSupplier:    (s: SupplierForPurchaseLookup) => void;
+  onCreateFromDte:     () => void;
 }
 
 function SupplierBlock({
@@ -113,14 +126,35 @@ function SupplierBlock({
   onShowSearch,
   onSearch,
   onSelectSupplier,
+  onCreateFromDte,
 }: SupplierBlockProps) {
   const { detected, suggestion } = matchResult.supplier_match;
 
-  // Nombre del proveedor actualmente seleccionado
-  const selectedName =
-    selectedSupplierId === suggestion.supplier_id
-      ? (suggestion.supplier_name ?? "Proveedor seleccionado")
-      : supplierResults.find((r) => r.id === selectedSupplierId)?.name ?? "Proveedor seleccionado";
+  // Datos del proveedor maestro activo (seleccionado o sugerido)
+  const selectedFromResults = supplierResults.find((r) => r.id === selectedSupplierId);
+  const activeMaster =
+    suggestion.supplier_id && selectedSupplierId === suggestion.supplier_id
+      ? { code: suggestion.supplier_code, name: suggestion.supplier_name, nit: suggestion.supplier_nit ?? null, nrc: suggestion.supplier_nrc ?? null }
+      : selectedFromResults
+        ? { code: selectedFromResults.supplier_code, name: selectedFromResults.name, nit: selectedFromResults.nit ?? null, nrc: selectedFromResults.nrc ?? null }
+        : suggestion.supplier_id
+          ? { code: suggestion.supplier_code, name: suggestion.supplier_name, nit: suggestion.supplier_nit ?? null, nrc: suggestion.supplier_nrc ?? null }
+          : null;
+
+  const selectedName = activeMaster?.name ?? "Proveedor seleccionado";
+
+  // Detección de discrepancias entre DTE y maestro
+  const nrcMismatch =
+    activeMaster !== null &&
+    detected.nrc != null &&
+    activeMaster.nrc != null &&
+    normalizeNrc(detected.nrc) !== normalizeNrc(activeMaster.nrc);
+
+  const nitMismatch =
+    activeMaster !== null &&
+    detected.nit != null &&
+    activeMaster.nit != null &&
+    normalizeNitDigits(detected.nit) !== normalizeNitDigits(activeMaster.nit);
 
   return (
     <section className="bg-zinc-900 border border-zinc-800 rounded-lg p-4 space-y-3">
@@ -128,41 +162,79 @@ function SupplierBlock({
         Proveedor detectado
       </h2>
 
-      {/* Datos detectados del emisor */}
-      <div className="grid grid-cols-3 gap-3">
-        <div>
-          <span className="block text-[10px] uppercase tracking-wider text-zinc-600 mb-0.5">NIT</span>
-          <span className="text-xs text-zinc-200">{detected.nit ?? "—"}</span>
-        </div>
-        <div>
-          <span className="block text-[10px] uppercase tracking-wider text-zinc-600 mb-0.5">NRC</span>
-          <span className="text-xs text-zinc-200">{detected.nrc ?? "—"}</span>
-        </div>
-        <div>
-          <span className="block text-[10px] uppercase tracking-wider text-zinc-600 mb-0.5">Nombre emisor</span>
-          <span className="text-xs text-zinc-200">{detected.name ?? "—"}</span>
+      {/* A. Datos detectados del DTE */}
+      <div>
+        <span className="block text-[10px] uppercase tracking-wider text-zinc-600 mb-1.5">Datos del DTE</span>
+        <div className="grid grid-cols-3 gap-3">
+          <div>
+            <span className="block text-[10px] uppercase tracking-wider text-zinc-600 mb-0.5">NIT DTE</span>
+            <span className="text-xs text-zinc-200 font-mono">{detected.nit ?? "—"}</span>
+          </div>
+          <div>
+            <span className="block text-[10px] uppercase tracking-wider text-zinc-600 mb-0.5">NRC DTE</span>
+            <span className="text-xs text-zinc-200 font-mono">{detected.nrc ?? "—"}</span>
+          </div>
+          <div>
+            <span className="block text-[10px] uppercase tracking-wider text-zinc-600 mb-0.5">Nombre emisor</span>
+            <span className="text-xs text-zinc-200">{detected.name ?? "—"}</span>
+          </div>
         </div>
       </div>
 
-      {/* Sugerencia */}
-      <div className="flex items-center gap-3 flex-wrap">
-        <span className="text-[10px] uppercase tracking-wider text-zinc-600">Sugerencia</span>
-        <ConfidenceBadge confidence={suggestion.confidence} score={suggestion.score} />
-        <span className="text-[10px] text-zinc-600">{suggestion.match_type}</span>
+      {/* B. Proveedor maestro sugerido/seleccionado */}
+      {activeMaster && (
+        <div className="bg-zinc-800/60 border border-zinc-700 rounded-md p-3 space-y-2">
+          <span className="block text-[10px] uppercase tracking-wider text-zinc-500 mb-1">Proveedor maestro</span>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <span className="block text-[10px] uppercase tracking-wider text-zinc-600 mb-0.5">Código</span>
+              <span className="text-xs text-zinc-300 font-mono">{activeMaster.code ?? "—"}</span>
+            </div>
+            <div>
+              <span className="block text-[10px] uppercase tracking-wider text-zinc-600 mb-0.5">Nombre</span>
+              <span className="text-xs text-zinc-200">{activeMaster.name ?? "—"}</span>
+            </div>
+            <div>
+              <span className="block text-[10px] uppercase tracking-wider text-zinc-600 mb-0.5">NIT maestro</span>
+              <span className="text-xs text-zinc-300 font-mono">{activeMaster.nit ?? "—"}</span>
+            </div>
+            <div>
+              <span className="block text-[10px] uppercase tracking-wider text-zinc-600 mb-0.5">NRC maestro</span>
+              <span className="text-xs text-zinc-300 font-mono">{activeMaster.nrc ?? "—"}</span>
+            </div>
+          </div>
+          {!selectedSupplierId && suggestion.supplier_id && (
+            <div className="flex items-center gap-2 pt-1">
+              <ConfidenceBadge confidence={suggestion.confidence} score={suggestion.score} />
+              <span className="text-[10px] text-zinc-600">{suggestion.match_type}</span>
+              <button
+                onClick={() => onSelectSupplierId(suggestion.supplier_id)}
+                className="h-5 px-2 text-[10px] font-medium text-emerald-300 border border-emerald-700/50 hover:border-emerald-500 rounded transition-colors"
+              >
+                Aceptar sugerencia
+              </button>
+            </div>
+          )}
+          {selectedSupplierId && (
+            <div className="flex items-center gap-2 pt-1">
+              {suggestion.supplier_id && <ConfidenceBadge confidence={suggestion.confidence} score={suggestion.score} />}
+              {suggestion.supplier_id && <span className="text-[10px] text-zinc-600">{suggestion.match_type}</span>}
+            </div>
+          )}
+        </div>
+      )}
 
-        {suggestion.supplier_name && (
-          <span className="text-xs text-zinc-300 font-medium">{suggestion.supplier_name}</span>
-        )}
-
-        {suggestion.supplier_id && !selectedSupplierId && (
-          <button
-            onClick={() => onSelectSupplierId(suggestion.supplier_id)}
-            className="h-5 px-2 text-[10px] font-medium text-emerald-300 border border-emerald-700/50 hover:border-emerald-500 rounded transition-colors"
-          >
-            Aceptar sugerencia
-          </button>
-        )}
-      </div>
+      {/* Advertencias de discrepancia */}
+      {nrcMismatch && (
+        <div className="text-xs text-yellow-400 bg-yellow-900/20 border border-yellow-700/40 rounded px-3 py-2">
+          El NRC del DTE ({detected.nrc}) no coincide con el NRC guardado del proveedor maestro ({activeMaster?.nrc}). El match fue por NIT. Revisa antes de continuar.
+        </div>
+      )}
+      {nitMismatch && (
+        <div className="text-xs text-yellow-400 bg-yellow-900/20 border border-yellow-700/40 rounded px-3 py-2">
+          El NIT del DTE no coincide con el NIT guardado del proveedor maestro. Verifica que corresponde al mismo proveedor.
+        </div>
+      )}
 
       {/* Estado de selección */}
       {selectedSupplierId ? (
@@ -185,10 +257,18 @@ function SupplierBlock({
           </button>
         </div>
       ) : (
-        <div className="text-xs text-amber-400">
-          {suggestion.confidence === "NONE"
-            ? "Proveedor no encontrado automáticamente. Selecciona manualmente."
-            : "Acepta la sugerencia o busca el proveedor."}
+        <div className="space-y-2">
+          <div className="text-xs text-amber-400">
+            {suggestion.confidence === "NONE"
+              ? "Proveedor no encontrado automáticamente. Selecciona manualmente o créalo desde el DTE."
+              : "Acepta la sugerencia, busca el proveedor o créalo desde el DTE."}
+          </div>
+          <button
+            onClick={onCreateFromDte}
+            className="h-6 px-3 text-[10px] font-medium text-blue-300 border border-blue-700/50 hover:border-blue-500 hover:text-blue-200 rounded transition-colors"
+          >
+            + Crear proveedor desde DTE
+          </button>
         </div>
       )}
 
@@ -505,6 +585,9 @@ export function PurchaseDteImportClient() {
   const [showSupplierSearch, setShowSupplierSearch] = useState(false);
   const supplierAbortRef = useRef<AbortController | null>(null);
 
+  // ── Create supplier from DTE ───────────────────────────────────
+  const [showCreateDialog, setShowCreateDialog] = useState(false);
+
   // ── Product search per line ────────────────────────────────────
   const [lineSearchText,    setLineSearchText]    = useState<Record<number, string>>({});
   const [lineSearchResults, setLineSearchResults] = useState<Record<number, ProductForPurchaseLookup[]>>({});
@@ -532,6 +615,7 @@ export function PurchaseDteImportClient() {
     setDragActive(false);
     setLoadedFileName(null);
     setFileError(null);
+    setShowCreateDialog(false);
   }
 
   function handleClearInput() {
@@ -730,6 +814,25 @@ export function PurchaseDteImportClient() {
     setShowSupplierSearch(false);
     setSupplierSearch("");
     setSupplierResults([]);
+  }
+
+  function handleSupplierCreated(created: CreatedSupplierData) {
+    // Agrega el proveedor creado a los resultados para que selectedName lo resuelva correctamente
+    setSupplierResults((prev) => [
+      {
+        id:            created.id,
+        supplier_code: created.supplier_code,
+        name:          created.name,
+        taxpayer_type: "" as SupplierForPurchaseLookup["taxpayer_type"],
+        nit:           null,
+        nrc:           null,
+        status:        "active" as const,
+      },
+      ...prev,
+    ]);
+    setSelectedSupplierId(created.id);
+    setShowSupplierSearch(false);
+    setShowCreateDialog(false);
   }
 
   function handleLineSearch(lineNumber: number, text: string) {
@@ -1059,6 +1162,7 @@ export function PurchaseDteImportClient() {
             onShowSearch={setShowSupplierSearch}
             onSearch={handleSupplierSearch}
             onSelectSupplier={handleSelectSupplier}
+            onCreateFromDte={() => setShowCreateDialog(true)}
           />
 
           {/* Bloque 3: Líneas */}
@@ -1114,6 +1218,15 @@ export function PurchaseDteImportClient() {
             </div>
           </section>
         </>
+      )}
+
+      {/* Dialog: crear proveedor desde emisor DTE */}
+      {showCreateDialog && matchResult && (
+        <PurchaseDteCreateSupplierDialog
+          emitter={matchResult.supplier_match.detected}
+          onClose={() => setShowCreateDialog(false)}
+          onCreated={handleSupplierCreated}
+        />
       )}
     </div>
   );

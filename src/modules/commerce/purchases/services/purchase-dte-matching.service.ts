@@ -38,6 +38,15 @@ const MAX_ALTERNATIVES     = 3;
 const THRESHOLD_MEDIUM = 70;  // score >= 70 → MEDIUM
 const THRESHOLD_LOW    = 40;  // score >= 40 → LOW  (por debajo de LOW: NONE)
 
+// ── Normalización de NIT para comparación ────────────────────────
+// Quita todo lo que no sea dígito. Permite comparar NITs con y sin guiones.
+// DTE: "06141803891011" → "06141803891011"
+// BD:  "0614-180389-101-1" → "06141803891011"
+
+function normalizeNit(nit: string): string {
+  return nit.replace(/\D/g, "");
+}
+
 // ── Normalización de texto ─────────────────────────────────────────
 // Minúsculas, quita tildes (NFD + strip combining marks), reemplaza
 // no-alfanumérico con espacio, compacta espacios.
@@ -156,6 +165,8 @@ function noSupplierSuggestion(): DteSupplierSuggestion {
     supplier_id:   null,
     supplier_code: null,
     supplier_name: null,
+    supplier_nit:  null,
+    supplier_nrc:  null,
     match_type:    "NONE",
     confidence:    "NONE",
     score:         0,
@@ -181,7 +192,7 @@ export async function matchSupplier(
   detected:  DteSupplierDetected,
   tenant_id: string,
 ): Promise<DteSupplierMatch> {
-  const select = { id: true, supplier_code: true, name: true } as const;
+  const select = { id: true, supplier_code: true, name: true, nit: true, nrc: true } as const;
 
   // 1. NRC exacto
   if (detected.nrc) {
@@ -196,6 +207,8 @@ export async function matchSupplier(
           supplier_id:   hit.id,
           supplier_code: hit.supplier_code,
           supplier_name: hit.name,
+          supplier_nit:  hit.nit,
+          supplier_nrc:  hit.nrc,
           match_type:    "NRC_EXACT" as MatchTypeSupplier,
           confidence:    "HIGH",
           score:         100,
@@ -205,12 +218,15 @@ export async function matchSupplier(
     }
   }
 
-  // 2. NIT exacto
+  // 2. NIT exacto — compara dígitos normalizados para cubrir formatos con/sin guiones
   if (detected.nit) {
-    const hit = await prisma.supplier.findFirst({
-      where:  { tenant_id, nit: detected.nit },
+    const nitNorm = normalizeNit(detected.nit);
+    const allForNit = await prisma.supplier.findMany({
+      where:  { tenant_id, nit: { not: null } },
       select,
+      take:   SUPPLIER_FETCH_LIMIT,
     });
+    const hit = allForNit.find(s => s.nit && normalizeNit(s.nit) === nitNorm);
     if (hit) {
       return {
         detected,
@@ -218,6 +234,8 @@ export async function matchSupplier(
           supplier_id:   hit.id,
           supplier_code: hit.supplier_code,
           supplier_name: hit.name,
+          supplier_nit:  hit.nit,
+          supplier_nrc:  hit.nrc,
           match_type:    "NIT_EXACT" as MatchTypeSupplier,
           confidence:    "HIGH",
           score:         100,
@@ -250,6 +268,8 @@ export async function matchSupplier(
           supplier_id:   s.id,
           supplier_code: s.supplier_code,
           supplier_name: s.name,
+          supplier_nit:  s.nit,
+          supplier_nrc:  s.nrc,
           match_type:    "NAME_SIMILAR" as MatchTypeSupplier,
           confidence:    nameConfidence(s.score),
           score:         s.score,
@@ -261,6 +281,8 @@ export async function matchSupplier(
           supplier_id:   best.id,
           supplier_code: best.supplier_code,
           supplier_name: best.name,
+          supplier_nit:  best.nit,
+          supplier_nrc:  best.nrc,
           match_type:    "NAME_SIMILAR",
           confidence,
           score:         best.score,

@@ -90,6 +90,8 @@ export interface DteSupplierSuggestion {
   supplier_id:   string | null;
   supplier_code: string | null;
   supplier_name: string | null;
+  supplier_nit:  string | null;
+  supplier_nrc:  string | null;
   match_type:    MatchTypeSupplier;
   confidence:    MatchConfidence;
   score:         number;
