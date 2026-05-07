@@ -62,6 +62,10 @@ export const createPurchaseFromDteItemSchema = z.object({
     .min(0)
     .nullable()
     .optional(),
+
+  // Si true, el backend guarda un alias proveedor-producto para esta línea.
+  // Solo se persiste si el usuario lo marcó explícitamente. Default false.
+  remember_supplier_alias: z.boolean().optional(),
 });
 
 export const createPurchaseFromDteSchema = z.object({

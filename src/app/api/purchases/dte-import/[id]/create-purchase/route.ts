@@ -72,9 +72,10 @@ export async function POST(
 
   return NextResponse.json(
     {
-      ok:         true,
-      purchase:   result.purchase,
-      dte_import: result.dte_import,
+      ok:             true,
+      purchase:       result.purchase,
+      dte_import:     result.dte_import,
+      alias_warnings: result.alias_warnings,
     },
     { status: 201 },
   );

@@ -331,6 +331,12 @@ function SupplierBlock({
   );
 }
 
+// ── Helpers de alias ──────────────────────────────────────────────
+
+function isAliasMatchType(matchType: string): boolean {
+  return matchType === "SUPPLIER_ALIAS_CODE" || matchType === "SUPPLIER_ALIAS_NAME";
+}
+
 // ── Fila de ítem ──────────────────────────────────────────────────
 
 interface ItemRowProps {
@@ -340,10 +346,13 @@ interface ItemRowProps {
   searchResults:          ProductForPurchaseLookup[];
   searching:              boolean;
   active:                 boolean;
+  supplierSelected:       boolean;   // hay proveedor confirmado
+  aliasChecked:           boolean;   // usuario marcó "recordar vinculación"
   onActivate:             () => void;
   onSearch:               (text: string) => void;
   onSelect:               (product: ProductForPurchaseLookup) => void;
   onClear:                () => void;
+  onAliasChange:          (checked: boolean) => void;
   onCreateProductFromDte: () => void;
 }
 
@@ -354,10 +363,13 @@ function ItemRow({
   searchResults,
   searching,
   active,
+  supplierSelected,
+  aliasChecked,
   onActivate,
   onSearch,
   onSelect,
   onClear,
+  onAliasChange,
   onCreateProductFromDte,
 }: ItemRowProps) {
   const { detected, suggestion } = item;
@@ -367,6 +379,8 @@ function ItemRow({
     selectedId === suggestion.product_id
       ? (suggestion.product_name ?? "Producto seleccionado")
       : searchResults.find((r) => r.id === selectedId)?.name ?? "Producto seleccionado";
+
+  const isAlias = isAliasMatchType(suggestion.match_type);
 
   return (
     <div className="border rounded-lg p-3 space-y-2 border-zinc-800">
@@ -397,8 +411,13 @@ function ItemRow({
           </div>
         </div>
 
-        {/* Sugerencia */}
+        {/* Sugerencia — badge de confianza + tipo */}
         <div className="flex items-center gap-2 flex-wrap flex-none">
+          {isAlias && (
+            <span className="inline-flex items-center text-[10px] font-medium px-1.5 py-0.5 rounded bg-violet-900/50 text-violet-300 border border-violet-700/50">
+              Alias proveedor
+            </span>
+          )}
           <ConfidenceBadge confidence={suggestion.confidence} score={suggestion.score} />
           <span className="text-[10px] text-zinc-600">{suggestion.match_type}</span>
         </div>
@@ -407,20 +426,37 @@ function ItemRow({
       {/* Vinculación con producto */}
       <div className="pl-9 space-y-1.5">
         {selectedId ? (
-          <div className="flex items-center gap-2">
-            <div className="flex items-center gap-2 bg-emerald-900/30 border border-emerald-700/40 rounded px-2 py-1">
-              <span className="text-xs text-emerald-300 font-medium truncate max-w-xs">{selectedName}</span>
-              <button onClick={onClear} className="text-zinc-500 hover:text-zinc-300 transition-colors flex-none" title="Quitar producto">
-                <X className="h-3 w-3" />
+          <>
+            <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 bg-emerald-900/30 border border-emerald-700/40 rounded px-2 py-1">
+                <span className="text-xs text-emerald-300 font-medium truncate max-w-xs">{selectedName}</span>
+                <button onClick={onClear} className="text-zinc-500 hover:text-zinc-300 transition-colors flex-none" title="Quitar producto">
+                  <X className="h-3 w-3" />
+                </button>
+              </div>
+              <button
+                onClick={() => { onActivate(); onSearch(""); }}
+                className="text-[10px] text-zinc-500 hover:text-zinc-300 transition-colors"
+              >
+                Cambiar
               </button>
             </div>
-            <button
-              onClick={() => { onActivate(); onSearch(""); }}
-              className="text-[10px] text-zinc-500 hover:text-zinc-300 transition-colors"
-            >
-              Cambiar
-            </button>
-          </div>
+
+            {/* Checkbox de alias — solo visible si hay proveedor seleccionado */}
+            {supplierSelected && (
+              <label className="flex items-center gap-2 cursor-pointer select-none group mt-1">
+                <input
+                  type="checkbox"
+                  checked={aliasChecked}
+                  onChange={(e) => onAliasChange(e.target.checked)}
+                  className="h-3 w-3 rounded border-zinc-600 bg-zinc-800 text-violet-500 accent-violet-500 cursor-pointer"
+                />
+                <span className="text-[10px] text-zinc-500 group-hover:text-zinc-300 transition-colors">
+                  Recordar esta vinculación para este proveedor
+                </span>
+              </label>
+            )}
+          </>
         ) : (
           <div className="flex items-center gap-2 flex-wrap">
             {suggestion.product_id && suggestion.product_name && (
@@ -500,11 +536,14 @@ interface ItemsBlockProps {
   lineSearchText:          Record<number, string>;
   lineSearchResults:       Record<number, ProductForPurchaseLookup[]>;
   lineSearching:           Record<number, boolean>;
+  lineAliasChecked:        Record<number, boolean>;
   activeLineSearch:        number | null;
+  supplierSelected:        boolean;
   onActivateSearch:        (ln: number | null) => void;
   onLineSearch:            (ln: number, text: string) => void;
   onSelectProduct:         (ln: number, product: ProductForPurchaseLookup) => void;
   onClearSelection:        (ln: number) => void;
+  onAliasChange:           (ln: number, checked: boolean) => void;
   onCreateProductFromLine: (ln: number) => void;
 }
 
@@ -514,11 +553,14 @@ function ItemsBlock({
   lineSearchText,
   lineSearchResults,
   lineSearching,
+  lineAliasChecked,
   activeLineSearch,
+  supplierSelected,
   onActivateSearch,
   onLineSearch,
   onSelectProduct,
   onClearSelection,
+  onAliasChange,
   onCreateProductFromLine,
 }: ItemsBlockProps) {
   const pending = matchResult.item_matches.filter((l) => !lineSelections[l.line_number]).length;
@@ -565,10 +607,13 @@ function ItemsBlock({
             searchResults={lineSearchResults[item.line_number] ?? []}
             searching={lineSearching[item.line_number] ?? false}
             active={activeLineSearch === item.line_number}
+            supplierSelected={supplierSelected}
+            aliasChecked={lineAliasChecked[item.line_number] ?? false}
             onActivate={() => onActivateSearch(item.line_number)}
             onSearch={(text) => onLineSearch(item.line_number, text)}
             onSelect={(product) => onSelectProduct(item.line_number, product)}
             onClear={() => onClearSelection(item.line_number)}
+            onAliasChange={(checked) => onAliasChange(item.line_number, checked)}
             onCreateProductFromDte={() => onCreateProductFromLine(item.line_number)}
           />
         ))}
@@ -657,6 +702,11 @@ export function PurchaseDteImportClient() {
   const [activeLineSearch,  setActiveLineSearch]  = useState<number | null>(null);
   const lineAbortRefs = useRef<Record<number, AbortController>>({});
 
+  // ── Alias checkbox per line ────────────────────────────────────
+  // Solo se marca si el usuario lo hace explícitamente.
+  // Se resetea cuando el producto cambia o se limpia.
+  const [lineAliasChecked, setLineAliasChecked] = useState<Record<number, boolean>>({});
+
   // ── Handlers ────────────────────────────────────────────────────
 
   function resetReview() {
@@ -674,6 +724,7 @@ export function PurchaseDteImportClient() {
     setLineSearchResults({});
     setLineSearching({});
     setActiveLineSearch(null);
+    setLineAliasChecked({});
     setDragActive(false);
     setLoadedFileName(null);
     setFileError(null);
@@ -940,6 +991,7 @@ export function PurchaseDteImportClient() {
 
   function handleSelectProduct(lineNumber: number, product: ProductForPurchaseLookup) {
     setLineSelections((prev) => ({ ...prev, [lineNumber]: product.id }));
+    setLineAliasChecked((prev) => ({ ...prev, [lineNumber]: false }));
     setActiveLineSearch(null);
     setLineSearchText((prev) => ({ ...prev, [lineNumber]: "" }));
     setLineSearchResults((prev) => ({ ...prev, [lineNumber]: [] }));
@@ -951,6 +1003,11 @@ export function PurchaseDteImportClient() {
       delete next[lineNumber];
       return next;
     });
+    setLineAliasChecked((prev) => ({ ...prev, [lineNumber]: false }));
+  }
+
+  function handleAliasChange(lineNumber: number, checked: boolean) {
+    setLineAliasChecked((prev) => ({ ...prev, [lineNumber]: checked }));
   }
 
   async function handleCreateDraft() {
@@ -983,10 +1040,11 @@ export function PurchaseDteImportClient() {
     const items = lines.map((line) => {
       const exempt = isExemptOrNonSubject(line.detected);
       return {
-        line_number: line.line_number,
-        product_id:  lineSelections[line.line_number],
-        quantity:    line.detected.quantity   ?? 1,
-        unit_cost:   line.detected.unit_price ?? 0,
+        line_number:             line.line_number,
+        product_id:              lineSelections[line.line_number],
+        quantity:                line.detected.quantity   ?? 1,
+        unit_cost:               line.detected.unit_price ?? 0,
+        remember_supplier_alias: lineAliasChecked[line.line_number] === true,
         ...(exempt
           ? { tax_amount: 0 }
           : hasExplicitTaxAmount(line.detected)
@@ -1232,11 +1290,14 @@ export function PurchaseDteImportClient() {
             lineSearchText={lineSearchText}
             lineSearchResults={lineSearchResults}
             lineSearching={lineSearching}
+            lineAliasChecked={lineAliasChecked}
             activeLineSearch={activeLineSearch}
+            supplierSelected={!!selectedSupplierId}
             onActivateSearch={setActiveLineSearch}
             onLineSearch={handleLineSearch}
             onSelectProduct={handleSelectProduct}
             onClearSelection={handleClearLineSelection}
+            onAliasChange={handleAliasChange}
             onCreateProductFromLine={setCreateProductLineNumber}
           />
 

@@ -21,6 +21,10 @@ import type {
   MatchTypeSupplier,
 } from "../types/purchase-dte-import.types";
 import type { PurchaseDteImportRecord } from "../types/purchase-dte-import.types";
+import {
+  loadAliasesForSupplier,
+  findAliasInMemory,
+} from "./supplier-product-alias.service";
 
 // ── Constantes ────────────────────────────────────────────────────
 
@@ -298,12 +302,17 @@ export async function matchSupplier(
 // ── Matching de productos ─────────────────────────────────────────
 // Carga el catálogo activo del tenant una sola vez y lo reutiliza
 // para todas las líneas del DTE. Orden por línea:
-//   código exacto → nombre normalizado similar.
-// No crea productos ni guarda aprendizaje.
+//   1. Alias proveedor por código normalizado (SUPPLIER_ALIAS_CODE, HIGH)
+//   2. Alias proveedor por nombre normalizado (SUPPLIER_ALIAS_NAME, HIGH)
+//   3. product_code exacto (CODE_EXACT, HIGH)
+//   4. nombre similar (NAME_SIMILAR / PARTIAL_WORDS, MEDIUM/LOW)
+//   5. NONE
+// No crea productos ni guarda aliases.
 
 export async function matchProducts(
-  lines:     unknown[],
-  tenant_id: string,
+  lines:       unknown[],
+  tenant_id:   string,
+  supplier_id?: string | null,
 ): Promise<DteItemMatch[]> {
   if (lines.length === 0) return [];
 
@@ -317,6 +326,11 @@ export async function matchProducts(
     take:   PRODUCT_FETCH_LIMIT,
   });
 
+  // Cargar aliases del proveedor en batch (una sola consulta para todas las líneas)
+  const aliases = supplier_id
+    ? await loadAliasesForSupplier(tenant_id, supplier_id)
+    : [];
+
   const result: DteItemMatch[] = [];
 
   for (const rawLine of lines) {
@@ -324,6 +338,30 @@ export async function matchProducts(
     if (!parsed) continue;
 
     const { lineNumber, detected } = parsed;
+
+    // 0. Alias proveedor-producto (solo si hay supplier_id)
+    if (aliases.length > 0 && (detected.code || detected.description)) {
+      const aliasHit = findAliasInMemory(aliases, detected.code, detected.description);
+      if (aliasHit) {
+        const product = products.find(p => p.id === aliasHit.product_id);
+        if (product) {
+          result.push({
+            line_number: lineNumber,
+            detected,
+            suggestion: {
+              product_id:   product.id,
+              product_code: product.product_code,
+              product_name: product.name,
+              match_type:   aliasHit.match_type,
+              confidence:   "HIGH",
+              score:        100,
+            },
+            alternatives: [],
+          });
+          continue;
+        }
+      }
+    }
 
     // 1. Código exacto contra product_code
     if (detected.code) {
@@ -401,10 +439,16 @@ export async function matchProducts(
 // ── Orquestador principal ─────────────────────────────────────────
 // Recibe el registro completo (ya validado de tenant/location) y
 // devuelve el resultado de matching sin tocar la base de datos
-// más allá de las lecturas de suppliers y products.
+// más allá de las lecturas de suppliers, products y aliases.
+//
+// override_supplier_id: si el caller ya sabe el supplier_id (porque
+// el usuario lo seleccionó manualmente), se usa directamente para el
+// matching de aliases. Si no se provee, se usa el supplier sugerido
+// cuando su confidence es HIGH.
 
 export async function matchDteImport(
-  record: PurchaseDteImportRecord,
+  record:               PurchaseDteImportRecord,
+  override_supplier_id?: string | null,
 ): Promise<DteMatchResult> {
   // Extrae el objeto raíz del raw_json de forma segura
   const rawObj =
@@ -422,12 +466,20 @@ export async function matchDteImport(
 
   const supplier_match = await matchSupplier(detected, record.tenant_id);
 
+  // Determinar el supplier_id efectivo para el matching de aliases:
+  // Se prioriza el override explícito; si no hay, se usa la sugerencia HIGH.
+  const effective_supplier_id: string | null =
+    override_supplier_id ??
+    (supplier_match.suggestion.confidence === "HIGH"
+      ? supplier_match.suggestion.supplier_id
+      : null);
+
   const cuerpo: unknown[] =
     rawObj && Array.isArray(rawObj["cuerpoDocumento"])
       ? (rawObj["cuerpoDocumento"] as unknown[])
       : [];
 
-  const item_matches = await matchProducts(cuerpo, record.tenant_id);
+  const item_matches = await matchProducts(cuerpo, record.tenant_id, effective_supplier_id);
 
   return {
     dte_import_id: record.id,

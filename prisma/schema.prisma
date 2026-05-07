@@ -853,8 +853,9 @@ model Supplier {
   // Relaciones
   created_by_user  User?       @relation("SupplierCreatedBy", fields: [created_by], references: [id])
   updated_by_user  User?       @relation("SupplierUpdatedBy", fields: [updated_by], references: [id])
-  products         Product[]
-  purchases        Purchase[]
+  products                Product[]
+  purchases               Purchase[]
+  supplier_product_aliases SupplierProductAlias[]
 
   // Índices
   @@unique([tenant_id, supplier_code])
@@ -915,9 +916,10 @@ model Product {
   tax_rate        TaxRate?        @relation(fields: [tax_rate_id], references: [id])
   created_by_user User?           @relation("ProductCreatedBy", fields: [created_by], references: [id])
   updated_by_user User?           @relation("ProductUpdatedBy", fields: [updated_by], references: [id])
-  product_locations    ProductLocation[]
-  inventory_movements  InventoryMovement[]
-  purchase_items       PurchaseItem[]
+  product_locations        ProductLocation[]
+  inventory_movements      InventoryMovement[]
+  purchase_items           PurchaseItem[]
+  supplier_product_aliases SupplierProductAlias[]
 
   // Índices
   @@unique([tenant_id, product_code])
@@ -1254,4 +1256,53 @@ model PurchaseDteImport {
   @@index([tenant_id, location_id, status])
   @@index([tenant_id, location_id, generation_code])
   @@map("purchase_dte_imports")
+}
+
+// ═════════════════════════════════════════════════════════════════
+// COMMERCE — Alias proveedor-producto para matching DTE (Fase 7)
+//
+// Aprende equivalencias entre códigos/nombres del proveedor en DTE
+// y productos internos del catálogo.
+// Solo se crea si el usuario marca explícitamente la opción.
+// No se crea automáticamente.
+// ═════════════════════════════════════════════════════════════════
+
+model SupplierProductAlias {
+  id          String @id @default(uuid())
+  tenant_id   String
+  supplier_id String
+  product_id  String
+
+  // Valores originales del DTE (para trazabilidad y diagnóstico)
+  supplier_product_code String?
+  supplier_product_name String?
+
+  // Valores normalizados usados en el matching:
+  //   código: trim + uppercase
+  //   nombre: trim + uppercase + espacios colapsados
+  normalized_supplier_product_code String?
+  normalized_supplier_product_name String?
+
+  // Origen del alias (ej: "DTE_IMPORT")
+  source    String?
+  is_active Boolean @default(true)
+
+  // Auditoría
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+  created_by String?
+  updated_by String?
+
+  // Relaciones
+  supplier Supplier @relation(fields: [supplier_id], references: [id])
+  product  Product  @relation(fields: [product_id], references: [id])
+
+  // Unique sobre código normalizado (NULLs no participan en unique en PostgreSQL,
+  // por lo que el constraint solo aplica cuando el código está presente)
+  @@unique([tenant_id, supplier_id, normalized_supplier_product_code])
+
+  @@index([tenant_id, supplier_id])
+  @@index([tenant_id, product_id])
+  @@index([tenant_id, supplier_id, normalized_supplier_product_name])
+  @@map("supplier_product_aliases")
 }

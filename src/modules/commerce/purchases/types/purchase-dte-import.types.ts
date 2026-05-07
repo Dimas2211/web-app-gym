@@ -70,6 +70,8 @@ export type MatchTypeSupplier =
   | "NONE";
 
 export type MatchTypeProduct =
+  | "SUPPLIER_ALIAS_CODE"
+  | "SUPPLIER_ALIAS_NAME"
   | "CODE_EXACT"
   | "SKU_EXACT"
   | "NAME_SIMILAR"

@@ -24,14 +24,16 @@ import type { CreatePurchaseFromDteInput } from "../schemas/dte-import.schema";
 import { extractDteMetadata } from "./purchase-dte-import.service";
 import { getNextPurchaseCode } from "../queries/get-next-purchase-code";
 import { parseDteControlNumber } from "../utils/parse-dte-control-number";
+import { saveSupplierProductAlias } from "./supplier-product-alias.service";
 
 // ── Tipos de resultado ────────────────────────────────────────────
 
 export type CreatePurchaseFromDteResult =
   | {
-      ok:         true;
-      purchase:   { id: string; status: string; source_type: string; supplier_id: string; total_amount: number };
-      dte_import: { id: string; status: string; purchase_id: string };
+      ok:             true;
+      purchase:       { id: string; status: string; source_type: string; supplier_id: string; total_amount: number };
+      dte_import:     { id: string; status: string; purchase_id: string };
+      alias_warnings: string[];  // avisos no fatales sobre aliases que no se pudieron guardar
     }
   | { ok: false; error: string; httpStatus: number };
 
@@ -253,6 +255,60 @@ export async function createPurchaseDraftFromDteImport(
       return { newPurchase: purchase, linkedDte: updated };
     });
 
+    // ── Guardar aliases fuera de la tx (no críticos — no deben fallar la compra) ──
+    const alias_warnings: string[] = [];
+
+    // El raw_json del DTE ya está en dteImport.raw_json
+    const rawCuerpo = rawJson["cuerpoDocumento"];
+    const cuerpoLines = Array.isArray(rawCuerpo) ? rawCuerpo : [];
+
+    for (const item of input.items) {
+      if (!item.remember_supplier_alias) continue;
+      if (item.line_number == null) continue;
+
+      // Localizar la línea original del DTE por numItem
+      const rawLine = cuerpoLines.find((l: unknown) => {
+        if (!l || typeof l !== "object" || Array.isArray(l)) return false;
+        const numItem = (l as Record<string, unknown>)["numItem"];
+        return numItem === item.line_number;
+      });
+      if (!rawLine) continue;
+
+      const lineObj                = rawLine as Record<string, unknown>;
+      const supplier_product_code  =
+        typeof lineObj["codigo"] === "string" && lineObj["codigo"].trim()
+          ? lineObj["codigo"].trim()
+          : null;
+      const supplier_product_name  =
+        typeof lineObj["descripcion"] === "string" && lineObj["descripcion"].trim()
+          ? lineObj["descripcion"].trim()
+          : null;
+
+      if (!supplier_product_code && !supplier_product_name) continue;
+
+      try {
+        const aliasResult = await saveSupplierProductAlias({
+          tenant_id,
+          supplier_id:           input.supplier_id,
+          product_id:            item.product_id,
+          supplier_product_code,
+          supplier_product_name,
+          source:                "DTE_IMPORT",
+          created_by:            user_id,
+          updated_by:            user_id,
+        });
+
+        if ("warning" in aliasResult) {
+          alias_warnings.push(aliasResult.warning);
+        }
+      } catch {
+        // No fallar la compra por un alias que no se pudo guardar
+        alias_warnings.push(
+          `No se pudo guardar el alias para la línea ${item.line_number}. La compra fue creada correctamente.`,
+        );
+      }
+    }
+
     return {
       ok:       true,
       purchase: {
@@ -267,6 +323,7 @@ export async function createPurchaseDraftFromDteImport(
         status:      linkedDte.status,
         purchase_id: linkedDte.purchase_id!,
       },
+      alias_warnings,
     };
 
   } catch (e) {
