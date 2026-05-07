@@ -4,13 +4,15 @@
 // Crea una Purchase DRAFT a partir de un PurchaseDteImport ya revisado.
 //
 // Responsabilidades:
-//   - Validar que no haya product_ids duplicados en el payload.
 //   - Validar que el DteImport exista, pertenezca al tenant/location y no esté LINKED.
 //   - Validar supplier (existe, activo, mismo tenant).
 //   - Validar products (existen, activos, allow_purchase, mismo tenant).
 //   - Derivar purchase_date, document_type y campos DTE del raw_json.
 //   - Calcular totales desde las líneas aprobadas.
 //   - Crear Purchase + PurchaseItems + actualizar PurchaseDteImport en una tx atómica.
+//
+// Líneas con el mismo product_id se crean como PurchaseItems independientes
+// (un DTE puede tener el mismo producto en dos líneas con precios o descuentos distintos).
 //
 // No crea proveedores, no crea productos, no genera inventario,
 // no confirma la compra, no llama servicios externos.
@@ -43,22 +45,9 @@ export async function createPurchaseDraftFromDteImport(
   input:         CreatePurchaseFromDteInput,
 ): Promise<CreatePurchaseFromDteResult> {
 
-  // 1. Rechazar product_ids duplicados en el payload.
-  //    @@unique([purchase_id, product_id]) en PurchaseItem impide líneas repetidas.
-  //    Soporte completo de líneas repetidas del mismo producto se implementará
-  //    cuando se elimine ese constraint en una fase posterior.
-  const productIds     = input.items.map((i) => i.product_id);
-  const uniqueProducts = new Set(productIds);
-  if (uniqueProducts.size !== productIds.length) {
-    return {
-      ok:         false,
-      httpStatus: 400,
-      error:
-        "El payload contiene líneas con el mismo product_id. " +
-        "Las líneas repetidas del mismo producto se implementarán en una fase posterior. " +
-        "Consolida las cantidades en una sola línea por producto.",
-    };
-  }
+  // 1. Derivar set de product_ids únicos para validación en una sola consulta.
+  //    Líneas con el mismo product_id son válidas; se crean como PurchaseItems independientes.
+  const uniqueProducts = new Set(input.items.map((i) => i.product_id));
 
   // 2. Buscar el DteImport — tenant_id + location_id como guard de acceso.
   const dteImport = await prisma.purchaseDteImport.findFirst({
@@ -160,9 +149,10 @@ export async function createPurchaseDraftFromDteImport(
     subtotalSum += line_subtotal;
     taxSum      += tax_amount;
     return {
-      product_id:    item.product_id,
-      quantity:      item.quantity,
-      unit_cost:     item.unit_cost,
+      product_id:      item.product_id,
+      dte_line_number: item.line_number ?? null,
+      quantity:        item.quantity,
+      unit_cost:       item.unit_cost,
       tax_amount,
       line_subtotal,
       line_total,
@@ -227,17 +217,19 @@ export async function createPurchaseDraftFromDteImport(
         },
       });
 
-      // Crear PurchaseItems según las líneas aprobadas
+      // Crear PurchaseItems según las líneas aprobadas.
+      // Líneas con el mismo product_id se crean como registros independientes.
       for (const item of computedItems) {
         await tx.purchaseItem.create({
           data: {
-            purchase_id:   purchase.id,
-            product_id:    item.product_id,
-            quantity:      item.quantity,
-            unit_cost:     item.unit_cost,
-            tax_amount:    item.tax_amount,
-            line_subtotal: new Prisma.Decimal(item.line_subtotal),
-            line_total:    new Prisma.Decimal(item.line_total),
+            purchase_id:     purchase.id,
+            product_id:      item.product_id,
+            dte_line_number: item.dte_line_number,
+            quantity:        item.quantity,
+            unit_cost:       item.unit_cost,
+            tax_amount:      item.tax_amount,
+            line_subtotal:   new Prisma.Decimal(item.line_subtotal),
+            line_total:      new Prisma.Decimal(item.line_total),
           },
         });
       }

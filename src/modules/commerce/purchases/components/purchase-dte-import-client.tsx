@@ -16,7 +16,7 @@
 // Crea proveedores y productos solo por acción explícita del usuario.
 // ─────────────────────────────────────────────────────────────────
 
-import { useState, useRef, useMemo } from "react";
+import { useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { Loader2, Search, Upload, X } from "lucide-react";
 import type {
@@ -75,6 +75,20 @@ function getEstimatedLineTaxAmount(detected: DteItemDetected): number {
     return round2(qty * price * 0.13);
   }
   return 0;
+}
+
+function getLineBase(detected: DteItemDetected): number {
+  if (detected.taxable_amount != null && detected.taxable_amount > 0) {
+    return detected.taxable_amount;
+  }
+  return round2((detected.quantity ?? 0) * (detected.unit_price ?? 0));
+}
+
+function getLineTotal(detected: DteItemDetected): number {
+  if (isExemptOrNonSubject(detected)) {
+    return round2((detected.exempt_amount ?? 0) + (detected.non_subject_amount ?? 0));
+  }
+  return round2(getLineBase(detected) + getEstimatedLineTaxAmount(detected));
 }
 
 function normalizeNitDigits(nit: string): string {
@@ -322,7 +336,6 @@ function SupplierBlock({
 interface ItemRowProps {
   item:                   DteItemMatch;
   selectedId:             string | null;
-  isDuplicate:            boolean;
   searchText:             string;
   searchResults:          ProductForPurchaseLookup[];
   searching:              boolean;
@@ -337,7 +350,6 @@ interface ItemRowProps {
 function ItemRow({
   item,
   selectedId,
-  isDuplicate,
   searchText,
   searchResults,
   searching,
@@ -357,7 +369,7 @@ function ItemRow({
       : searchResults.find((r) => r.id === selectedId)?.name ?? "Producto seleccionado";
 
   return (
-    <div className={`border rounded-lg p-3 space-y-2 ${isDuplicate ? "border-red-700/60 bg-red-950/20" : "border-zinc-800"}`}>
+    <div className="border rounded-lg p-3 space-y-2 border-zinc-800">
       {/* Encabezado de línea */}
       <div className="flex items-start gap-3 flex-wrap">
         <span className="text-[10px] font-mono text-zinc-600 w-6 flex-none pt-0.5">#{item.line_number}</span>
@@ -381,7 +393,7 @@ function ItemRow({
             ) : (
               <span>IVA: <span className="text-zinc-400">{fmt(getEstimatedLineTaxAmount(detected))} <span className="text-zinc-600">(est. 13%)</span></span></span>
             )}
-            <span>Total: <span className="text-zinc-300">{fmt(detected.line_total)}</span></span>
+            <span>Total línea: <span className="text-zinc-300">{fmt(getLineTotal(detected))}</span></span>
           </div>
         </div>
 
@@ -485,7 +497,6 @@ function ItemRow({
 interface ItemsBlockProps {
   matchResult:             DteMatchResult;
   lineSelections:          Record<number, string>;
-  duplicateLineNumbers:    Set<number>;
   lineSearchText:          Record<number, string>;
   lineSearchResults:       Record<number, ProductForPurchaseLookup[]>;
   lineSearching:           Record<number, boolean>;
@@ -500,7 +511,6 @@ interface ItemsBlockProps {
 function ItemsBlock({
   matchResult,
   lineSelections,
-  duplicateLineNumbers,
   lineSearchText,
   lineSearchResults,
   lineSearching,
@@ -512,7 +522,22 @@ function ItemsBlock({
   onCreateProductFromLine,
 }: ItemsBlockProps) {
   const pending = matchResult.item_matches.filter((l) => !lineSelections[l.line_number]).length;
-  const hasDuplicates = duplicateLineNumbers.size > 0;
+
+  const summary = matchResult.item_matches.reduce(
+    (acc, item) => {
+      const { detected } = item;
+      if (isExemptOrNonSubject(detected)) {
+        acc.totalExempt  = round2(acc.totalExempt  + (detected.exempt_amount      ?? 0));
+        acc.totalNonSubj = round2(acc.totalNonSubj + (detected.non_subject_amount ?? 0));
+      } else {
+        acc.totalBase = round2(acc.totalBase + getLineBase(detected));
+        acc.totalTax  = round2(acc.totalTax  + getEstimatedLineTaxAmount(detected));
+      }
+      return acc;
+    },
+    { totalBase: 0, totalTax: 0, totalExempt: 0, totalNonSubj: 0 }
+  );
+  const grandTotal = round2(summary.totalBase + summary.totalTax + summary.totalExempt + summary.totalNonSubj);
 
   return (
     <section className="bg-zinc-900 border border-zinc-800 rounded-lg p-4 space-y-3">
@@ -530,21 +555,12 @@ function ItemsBlock({
         )}
       </div>
 
-      {hasDuplicates && (
-        <div className="text-xs text-red-400 bg-red-900/30 border border-red-700/40 rounded px-3 py-2">
-          Producto repetido en las líneas:{" "}
-          {[...duplicateLineNumbers].sort((a, b) => a - b).map((n) => `#${n}`).join(", ")}.
-          Cada línea debe tener un producto distinto.
-        </div>
-      )}
-
       <div className="space-y-2">
         {matchResult.item_matches.map((item) => (
           <ItemRow
             key={item.line_number}
             item={item}
             selectedId={lineSelections[item.line_number] ?? null}
-            isDuplicate={duplicateLineNumbers.has(item.line_number)}
             searchText={lineSearchText[item.line_number] ?? ""}
             searchResults={lineSearchResults[item.line_number] ?? []}
             searching={lineSearching[item.line_number] ?? false}
@@ -556,6 +572,34 @@ function ItemsBlock({
             onCreateProductFromDte={() => onCreateProductFromLine(item.line_number)}
           />
         ))}
+      </div>
+
+      {/* Resumen de totales */}
+      <div className="border-t border-zinc-800 pt-3 space-y-1.5">
+        <div className="flex justify-between text-[11px] text-zinc-400">
+          <span>Total gravado</span>
+          <span className="font-mono text-zinc-200">{fmt(summary.totalBase)}</span>
+        </div>
+        <div className="flex justify-between text-[11px] text-zinc-400">
+          <span>Total IVA</span>
+          <span className="font-mono text-zinc-200">{fmt(summary.totalTax)}</span>
+        </div>
+        {summary.totalExempt > 0 && (
+          <div className="flex justify-between text-[11px] text-zinc-400">
+            <span>Total exento</span>
+            <span className="font-mono text-zinc-200">{fmt(summary.totalExempt)}</span>
+          </div>
+        )}
+        {summary.totalNonSubj > 0 && (
+          <div className="flex justify-between text-[11px] text-zinc-400">
+            <span>Total no sujeto</span>
+            <span className="font-mono text-zinc-200">{fmt(summary.totalNonSubj)}</span>
+          </div>
+        )}
+        <div className="flex justify-between text-xs font-semibold text-zinc-100 border-t border-zinc-700 pt-2 mt-0.5">
+          <span>Total compra</span>
+          <span className="font-mono">{fmt(grandTotal)}</span>
+        </div>
       </div>
     </section>
   );
@@ -929,15 +973,6 @@ export function PurchaseDteImportClient() {
       return;
     }
 
-    // Validar sin duplicados
-    const productIds = lines.map((l) => lineSelections[l.line_number]);
-    if (new Set(productIds).size !== productIds.length) {
-      setCreateError(
-        "Hay productos duplicados entre las líneas. Cada línea debe tener un producto distinto."
-      );
-      return;
-    }
-
     // Construir payload de líneas con lógica de IVA:
     //   - Exenta/no sujeta (ventaExenta>0 o ventaNoSuj>0 sin ventaGravada):
     //       enviar tax_amount: 0 explícito → backend respeta IVA 0
@@ -1001,29 +1036,12 @@ export function PurchaseDteImportClient() {
     }
   }
 
-  // Detección reactiva de product_ids repetidos entre las líneas seleccionadas
-  const { duplicateProductIds, duplicateLineNumbers } = useMemo(() => {
-    const seen = new Set<string>();
-    const dupes = new Set<string>();
-    for (const id of Object.values(lineSelections)) {
-      if (seen.has(id)) dupes.add(id);
-      else seen.add(id);
-    }
-    const dupeLines = new Set(
-      Object.entries(lineSelections)
-        .filter(([, id]) => dupes.has(id))
-        .map(([ln]) => Number(ln))
-    );
-    return { duplicateProductIds: dupes, duplicateLineNumbers: dupeLines };
-  }, [lineSelections]);
-
   // Condición de habilitación del botón crear
   const canCreate =
     !!matchResult &&
     !!selectedSupplierId &&
     matchResult.item_matches.length > 0 &&
-    matchResult.item_matches.every((l) => !!lineSelections[l.line_number]) &&
-    duplicateProductIds.size === 0;
+    matchResult.item_matches.every((l) => !!lineSelections[l.line_number]);
 
   // ── Render ─────────────────────────────────────────────────────
 
@@ -1211,7 +1229,6 @@ export function PurchaseDteImportClient() {
           <ItemsBlock
             matchResult={matchResult}
             lineSelections={lineSelections}
-            duplicateLineNumbers={duplicateLineNumbers}
             lineSearchText={lineSearchText}
             lineSearchResults={lineSearchResults}
             lineSearching={lineSearching}
@@ -1253,9 +1270,7 @@ export function PurchaseDteImportClient() {
                 <span className="text-xs text-zinc-500">
                   {!selectedSupplierId
                     ? "Selecciona un proveedor para continuar."
-                    : duplicateProductIds.size > 0
-                      ? "Corrige los productos repetidos para continuar."
-                      : "Vincula todos los productos para habilitar esta acción."}
+                    : "Vincula todos los productos para habilitar esta acción."}
                 </span>
               )}
             </div>
