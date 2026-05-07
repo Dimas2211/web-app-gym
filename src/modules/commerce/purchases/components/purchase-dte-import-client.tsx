@@ -18,7 +18,7 @@
 
 import { useState, useRef, useMemo } from "react";
 import { useRouter } from "next/navigation";
-import { Loader2, Search, X } from "lucide-react";
+import { Loader2, Search, Upload, X } from "lucide-react";
 import type {
   DteMatchResult,
   DteItemMatch,
@@ -485,6 +485,12 @@ export function PurchaseDteImportClient() {
   const [selectedSupplierId, setSelectedSupplierId] = useState<string | null>(null);
   const [lineSelections,     setLineSelections]     = useState<Record<number, string>>({});
 
+  // ── File / drag & drop ─────────────────────────────────────────
+  const [dragActive,     setDragActive]     = useState(false);
+  const [loadedFileName, setLoadedFileName] = useState<string | null>(null);
+  const [fileError,      setFileError]      = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   // ── Loading / error ────────────────────────────────────────────
   const [loading,      setLoading]      = useState(false);
   const [loadingLabel, setLoadingLabel] = useState("");
@@ -523,6 +529,90 @@ export function PurchaseDteImportClient() {
     setLineSearchResults({});
     setLineSearching({});
     setActiveLineSearch(null);
+    setDragActive(false);
+    setLoadedFileName(null);
+    setFileError(null);
+  }
+
+  function handleClearInput() {
+    setJsonText("");
+    setLoadedFileName(null);
+    setFileError(null);
+    setError(null);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  }
+
+  const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5 MB
+
+  function loadFile(file: File) {
+    setFileError(null);
+    setError(null);
+
+    const isJson =
+      file.name.toLowerCase().endsWith(".json") ||
+      file.type === "application/json";
+
+    if (!isJson) {
+      setFileError("Solo se aceptan archivos .json. El archivo seleccionado no tiene extensión JSON.");
+      return;
+    }
+
+    if (file.size > MAX_FILE_SIZE) {
+      setFileError("El archivo supera el límite de 5 MB. Usa un archivo JSON más pequeño.");
+      return;
+    }
+
+    file
+      .text()
+      .then((text) => {
+        let parsed: unknown;
+        try {
+          parsed = JSON.parse(text);
+        } catch {
+          setFileError("El archivo no contiene JSON válido. Verifica que el contenido esté bien formado.");
+          return;
+        }
+        const formatted = JSON.stringify(parsed, null, 2);
+        setJsonText(formatted);
+        setLoadedFileName(file.name);
+        if (fileInputRef.current) fileInputRef.current.value = "";
+      })
+      .catch(() => {
+        setFileError("No se pudo leer el archivo. Inténtalo de nuevo.");
+      });
+  }
+
+  function handleFileInputChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (file) loadFile(file);
+  }
+
+  function handleDragOver(e: React.DragEvent<HTMLDivElement>) {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragActive(true);
+  }
+
+  function handleDragLeave(e: React.DragEvent<HTMLDivElement>) {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragActive(false);
+  }
+
+  function handleDrop(e: React.DragEvent<HTMLDivElement>) {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragActive(false);
+
+    const files = e.dataTransfer.files;
+    if (!files || files.length === 0) return;
+
+    if (files.length > 1) {
+      setFileError("Solo se puede cargar un archivo a la vez. Arrastra únicamente un archivo .json.");
+      return;
+    }
+
+    loadFile(files[0]);
   }
 
   async function handleAnalyze() {
@@ -795,37 +885,133 @@ export function PurchaseDteImportClient() {
   return (
     <div className="max-w-4xl mx-auto space-y-4">
 
-      {/* ── Fase 1: Pegar JSON ─────────────────────────────────── */}
+      {/* ── Fase 1: Cargar JSON ────────────────────────────────── */}
       {phase === "input" && (
-        <section className="bg-zinc-900 border border-zinc-800 rounded-lg p-4 space-y-3">
-          <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-400">
-            Pegar JSON DTE recibido
-          </h2>
-          <p className="text-xs text-zinc-500">
-            Pega el contenido del documento tributario electrónico en formato JSON y presiona &ldquo;Analizar DTE&rdquo;.
-          </p>
+        <section className="bg-zinc-900 border border-zinc-800 rounded-lg p-4 space-y-4">
+          <div>
+            <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-400">
+              Cargar JSON DTE recibido
+            </h2>
+            <p className="text-xs text-zinc-500 mt-1">
+              Arrastra aquí el archivo JSON del DTE, selecciónalo desde tu equipo o pega el contenido manualmente.
+            </p>
+          </div>
+
+          {/* ── Zona drag & drop ──────────────────────────────── */}
+          <div
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
+            onDrop={handleDrop}
+            className={`
+              relative flex flex-col items-center justify-center gap-2
+              border-2 border-dashed rounded-lg px-4 py-6 transition-colors
+              ${dragActive
+                ? "border-blue-500 bg-blue-900/10"
+                : fileError
+                  ? "border-red-700/60 bg-red-950/10"
+                  : "border-zinc-700 bg-zinc-800/40 hover:border-zinc-600"}
+            `}
+          >
+            <Upload className={`h-5 w-5 ${dragActive ? "text-blue-400" : "text-zinc-500"}`} />
+
+            <p className="text-xs text-zinc-400 text-center">
+              {dragActive
+                ? "Suelta el archivo .json aquí"
+                : "Arrastra un archivo .json aquí"}
+            </p>
+
+            <div className="flex items-center gap-2 mt-1">
+              <span className="text-[10px] text-zinc-600">o</span>
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={loading}
+                className="h-6 px-3 text-[10px] font-medium border border-zinc-600 hover:border-zinc-400 text-zinc-300 hover:text-zinc-100 rounded transition-colors disabled:opacity-50"
+              >
+                Seleccionar archivo .json
+              </button>
+            </div>
+
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".json,application/json"
+              onChange={handleFileInputChange}
+              className="hidden"
+              disabled={loading}
+            />
+          </div>
+
+          {/* Nombre del archivo cargado */}
+          {loadedFileName && !fileError && (
+            <div className="flex items-center gap-2 bg-zinc-800 border border-zinc-700 rounded px-3 py-1.5">
+              <span className="text-[10px] text-zinc-500">Archivo cargado:</span>
+              <span className="text-xs text-zinc-200 font-mono flex-1 truncate">{loadedFileName}</span>
+              <button
+                type="button"
+                onClick={handleClearInput}
+                className="text-zinc-500 hover:text-zinc-300 transition-colors flex-none"
+                title="Limpiar archivo y textarea"
+              >
+                <X className="h-3 w-3" />
+              </button>
+            </div>
+          )}
+
+          {/* Error de archivo */}
+          {fileError && (
+            <div className="text-xs text-red-400 bg-red-900/30 border border-red-700/40 rounded px-3 py-2">
+              {fileError}
+            </div>
+          )}
+
+          {/* Separador "o pega manualmente" */}
+          <div className="flex items-center gap-3">
+            <div className="flex-1 h-px bg-zinc-800" />
+            <span className="text-[10px] text-zinc-600 whitespace-nowrap">o pega el JSON manualmente</span>
+            <div className="flex-1 h-px bg-zinc-800" />
+          </div>
+
+          {/* Textarea — siempre visible */}
           <textarea
             value={jsonText}
-            onChange={(e) => setJsonText(e.target.value)}
+            onChange={(e) => {
+              setJsonText(e.target.value);
+              if (loadedFileName) setLoadedFileName(null);
+            }}
             placeholder={'{\n  "identificacion": { ... },\n  "emisor": { ... },\n  "cuerpoDocumento": [ ... ]\n}'}
             className="w-full h-64 bg-zinc-800 border border-zinc-700 rounded px-3 py-2 text-xs text-zinc-100 placeholder:text-zinc-600 font-mono focus:outline-none focus:border-zinc-500 resize-none"
             disabled={loading}
           />
 
+          {/* Error de análisis */}
           {error && (
             <div className="text-xs text-red-400 bg-red-900/30 border border-red-700/40 rounded px-3 py-2">
               {error}
             </div>
           )}
 
-          <button
-            onClick={handleAnalyze}
-            disabled={loading}
-            className="h-8 px-4 text-xs font-medium bg-blue-700 hover:bg-blue-600 text-white rounded flex items-center gap-2 disabled:opacity-50 transition-colors"
-          >
-            {loading && <Loader2 className="h-3 w-3 animate-spin" />}
-            {loading ? loadingLabel : "Analizar DTE"}
-          </button>
+          {/* Acciones */}
+          <div className="flex items-center gap-3">
+            <button
+              onClick={handleAnalyze}
+              disabled={loading}
+              className="h-8 px-4 text-xs font-medium bg-blue-700 hover:bg-blue-600 text-white rounded flex items-center gap-2 disabled:opacity-50 transition-colors"
+            >
+              {loading && <Loader2 className="h-3 w-3 animate-spin" />}
+              {loading ? loadingLabel : "Analizar DTE"}
+            </button>
+
+            {(jsonText || loadedFileName) && !loading && (
+              <button
+                type="button"
+                onClick={handleClearInput}
+                className="h-8 px-3 text-xs text-zinc-500 hover:text-zinc-300 border border-zinc-700 hover:border-zinc-600 rounded transition-colors"
+              >
+                Limpiar
+              </button>
+            )}
+          </div>
         </section>
       )}
 
