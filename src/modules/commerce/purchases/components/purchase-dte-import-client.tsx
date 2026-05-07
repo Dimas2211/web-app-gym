@@ -13,7 +13,7 @@
 //   6. Redirigir a /dashboard/purchases/[id]/edit
 //
 // No confirma compra. No genera movimientos de inventario.
-// No crea proveedores ni productos.
+// Crea proveedores y productos solo por acción explícita del usuario.
 // ─────────────────────────────────────────────────────────────────
 
 import { useState, useRef, useMemo } from "react";
@@ -34,6 +34,10 @@ import {
   PurchaseDteCreateSupplierDialog,
   type CreatedSupplierData,
 } from "./purchase-dte-create-supplier-dialog";
+import {
+  PurchaseDteCreateProductDialog,
+  type CreatedProductData,
+} from "./purchase-dte-create-product-dialog";
 
 // ── Helpers ───────────────────────────────────────────────────────
 
@@ -316,17 +320,18 @@ function SupplierBlock({
 // ── Fila de ítem ──────────────────────────────────────────────────
 
 interface ItemRowProps {
-  item:          DteItemMatch;
-  selectedId:    string | null;
-  isDuplicate:   boolean;
-  searchText:    string;
-  searchResults: ProductForPurchaseLookup[];
-  searching:     boolean;
-  active:        boolean;
-  onActivate:    () => void;
-  onSearch:      (text: string) => void;
-  onSelect:      (product: ProductForPurchaseLookup) => void;
-  onClear:       () => void;
+  item:                   DteItemMatch;
+  selectedId:             string | null;
+  isDuplicate:            boolean;
+  searchText:             string;
+  searchResults:          ProductForPurchaseLookup[];
+  searching:              boolean;
+  active:                 boolean;
+  onActivate:             () => void;
+  onSearch:               (text: string) => void;
+  onSelect:               (product: ProductForPurchaseLookup) => void;
+  onClear:                () => void;
+  onCreateProductFromDte: () => void;
 }
 
 function ItemRow({
@@ -341,6 +346,7 @@ function ItemRow({
   onSearch,
   onSelect,
   onClear,
+  onCreateProductFromDte,
 }: ItemRowProps) {
   const { detected, suggestion } = item;
 
@@ -425,6 +431,12 @@ function ItemRow({
             >
               <Search className="h-2.5 w-2.5" /> Buscar producto
             </button>
+            <button
+              onClick={onCreateProductFromDte}
+              className="h-5 px-2 text-[10px] font-medium text-blue-300 border border-blue-700/50 hover:border-blue-500 hover:text-blue-200 rounded transition-colors"
+            >
+              + Crear producto desde línea DTE
+            </button>
           </div>
         )}
 
@@ -471,17 +483,18 @@ function ItemRow({
 // ── Bloque de líneas ──────────────────────────────────────────────
 
 interface ItemsBlockProps {
-  matchResult:          DteMatchResult;
-  lineSelections:       Record<number, string>;
-  duplicateLineNumbers: Set<number>;
-  lineSearchText:       Record<number, string>;
-  lineSearchResults:    Record<number, ProductForPurchaseLookup[]>;
-  lineSearching:        Record<number, boolean>;
-  activeLineSearch:     number | null;
-  onActivateSearch:     (ln: number | null) => void;
-  onLineSearch:         (ln: number, text: string) => void;
-  onSelectProduct:      (ln: number, product: ProductForPurchaseLookup) => void;
-  onClearSelection:     (ln: number) => void;
+  matchResult:             DteMatchResult;
+  lineSelections:          Record<number, string>;
+  duplicateLineNumbers:    Set<number>;
+  lineSearchText:          Record<number, string>;
+  lineSearchResults:       Record<number, ProductForPurchaseLookup[]>;
+  lineSearching:           Record<number, boolean>;
+  activeLineSearch:        number | null;
+  onActivateSearch:        (ln: number | null) => void;
+  onLineSearch:            (ln: number, text: string) => void;
+  onSelectProduct:         (ln: number, product: ProductForPurchaseLookup) => void;
+  onClearSelection:        (ln: number) => void;
+  onCreateProductFromLine: (ln: number) => void;
 }
 
 function ItemsBlock({
@@ -496,6 +509,7 @@ function ItemsBlock({
   onLineSearch,
   onSelectProduct,
   onClearSelection,
+  onCreateProductFromLine,
 }: ItemsBlockProps) {
   const pending = matchResult.item_matches.filter((l) => !lineSelections[l.line_number]).length;
   const hasDuplicates = duplicateLineNumbers.size > 0;
@@ -539,6 +553,7 @@ function ItemsBlock({
             onSearch={(text) => onLineSearch(item.line_number, text)}
             onSelect={(product) => onSelectProduct(item.line_number, product)}
             onClear={() => onClearSelection(item.line_number)}
+            onCreateProductFromDte={() => onCreateProductFromLine(item.line_number)}
           />
         ))}
       </div>
@@ -588,6 +603,9 @@ export function PurchaseDteImportClient() {
   // ── Create supplier from DTE ───────────────────────────────────
   const [showCreateDialog, setShowCreateDialog] = useState(false);
 
+  // ── Create product from DTE line ───────────────────────────────
+  const [createProductLineNumber, setCreateProductLineNumber] = useState<number | null>(null);
+
   // ── Product search per line ────────────────────────────────────
   const [lineSearchText,    setLineSearchText]    = useState<Record<number, string>>({});
   const [lineSearchResults, setLineSearchResults] = useState<Record<number, ProductForPurchaseLookup[]>>({});
@@ -616,6 +634,7 @@ export function PurchaseDteImportClient() {
     setLoadedFileName(null);
     setFileError(null);
     setShowCreateDialog(false);
+    setCreateProductLineNumber(null);
   }
 
   function handleClearInput() {
@@ -833,6 +852,29 @@ export function PurchaseDteImportClient() {
     setSelectedSupplierId(created.id);
     setShowSupplierSearch(false);
     setShowCreateDialog(false);
+  }
+
+  function handleProductCreated(lineNumber: number, created: CreatedProductData) {
+    // Selecciona automáticamente el producto recién creado en la línea correspondiente
+    setLineSelections((prev) => ({ ...prev, [lineNumber]: created.id }));
+    // Añade el producto a los resultados de búsqueda para que selectedName lo resuelva
+    setLineSearchResults((prev) => ({
+      ...prev,
+      [lineNumber]: [
+        {
+          id:           created.id,
+          product_code: created.product_code,
+          name:         created.name,
+          product_type: "PRODUCT",
+          is_stockable: true,
+          unit_symbol:  "",
+          cost_price:   null,
+          tax_rate:     null,
+        },
+        ...(prev[lineNumber] ?? []),
+      ],
+    }));
+    setCreateProductLineNumber(null);
   }
 
   function handleLineSearch(lineNumber: number, text: string) {
@@ -1178,6 +1220,7 @@ export function PurchaseDteImportClient() {
             onLineSearch={handleLineSearch}
             onSelectProduct={handleSelectProduct}
             onClearSelection={handleClearLineSelection}
+            onCreateProductFromLine={setCreateProductLineNumber}
           />
 
           {/* Bloque 4: Crear borrador */}
@@ -1228,6 +1271,22 @@ export function PurchaseDteImportClient() {
           onCreated={handleSupplierCreated}
         />
       )}
+
+      {/* Dialog: crear producto desde línea DTE */}
+      {createProductLineNumber !== null && matchResult && (() => {
+        const item = matchResult.item_matches.find(
+          (i) => i.line_number === createProductLineNumber
+        );
+        if (!item) return null;
+        return (
+          <PurchaseDteCreateProductDialog
+            lineNumber={createProductLineNumber}
+            detected={item.detected}
+            onClose={() => setCreateProductLineNumber(null)}
+            onCreated={(created) => handleProductCreated(createProductLineNumber, created)}
+          />
+        );
+      })()}
     </div>
   );
 }
