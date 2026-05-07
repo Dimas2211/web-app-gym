@@ -181,6 +181,14 @@ export function PurchasesFiltersBar({
           + Nueva compra
         </Link>
 
+        {/* Importar DTE */}
+        <Link
+          href="/dashboard/purchases/import"
+          className="h-6 px-2 text-xs font-medium text-blue-300 hover:text-blue-100 border border-blue-800/60 hover:border-blue-600 rounded transition-colors self-end flex items-center"
+        >
+          Importar DTE
+        </Link>
+
         {/* Contador */}
         <span className="ml-auto text-xs text-zinc-500 self-end pb-0.5">
           {total} {total === 1 ? "documento" : "documentos"}

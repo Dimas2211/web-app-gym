@@ -8,6 +8,7 @@
 // a partir del PurchaseDetail más reciente.
 // ─────────────────────────────────────────────────────────────────
 
+import Link from "next/link";
 import { Loader2, CheckCircle, RotateCcw } from "lucide-react";
 import type { PurchaseDetail } from "../types/purchase.types";
 
@@ -120,6 +121,13 @@ export function PurchaseFormTotals({
           <RotateCcw className="h-3 w-3" />
           Limpiar compra
         </button>
+
+        <Link
+          href="/dashboard/purchases/import"
+          className="w-full h-7 text-[11px] border border-blue-800/60 rounded text-blue-400 hover:text-blue-200 hover:border-blue-600 transition-colors flex items-center justify-center"
+        >
+          Importar DTE
+        </Link>
 
         <button
           type="button"
