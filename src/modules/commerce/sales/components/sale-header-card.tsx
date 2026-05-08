@@ -1,20 +1,22 @@
 "use client";
 
-import { ArrowLeft, Save, RotateCcw, X, Loader2 } from "lucide-react";
+import { ArrowLeft, Save, RotateCcw, X, Loader2, Maximize2, Minimize2 } from "lucide-react";
 
 interface Props {
-  saleCode:         string | null;
-  saleDate:         string;
-  onSaleDateChange: (d: string) => void;
-  isSaving:         boolean;
-  hasDraft:         boolean;
-  onSave:           () => void;
-  onBack:           () => void;
-  onClear:          () => void;
-  onCancel:         () => void;
-  locationName?:    string;
-  errorMessage:     string | null;
-  successMessage:   string | null;
+  saleCode:             string | null;
+  saleDate:             string;
+  onSaleDateChange:     (d: string) => void;
+  isSaving:             boolean;
+  hasDraft:             boolean;
+  onSave:               () => void;
+  onBack:               () => void;
+  onClear:              () => void;
+  onCancel:             () => void;
+  locationName?:        string;
+  errorMessage:         string | null;
+  successMessage:       string | null;
+  isCaptureMode?:       boolean;
+  onToggleCaptureMode?: () => void;
 }
 
 const inputCls =
@@ -35,6 +37,8 @@ export function SaleHeaderCard({
   locationName,
   errorMessage,
   successMessage,
+  isCaptureMode,
+  onToggleCaptureMode,
 }: Props) {
   return (
     <div className="flex-none border-b border-zinc-800 bg-zinc-900 px-3 py-2">
@@ -123,6 +127,24 @@ export function SaleHeaderCard({
             <RotateCcw className="h-3 w-3" />
             Limpiar
           </button>
+
+          {onToggleCaptureMode && (
+            <button
+              type="button"
+              onClick={onToggleCaptureMode}
+              title={isCaptureMode ? "Volver al modo normal" : "Activar modo captura (más espacio para líneas)"}
+              className={`h-7 px-2.5 flex items-center gap-1 text-xs border rounded transition-colors ${
+                isCaptureMode
+                  ? "text-sky-400 border-sky-800/60 bg-sky-900/20 hover:bg-sky-900/40"
+                  : "text-zinc-400 border-zinc-700 hover:text-sky-400 hover:border-sky-800/60"
+              }`}
+            >
+              {isCaptureMode
+                ? <><Minimize2 className="h-3 w-3" />Modo normal</>
+                : <><Maximize2 className="h-3 w-3" />Modo captura</>
+              }
+            </button>
+          )}
 
           {hasDraft && (
             <button

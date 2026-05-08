@@ -1,11 +1,17 @@
 // ─────────────────────────────────────────────────────────────────
-// api/products/search-for-sale — GET /api/products/search-for-sale?q=...
+// api/products/search-for-sale — GET /api/products/search-for-sale
 //
 // Busca productos vendibles para usar en el formulario de ventas.
 // tenant_id y location_id se resuelven desde sesión; nunca del cliente.
 //
-// Respuesta: { ok: true, items: ProductForSaleResult[] }
-//            { ok: false, error: string }
+// Query params:
+//   q      — texto de búsqueda (opcional)
+//   limit  — cantidad por página (default 50, máx 100)
+//   offset — desde dónde empezar (default 0)
+//
+// Respuesta:
+//   { ok: true,  items: [...], pagination: { limit, offset, hasMore, nextOffset } }
+//   { ok: false, error: string }
 // ─────────────────────────────────────────────────────────────────
 
 import type { NextRequest } from "next/server";
@@ -19,16 +25,21 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ ok: false, error: ctx.error }, { status: ctx.status });
   }
 
-  const q = req.nextUrl.searchParams.get("q") ?? "";
+  const params = req.nextUrl.searchParams;
+
+  const q      = params.get("q") ?? "";
+  const limit  = Math.min(Math.max(parseInt(params.get("limit")  ?? "50", 10) || 50, 1), 100);
+  const offset = Math.max(parseInt(params.get("offset") ?? "0",  10) || 0, 0);
 
   try {
-    const items = await searchProductsForSale({
+    const result = await searchProductsForSale({
       tenant_id:   ctx.tenant_id,
       location_id: ctx.location_id,
       search:      q,
-      limit:       20,
+      limit,
+      offset,
     });
-    return NextResponse.json({ ok: true, items });
+    return NextResponse.json({ ok: true, items: result.items, pagination: result.pagination });
   } catch {
     return NextResponse.json(
       { ok: false, error: "No se pudieron buscar productos para venta." },

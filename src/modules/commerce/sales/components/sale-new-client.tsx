@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useTransition, useRef } from "react";
+import { useState, useCallback, useTransition, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import type { DteCatalogItem } from "@/modules/commerce/dte/types/dte-catalog.types";
 import type { CustomerForSaleLookup } from "@/modules/commerce/customers/types/customer.types";
@@ -81,6 +81,7 @@ export function SaleNewClient({
   const [lineError,      setLineError] = useState<string | null>(null);
   const [showCancelDialog, setShowCancelDialog] = useState(false);
   const [showClearDialog,  setShowClearDialog]  = useState(false);
+  const [isCaptureMode, setIsCaptureMode] = useState(false);
 
   // ── Navegación por teclado ────────────────────────────────────────
   function focusAfterCondition() {
@@ -102,6 +103,14 @@ export function SaleNewClient({
   function focusAfterNotes() {
     productSearchRef.current?.focus();
   }
+
+  // Al entrar en modo captura, llevar el foco directo al buscador de productos
+  useEffect(() => {
+    if (isCaptureMode) {
+      const t = setTimeout(() => productSearchRef.current?.focus(), 60);
+      return () => clearTimeout(t);
+    }
+  }, [isCaptureMode]);
 
   // ── Helpers ───────────────────────────────────────────────────────
   function clearMessages() { setError(null); setSuccess(null); setLineError(null); }
@@ -323,6 +332,8 @@ export function SaleNewClient({
           locationName={locationName}
           errorMessage={errorMessage}
           successMessage={successMessage}
+          isCaptureMode={isCaptureMode}
+          onToggleCaptureMode={() => setIsCaptureMode((v) => !v)}
         />
 
         {/* Middle — columna izquierda + columna derecha */}
@@ -331,75 +342,123 @@ export function SaleNewClient({
           {/* Columna izquierda */}
           <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
 
-            {/* Zone B — Cliente | DTE */}
-            <div className="flex-none grid grid-cols-2 border-b border-zinc-800">
-              <div className="border-r border-zinc-800">
-                <SaleCustomerSection
-                  selectedCustomer={selectedCustomer}
-                  primaryDteTypeCode={primaryDteTypeCode}
-                  onSelect={setSelectedCustomer}
-                />
+            {/* Modo normal — Zonas B, C y Notas */}
+            {!isCaptureMode && (
+              <>
+                {/* Zone B — Cliente | DTE */}
+                <div className="flex-none grid grid-cols-2 border-b border-zinc-800">
+                  <div className="border-r border-zinc-800">
+                    <SaleCustomerSection
+                      selectedCustomer={selectedCustomer}
+                      primaryDteTypeCode={primaryDteTypeCode}
+                      onSelect={setSelectedCustomer}
+                    />
+                  </div>
+                  <SaleDteSection
+                    primaryDteTypeCode={primaryDteTypeCode}
+                    onChange={setPrimaryDteTypeCode}
+                  />
+                </div>
+
+                {/* Zone C — Pago y condición */}
+                <div className="flex-none border-b border-zinc-800">
+                  <SalePaymentSection
+                    conditionOperationCode={conditionOperationCode}
+                    paymentMethodCode={paymentMethodCode}
+                    paymentTermCode={paymentTermCode}
+                    paymentTermValue={paymentTermValue}
+                    catalogCAT016={catalogCAT016}
+                    catalogCAT017={catalogCAT017}
+                    catalogCAT018={catalogCAT018}
+                    onConditionChange={setConditionOperationCode}
+                    onPaymentMethodChange={setPaymentMethodCode}
+                    onPaymentTermCodeChange={setPaymentTermCode}
+                    onPaymentTermValueChange={setPaymentTermValue}
+                    conditionOperationRef={conditionOpRef}
+                    paymentMethodRef={paymentMethodRef}
+                    paymentTermCodeRef={paymentTermCodeRef}
+                    paymentTermValueRef={paymentTermValRef}
+                    onConditionEnter={focusAfterCondition}
+                    onPaymentMethodEnter={focusAfterPaymentMethod}
+                    onPaymentTermCodeEnter={focusAfterPaymentTermCode}
+                    onPaymentTermValueEnter={focusAfterPaymentTermVal}
+                  />
+                </div>
+
+                {/* Notas */}
+                <div className="flex-none border-b border-zinc-800 px-3 py-2">
+                  <label className="text-[10px] text-zinc-500 block mb-0.5">
+                    Notas <span className="text-zinc-600">(opcional)</span>
+                  </label>
+                  <input
+                    ref={notesRef}
+                    type="text"
+                    maxLength={500}
+                    placeholder="Observaciones de la venta…"
+                    value={notes}
+                    onChange={(e) => setNotes(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") { e.preventDefault(); focusAfterNotes(); }
+                    }}
+                    className="h-7 w-full bg-zinc-800 border border-zinc-700 rounded px-2 text-xs text-zinc-100 placeholder:text-zinc-600 focus:outline-none focus:border-zinc-500"
+                  />
+                </div>
+              </>
+            )}
+
+            {/* Modo captura — barra resumen compacta */}
+            {isCaptureMode && (
+              <div className="flex-none border-b border-zinc-800 bg-zinc-900/60 px-3 py-1.5 flex items-center gap-3 flex-wrap">
+                {/* Código */}
+                <span className="font-mono text-xs text-zinc-300">
+                  {saleCode ?? "VTA-NUEVO"}
+                </span>
+
+                {/* Estado */}
+                <span className="text-[10px] text-amber-400 bg-amber-900/20 border border-amber-800/40 rounded px-1.5 py-0.5">
+                  DRAFT
+                </span>
+
+                {/* Separador */}
+                <span className="text-zinc-700">|</span>
+
+                {/* Cliente */}
+                <span className="text-[11px] text-zinc-300 truncate max-w-[160px]">
+                  {selectedCustomer ? selectedCustomer.name : "Consumidor final"}
+                </span>
+
+                {/* DTE */}
+                <span className="text-[10px] text-zinc-500 bg-zinc-800 border border-zinc-700 rounded px-1.5 py-0.5">
+                  {primaryDteTypeCode === "03" ? "CCFE" : "FE"}
+                </span>
+
+                {/* Condición */}
+                {conditionOperationCode && (
+                  <span className="text-[10px] text-zinc-500">
+                    {conditionOperationCode === "1"
+                      ? "Contado"
+                      : conditionOperationCode === "2"
+                      ? "Crédito"
+                      : "Otro"}
+                  </span>
+                )}
+
+                {/* Notas mini — solo si tiene valor */}
+                {notes && (
+                  <span className="text-[10px] text-zinc-600 italic truncate max-w-[140px]" title={notes}>
+                    {notes}
+                  </span>
+                )}
+
+                {/* Total — extremo derecho */}
+                <span className="ml-auto text-sm font-semibold text-zinc-100">
+                  ${saleTotals ? saleTotals.total_amount.toFixed(2) : "0.00"}
+                </span>
               </div>
-              <SaleDteSection
-                primaryDteTypeCode={primaryDteTypeCode}
-                onChange={setPrimaryDteTypeCode}
-              />
-            </div>
+            )}
 
-            {/* Zone C — Pago y condición */}
-            <div className="flex-none border-b border-zinc-800">
-              <SalePaymentSection
-                conditionOperationCode={conditionOperationCode}
-                paymentMethodCode={paymentMethodCode}
-                paymentTermCode={paymentTermCode}
-                paymentTermValue={paymentTermValue}
-                catalogCAT016={catalogCAT016}
-                catalogCAT017={catalogCAT017}
-                catalogCAT018={catalogCAT018}
-                onConditionChange={setConditionOperationCode}
-                onPaymentMethodChange={setPaymentMethodCode}
-                onPaymentTermCodeChange={setPaymentTermCode}
-                onPaymentTermValueChange={setPaymentTermValue}
-                conditionOperationRef={conditionOpRef}
-                paymentMethodRef={paymentMethodRef}
-                paymentTermCodeRef={paymentTermCodeRef}
-                paymentTermValueRef={paymentTermValRef}
-                onConditionEnter={focusAfterCondition}
-                onPaymentMethodEnter={focusAfterPaymentMethod}
-                onPaymentTermCodeEnter={focusAfterPaymentTermCode}
-                onPaymentTermValueEnter={focusAfterPaymentTermVal}
-              />
-            </div>
-
-            {/* Notas */}
-            <div className="flex-none border-b border-zinc-800 px-3 py-2">
-              <label className="text-[10px] text-zinc-500 block mb-0.5">
-                Notas <span className="text-zinc-600">(opcional)</span>
-              </label>
-              <input
-                ref={notesRef}
-                type="text"
-                maxLength={500}
-                placeholder="Observaciones de la venta…"
-                value={notes}
-                onChange={(e) => setNotes(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") { e.preventDefault(); focusAfterNotes(); }
-                }}
-                className="h-7 w-full bg-zinc-800 border border-zinc-700 rounded px-2 text-xs text-zinc-100 placeholder:text-zinc-600 focus:outline-none focus:border-zinc-500"
-              />
-            </div>
-
-            {/* Zone D — Búsqueda + líneas reales */}
+            {/* Zone D — Líneas (central) + Búsqueda de productos (inferior) */}
             <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
-
-              {/* Buscador de productos */}
-              <SaleProductSearch
-                ref={productSearchRef}
-                onAdd={handleAddLine}
-                isAdding={isAddingLine}
-                disabled={isBusy}
-              />
 
               {/* Error de líneas */}
               {lineError && (
@@ -408,7 +467,7 @@ export function SaleNewClient({
                 </div>
               )}
 
-              {/* Tabla de líneas */}
+              {/* Tabla de líneas — zona central/principal */}
               <div className="flex-1 min-h-0 overflow-hidden">
                 <SaleLinesTable
                   items={saleItems}
@@ -417,6 +476,14 @@ export function SaleNewClient({
                   disabled={isBusy}
                 />
               </div>
+
+              {/* Buscador de productos — zona inferior */}
+              <SaleProductSearch
+                ref={productSearchRef}
+                onAdd={handleAddLine}
+                isAdding={isAddingLine}
+                disabled={isBusy}
+              />
             </div>
           </div>
 
