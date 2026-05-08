@@ -14,9 +14,10 @@ import { listSales } from "@/modules/commerce/sales/queries/list-sales";
 import { createSaleDraftSchema } from "@/modules/commerce/sales/schemas/sale.schemas";
 import { createSaleDraft } from "@/modules/commerce/sales/services/sale.service";
 import { getSaleApiContext } from "./sale-api-context";
-import type { SaleStatus } from "@/modules/commerce/sales/types/sale.types";
+import type { SaleStatus, SalePaymentStatus } from "@/modules/commerce/sales/types/sale.types";
 
-const VALID_STATUSES:    readonly SaleStatus[]  = ["DRAFT", "CONFIRMED", "CANCELLED"];
+const VALID_STATUSES:         readonly SaleStatus[]        = ["DRAFT", "CONFIRMED", "CANCELLED"];
+const VALID_PAYMENT_STATUSES: readonly SalePaymentStatus[] = ["UNPAID", "PARTIAL", "PAID", "REFUNDED"];
 const VALID_SORT_FIELDS  = ["sale_code", "sale_date", "total_amount", "status", "created_at"] as const;
 const VALID_SORT_DIRS    = ["asc", "desc"] as const;
 
@@ -35,22 +36,25 @@ export async function GET(req: NextRequest) {
   const page      = Number.isFinite(pageRaw)     ? Math.max(1, pageRaw)                    : 1;
   const page_size = Number.isFinite(pageSizeRaw) ? Math.min(100, Math.max(1, pageSizeRaw)) : 25;
 
-  const statusRaw    = sp.get("status")         ?? undefined;
-  const sortFieldRaw = sp.get("sort_field")     ?? undefined;
-  const sortDirRaw   = sp.get("sort_direction") ?? undefined;
+  const statusRaw        = sp.get("status")         ?? undefined;
+  const paymentStatusRaw = sp.get("payment_status") ?? undefined;
+  const sortFieldRaw     = sp.get("sort_field")     ?? undefined;
+  const sortDirRaw       = sp.get("sort_direction") ?? undefined;
 
-  const status         = statusRaw    && (VALID_STATUSES    as readonly string[]).includes(statusRaw)    ? statusRaw    as SaleStatus                          : undefined;
-  const sort_field     = sortFieldRaw && (VALID_SORT_FIELDS as readonly string[]).includes(sortFieldRaw) ? sortFieldRaw as typeof VALID_SORT_FIELDS[number]    : "sale_date";
-  const sort_direction = sortDirRaw   && (VALID_SORT_DIRS   as readonly string[]).includes(sortDirRaw)   ? sortDirRaw   as "asc" | "desc"                      : "desc";
+  const status         = statusRaw        && (VALID_STATUSES         as readonly string[]).includes(statusRaw)        ? statusRaw        as SaleStatus                       : undefined;
+  const payment_status = paymentStatusRaw && (VALID_PAYMENT_STATUSES as readonly string[]).includes(paymentStatusRaw) ? paymentStatusRaw as SalePaymentStatus                : undefined;
+  const sort_field     = sortFieldRaw     && (VALID_SORT_FIELDS      as readonly string[]).includes(sortFieldRaw)     ? sortFieldRaw     as typeof VALID_SORT_FIELDS[number] : "sale_date";
+  const sort_direction = sortDirRaw       && (VALID_SORT_DIRS        as readonly string[]).includes(sortDirRaw)       ? sortDirRaw       as "asc" | "desc"                   : "desc";
 
   const customer_id = sp.get("customer_id") ?? undefined;
   const dateFrom    = sp.get("date_from")   ?? undefined;
   const dateTo      = sp.get("date_to")     ?? undefined;
 
   const data = await listSales({
-    tenant_id:   ctx.tenant_id,
-    location_id: ctx.location_id,
+    tenant_id:      ctx.tenant_id,
+    location_id:    ctx.location_id,
     status,
+    payment_status,
     customer_id,
     date_from:   dateFrom,
     date_to:     dateTo,

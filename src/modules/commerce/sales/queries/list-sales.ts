@@ -21,6 +21,7 @@ export async function listSales(filters: SaleFilters): Promise<SalesPage> {
     tenant_id,
     location_id,
     status,
+    payment_status,
     customer_id,
     date_from,
     date_to,
@@ -42,8 +43,9 @@ export async function listSales(filters: SaleFilters): Promise<SalesPage> {
   const where: Prisma.SaleWhereInput = {
     tenant_id,
     location_id,
-    ...(status      && { status }),
-    ...(customer_id && { customer_id }),
+    ...(status         && { status }),
+    ...(payment_status && { payment_status }),
+    ...(customer_id    && { customer_id }),
     ...(dateFilter  && { sale_date: dateFilter }),
     ...(search      && {
       OR: [

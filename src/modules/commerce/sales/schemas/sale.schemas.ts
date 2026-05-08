@@ -154,13 +154,14 @@ export type RemoveSaleItemInput = z.infer<typeof removeSaleItemSchema>;
 // ── Filtros de lista ──────────────────────────────────────────────
 
 export const saleFiltersSchema = z.object({
-  tenant_id:    z.string().min(1),
-  location_id:  z.string().min(1),
-  status:       z.enum(["DRAFT", "CONFIRMED", "CANCELLED"]).optional(),
-  customer_id:  z.string().uuid().optional(),
-  date_from:    z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
-  date_to:      z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
-  search:       z.string().trim().optional(),
+  tenant_id:      z.string().min(1),
+  location_id:    z.string().min(1),
+  status:         z.enum(["DRAFT", "CONFIRMED", "CANCELLED"]).optional(),
+  payment_status: z.enum(["UNPAID", "PARTIAL", "PAID", "REFUNDED"]).optional(),
+  customer_id:    z.string().uuid().optional(),
+  date_from:      z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  date_to:        z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  search:         z.string().trim().optional(),
   page:         z.coerce.number().int().positive().default(1),
   page_size:    z.coerce.number().int().positive().max(100).default(25),
   sort_field:   z
