@@ -4,6 +4,7 @@ import { useState, useCallback, useTransition, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import type { DteCatalogItem } from "@/modules/commerce/dte/types/dte-catalog.types";
 import type { CustomerForSaleLookup } from "@/modules/commerce/customers/types/customer.types";
+import type { SaleDetail, SaleItemDetail } from "../types/sale.types";
 import { SaleHeaderCard }        from "./sale-header-card";
 import { SaleCustomerSection }   from "./sale-customer-section";
 import { SaleDteSection }        from "./sale-dte-section";
@@ -19,7 +20,6 @@ import { discardDraftSaleAction } from "../actions/discard-draft-sale.action";
 import { addSaleItemAction }      from "../actions/add-sale-item.action";
 import { updateSaleItemAction }  from "../actions/update-sale-item.action";
 import { removeSaleItemAction }  from "../actions/remove-sale-item.action";
-import type { SaleItemDetail }   from "../types/sale.types";
 import type { AddSaleItemInput, UpdateSaleItemInput } from "../schemas/sale.schemas";
 
 export interface SaleNewClientProps {
@@ -28,6 +28,7 @@ export interface SaleNewClientProps {
   catalogCAT017: DteCatalogItem[];
   catalogCAT018: DteCatalogItem[];
   locationName?: string;
+  initialDraft?: SaleDetail;
 }
 
 interface SaleTotalsState {
@@ -37,12 +38,38 @@ interface SaleTotalsState {
   total_amount:    number;
 }
 
+// Convierte la fecha de un SaleDetail (puede llegar como string ISO o Date) a YYYY-MM-DD
+function toDateString(value: Date | string | undefined, fallback: string): string {
+  if (!value) return fallback;
+  const s = typeof value === "string" ? value : value.toISOString();
+  return s.slice(0, 10);
+}
+
+// Construye un CustomerForSaleLookup mínimo desde los campos del detalle de venta
+function buildDraftCustomer(
+  id:   string | null | undefined,
+  name: string | null | undefined,
+): CustomerForSaleLookup | null {
+  if (!id || !name) return null;
+  return {
+    id,
+    customer_code: "",
+    name,
+    taxpayer_type: null,
+    nit:           null,
+    nrc:           null,
+    dui:           null,
+    activity_code: null,
+  };
+}
+
 export function SaleNewClient({
   initialDate,
   catalogCAT016,
   catalogCAT017,
   catalogCAT018,
   locationName,
+  initialDraft,
 }: SaleNewClientProps) {
   const router = useRouter();
 
@@ -55,22 +82,49 @@ export function SaleNewClient({
   const productSearchRef   = useRef<SaleProductSearchHandle>(null);
 
   // ── Identidad ─────────────────────────────────────────────────────
-  const [saleId,   setSaleId]   = useState<string | null>(null);
-  const [saleCode, setSaleCode] = useState<string | null>(null);
+  const [saleId,   setSaleId]   = useState<string | null>(initialDraft?.id ?? null);
+  const [saleCode, setSaleCode] = useState<string | null>(initialDraft?.sale_code ?? null);
 
   // ── Campos del formulario ─────────────────────────────────────────
-  const [saleDate,               setSaleDate]               = useState(initialDate);
-  const [primaryDteTypeCode,     setPrimaryDteTypeCode]     = useState<"01" | "03">("01");
-  const [selectedCustomer,       setSelectedCustomer]       = useState<CustomerForSaleLookup | null>(null);
-  const [conditionOperationCode, setConditionOperationCode] = useState<"1" | "2" | "3" | null>(null);
-  const [paymentMethodCode,      setPaymentMethodCode]      = useState<string | null>(null);
-  const [paymentTermCode,        setPaymentTermCode]        = useState<"01" | "02" | "03" | null>(null);
-  const [paymentTermValue,       setPaymentTermValue]       = useState<number | null>(null);
-  const [notes,                  setNotes]                  = useState("");
+  const [saleDate,               setSaleDate]               = useState(
+    initialDraft ? toDateString(initialDraft.sale_date, initialDate) : initialDate,
+  );
+  const [primaryDteTypeCode,     setPrimaryDteTypeCode]     = useState<"01" | "03">(
+    (initialDraft?.primary_dte_type_code as "01" | "03" | undefined) ?? "01",
+  );
+  const [selectedCustomer,       setSelectedCustomer]       = useState<CustomerForSaleLookup | null>(
+    initialDraft ? buildDraftCustomer(initialDraft.customer_id, initialDraft.customer_name) : null,
+  );
+  const [conditionOperationCode, setConditionOperationCode] = useState<"1" | "2" | "3" | null>(
+    (initialDraft?.condition_operation_code as "1" | "2" | "3" | null | undefined) ?? null,
+  );
+  const [paymentMethodCode,      setPaymentMethodCode]      = useState<string | null>(
+    initialDraft?.payment_method_code ?? null,
+  );
+  const [paymentTermCode,        setPaymentTermCode]        = useState<"01" | "02" | "03" | null>(
+    (initialDraft?.payment_term_code as "01" | "02" | "03" | null | undefined) ?? null,
+  );
+  const [paymentTermValue,       setPaymentTermValue]       = useState<number | null>(
+    initialDraft?.payment_term_value ?? null,
+  );
+  const [notes,                  setNotes]                  = useState(
+    initialDraft?.notes ?? "",
+  );
 
   // ── Estado de líneas y totales ────────────────────────────────────
-  const [saleItems,  setSaleItems]  = useState<SaleItemDetail[]>([]);
-  const [saleTotals, setSaleTotals] = useState<SaleTotalsState | null>(null);
+  const [saleItems,  setSaleItems]  = useState<SaleItemDetail[]>(
+    (initialDraft?.items as SaleItemDetail[] | undefined) ?? [],
+  );
+  const [saleTotals, setSaleTotals] = useState<SaleTotalsState | null>(
+    initialDraft
+      ? {
+          subtotal:        Number(initialDraft.subtotal),
+          discount_amount: Number(initialDraft.discount_amount),
+          tax_amount:      Number(initialDraft.tax_amount),
+          total_amount:    Number(initialDraft.total_amount),
+        }
+      : null,
+  );
 
   // ── UI state ──────────────────────────────────────────────────────
   const [isSaving,     startSave]   = useTransition();
