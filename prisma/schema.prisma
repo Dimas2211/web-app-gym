@@ -1497,6 +1497,11 @@ model Sale {
   status                   SaleStatus        @default(DRAFT)
   payment_status           SalePaymentStatus @default(UNPAID)
 
+  // Tipo DTE principal esperado para la venta (CAT-002: 01=FE, 03=CCFE)
+  // Representa la intención fiscal — no implica que el DTE haya sido generado.
+  // El DTE real vive en DteOutgoingDocument.
+  primary_dte_type_code    String    @default("01")
+
   // Campos documentales opcionales
   payment_method_code      String?
   condition_operation_code String?   // CAT-016 condición de operación DTE

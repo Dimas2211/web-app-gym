@@ -17,6 +17,11 @@ export const createSaleDraftSchema = z.object({
     .optional()
     .nullable(),
 
+  // CAT-002: 01=Factura Electrónica, 03=Comprobante de Crédito Fiscal
+  primary_dte_type_code: z
+    .enum(["01", "03"])
+    .optional(),
+
   payment_method_code: z
     .string()
     .trim()
@@ -48,10 +53,37 @@ export const updateSaleDraftSchema = z.object({
     .optional()
     .nullable(),
 
+  // CAT-002: 01=Factura Electrónica, 03=Comprobante de Crédito Fiscal
+  primary_dte_type_code: z
+    .enum(["01", "03"])
+    .optional(),
+
   payment_method_code: z
     .string()
     .trim()
     .max(10)
+    .optional()
+    .nullable(),
+
+  // CAT-016 condición de operación: 1=contado, 2=crédito, 3=otro
+  condition_operation_code: z
+    .enum(["1", "2", "3"])
+    .optional()
+    .nullable(),
+
+  // CAT-018 plazo: 01=días, 02=meses, 03=años
+  payment_term_code: z
+    .enum(["01", "02", "03"])
+    .optional()
+    .nullable(),
+
+  // Cantidad de unidades según payment_term_code
+  // Solo relevante cuando condition_operation_code = "2" (operación a crédito — CAT-016).
+  // No guarda relación con primary_dte_type_code: una FE "01" también puede ser a crédito.
+  payment_term_value: z
+    .number()
+    .int("El plazo debe ser un número entero")
+    .positive("El plazo debe ser mayor que cero")
     .optional()
     .nullable(),
 

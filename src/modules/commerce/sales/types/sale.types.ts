@@ -45,6 +45,7 @@ export interface SaleListItem {
   sale_date_label: string;
   status:         SaleStatus;
   payment_status: SalePaymentStatus;
+  primary_dte_type_code: string;
   subtotal:       number;
   discount_amount: number;
   tax_amount:     number;
@@ -60,9 +61,11 @@ export interface SaleDetail extends Omit<SaleListItem, "item_count"> {
   sale_year:               number;
   sale_month:              number;
   sale_sequence:           number;
-  payment_method_code:     string | null;
+  payment_method_code:      string | null;
   condition_operation_code: string | null;
-  inventory_moved:         boolean;
+  payment_term_code:        string | null;
+  payment_term_value:       number | null;
+  inventory_moved:          boolean;
   cash_session_id:         string | null;
   notes:                   string | null;
 
