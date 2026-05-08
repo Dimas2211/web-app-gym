@@ -1,6 +1,19 @@
 # Sales — resumen técnico de diseño
 
-Estado: en diseño técnico (Fase 1). No implementado.
+Estado: en implementación activa (Fase 4C).
+
+### Sale.primary_dte_type_code (agregado Fase 4C-0B)
+- Define el tipo de DTE principal esperado para la venta (`"01"` FE, `"03"` CCFE).
+- Default `"01"` (Factura Electrónica). Editable en DRAFT.
+- Representa la intención fiscal, no implica que el DTE haya sido generado.
+- El DTE real vive en `DteOutgoingDocument.dte_type_code`.
+
+### Regla crítica: primary_dte_type_code y condition_operation_code son dimensiones independientes
+- `condition_operation_code` (CAT-016) define cómo se paga: `"1"` contado, `"2"` crédito, `"3"` otro.
+- `primary_dte_type_code` define el tipo de documento fiscal: `"01"` FE, `"03"` CCFE.
+- Combinaciones válidas: FE al contado, FE a crédito, CCFE al contado, CCFE a crédito.
+- La UI puede advertir "operación a crédito sin plazo definido", pero NO "crédito requiere CCFE".
+- CCFE requiere receptor con NIT, NRC y actividad económica — eso depende del tipo de receptor, no de la condición de pago.
 
 ---
 
