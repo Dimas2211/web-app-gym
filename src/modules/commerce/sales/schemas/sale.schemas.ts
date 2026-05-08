@@ -29,6 +29,25 @@ export const createSaleDraftSchema = z.object({
     .optional()
     .nullable(),
 
+  // CAT-016 condición de operación: 1=contado, 2=crédito, 3=otro
+  condition_operation_code: z
+    .enum(["1", "2", "3"])
+    .optional()
+    .nullable(),
+
+  // CAT-018 plazo: 01=días, 02=meses, 03=años
+  payment_term_code: z
+    .enum(["01", "02", "03"])
+    .optional()
+    .nullable(),
+
+  payment_term_value: z
+    .number()
+    .int("El plazo debe ser un número entero")
+    .positive("El plazo debe ser mayor que cero")
+    .optional()
+    .nullable(),
+
   notes: z
     .string()
     .trim()

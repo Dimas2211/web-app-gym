@@ -80,11 +80,14 @@ export function SaleNewClient({
     startSave(async () => {
       if (!saleId) {
         const result = await createSaleDraftAction({
-          sale_date:             saleDate,
-          customer_id:           selectedCustomer?.id ?? null,
-          primary_dte_type_code: primaryDteTypeCode,
-          payment_method_code:   paymentMethodCode,
-          notes:                 notes || null,
+          sale_date:                saleDate,
+          customer_id:              selectedCustomer?.id ?? null,
+          primary_dte_type_code:    primaryDteTypeCode,
+          payment_method_code:      paymentMethodCode,
+          condition_operation_code: conditionOperationCode,
+          payment_term_code:        paymentTermCode,
+          payment_term_value:       paymentTermValue,
+          notes:                    notes || null,
         });
         if (!result.ok) { setError(result.error); return; }
         setSaleId(result.id);
