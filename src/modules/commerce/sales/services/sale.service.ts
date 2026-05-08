@@ -452,6 +452,34 @@ export async function recalculateSaleTotals(
   return { ok: true };
 }
 
+// ── Descartar borrador (eliminar físicamente) ─────────────────────
+// Solo para ventas en DRAFT. No deja registro CANCELLED.
+
+export async function discardDraftSale(
+  sale_id:     string,
+  tenant_id:   string,
+  location_id: string,
+): Promise<SaleResult> {
+  const sale = await prisma.sale.findFirst({
+    where:  { id: sale_id, tenant_id, location_id },
+    select: { id: true, status: true },
+  });
+  if (!sale) {
+    return { ok: false, error: "La venta no existe o no pertenece a la location activa." };
+  }
+  if (sale.status !== "DRAFT") {
+    return { ok: false, error: "Solo se pueden descartar ventas en estado DRAFT." };
+  }
+
+  await prisma.$transaction(async (tx) => {
+    await tx.saleItem.deleteMany({ where: { sale_id } });
+    await tx.salePayment.deleteMany({ where: { sale_id } });
+    await tx.sale.delete({ where: { id: sale_id } });
+  });
+
+  return { ok: true };
+}
+
 // ── Cancelar venta DRAFT ──────────────────────────────────────────
 
 export async function cancelDraftSale(

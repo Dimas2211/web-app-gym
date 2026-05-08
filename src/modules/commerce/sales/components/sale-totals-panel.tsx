@@ -2,6 +2,13 @@
 
 import { Loader2, Save, RotateCcw, X } from "lucide-react";
 
+interface SaleTotalsData {
+  subtotal:        number;
+  discount_amount: number;
+  tax_amount:      number;
+  total_amount:    number;
+}
+
 interface Props {
   isSaving:  boolean;
   hasDraft:  boolean;
@@ -9,13 +16,25 @@ interface Props {
   onBack:    () => void;
   onClear:   () => void;
   onCancel:  () => void;
+  totals?:   SaleTotalsData | null;
 }
 
 const rowCls   = "flex justify-between items-baseline py-0.5";
 const labelCls = "text-[11px] text-zinc-400";
-const valueCls = "text-[11px] font-mono text-zinc-600";
 
-export function SaleTotalsPanel({ isSaving, hasDraft, onSave, onBack, onClear, onCancel }: Props) {
+function fmtAmt(n: number) {
+  return `$${n.toLocaleString("es-CL", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+export function SaleTotalsPanel({ isSaving, hasDraft, onSave, onBack, onClear, onCancel, totals }: Props) {
+  const subtotal  = totals?.subtotal        ?? 0;
+  const discounts = totals?.discount_amount ?? 0;
+  const tax       = totals?.tax_amount      ?? 0;
+  const total     = totals?.total_amount    ?? 0;
+  const hasLines  = total > 0 || subtotal > 0;
+
+  const valueCls = hasLines ? "text-[11px] font-mono text-zinc-300" : "text-[11px] font-mono text-zinc-600";
+
   return (
     <div className="flex flex-col h-full border-l border-zinc-800 bg-zinc-900 px-3 pt-3 pb-2">
       <span className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500 mb-2">
@@ -25,31 +44,32 @@ export function SaleTotalsPanel({ isSaving, hasDraft, onSave, onBack, onClear, o
       <div className="space-y-0.5">
         <div className={rowCls}>
           <span className={labelCls}>Subtotal</span>
-          <span className={valueCls}>$0.00</span>
+          <span className={valueCls}>{fmtAmt(subtotal)}</span>
         </div>
         <div className={rowCls}>
           <span className={labelCls}>Descuentos</span>
-          <span className={valueCls}>$0.00</span>
+          <span className={valueCls}>{fmtAmt(discounts)}</span>
         </div>
         <div className={rowCls}>
-          <span className={labelCls}>IVA (13%)</span>
-          <span className={valueCls}>$0.00</span>
+          <span className={labelCls}>IVA</span>
+          <span className={valueCls}>{fmtAmt(tax)}</span>
         </div>
         <div className="border-t border-zinc-700 my-1.5" />
         <div className={rowCls}>
           <span className="text-[11px] font-semibold text-zinc-500">Total</span>
-          <span className="text-sm font-semibold font-mono text-zinc-600">$0.00</span>
+          <span className={`text-sm font-semibold font-mono ${hasLines ? "text-zinc-100" : "text-zinc-600"}`}>
+            {fmtAmt(total)}
+          </span>
         </div>
       </div>
 
-      <div className="space-y-1 my-3">
-        <p className="text-[10px] text-amber-500/70 leading-snug">
-          La venta aún no tiene líneas.
-        </p>
-        <p className="text-[10px] text-zinc-600 leading-snug">
-          Productos: Fase 4D.
-        </p>
-        <p className="text-[10px] text-zinc-600 leading-snug">
+      <div className="my-3">
+        {!hasLines && (
+          <p className="text-[10px] text-amber-500/70 leading-snug">
+            La venta aún no tiene líneas.
+          </p>
+        )}
+        <p className="text-[10px] text-zinc-600 leading-snug mt-1">
           Confirmación: Fase 5.
         </p>
       </div>

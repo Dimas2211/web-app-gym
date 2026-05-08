@@ -131,7 +131,7 @@ export function SaleHeaderCard({
               className="h-7 px-2.5 flex items-center gap-1 text-xs text-red-600/70 border border-red-900/40 rounded hover:text-red-400 transition-colors"
             >
               <X className="h-3 w-3" />
-              Cancelar borrador
+              Descartar borrador
             </button>
           )}
         </div>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useTransition } from "react";
+import { useState, useCallback, useTransition, useRef } from "react";
 import { useRouter } from "next/navigation";
 import type { DteCatalogItem } from "@/modules/commerce/dte/types/dte-catalog.types";
 import type { CustomerForSaleLookup } from "@/modules/commerce/customers/types/customer.types";
@@ -8,13 +8,19 @@ import { SaleHeaderCard }        from "./sale-header-card";
 import { SaleCustomerSection }   from "./sale-customer-section";
 import { SaleDteSection }        from "./sale-dte-section";
 import { SalePaymentSection }    from "./sale-payment-section";
-import { SaleLinesPlaceholder }  from "./sale-lines-placeholder";
+import { SaleProductSearch, type SaleProductSearchHandle } from "./sale-product-search";
+import { SaleLinesTable }        from "./sale-lines-table";
 import { SaleTotalsPanel }       from "./sale-totals-panel";
 import { CancelDraftSaleDialog } from "./dialogs/cancel-draft-sale-dialog";
 import { ClearSaleDialog }       from "./dialogs/clear-sale-dialog";
-import { createSaleDraftAction } from "../actions/create-sale-draft.action";
-import { updateSaleDraftAction } from "../actions/update-sale-draft.action";
-import { cancelDraftSaleAction } from "../actions/cancel-draft-sale.action";
+import { createSaleDraftAction }  from "../actions/create-sale-draft.action";
+import { updateSaleDraftAction }  from "../actions/update-sale-draft.action";
+import { discardDraftSaleAction } from "../actions/discard-draft-sale.action";
+import { addSaleItemAction }      from "../actions/add-sale-item.action";
+import { updateSaleItemAction }  from "../actions/update-sale-item.action";
+import { removeSaleItemAction }  from "../actions/remove-sale-item.action";
+import type { SaleItemDetail }   from "../types/sale.types";
+import type { AddSaleItemInput, UpdateSaleItemInput } from "../schemas/sale.schemas";
 
 export interface SaleNewClientProps {
   initialDate:   string;
@@ -22,6 +28,13 @@ export interface SaleNewClientProps {
   catalogCAT017: DteCatalogItem[];
   catalogCAT018: DteCatalogItem[];
   locationName?: string;
+}
+
+interface SaleTotalsState {
+  subtotal:        number;
+  discount_amount: number;
+  tax_amount:      number;
+  total_amount:    number;
 }
 
 export function SaleNewClient({
@@ -32,6 +45,14 @@ export function SaleNewClient({
   locationName,
 }: SaleNewClientProps) {
   const router = useRouter();
+
+  // ── Refs de foco para navegación con teclado ──────────────────────
+  const conditionOpRef     = useRef<HTMLSelectElement>(null);
+  const paymentMethodRef   = useRef<HTMLSelectElement>(null);
+  const paymentTermCodeRef = useRef<HTMLSelectElement>(null);
+  const paymentTermValRef  = useRef<HTMLInputElement>(null);
+  const notesRef           = useRef<HTMLInputElement>(null);
+  const productSearchRef   = useRef<SaleProductSearchHandle>(null);
 
   // ── Identidad ─────────────────────────────────────────────────────
   const [saleId,   setSaleId]   = useState<string | null>(null);
@@ -47,20 +68,49 @@ export function SaleNewClient({
   const [paymentTermValue,       setPaymentTermValue]       = useState<number | null>(null);
   const [notes,                  setNotes]                  = useState("");
 
+  // ── Estado de líneas y totales ────────────────────────────────────
+  const [saleItems,  setSaleItems]  = useState<SaleItemDetail[]>([]);
+  const [saleTotals, setSaleTotals] = useState<SaleTotalsState | null>(null);
+
   // ── UI state ──────────────────────────────────────────────────────
   const [isSaving,     startSave]   = useTransition();
   const [isCancelling, startCancel] = useTransition();
+  const [isAddingLine, setIsAddingLine] = useState(false);
   const [errorMessage,   setError]   = useState<string | null>(null);
   const [successMessage, setSuccess] = useState<string | null>(null);
+  const [lineError,      setLineError] = useState<string | null>(null);
   const [showCancelDialog, setShowCancelDialog] = useState(false);
   const [showClearDialog,  setShowClearDialog]  = useState(false);
 
+  // ── Navegación por teclado ────────────────────────────────────────
+  function focusAfterCondition() {
+    paymentMethodRef.current?.focus();
+  }
+  function focusAfterPaymentMethod() {
+    if (conditionOperationCode === "2") {
+      paymentTermCodeRef.current?.focus();
+    } else {
+      notesRef.current?.focus();
+    }
+  }
+  function focusAfterPaymentTermCode() {
+    paymentTermValRef.current?.focus();
+  }
+  function focusAfterPaymentTermVal() {
+    notesRef.current?.focus();
+  }
+  function focusAfterNotes() {
+    productSearchRef.current?.focus();
+  }
+
   // ── Helpers ───────────────────────────────────────────────────────
-  function clearMessages() { setError(null); setSuccess(null); }
+  function clearMessages() { setError(null); setSuccess(null); setLineError(null); }
 
   function resetAll() {
     setSaleId(null);
     setSaleCode(null);
+    setSaleItems([]);
+    setSaleTotals(null);
     setSaleDate(initialDate);
     setPrimaryDteTypeCode("01");
     setSelectedCustomer(null);
@@ -71,6 +121,34 @@ export function SaleNewClient({
     setNotes("");
     clearMessages();
   }
+
+  // ── Refrescar detalle de venta ────────────────────────────────────
+  const refreshDetail = useCallback(async (id: string) => {
+    try {
+      const res  = await fetch(`/api/sales/${id}`, { cache: "no-store" });
+      const json = await res.json() as {
+        ok: boolean;
+        data?: {
+          items:           SaleItemDetail[];
+          subtotal:        number;
+          discount_amount: number;
+          tax_amount:      number;
+          total_amount:    number;
+        };
+      };
+      if (json.ok && json.data) {
+        setSaleItems(json.data.items ?? []);
+        setSaleTotals({
+          subtotal:        Number(json.data.subtotal),
+          discount_amount: Number(json.data.discount_amount),
+          tax_amount:      Number(json.data.tax_amount),
+          total_amount:    Number(json.data.total_amount),
+        });
+      }
+    } catch {
+      // silencioso — los totales ya en estado son suficiente
+    }
+  }, []);
 
   // ── Guardar borrador ──────────────────────────────────────────────
   const handleSave = useCallback(() => {
@@ -114,6 +192,85 @@ export function SaleNewClient({
     paymentTermValue, notes,
   ]);
 
+  // ── Agregar línea ─────────────────────────────────────────────────
+  // Si no hay borrador, lo crea primero con la cabecera actual; luego agrega la línea.
+  const handleAddLine = useCallback(async (
+    data: AddSaleItemInput,
+  ): Promise<{ ok: boolean; error?: string }> => {
+    setLineError(null);
+    setIsAddingLine(true);
+
+    try {
+      let currentSaleId = saleId;
+
+      // Crear borrador si no existe
+      if (!currentSaleId) {
+        const createResult = await createSaleDraftAction({
+          sale_date:                saleDate,
+          customer_id:              selectedCustomer?.id ?? null,
+          primary_dte_type_code:    primaryDteTypeCode,
+          payment_method_code:      paymentMethodCode,
+          condition_operation_code: conditionOperationCode,
+          payment_term_code:        paymentTermCode,
+          payment_term_value:       paymentTermValue,
+          notes:                    notes || null,
+        });
+        if (!createResult.ok) {
+          const msg = `No se pudo crear el borrador: ${createResult.error}`;
+          setLineError(msg);
+          return { ok: false, error: msg };
+        }
+        currentSaleId = createResult.id;
+        setSaleId(createResult.id);
+        setSaleCode(createResult.sale_code);
+      }
+
+      // Agregar línea
+      const addResult = await addSaleItemAction(currentSaleId, data);
+      if (!addResult.ok) {
+        const msg = addResult.error ?? "No se pudo agregar la línea.";
+        setLineError(msg);
+        return { ok: false, error: msg };
+      }
+
+      await refreshDetail(currentSaleId);
+      return { ok: true };
+    } finally {
+      setIsAddingLine(false);
+    }
+  }, [
+    saleId, saleDate, selectedCustomer, primaryDteTypeCode,
+    paymentMethodCode, conditionOperationCode, paymentTermCode,
+    paymentTermValue, notes, refreshDetail,
+  ]);
+
+  // ── Editar línea ──────────────────────────────────────────────────
+  const handleUpdateLine = useCallback(async (
+    item_id: string,
+    data:    UpdateSaleItemInput,
+  ): Promise<void> => {
+    if (!saleId) return;
+    setLineError(null);
+    const result = await updateSaleItemAction(item_id, saleId, data);
+    if (!result.ok) {
+      setLineError(`No se pudo actualizar la línea: ${result.error}`);
+      return;
+    }
+    await refreshDetail(saleId);
+  }, [saleId, refreshDetail]);
+
+  // ── Eliminar línea ────────────────────────────────────────────────
+  const handleRemoveLine = useCallback(async (item_id: string): Promise<void> => {
+    if (!saleId) return;
+    setLineError(null);
+    const result = await removeSaleItemAction(item_id, saleId);
+    if (!result.ok) {
+      setLineError(`No se pudo eliminar la línea: ${result.error}`);
+      return;
+    }
+    await refreshDetail(saleId);
+  }, [saleId, refreshDetail]);
+
   // ── Cancelar borrador ─────────────────────────────────────────────
   function handleCancelClick() {
     if (!saleId) { router.push("/dashboard/sales"); return; }
@@ -123,7 +280,7 @@ export function SaleNewClient({
   function handleCancelConfirm() {
     if (!saleId) { router.push("/dashboard/sales"); return; }
     startCancel(async () => {
-      const result = await cancelDraftSaleAction(saleId);
+      const result = await discardDraftSaleAction(saleId);
       if (!result.ok) { setError(result.error); setShowCancelDialog(false); return; }
       router.push("/dashboard/sales");
     });
@@ -138,7 +295,7 @@ export function SaleNewClient({
   function handleClearConfirm() {
     if (!saleId) { resetAll(); setShowClearDialog(false); return; }
     startCancel(async () => {
-      const result = await cancelDraftSaleAction(saleId);
+      const result = await discardDraftSaleAction(saleId);
       if (!result.ok) { setError(result.error); setShowClearDialog(false); return; }
       resetAll();
       setShowClearDialog(false);
@@ -146,7 +303,7 @@ export function SaleNewClient({
   }
 
   const hasDraft = !!saleId;
-  const isBusy   = isSaving || isCancelling;
+  const isBusy   = isSaving || isCancelling || isAddingLine;
 
   return (
     <>
@@ -203,6 +360,14 @@ export function SaleNewClient({
                 onPaymentMethodChange={setPaymentMethodCode}
                 onPaymentTermCodeChange={setPaymentTermCode}
                 onPaymentTermValueChange={setPaymentTermValue}
+                conditionOperationRef={conditionOpRef}
+                paymentMethodRef={paymentMethodRef}
+                paymentTermCodeRef={paymentTermCodeRef}
+                paymentTermValueRef={paymentTermValRef}
+                onConditionEnter={focusAfterCondition}
+                onPaymentMethodEnter={focusAfterPaymentMethod}
+                onPaymentTermCodeEnter={focusAfterPaymentTermCode}
+                onPaymentTermValueEnter={focusAfterPaymentTermVal}
               />
             </div>
 
@@ -212,18 +377,46 @@ export function SaleNewClient({
                 Notas <span className="text-zinc-600">(opcional)</span>
               </label>
               <input
+                ref={notesRef}
                 type="text"
                 maxLength={500}
                 placeholder="Observaciones de la venta…"
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") { e.preventDefault(); focusAfterNotes(); }
+                }}
                 className="h-7 w-full bg-zinc-800 border border-zinc-700 rounded px-2 text-xs text-zinc-100 placeholder:text-zinc-600 focus:outline-none focus:border-zinc-500"
               />
             </div>
 
-            {/* Zone D — Líneas placeholder */}
-            <div className="flex-1 min-h-0 overflow-hidden">
-              <SaleLinesPlaceholder />
+            {/* Zone D — Búsqueda + líneas reales */}
+            <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+
+              {/* Buscador de productos */}
+              <SaleProductSearch
+                ref={productSearchRef}
+                onAdd={handleAddLine}
+                isAdding={isAddingLine}
+                disabled={isBusy}
+              />
+
+              {/* Error de líneas */}
+              {lineError && (
+                <div className="flex-none px-3 py-1.5 border-b border-zinc-800">
+                  <p className="text-[11px] text-red-400">{lineError}</p>
+                </div>
+              )}
+
+              {/* Tabla de líneas */}
+              <div className="flex-1 min-h-0 overflow-hidden">
+                <SaleLinesTable
+                  items={saleItems}
+                  onUpdate={handleUpdateLine}
+                  onRemove={handleRemoveLine}
+                  disabled={isBusy}
+                />
+              </div>
             </div>
           </div>
 
@@ -232,6 +425,7 @@ export function SaleNewClient({
             <SaleTotalsPanel
               isSaving={isSaving}
               hasDraft={hasDraft}
+              totals={saleTotals}
               onSave={handleSave}
               onBack={() => router.push("/dashboard/sales")}
               onClear={handleClearClick}

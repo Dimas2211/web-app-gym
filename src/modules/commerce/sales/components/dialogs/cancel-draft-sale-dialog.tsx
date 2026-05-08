@@ -16,9 +16,10 @@ export function CancelDraftSaleDialog({ open, isBusy, onBack, onConfirm }: Props
       onClick={(e) => { if (e.target === e.currentTarget) onBack(); }}
     >
       <div className="bg-white rounded-xl shadow-xl w-full max-w-sm p-6">
-        <h2 className="text-base font-semibold text-zinc-900 mb-2">Cancelar borrador</h2>
+        <h2 className="text-base font-semibold text-zinc-900 mb-2">Descartar borrador</h2>
         <p className="text-sm text-zinc-600 mb-6 leading-relaxed">
-          ¿Seguro que deseas cancelar este borrador de venta? Esta acción no puede deshacerse.
+          ¿Descartar este borrador? Esta acción eliminará el borrador y sus líneas.
+          No se registrará como venta anulada.
         </p>
         <div className="flex justify-end gap-2">
           <button
@@ -35,7 +36,7 @@ export function CancelDraftSaleDialog({ open, isBusy, onBack, onConfirm }: Props
             disabled={isBusy}
             className="px-4 py-2 text-sm rounded-lg bg-red-600 text-white font-medium hover:bg-red-700 disabled:opacity-40 transition-colors"
           >
-            {isBusy ? "Cancelando…" : "Cancelar borrador"}
+            {isBusy ? "Descartando…" : "Descartar borrador"}
           </button>
         </div>
       </div>

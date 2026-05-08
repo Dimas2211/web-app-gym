@@ -20,7 +20,7 @@ export function ClearSaleDialog({ open, isBusy, hasDraft, onBack, onConfirm }: P
         <h2 className="text-base font-semibold text-zinc-900 mb-2">Limpiar venta</h2>
         <p className="text-sm text-zinc-600 mb-6 leading-relaxed">
           Se descartará la información capturada.
-          {hasDraft && " Si ya existe un borrador guardado, será cancelado."}
+          {hasDraft && " El borrador guardado será eliminado. No quedará como venta anulada."}
         </p>
         <div className="flex justify-end gap-2">
           <button

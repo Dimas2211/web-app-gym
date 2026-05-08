@@ -1,13 +1,10 @@
 "use server";
 
 // ─────────────────────────────────────────────────────────────────
-// commerce/sales — cancel-draft-sale.action.ts
+// commerce/sales — discard-draft-sale.action.ts
 //
-// @deprecated — No usar para descartar borradores.
-// Usa discardDraftSaleAction (discard-draft-sale.action.ts) para eso.
-//
-// Esta action marca status=CANCELLED. Reservada para cancelaciones
-// de ventas confirmadas en fases futuras.
+// Descarta (elimina físicamente) una venta en estado DRAFT.
+// No deja registro CANCELLED — el borrador desaparece sin rastro.
 //
 // Permiso: requireAdmin (super_admin | branch_admin).
 // tenant_id y location_id se inyectan desde sesión — nunca del input.
@@ -16,31 +13,30 @@
 import { revalidatePath } from "next/cache";
 import { requireAdmin } from "@/lib/permissions/guards";
 import { getEffectiveLocationId } from "@/lib/location/active-location";
-import { cancelDraftSale } from "../services/sale.service";
+import { discardDraftSale } from "../services/sale.service";
 
-export type CancelDraftSaleActionResult =
+export type DiscardDraftSaleActionResult =
   | { ok: true }
   | { ok: false; error: string };
 
-export async function cancelDraftSaleAction(
+export async function discardDraftSaleAction(
   sale_id: string,
-): Promise<CancelDraftSaleActionResult> {
+): Promise<DiscardDraftSaleActionResult> {
   const sessionUser = await requireAdmin();
   const tenant_id   = sessionUser.tenant_id;
   const location_id = await getEffectiveLocationId(sessionUser);
 
-  if (!tenant_id)   return { ok: false, error: "La sesión no tiene un tenant activo." };
-  if (!location_id) return { ok: false, error: "La sesión no tiene una location activa." };
+  if (!tenant_id)       return { ok: false, error: "La sesión no tiene un tenant activo." };
+  if (!location_id)     return { ok: false, error: "La sesión no tiene una location activa." };
   if (!sale_id?.trim()) return { ok: false, error: "El ID de venta es requerido." };
 
-  const result = await cancelDraftSale(sale_id, tenant_id, location_id, sessionUser.id);
+  const result = await discardDraftSale(sale_id, tenant_id, location_id);
 
   if (!result.ok) {
     return { ok: false, error: result.error };
   }
 
   revalidatePath("/dashboard/sales");
-  revalidatePath(`/dashboard/sales/${sale_id}`);
 
   return { ok: true };
 }
