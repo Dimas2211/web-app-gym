@@ -110,6 +110,10 @@ model User {
   dte_credentials_updated       DteCredential[]      @relation("DteCredentialUpdatedBy")
   dte_outgoing_docs_created     DteOutgoingDocument[] @relation("DteOutgoingDocumentCreatedBy")
   dte_outgoing_docs_updated     DteOutgoingDocument[] @relation("DteOutgoingDocumentUpdatedBy")
+  dte_rendered_documents_generated  DteRenderedDocument[]  @relation("DteRenderedDocumentGeneratedBy")
+  dte_deliveries_created            DteDelivery[]          @relation("DteDeliveryCreatedBy")
+  dte_document_relations_created    DteDocumentRelation[]  @relation("DteDocumentRelationCreatedBy")
+  dte_invalidation_events_requested DteInvalidationEvent[] @relation("DteInvalidationEventRequestedBy")
 
   @@unique([gym_id, operational_code])
   @@index([gym_id])
@@ -1358,6 +1362,43 @@ enum DteEnvironment {
   PRODUCTION
 }
 
+enum DteRenderedDocumentStatus {
+  PENDING
+  GENERATED
+  FAILED
+}
+
+enum DteDeliveryType {
+  CUSTOMER_EMAIL
+  INTERNAL_EMAIL
+  PRINT
+  DOWNLOAD
+}
+
+enum DteDeliveryStatus {
+  PENDING
+  SENT
+  FAILED
+  SKIPPED
+}
+
+enum DteDocumentRelationType {
+  CREDIT_NOTE_OF
+  DEBIT_NOTE_OF
+  REPLACES
+  REFERENCES
+}
+
+enum DteInvalidationStatus {
+  DRAFT
+  PENDING_SIGNATURE
+  SIGNED
+  SENT
+  ACCEPTED
+  REJECTED
+  CANCELLED
+}
+
 // Tipo contribuyente para receptores fiscales (commerce/customers).
 // Separado de TaxpayerType de suppliers — semántica diferente.
 enum CustomerTaxpayerType {
@@ -1458,7 +1499,9 @@ model Sale {
 
   // Campos documentales opcionales
   payment_method_code      String?
-  condition_operation_code String?   // CAT para condición de operación DTE (futuro)
+  condition_operation_code String?   // CAT-016 condición de operación DTE
+  payment_term_code        String?   // CAT-018 plazo (01 Días, 02 Meses, 03 Años)
+  payment_term_value       Int?      // cantidad de días/meses/años según payment_term_code
 
   // Totales derivados de las líneas
   subtotal                 Decimal   @default(0) @db.Decimal(10, 2)
@@ -1554,6 +1597,7 @@ model SalePayment {
   id                   String    @id @default(uuid())
   sale_id              String
   payment_method_code  String
+  mh_payment_form_code String?   // CAT-017 forma de pago MH
   amount               Decimal   @db.Decimal(10, 2)
   paid_at              DateTime?
   reference            String?
@@ -1731,7 +1775,12 @@ model DteOutgoingDocument {
   issuer_config     DteIssuerConfig?  @relation(fields: [issuer_config_id], references: [id])
   created_by_user   User?             @relation("DteOutgoingDocumentCreatedBy", fields: [created_by], references: [id])
   updated_by_user   User?             @relation("DteOutgoingDocumentUpdatedBy", fields: [updated_by], references: [id])
-  transmission_logs DteTransmissionLog[]
+  transmission_logs   DteTransmissionLog[]
+  rendered_documents  DteRenderedDocument[]
+  deliveries          DteDelivery[]
+  source_relations    DteDocumentRelation[] @relation("SourceDteDocument")
+  related_in_relations DteDocumentRelation[] @relation("RelatedDteDocument")
+  invalidation_events DteInvalidationEvent[]
 
   @@index([tenant_id, location_id, dte_status])
   @@index([sale_id])
@@ -1761,4 +1810,181 @@ model DteTransmissionLog {
   @@index([operation_type])
   @@index([created_at])
   @@map("dte_transmission_logs")
+}
+
+// ═════════════════════════════════════════════════════════════════
+// COMMERCE — DTE Catálogos, Representación, Delivery, Relaciones e Invalidación (Fase 3C)
+// ═════════════════════════════════════════════════════════════════
+
+// ─── DteCatalogItem ──────────────────────────────────────────────
+// Catálogos DTE oficiales MH sin tenant_id — datos de sistema.
+// Cargados vía seed. No editables por usuario.
+// Cubre: CAT-001, CAT-002, CAT-003, CAT-004, CAT-005, CAT-011,
+//        CAT-016, CAT-017, CAT-018, CAT-022, CAT-024, etc.
+model DteCatalogItem {
+  id           String   @id @default(uuid())
+  catalog_code String   // "CAT-001", "CAT-002", etc.
+  item_code    String   // "00", "01", "03", etc.
+  item_label   String
+  description  String?
+  applies_to   String?  // tipo de documento u otro contexto de aplicación
+  version      String   @default("1")
+  sort_order   Int?
+  metadata     Json?
+  is_active    Boolean  @default(true)
+  created_at   DateTime @default(now())
+  updated_at   DateTime @updatedAt
+
+  @@unique([catalog_code, item_code, version])
+  @@index([catalog_code])
+  @@index([catalog_code, is_active])
+  @@map("dte_catalog_items")
+}
+
+// ─── DteRenderedDocument ─────────────────────────────────────────
+// Representación gráfica del DTE — principalmente PDF.
+// No genera PDF real en esta fase. Solo modela la estructura.
+model DteRenderedDocument {
+  id              String                    @id @default(uuid())
+  tenant_id       String
+  location_id     String
+  dte_document_id String
+
+  format          String                    // "PDF" en implementación futura
+  storage_key     String?                   // ruta en almacenamiento (S3, local, etc.)
+  public_url      String?
+  file_name       String?
+  mime_type       String?                   // "application/pdf"
+  file_size       Int?                      // bytes
+
+  status          DteRenderedDocumentStatus @default(PENDING)
+  generated_at    DateTime?
+  generated_by    String?
+  error_message   String?
+
+  created_at      DateTime  @default(now())
+  updated_at      DateTime  @updatedAt
+
+  // Relaciones
+  dte_document      DteOutgoingDocument @relation(fields: [dte_document_id], references: [id])
+  generated_by_user User?               @relation("DteRenderedDocumentGeneratedBy", fields: [generated_by], references: [id])
+  deliveries        DteDelivery[]
+
+  @@index([tenant_id, location_id])
+  @@index([dte_document_id])
+  @@index([status])
+  @@map("dte_rendered_documents")
+}
+
+// ─── DteDelivery ─────────────────────────────────────────────────
+// Registro de envíos del DTE: email cliente, email interno, impresión, descarga.
+// No envía email real en esta fase. Solo modela la estructura.
+model DteDelivery {
+  id                   String            @id @default(uuid())
+  tenant_id            String
+  location_id          String
+  dte_document_id      String
+  rendered_document_id String?
+
+  delivery_type        DteDeliveryType
+  recipient_email      String?
+  cc                   String?
+  bcc                  String?
+  subject              String?
+  provider             String?           // "resend", "smtp", etc. — futuro
+  provider_message_id  String?
+
+  status               DteDeliveryStatus @default(PENDING)
+  sent_at              DateTime?
+  attempted_at         DateTime?
+  error_message        String?
+
+  created_by           String?
+  created_at           DateTime  @default(now())
+  updated_at           DateTime  @updatedAt
+
+  // Relaciones
+  dte_document      DteOutgoingDocument  @relation(fields: [dte_document_id], references: [id])
+  rendered_document DteRenderedDocument? @relation(fields: [rendered_document_id], references: [id])
+  created_by_user   User?                @relation("DteDeliveryCreatedBy", fields: [created_by], references: [id])
+
+  @@index([tenant_id, location_id])
+  @@index([dte_document_id])
+  @@index([delivery_type])
+  @@index([status])
+  @@map("dte_deliveries")
+}
+
+// ─── DteDocumentRelation ─────────────────────────────────────────
+// Relación entre documentos DTE: nota de crédito → factura original, etc.
+// No implementa lógica de creación de notas en esta fase.
+model DteDocumentRelation {
+  id                      String                  @id @default(uuid())
+  tenant_id               String
+  location_id             String
+  source_dte_document_id  String                  // documento origen (ej: nota de crédito)
+  related_dte_document_id String                  // documento referenciado (ej: factura original)
+
+  relation_type           DteDocumentRelationType
+  reason_code             String?                 // código de razón según catálogo DTE
+  reason_text             String?
+  amount                  Decimal?                @db.Decimal(10, 2)
+
+  created_by              String?
+  created_at              DateTime  @default(now())
+
+  // Relaciones
+  source_document  DteOutgoingDocument @relation("SourceDteDocument",  fields: [source_dte_document_id],  references: [id])
+  related_document DteOutgoingDocument @relation("RelatedDteDocument", fields: [related_dte_document_id], references: [id])
+  created_by_user  User?               @relation("DteDocumentRelationCreatedBy", fields: [created_by], references: [id])
+
+  @@index([tenant_id, location_id])
+  @@index([source_dte_document_id])
+  @@index([related_dte_document_id])
+  @@map("dte_document_relations")
+}
+
+// ─── DteInvalidationEvent ────────────────────────────────────────
+// Evento fiscal de invalidación. Separado de Sale y de DteOutgoingDocument.
+// No transmite invalidación en esta fase. Solo modela la estructura.
+model DteInvalidationEvent {
+  id              String                @id @default(uuid())
+  tenant_id       String
+  location_id     String
+  dte_document_id String
+
+  invalidation_type_code String        // CAT-024 tipo de invalidación
+  reason                 String
+  event_json             Json?
+  signed_jws             String?       @db.Text
+
+  // Respuesta del Ministerio de Hacienda
+  mh_estado           String?
+  mh_sello_recibido   String?
+  mh_codigo_msg       String?
+  mh_descripcion_msg  String?
+  mh_observaciones    Json?
+
+  status          DteInvalidationStatus @default(DRAFT)
+
+  // Timestamps del ciclo de vida fiscal
+  requested_at    DateTime?
+  sent_at         DateTime?
+  accepted_at     DateTime?
+  rejected_at     DateTime?
+
+  last_error      String?
+  requested_by    String?
+
+  created_at      DateTime  @default(now())
+  updated_at      DateTime  @updatedAt
+
+  // Relaciones
+  dte_document      DteOutgoingDocument @relation(fields: [dte_document_id], references: [id])
+  requested_by_user User?               @relation("DteInvalidationEventRequestedBy", fields: [requested_by], references: [id])
+
+  @@index([tenant_id, location_id])
+  @@index([dte_document_id])
+  @@index([status])
+  @@map("dte_invalidation_events")
 }

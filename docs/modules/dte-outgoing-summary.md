@@ -327,10 +327,94 @@ Reglas no negociables:
 
 ---
 
+---
+
+## Fase 3C — Ampliaciones controladas del modelo DTE (modelado base)
+
+### Catálogos DTE oficiales — DteCatalogItem
+
+Tabla genérica `dte_catalog_items` para todos los catálogos oficiales MH:
+- CAT-001 Ambiente de destino
+- CAT-002 Tipo de Documento
+- CAT-003 Modelo de Facturación
+- CAT-004 Tipo de Transmisión
+- CAT-016 Condición de la Operación
+- CAT-017 Forma de Pago
+- CAT-018 Plazo
+- CAT-022 Tipo de Documento de Identificación del Receptor
+- CAT-024 Tipo de Invalidación
+
+No hardcodear catálogos en UI. Consumir desde `dte_catalog_items` con filtro por `catalog_code`.
+
+Seed disponible: `prisma/seeds/seed.dte-catalog-items.ts`
+Comando (no ejecutar sin instrucción explícita): `npx tsx prisma/seeds/seed.dte-catalog-items.ts`
+
+### PDF / Representación gráfica — DteRenderedDocument
+
+Tabla `dte_rendered_documents` para modelar el ciclo de vida de la representación gráfica del DTE (principalmente PDF).
+
+- Relación N:1 con `DteOutgoingDocument`.
+- Estados: `PENDING`, `GENERATED`, `FAILED`.
+- Campos para almacenamiento: `storage_key`, `public_url`, `file_name`, `mime_type`, `file_size`.
+- No genera PDF real en esta fase. Solo modela la estructura.
+
+### Delivery / Envío — DteDelivery
+
+Tabla `dte_deliveries` para registrar todos los intentos de entrega del DTE:
+- `CUSTOMER_EMAIL` — correo al cliente receptor.
+- `INTERNAL_EMAIL` — correo contable/interno para ventas rápidas.
+- `PRINT` — impresión física.
+- `DOWNLOAD` — descarga.
+
+- Referencia opcional a `DteRenderedDocument` si el envío lleva un PDF adjunto.
+- Estados: `PENDING`, `SENT`, `FAILED`, `SKIPPED`.
+- No envía emails reales en esta fase. Solo modela la estructura.
+
+### Documentos relacionados — DteDocumentRelation
+
+Tabla `dte_document_relations` para vincular documentos DTE entre sí:
+- Nota de crédito NCE 05 → Factura FE 01 original.
+- Nota de débito NDE 06 → Factura FE 01 original.
+- Reemplazos y referencias entre documentos.
+
+Tipos de relación: `CREDIT_NOTE_OF`, `DEBIT_NOTE_OF`, `REPLACES`, `REFERENCES`.
+
+No implementa lógica de creación de notas de crédito/débito en esta fase.
+
+### Invalidación — DteInvalidationEvent
+
+Tabla `dte_invalidation_events` para modelar el evento fiscal de invalidación.
+
+- Separado de `Sale` y de `DteOutgoingDocument`.
+- Estados: `DRAFT`, `PENDING_SIGNATURE`, `SIGNED`, `SENT`, `ACCEPTED`, `REJECTED`, `CANCELLED`.
+- Campos para respuesta MH: `mh_estado`, `mh_sello_recibido`, `mh_codigo_msg`, etc.
+- `invalidation_type_code` referencia CAT-024.
+- No transmite invalidación a Hacienda en esta fase. Solo modela la estructura.
+
+### Campos adicionales en Sale y SalePayment
+
+- `Sale.payment_term_code` → CAT-018 (01 Días, 02 Meses, 03 Años).
+- `Sale.payment_term_value` → número de días/meses/años para crédito.
+- `SalePayment.mh_payment_form_code` → CAT-017 forma de pago MH.
+
+Todos los campos son nullable. No rompen servicios existentes.
+
+### Qué queda modelado pero no implementado en Fase 3C
+
+- Generación real de PDF (requiere librería, fase futura).
+- Envío real de emails (requiere Resend/SMTP, fase futura).
+- Construcción de event_json de invalidación (requiere estructura JSON oficial).
+- Firma del evento de invalidación.
+- Transmisión de invalidación a Hacienda.
+- Lógica de emisión de notas de crédito/débito.
+- Queries y services para los modelos nuevos.
+
+---
+
 ## Estado
 
-En diseño técnico — Fase 1.
-No implementado.
-No hay Prisma schema todavía.
-No hay adaptadores todavía.
+Fase 3C completada — modelado base DTE extendido.
+Schema Prisma implementado y migrado localmente.
 No hay UI todavía.
+No hay adaptadores de envío/firma todavía.
+No hay generación de PDF real todavía.
