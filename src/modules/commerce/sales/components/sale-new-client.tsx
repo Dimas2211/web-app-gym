@@ -21,6 +21,7 @@ import { addSaleItemAction }      from "../actions/add-sale-item.action";
 import { updateSaleItemAction }  from "../actions/update-sale-item.action";
 import { removeSaleItemAction }  from "../actions/remove-sale-item.action";
 import type { AddSaleItemInput, UpdateSaleItemInput } from "../schemas/sale.schemas";
+import { getDteShortLabel } from "../utils/dte-type-labels";
 
 export interface SaleNewClientProps {
   initialDate:   string;
@@ -483,7 +484,7 @@ export function SaleNewClient({
 
                 {/* DTE */}
                 <span className="text-[10px] text-zinc-500 bg-zinc-800 border border-zinc-700 rounded px-1.5 py-0.5">
-                  {primaryDteTypeCode === "03" ? "CCFE" : "FE"}
+                  {getDteShortLabel(primaryDteTypeCode)}
                 </span>
 
                 {/* Condición */}
