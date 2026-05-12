@@ -10,7 +10,7 @@
 | `commerce/purchases`           | Cerrado y operativo     |
 | Importación DTE de compras     | Cerrada y operativa     |
 | Supplier-product aliases       | Cerrado y operativo     |
-| `commerce/sales`               | **Pendiente — próximo** |
+| `commerce/sales`               | **Ciclo interno cerrado — pendiente DTE real** |
 | `commerce/cash`                | Pendiente               |
 
 ---

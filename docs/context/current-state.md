@@ -7,7 +7,7 @@
 - commerce/inventory cerrado.
 - commerce/purchases cerrado y operativo (UI + backend).
 - commerce/suppliers cerrado y operativo.
-- commerce/sales en diseño técnico (Fase 1 completada — sin Prisma, sin UI).
+- commerce/sales ciclo interno cerrado (Fase 4H-Z) — DRAFT, CONFIRMED, inventario, UI operativa. Pendiente: DTE real.
 - commerce/dte outgoing en diseño técnico (Fase 1 completada — sin Prisma, sin adaptadores, sin UI).
 - commerce/customers en diseño técnico (Fase 1 completada — sin Prisma, sin UI).
 - cash pendiente.
@@ -80,15 +80,23 @@
 - grillas ya funcionales
 - módulos cerrados
 
+## Estado actual de sales (Fase 4H-Z cerrada)
+- DRAFT, CONFIRMED, CANCELLED implementados.
+- Edición, descarte y confirmación de ventas operativos.
+- Inventario SALE_OUT al confirmar operativo (inventory_moved).
+- UI: /dashboard/sales/new, /dashboard/sales, panel de detalle.
+- Selector DTE compacto FE 01 / CCFE 03.
+- CCFE exige cliente. Validación de stock antes de confirmar.
+- Ver docs/modules/sales-summary.md para detalle completo.
+
 ## Módulos en diseño técnico (no implementar todavía)
-- sales: ver docs/modules/sales-summary.md
 - dte outgoing: ver docs/modules/dte-outgoing-summary.md
 - customers: ver docs/modules/customers-summary.md
 
 ## Próximos pasos
-- Fase 2: Prisma schema base para sales, dte, customers.
-- Fase 3+: servicios, APIs, UI de sales.
-- Fase 5+: generación JSON DTE, firma, transmisión.
+- Fase 4I: DTE real desde venta confirmada (DteOutgoingDocument, JSON MH, firma, transmisión).
+- Fase posterior: Cash/Caja (pagos, cortes, cuentas por cobrar).
+- Fase posterior: Anulación de ventas confirmadas.
 - cash pendiente de fase futura.
 
 ## Deuda técnica
