@@ -86,10 +86,13 @@ export function SaleNewClient({
   const productSearchRef   = useRef<SaleProductSearchHandle>(null);
 
   // ── Identidad y estado de la venta ───────────────────────────────
-  const [saleId,     setSaleId]     = useState<string | null>(initialDraft?.id ?? null);
-  const [saleCode,   setSaleCode]   = useState<string | null>(initialDraft?.sale_code ?? null);
-  const [saleStatus, setSaleStatus] = useState<SaleStatus>(
+  const [saleId,         setSaleId]         = useState<string | null>(initialDraft?.id ?? null);
+  const [saleCode,       setSaleCode]       = useState<string | null>(initialDraft?.sale_code ?? null);
+  const [saleStatus,     setSaleStatus]     = useState<SaleStatus>(
     (initialDraft?.status as SaleStatus | undefined) ?? "DRAFT",
+  );
+  const [inventoryMoved, setInventoryMoved] = useState<boolean>(
+    initialDraft?.inventory_moved ?? false,
   );
 
   // ── Campos del formulario ─────────────────────────────────────────
@@ -134,9 +137,10 @@ export function SaleNewClient({
   );
 
   // ── UI state ──────────────────────────────────────────────────────
-  const [isSaving,     startSave]    = useTransition();
-  const [isCancelling, startCancel]  = useTransition();
-  const [isConfirming, startConfirm] = useTransition();
+  const [isSaving,             startSave]           = useTransition();
+  const [isCancelling,         startCancel]         = useTransition();
+  const [isConfirming,         startConfirm]        = useTransition();
+  const [isApplyingInventory,  startApplyInventory] = useTransition();
   const [isAddingLine, setIsAddingLine] = useState(false);
   const [errorMessage,   setError]   = useState<string | null>(null);
   const [successMessage, setSuccess] = useState<string | null>(null);
@@ -376,7 +380,7 @@ export function SaleNewClient({
 
   const hasDraft   = !!saleId;
   const isReadOnly = saleStatus !== "DRAFT";
-  const isBusy     = isSaving || isCancelling || isAddingLine || isConfirming;
+  const isBusy     = isSaving || isCancelling || isAddingLine || isConfirming || isApplyingInventory;
   const canConfirm = !!saleId && !isReadOnly && saleItems.length > 0 && !isBusy;
 
   // ── Confirmar venta ───────────────────────────────────────────────
@@ -395,7 +399,21 @@ export function SaleNewClient({
         return;
       }
       setSaleStatus("CONFIRMED");
-      setSuccess("Venta confirmada correctamente.");
+      setInventoryMoved(true);
+      setSuccess("Venta confirmada e inventario aplicado.");
+    });
+  }
+
+  function handleApplyInventoryPending() {
+    if (!saleId) return;
+    startApplyInventory(async () => {
+      const result = await confirmSaleAction(saleId);
+      if (!result.ok) {
+        setError(result.error);
+        return;
+      }
+      setInventoryMoved(true);
+      setSuccess("Inventario pendiente aplicado correctamente.");
     });
   }
 
@@ -605,6 +623,9 @@ export function SaleNewClient({
               isConfirming={isConfirming}
               isReadOnly={isReadOnly}
               onConfirm={handleConfirmClick}
+              inventoryMoved={inventoryMoved}
+              isApplyingInventory={isApplyingInventory}
+              onApplyInventoryPending={handleApplyInventoryPending}
             />
           </div>
         </div>

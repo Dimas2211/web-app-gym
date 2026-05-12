@@ -1,6 +1,6 @@
 "use client";
 
-import { Loader2, Save, RotateCcw, X, CheckCircle } from "lucide-react";
+import { Loader2, Save, RotateCcw, X, CheckCircle, Package } from "lucide-react";
 
 interface SaleTotalsData {
   subtotal:        number;
@@ -18,10 +18,14 @@ interface Props {
   onCancel:      () => void;
   totals?:       SaleTotalsData | null;
   // Confirmación
-  canConfirm?:   boolean;
-  isConfirming?: boolean;
-  isReadOnly?:   boolean;
-  onConfirm?:    () => void;
+  canConfirm?:              boolean;
+  isConfirming?:            boolean;
+  isReadOnly?:              boolean;
+  onConfirm?:               () => void;
+  // Inventario pendiente
+  inventoryMoved?:          boolean;
+  isApplyingInventory?:     boolean;
+  onApplyInventoryPending?: () => void;
 }
 
 const rowCls   = "flex justify-between items-baseline py-0.5";
@@ -39,10 +43,13 @@ export function SaleTotalsPanel({
   onClear,
   onCancel,
   totals,
-  canConfirm   = false,
-  isConfirming = false,
-  isReadOnly   = false,
+  canConfirm              = false,
+  isConfirming            = false,
+  isReadOnly              = false,
   onConfirm,
+  inventoryMoved          = true,
+  isApplyingInventory     = false,
+  onApplyInventoryPending,
 }: Props) {
   const subtotal  = totals?.subtotal        ?? 0;
   const discounts = totals?.discount_amount ?? 0;
@@ -86,16 +93,22 @@ export function SaleTotalsPanel({
             La venta aún no tiene líneas.
           </p>
         )}
-        {isReadOnly && (
+        {isReadOnly && inventoryMoved && (
           <p className="text-[10px] text-emerald-500/70 leading-snug flex items-center gap-1">
             <CheckCircle className="h-3 w-3 flex-shrink-0" />
-            Venta confirmada. Solo lectura.
+            Confirmada. Inventario aplicado.
+          </p>
+        )}
+        {isReadOnly && !inventoryMoved && (
+          <p className="text-[10px] text-amber-400/80 leading-snug flex items-center gap-1">
+            <Package className="h-3 w-3 flex-shrink-0" />
+            Confirmada. Inventario pendiente.
           </p>
         )}
       </div>
 
       <div className="space-y-1.5 mt-auto">
-        {/* Botón Confirmar venta */}
+        {/* Botón Confirmar venta — solo en DRAFT */}
         {!isReadOnly && (
           <button
             type="button"
@@ -109,6 +122,23 @@ export function SaleTotalsPanel({
             {isConfirming
               ? <><Loader2 className="h-3 w-3 animate-spin" />Confirmando…</>
               : <><CheckCircle className="h-3 w-3" />Confirmar venta</>
+            }
+          </button>
+        )}
+
+        {/* Botón Aplicar inventario pendiente — solo si CONFIRMED + !inventoryMoved */}
+        {isReadOnly && !inventoryMoved && (
+          <button
+            type="button"
+            onClick={onApplyInventoryPending}
+            disabled={isApplyingInventory}
+            className="w-full h-8 text-xs font-medium rounded flex items-center justify-center gap-1 transition-colors
+              enabled:bg-amber-700 enabled:hover:bg-amber-600 enabled:text-white
+              disabled:bg-amber-900/30 disabled:text-amber-800 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {isApplyingInventory
+              ? <><Loader2 className="h-3 w-3 animate-spin" />Aplicando…</>
+              : <><Package className="h-3 w-3" />Aplicar inventario pendiente</>
             }
           </button>
         )}

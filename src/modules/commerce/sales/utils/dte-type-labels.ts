@@ -22,3 +22,17 @@ export function getDteShortLabel(code: string): string {
 export function getDteLabel(code: string): string {
   return DTE_TYPE_CATALOG[code as DteTypeCode]?.label ?? code;
 }
+
+/** "FE 01" */
+export function getDteShortCode(code: string): string {
+  const entry = DTE_TYPE_CATALOG[code as DteTypeCode];
+  if (!entry) return code;
+  return `${entry.short} ${code}`;
+}
+
+/** "FE 01 — Factura" */
+export function getDteFullLabel(code: string): string {
+  const entry = DTE_TYPE_CATALOG[code as DteTypeCode];
+  if (!entry) return code;
+  return `${entry.short} ${code} — ${entry.label}`;
+}

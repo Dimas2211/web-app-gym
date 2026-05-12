@@ -18,7 +18,7 @@
 
 import { useState, useEffect, useRef, useCallback, useActionState } from "react";
 import { useRouter } from "next/navigation";
-import { Loader2 } from "lucide-react";
+import { Loader2, Package } from "lucide-react";
 import type { SaleListItem, SaleDetail } from "../types/sale.types";
 import { SalesTable } from "./sales-table";
 import { SaleItemsPanel } from "./sale-items-panel";
@@ -30,6 +30,7 @@ import {
 } from "./sales-filters-bar";
 import { editSaleAuthAction } from "../actions/edit-sale-auth.action";
 import { deleteDraftSaleWithAuthAction } from "../actions/delete-draft-sale-with-auth.action";
+import { confirmSaleAction } from "../actions/confirm-sale.action";
 
 // ── Props ─────────────────────────────────────────────────────────
 
@@ -80,6 +81,11 @@ export function SalesClient({ initialItems, initialTotal }: SalesClientProps) {
   const [deleteAuthPassword, setDeleteAuthPassword] = useState("");
   const [deleteAuthState, deleteAuthFormAction, deleteAuthPending] =
     useActionState(deleteDraftSaleWithAuthAction, undefined);
+
+  // ── Estado de diálogo para aplicar inventario pendiente ───────────
+  const [applyInventoryOpen,  setApplyInventoryOpen]  = useState(false);
+  const [isApplyingInventory, setIsApplyingInventory] = useState(false);
+  const [applyInventoryError, setApplyInventoryError] = useState<string | null>(null);
 
   const filtersRef   = useRef<SaleFilterState>(EMPTY_SALE_FILTERS);
   filtersRef.current = filters;
@@ -193,6 +199,32 @@ export function SalesClient({ initialItems, initialTotal }: SalesClientProps) {
     fetchList(EMPTY_SALE_FILTERS);
   }
 
+  // ── Handler: aplicar inventario pendiente en venta CONFIRMED ───────
+  async function handleApplyInventory() {
+    if (!selectedId) return;
+    setIsApplyingInventory(true);
+    setApplyInventoryError(null);
+    try {
+      const result = await confirmSaleAction(selectedId);
+      if (result.ok) {
+        setApplyInventoryOpen(false);
+        fetchList();
+        // Re-fetch detalle para reflejar inventory_moved = true
+        setSelectedDetail(null);
+        setDetailLoading(true);
+        fetch(`/api/sales/${selectedId}`, { credentials: "same-origin" })
+          .then((r) => (r.ok ? r.json() : Promise.reject()))
+          .then((env) => setSelectedDetail(env.data as SaleDetail))
+          .catch(() => {})
+          .finally(() => setDetailLoading(false));
+      } else {
+        setApplyInventoryError(result.error);
+      }
+    } finally {
+      setIsApplyingInventory(false);
+    }
+  }
+
   const selectedItem = items.find((i) => i.id === selectedId) ?? null;
 
   return (
@@ -223,6 +255,20 @@ export function SalesClient({ initialItems, initialTotal }: SalesClientProps) {
             Eliminar borrador
           </button>
           <span className="text-xs text-zinc-600">Solo ventas en borrador pueden editarse o eliminarse.</span>
+        </div>
+      )}
+
+      {/* ── Acción contextual: Aplicar inventario pendiente (CONFIRMED + !inventory_moved) */}
+      {selectedDetail?.status === "CONFIRMED" && !selectedDetail.inventory_moved && !detailLoading && (
+        <div className="flex-none border-b border-zinc-800 bg-zinc-900/60 px-3 py-1 flex items-center gap-2">
+          <button
+            onClick={() => { setApplyInventoryError(null); setApplyInventoryOpen(true); }}
+            className="h-6 px-2 text-xs text-amber-400 hover:text-amber-200 border border-amber-800/50 hover:border-amber-600 rounded flex items-center gap-1 transition-colors"
+          >
+            <Package className="h-3 w-3" />
+            Aplicar inventario pendiente
+          </button>
+          <span className="text-xs text-zinc-600">Esta venta confirmada aún no ha descontado inventario.</span>
         </div>
       )}
 
@@ -370,6 +416,59 @@ export function SalesClient({ initialItems, initialTotal }: SalesClientProps) {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* ── Modal: Aplicar inventario pendiente ──────────────────── */}
+      {applyInventoryOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+          <div className="bg-zinc-900 border border-amber-900/50 rounded-lg p-6 w-96 shadow-xl">
+            <h2 className="text-sm font-semibold text-amber-300 mb-1 flex items-center gap-2">
+              <Package className="h-4 w-4" />
+              Aplicar inventario pendiente
+            </h2>
+            <p className="text-xs text-zinc-400 mb-4 leading-relaxed">
+              Esta venta ya está confirmada, pero aún no ha descontado inventario.
+              Se crearán movimientos <span className="text-zinc-200 font-medium">SALE_OUT</span> y
+              se descontará el stock correspondiente.
+            </p>
+
+            {applyInventoryError && (
+              <p className="mb-3 text-xs text-red-400 bg-red-900/30 border border-red-700/40 rounded px-2 py-1">
+                {applyInventoryError}
+              </p>
+            )}
+
+            <p className="text-[10px] text-zinc-500 mb-4">
+              Venta:{" "}
+              <span className="text-zinc-300 font-medium">{selectedItem?.sale_code ?? "—"}</span>
+              {" · "}
+              Cliente:{" "}
+              <span className="text-zinc-300 font-medium">{selectedItem?.customer_name ?? "Consumidor final"}</span>
+            </p>
+
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setApplyInventoryOpen(false)}
+                disabled={isApplyingInventory}
+                className="flex-1 h-8 text-xs border border-zinc-700 rounded text-zinc-400 hover:text-zinc-100 transition-colors disabled:opacity-50"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleApplyInventory}
+                disabled={isApplyingInventory}
+                className="flex-1 h-8 text-xs bg-amber-700 hover:bg-amber-600 text-white rounded font-medium flex items-center justify-center gap-1 disabled:opacity-50 transition-colors"
+              >
+                {isApplyingInventory
+                  ? <><Loader2 className="h-3 w-3 animate-spin" />Aplicando…</>
+                  : <><Package className="h-3 w-3" />Aplicar inventario</>
+                }
+              </button>
+            </div>
           </div>
         </div>
       )}

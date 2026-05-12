@@ -480,11 +480,22 @@ export async function discardDraftSale(
   return { ok: true };
 }
 
-// ── Confirmar venta: DRAFT → CONFIRMED ───────────────────────────
+// ── Confirmar venta: DRAFT → CONFIRMED + SALE_OUT ─────────────────
 //
-// Fase 4G: solo cambia status y registra confirmed_at / confirmed_by.
-// No genera DTE, no mueve inventario, no crea InventoryMovement.
-// Valida stock por lectura para bloquear ventas imposibles.
+// Fase 4H: confirma (DRAFT → CONFIRMED) y aplica movimientos SALE_OUT.
+// También procesa ventas ya CONFIRMED con inventory_moved=false.
+// No genera DTE. La transacción es atómica.
+//
+// Casos:
+//   DRAFT                        → validar + CONFIRMED + SALE_OUT + inventory_moved=true
+//   CONFIRMED + !inventory_moved → solo SALE_OUT + inventory_moved=true
+//   CONFIRMED + inventory_moved  → error (ya aplicado)
+//   CANCELLED                    → error
+//
+// Por qué se inlinea el movimiento (igual que confirmPurchase):
+//   recordInventoryMovement usa su propia prisma.$transaction interna,
+//   imposibilitando la composición atómica sin modificar su firma.
+//   SALE_OUT es siempre sustractivo: resulting_stock = stock_before - quantity.
 
 export async function confirmSale(
   sale_id:     string,
@@ -498,9 +509,11 @@ export async function confirmSale(
     select: {
       id:                    true,
       status:                true,
+      sale_code:             true,
       total_amount:          true,
       primary_dte_type_code: true,
       customer_id:           true,
+      inventory_moved:       true,
       items: {
         select: {
           id:                    true,
@@ -520,61 +533,74 @@ export async function confirmSale(
   }
 
   // 2. Validar estado
-  if (sale.status === "CONFIRMED") {
-    return { ok: false, error: "Esta venta ya fue confirmada." };
-  }
   if (sale.status === "CANCELLED") {
     return { ok: false, error: "No se puede confirmar una venta cancelada." };
   }
-  if (sale.status !== "DRAFT") {
-    return { ok: false, error: "La venta no está en estado DRAFT." };
+  if (sale.status === "CONFIRMED" && sale.inventory_moved) {
+    return { ok: false, error: "La venta ya tiene inventario aplicado." };
+  }
+  if (sale.status !== "DRAFT" && !(sale.status === "CONFIRMED" && !sale.inventory_moved)) {
+    return { ok: false, error: "La venta no puede procesarse en su estado actual." };
   }
 
-  // 3. Validar que tenga líneas
-  if (sale.items.length === 0) {
-    return { ok: false, error: "La venta no tiene líneas. Agrega al menos un producto antes de confirmar." };
-  }
+  const isDraft = sale.status === "DRAFT";
 
-  // 4. Validar cada línea
-  for (const item of sale.items) {
-    if (Number(item.quantity) <= 0) {
-      return { ok: false, error: `La línea "${item.product_name_snapshot}" tiene cantidad inválida.` };
+  // 3. Validaciones de documento — solo para primera confirmación (DRAFT)
+  if (isDraft) {
+    if (sale.items.length === 0) {
+      return { ok: false, error: "La venta no tiene líneas. Agrega al menos un producto antes de confirmar." };
     }
-    if (Number(item.unit_price) < 0) {
-      return { ok: false, error: `La línea "${item.product_name_snapshot}" tiene precio inválido.` };
+
+    for (const item of sale.items) {
+      if (Number(item.quantity) <= 0) {
+        return { ok: false, error: `La línea "${item.product_name_snapshot}" tiene cantidad inválida.` };
+      }
+      if (Number(item.unit_price) < 0) {
+        return { ok: false, error: `La línea "${item.product_name_snapshot}" tiene precio inválido.` };
+      }
+      if (Number(item.line_total) < 0) {
+        return { ok: false, error: `La línea "${item.product_name_snapshot}" tiene total inválido.` };
+      }
     }
-    if (Number(item.line_total) < 0) {
-      return { ok: false, error: `La línea "${item.product_name_snapshot}" tiene total inválido.` };
+
+    if (Number(sale.total_amount) < 0) {
+      return { ok: false, error: "El total de la venta no puede ser negativo." };
+    }
+
+    const ACTIVE_DTE_TYPES = ["01", "03"] as const;
+    type ActiveDteType = typeof ACTIVE_DTE_TYPES[number];
+    if (!ACTIVE_DTE_TYPES.includes(sale.primary_dte_type_code as ActiveDteType)) {
+      return {
+        ok:    false,
+        error: `Tipo de DTE "${sale.primary_dte_type_code}" no está activo para confirmación.`,
+      };
+    }
+
+    if (sale.primary_dte_type_code === "03" && !sale.customer_id) {
+      return {
+        ok:    false,
+        error: "El Comprobante de Crédito Fiscal (CCFE 03) requiere un cliente seleccionado.",
+      };
     }
   }
 
-  // 5. Validar total general
-  if (Number(sale.total_amount) < 0) {
-    return { ok: false, error: "El total de la venta no puede ser negativo." };
-  }
-
-  // 6. Validar tipo DTE activo
-  const ACTIVE_DTE_TYPES = ["01", "03"] as const;
-  type ActiveDteType = typeof ACTIVE_DTE_TYPES[number];
-  if (!ACTIVE_DTE_TYPES.includes(sale.primary_dte_type_code as ActiveDteType)) {
-    return {
-      ok:    false,
-      error: `Tipo de DTE "${sale.primary_dte_type_code}" no está activo para confirmación.`,
-    };
-  }
-
-  // 7. CCFE 03 exige cliente
-  if (sale.primary_dte_type_code === "03" && !sale.customer_id) {
-    return {
-      ok:    false,
-      error: "El Comprobante de Crédito Fiscal (CCFE 03) requiere un cliente seleccionado.",
-    };
-  }
-
-  // 8. Validar stock por lectura (sin modificar nada)
+  // 4. Preparar entradas SALE_OUT: agrupar cantidades por product_id stockable
   const stockableItems = sale.items.filter((i) => i.is_stockable_snapshot);
-  if (stockableItems.length > 0) {
-    const stockableProductIds = [...new Set(stockableItems.map((i) => i.product_id))];
+
+  const totalQtyByProduct = new Map<string, number>();
+  for (const item of stockableItems) {
+    totalQtyByProduct.set(
+      item.product_id,
+      (totalQtyByProduct.get(item.product_id) ?? 0) + Number(item.quantity),
+    );
+  }
+
+  // Pre-validar ProductLocations y stock (lectura fuera de tx para errores rápidos)
+  type PlEntry = { id: string; current_stock: number };
+  const plByProductId = new Map<string, PlEntry>();
+
+  if (totalQtyByProduct.size > 0) {
+    const stockableProductIds = [...totalQtyByProduct.keys()];
 
     const productLocations = await prisma.productLocation.findMany({
       where: {
@@ -583,33 +609,27 @@ export async function confirmSale(
         product_id: { in: stockableProductIds },
         is_active:  true,
       },
-      select: { product_id: true, current_stock: true },
+      select: { id: true, product_id: true, current_stock: true },
     });
 
-    const plMap = new Map(
-      productLocations.map((pl) => [pl.product_id, Number(pl.current_stock)]),
-    );
-
-    // Agrupar cantidades por producto (puede haber múltiples líneas del mismo)
-    const totalQtyByProduct = new Map<string, number>();
-    for (const item of stockableItems) {
-      totalQtyByProduct.set(
-        item.product_id,
-        (totalQtyByProduct.get(item.product_id) ?? 0) + Number(item.quantity),
-      );
+    for (const pl of productLocations) {
+      plByProductId.set(pl.product_id, {
+        id:            pl.id,
+        current_stock: Number(pl.current_stock),
+      });
     }
 
     for (const [productId, totalQty] of totalQtyByProduct) {
       const itemName = stockableItems.find((i) => i.product_id === productId)?.product_name_snapshot ?? productId;
 
-      if (!plMap.has(productId)) {
+      if (!plByProductId.has(productId)) {
         return {
           ok:    false,
           error: `El producto "${itemName}" no tiene registro de stock en esta sucursal. Configura su inventario antes de confirmar.`,
         };
       }
 
-      const available = plMap.get(productId)!;
+      const available = plByProductId.get(productId)!.current_stock;
       if (available < totalQty) {
         return {
           ok:    false,
@@ -619,20 +639,105 @@ export async function confirmSale(
     }
   }
 
-  // 9. Transacción: marcar CONFIRMED (sin movimientos de inventario)
-  await prisma.$transaction(async (tx) => {
-    await tx.sale.update({
-      where: { id: sale_id },
-      data: {
-        status:       "CONFIRMED",
-        confirmed_at: new Date(),
-        confirmed_by: user_id,
-        updated_by:   user_id,
-      },
-    });
-  });
+  // 5. Transacción atómica: reclamar venta + SALE_OUT por cada producto stockable
+  //
+  //    Garantías de concurrencia:
+  //    a) La venta se reclama con updateMany condicional al inicio de la tx.
+  //       Solo la tx que obtenga count=1 avanza; las demás hacen rollback de inmediato.
+  //       Esto elimina la ventana TOCTOU del patrón findFirst+throw.
+  //    b) El stock se decrementa con updateMany + { decrement: qty } + guardia
+  //       current_stock >= qty. Si otra tx lo decrementó primero y el stock baja,
+  //       count=0 → rollback. No hay stock negativo ni decrementos perdidos.
+  //    c) Si cualquier paso falla → rollback total → venta y stock sin cambios.
+  try {
+    await prisma.$transaction(async (tx) => {
+      // Paso A: Reclamar la venta atómicamente.
+      //   DRAFT        → CONFIRMED + inventory_moved=true (todo en un solo write)
+      //   CONFIRMED+   → inventory_moved=true
+      //   Si otra tx ya reclamó la venta, count=0 → rollback sin tocar stock.
+      const claimResult = await tx.sale.updateMany({
+        where: isDraft
+          ? { id: sale_id, tenant_id, location_id, status: "DRAFT",     inventory_moved: false }
+          : { id: sale_id, tenant_id, location_id, status: "CONFIRMED", inventory_moved: false },
+        data: isDraft
+          ? {
+              status:          "CONFIRMED",
+              confirmed_at:    new Date(),
+              confirmed_by:    user_id,
+              inventory_moved: true,
+              updated_by:      user_id,
+            }
+          : {
+              inventory_moved: true,
+              updated_by:      user_id,
+            },
+      });
 
-  return { ok: true };
+      if (claimResult.count !== 1) {
+        throw new Error("La venta ya fue confirmada o el inventario ya fue aplicado.");
+      }
+
+      // Paso B: Por cada producto stockable agrupado, decrementar stock y crear SALE_OUT.
+      for (const [productId, totalQty] of totalQtyByProduct) {
+        const plEntry  = plByProductId.get(productId)!;
+        const itemName = stockableItems.find((i) => i.product_id === productId)?.product_name_snapshot ?? productId;
+
+        // Decrementar atómicamente con guardia de stock suficiente y producto activo.
+        // Si otra tx ya decrementó y el stock bajó por debajo de totalQty, count=0 → rollback.
+        const decrementResult = await tx.productLocation.updateMany({
+          where: {
+            id:            plEntry.id,
+            tenant_id,
+            location_id,
+            product_id:    productId,
+            is_active:     true,
+            current_stock: { gte: totalQty },
+          },
+          data: {
+            current_stock: { decrement: totalQty },
+            updated_by:    user_id,
+          },
+        });
+
+        if (decrementResult.count !== 1) {
+          throw new Error(
+            `Stock insuficiente para "${itemName}". El stock puede haber cambiado desde la última lectura.`,
+          );
+        }
+
+        // Leer saldo resultante para materializar el movimiento con valores reales.
+        const updatedPl = await tx.productLocation.findFirst({
+          where:  { id: plEntry.id },
+          select: { current_stock: true },
+        });
+
+        const resulting_stock = Number(updatedPl!.current_stock);
+        const stock_before    = resulting_stock + totalQty;
+
+        await tx.inventoryMovement.create({
+          data: {
+            tenant_id,
+            location_id,
+            product_id:          productId,
+            product_location_id: plEntry.id,
+            movement_type:       "SALE_OUT",
+            quantity:            totalQty,
+            stock_before,
+            resulting_stock,
+            reference_entity:    "sale",
+            reference_id:        sale_id,
+            reference_code:      sale.sale_code,
+            performed_by:        user_id,
+          },
+        });
+      }
+    });
+
+    return { ok: true };
+  } catch (e) {
+    if (e instanceof Error) return { ok: false, error: e.message };
+    throw e;
+  }
 }
 
 // ── Cancelar venta DRAFT ──────────────────────────────────────────

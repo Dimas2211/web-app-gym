@@ -8,6 +8,7 @@
 // ─────────────────────────────────────────────────────────────────
 
 import type { SaleListItem, SaleDetail } from "../types/sale.types";
+import { getDteShortCode } from "../utils/dte-type-labels";
 
 // ── Estilos ───────────────────────────────────────────────────────
 
@@ -29,44 +30,42 @@ function formatMoney(n: number): string {
   return `$${n.toFixed(2)}`;
 }
 
+// CAT-017 — Forma de pago
 function paymentMethodLabel(code: string | null | undefined): string {
   if (!code) return "—";
   const map: Record<string, string> = {
-    CASH:     "Efectivo",
-    CARD:     "Tarjeta",
-    TRANSFER: "Transferencia",
-    CREDIT:   "Crédito",
-    CHEQUE:   "Cheque",
+    "01": "Billetes y monedas",
+    "02": "Tarjeta Débito",
+    "03": "Tarjeta Crédito",
+    "04": "Cheque",
+    "05": "Transferencia-Depósito Bancario",
+    "08": "Dinero electrónico",
+    "09": "Monedero electrónico",
+    "11": "Bitcoin",
+    "12": "Otras Criptomonedas",
+    "13": "Cuentas por pagar del receptor",
+    "14": "Giro bancario",
+    "99": "Otros",
   };
-  return map[code] ?? code;
+  const label = map[code];
+  return label ? `${code} — ${label}` : code;
 }
 
+// CAT-016 — Condición de operación
 function conditionLabel(code: string | null | undefined): string {
   if (!code) return "—";
   const map: Record<string, string> = {
-    CONTADO: "Contado",
-    CREDITO: "Crédito",
-    OTRO:    "Otro",
+    "1": "Contado",
+    "2": "A crédito",
+    "3": "Otro",
   };
-  return map[code] ?? code;
+  const label = map[code];
+  return label ? `${code} — ${label}` : code;
 }
 
 function dteTypeLabel(code: string | null | undefined): string {
   if (!code) return "—";
-  const map: Record<string, string> = {
-    "01": "FE 01",
-    "03": "CCFE 03",
-    "04": "NR 04",
-    "05": "NC 05",
-    "06": "ND 06",
-    "07": "CR 07",
-    "08": "LFE 08",
-    "09": "DL 09",
-    "11": "FEX 11",
-    "14": "FSE 14",
-    "15": "CF 15",
-  };
-  return map[code] ?? code;
+  return getDteShortCode(code);
 }
 
 function dteStatusLabel(status: string): string {
@@ -93,17 +92,6 @@ function dteStatusCls(status: string): string {
   if (status === "SIGNED" || status === "SENT")          return "text-amber-300";
   if (status === "OBSERVED" || status === "CONTINGENCY_PENDING") return "text-orange-400";
   return "text-zinc-400";
-}
-
-function plazoLabel(
-  term_code:  string | null | undefined,
-  term_value: number | null | undefined,
-): string {
-  if (!term_code && !term_value) return "—";
-  if (term_code === "DIAS" && term_value != null) return `${term_value} días`;
-  if (term_code === "MESES" && term_value != null) return `${term_value} meses`;
-  if (term_value != null) return String(term_value);
-  return term_code ?? "—";
 }
 
 // ── Badges de estado ──────────────────────────────────────────────
@@ -167,22 +155,22 @@ export function SaleSummaryPanel({ item, detail, loading }: SaleSummaryPanelProp
   return (
     <div className="flex-none border-b border-zinc-800 bg-zinc-900 px-3 py-2 space-y-1.5">
 
-      {/* Fila 1: identidad documental */}
-      <div className="grid grid-cols-8 gap-x-3">
+      {/* Fila 1: identidad operativa — 9 slots fijos */}
+      <div className="grid grid-cols-9 gap-x-3">
 
-        {/* Código */}
+        {/* 1 — Código venta */}
         <div className="min-w-0">
           <span className={labelCls}>Código venta</span>
           <span className={realValCls}>{src?.sale_code ?? "—"}</span>
         </div>
 
-        {/* Fecha */}
+        {/* 2 — Fecha */}
         <div className="min-w-0">
           <span className={labelCls}>Fecha</span>
           <span className={realValCls}>{src?.sale_date_label ?? "—"}</span>
         </div>
 
-        {/* Cliente */}
+        {/* 3 — Cliente */}
         <div className="min-w-0">
           <span className={labelCls}>Cliente</span>
           <span className={src?.customer_name ? realValCls : stubValCls}>
@@ -190,7 +178,7 @@ export function SaleSummaryPanel({ item, detail, loading }: SaleSummaryPanelProp
           </span>
         </div>
 
-        {/* Estado */}
+        {/* 4 — Estado */}
         <div className="min-w-0">
           <span className={labelCls}>Estado</span>
           {src?.status
@@ -199,31 +187,49 @@ export function SaleSummaryPanel({ item, detail, loading }: SaleSummaryPanelProp
           }
         </div>
 
-        {/* Tipo DTE */}
+        {/* 5 — Inventario — slot siempre presente; contenido según estado */}
         <div className="min-w-0">
-          <span className={labelCls}>Tipo DTE</span>
-          <span className={src?.primary_dte_type_code ? realValCls : stubValCls}>
-            {dteTypeLabel(src?.primary_dte_type_code)}
-          </span>
+          <span className={labelCls}>Inventario</span>
+          {detail?.status === "CONFIRMED"
+            ? detail.inventory_moved
+              ? <span className="block text-[10px] text-emerald-400 font-medium truncate">Aplicado</span>
+              : <span className="block text-[10px] text-amber-400 font-medium truncate">Pendiente</span>
+            : <span className={stubValCls}>—</span>
+          }
         </div>
 
-        {/* Condición operación */}
+        {/* 6 — Estado pago */}
+        <div className="min-w-0">
+          <span className={labelCls}>Estado pago</span>
+          {src?.payment_status
+            ? <PayStatusBadge status={src.payment_status} />
+            : <span className={stubValCls}>—</span>
+          }
+        </div>
+
+        {/* 7 — Cond. operación */}
         <div className="min-w-0">
           <span className={labelCls}>Cond. operación</span>
-          <span className={detail?.condition_operation_code ? realValCls : stubValCls}>
+          <span
+            className={detail?.condition_operation_code ? realValCls : stubValCls}
+            title={conditionLabel(detail?.condition_operation_code)}
+          >
             {conditionLabel(detail?.condition_operation_code)}
           </span>
         </div>
 
-        {/* Forma de pago */}
+        {/* 8 — Forma de pago */}
         <div className="min-w-0">
           <span className={labelCls}>Forma de pago</span>
-          <span className={detail?.payment_method_code ? realValCls : stubValCls}>
+          <span
+            className={detail?.payment_method_code ? realValCls : stubValCls}
+            title={paymentMethodLabel(detail?.payment_method_code)}
+          >
             {paymentMethodLabel(detail?.payment_method_code)}
           </span>
         </div>
 
-        {/* Ítems */}
+        {/* 9 — Ítems */}
         <div className="min-w-0">
           <span className={labelCls}>Ítems</span>
           <span className={realValCls}>{itemCount}</span>
@@ -284,16 +290,16 @@ export function SaleSummaryPanel({ item, detail, loading }: SaleSummaryPanelProp
         </div>
       )}
 
-      {/* Fila 2: totales + auditoría */}
-      <div className="grid grid-cols-8 gap-x-3">
+      {/* Fila 2: totales + documental + auditoría — 9 slots fijos */}
+      <div className="grid grid-cols-9 gap-x-3">
 
-        {/* Subtotal */}
+        {/* 1 — Subtotal */}
         <div className="min-w-0">
           <span className={labelCls}>Subtotal</span>
           <span className={realValCls}>{src ? formatMoney(src.subtotal) : "$0.00"}</span>
         </div>
 
-        {/* Descuento */}
+        {/* 2 — Descuento */}
         <div className="min-w-0">
           <span className={labelCls}>Descuento</span>
           <span className={src?.discount_amount ? realValCls : stubValCls}>
@@ -301,13 +307,13 @@ export function SaleSummaryPanel({ item, detail, loading }: SaleSummaryPanelProp
           </span>
         </div>
 
-        {/* IVA */}
+        {/* 3 — IVA */}
         <div className="min-w-0">
           <span className={labelCls}>IVA</span>
           <span className={realValCls}>{src ? formatMoney(src.tax_amount) : "$0.00"}</span>
         </div>
 
-        {/* Total */}
+        {/* 4 — Total */}
         <div className="min-w-0">
           <span className={labelCls}>Total</span>
           <span className="block text-xs text-zinc-100 font-semibold truncate">
@@ -315,24 +321,15 @@ export function SaleSummaryPanel({ item, detail, loading }: SaleSummaryPanelProp
           </span>
         </div>
 
-        {/* Estado pago */}
+        {/* 5 — Tipo DTE */}
         <div className="min-w-0">
-          <span className={labelCls}>Estado pago</span>
-          {src?.payment_status
-            ? <PayStatusBadge status={src.payment_status} />
-            : <span className={stubValCls}>—</span>
-          }
-        </div>
-
-        {/* Plazo */}
-        <div className="min-w-0">
-          <span className={labelCls}>Plazo</span>
-          <span className={detail?.payment_term_value != null ? realValCls : stubValCls}>
-            {plazoLabel(detail?.payment_term_code, detail?.payment_term_value)}
+          <span className={labelCls}>Tipo DTE</span>
+          <span className={`font-mono ${src?.primary_dte_type_code ? realValCls : stubValCls}`}>
+            {dteTypeLabel(src?.primary_dte_type_code)}
           </span>
         </div>
 
-        {/* Creado por */}
+        {/* 6 — Creado por */}
         <div className="min-w-0">
           <span className={labelCls}>Creado por</span>
           <span className={detail?.created_by_name ? realValCls : stubValCls}>
@@ -340,7 +337,23 @@ export function SaleSummaryPanel({ item, detail, loading }: SaleSummaryPanelProp
           </span>
         </div>
 
-        {/* Notas */}
+        {/* 7 — Creación */}
+        <div className="min-w-0">
+          <span className={labelCls}>Creación</span>
+          <span className={src?.created_at_label ? realValCls : stubValCls}>
+            {src?.created_at_label ?? "—"}
+          </span>
+        </div>
+
+        {/* 8 — Confirmado */}
+        <div className="min-w-0">
+          <span className={labelCls}>Confirmado</span>
+          <span className={detail?.confirmed_at_label ? realValCls : stubValCls}>
+            {detail?.confirmed_at_label ?? "—"}
+          </span>
+        </div>
+
+        {/* 9 — Notas */}
         <div className="min-w-0">
           <span className={labelCls}>Notas</span>
           <span className={detail?.notes ? realValCls : stubValCls} title={detail?.notes ?? ""}>
