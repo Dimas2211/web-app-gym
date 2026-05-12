@@ -14,13 +14,16 @@ import { SaleLinesTable }        from "./sale-lines-table";
 import { SaleTotalsPanel }       from "./sale-totals-panel";
 import { CancelDraftSaleDialog } from "./dialogs/cancel-draft-sale-dialog";
 import { ClearSaleDialog }       from "./dialogs/clear-sale-dialog";
+import { ConfirmSaleDialog }     from "./dialogs/confirm-sale-dialog";
 import { createSaleDraftAction }  from "../actions/create-sale-draft.action";
 import { updateSaleDraftAction }  from "../actions/update-sale-draft.action";
 import { discardDraftSaleAction } from "../actions/discard-draft-sale.action";
+import { confirmSaleAction }      from "../actions/confirm-sale.action";
 import { addSaleItemAction }      from "../actions/add-sale-item.action";
 import { updateSaleItemAction }  from "../actions/update-sale-item.action";
 import { removeSaleItemAction }  from "../actions/remove-sale-item.action";
 import type { AddSaleItemInput, UpdateSaleItemInput } from "../schemas/sale.schemas";
+import type { SaleStatus } from "../types/sale.types";
 import { getDteShortLabel } from "../utils/dte-type-labels";
 
 export interface SaleNewClientProps {
@@ -82,9 +85,12 @@ export function SaleNewClient({
   const notesRef           = useRef<HTMLInputElement>(null);
   const productSearchRef   = useRef<SaleProductSearchHandle>(null);
 
-  // ── Identidad ─────────────────────────────────────────────────────
-  const [saleId,   setSaleId]   = useState<string | null>(initialDraft?.id ?? null);
-  const [saleCode, setSaleCode] = useState<string | null>(initialDraft?.sale_code ?? null);
+  // ── Identidad y estado de la venta ───────────────────────────────
+  const [saleId,     setSaleId]     = useState<string | null>(initialDraft?.id ?? null);
+  const [saleCode,   setSaleCode]   = useState<string | null>(initialDraft?.sale_code ?? null);
+  const [saleStatus, setSaleStatus] = useState<SaleStatus>(
+    (initialDraft?.status as SaleStatus | undefined) ?? "DRAFT",
+  );
 
   // ── Campos del formulario ─────────────────────────────────────────
   const [saleDate,               setSaleDate]               = useState(
@@ -128,14 +134,16 @@ export function SaleNewClient({
   );
 
   // ── UI state ──────────────────────────────────────────────────────
-  const [isSaving,     startSave]   = useTransition();
-  const [isCancelling, startCancel] = useTransition();
+  const [isSaving,     startSave]    = useTransition();
+  const [isCancelling, startCancel]  = useTransition();
+  const [isConfirming, startConfirm] = useTransition();
   const [isAddingLine, setIsAddingLine] = useState(false);
   const [errorMessage,   setError]   = useState<string | null>(null);
   const [successMessage, setSuccess] = useState<string | null>(null);
   const [lineError,      setLineError] = useState<string | null>(null);
-  const [showCancelDialog, setShowCancelDialog] = useState(false);
-  const [showClearDialog,  setShowClearDialog]  = useState(false);
+  const [showCancelDialog,  setShowCancelDialog]  = useState(false);
+  const [showClearDialog,   setShowClearDialog]   = useState(false);
+  const [showConfirmDialog, setShowConfirmDialog] = useState(false);
   const [isCaptureMode, setIsCaptureMode] = useState(false);
 
   // ── Navegación por teclado ────────────────────────────────────────
@@ -366,8 +374,30 @@ export function SaleNewClient({
     });
   }
 
-  const hasDraft = !!saleId;
-  const isBusy   = isSaving || isCancelling || isAddingLine;
+  const hasDraft   = !!saleId;
+  const isReadOnly = saleStatus !== "DRAFT";
+  const isBusy     = isSaving || isCancelling || isAddingLine || isConfirming;
+  const canConfirm = !!saleId && !isReadOnly && saleItems.length > 0 && !isBusy;
+
+  // ── Confirmar venta ───────────────────────────────────────────────
+  function handleConfirmClick() {
+    if (!saleId || isReadOnly) return;
+    setShowConfirmDialog(true);
+  }
+
+  function handleConfirmConfirm() {
+    if (!saleId) return;
+    startConfirm(async () => {
+      const result = await confirmSaleAction(saleId);
+      setShowConfirmDialog(false);
+      if (!result.ok) {
+        setError(result.error);
+        return;
+      }
+      setSaleStatus("CONFIRMED");
+      setSuccess("Venta confirmada correctamente.");
+    });
+  }
 
   return (
     <>
@@ -380,6 +410,8 @@ export function SaleNewClient({
           onSaleDateChange={setSaleDate}
           isSaving={isSaving}
           hasDraft={hasDraft}
+          saleStatus={saleStatus}
+          isReadOnly={isReadOnly}
           onSave={handleSave}
           onBack={() => router.push("/dashboard/sales")}
           onClear={handleClearClick}
@@ -388,7 +420,7 @@ export function SaleNewClient({
           errorMessage={errorMessage}
           successMessage={successMessage}
           isCaptureMode={isCaptureMode}
-          onToggleCaptureMode={() => setIsCaptureMode((v) => !v)}
+          onToggleCaptureMode={isReadOnly ? undefined : () => setIsCaptureMode((v) => !v)}
         />
 
         {/* Middle — columna izquierda + columna derecha */}
@@ -470,9 +502,15 @@ export function SaleNewClient({
                 </span>
 
                 {/* Estado */}
-                <span className="text-[10px] text-amber-400 bg-amber-900/20 border border-amber-800/40 rounded px-1.5 py-0.5">
-                  DRAFT
-                </span>
+                {saleStatus === "CONFIRMED" ? (
+                  <span className="text-[10px] text-emerald-400 bg-emerald-900/20 border border-emerald-800/40 rounded px-1.5 py-0.5">
+                    CONFIRMADA
+                  </span>
+                ) : (
+                  <span className="text-[10px] text-amber-400 bg-amber-900/20 border border-amber-800/40 rounded px-1.5 py-0.5">
+                    DRAFT
+                  </span>
+                )}
 
                 {/* Separador */}
                 <span className="text-zinc-700">|</span>
@@ -522,23 +560,34 @@ export function SaleNewClient({
                 </div>
               )}
 
+              {/* Banner de solo lectura */}
+              {isReadOnly && (
+                <div className="flex-none px-3 py-1.5 border-b border-zinc-800 bg-emerald-950/30">
+                  <p className="text-[11px] text-emerald-400">
+                    Esta venta está confirmada y ya no puede editarse como borrador.
+                  </p>
+                </div>
+              )}
+
               {/* Tabla de líneas — zona central/principal */}
               <div className="flex-1 min-h-0 overflow-hidden">
                 <SaleLinesTable
                   items={saleItems}
                   onUpdate={handleUpdateLine}
                   onRemove={handleRemoveLine}
-                  disabled={isBusy}
+                  disabled={isBusy || isReadOnly}
                 />
               </div>
 
-              {/* Buscador de productos — zona inferior */}
-              <SaleProductSearch
-                ref={productSearchRef}
-                onAdd={handleAddLine}
-                isAdding={isAddingLine}
-                disabled={isBusy}
-              />
+              {/* Buscador de productos — solo en modo edición */}
+              {!isReadOnly && (
+                <SaleProductSearch
+                  ref={productSearchRef}
+                  onAdd={handleAddLine}
+                  isAdding={isAddingLine}
+                  disabled={isBusy}
+                />
+              )}
             </div>
           </div>
 
@@ -552,6 +601,10 @@ export function SaleNewClient({
               onBack={() => router.push("/dashboard/sales")}
               onClear={handleClearClick}
               onCancel={handleCancelClick}
+              canConfirm={canConfirm}
+              isConfirming={isConfirming}
+              isReadOnly={isReadOnly}
+              onConfirm={handleConfirmClick}
             />
           </div>
         </div>
@@ -571,6 +624,14 @@ export function SaleNewClient({
         hasDraft={hasDraft}
         onBack={() => setShowClearDialog(false)}
         onConfirm={handleClearConfirm}
+      />
+
+      <ConfirmSaleDialog
+        open={showConfirmDialog}
+        isBusy={isConfirming}
+        saleCode={saleCode}
+        onBack={() => setShowConfirmDialog(false)}
+        onConfirm={handleConfirmConfirm}
       />
     </>
   );

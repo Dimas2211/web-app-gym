@@ -480,6 +480,161 @@ export async function discardDraftSale(
   return { ok: true };
 }
 
+// ── Confirmar venta: DRAFT → CONFIRMED ───────────────────────────
+//
+// Fase 4G: solo cambia status y registra confirmed_at / confirmed_by.
+// No genera DTE, no mueve inventario, no crea InventoryMovement.
+// Valida stock por lectura para bloquear ventas imposibles.
+
+export async function confirmSale(
+  sale_id:     string,
+  tenant_id:   string,
+  location_id: string,
+  user_id:     string,
+): Promise<SaleResult> {
+  // 1. Cargar venta con líneas
+  const sale = await prisma.sale.findFirst({
+    where: { id: sale_id, tenant_id, location_id },
+    select: {
+      id:                    true,
+      status:                true,
+      total_amount:          true,
+      primary_dte_type_code: true,
+      customer_id:           true,
+      items: {
+        select: {
+          id:                    true,
+          product_id:            true,
+          product_name_snapshot: true,
+          quantity:              true,
+          unit_price:            true,
+          line_total:            true,
+          is_stockable_snapshot: true,
+        },
+      },
+    },
+  });
+
+  if (!sale) {
+    return { ok: false, error: "La venta no existe o no pertenece a la location activa." };
+  }
+
+  // 2. Validar estado
+  if (sale.status === "CONFIRMED") {
+    return { ok: false, error: "Esta venta ya fue confirmada." };
+  }
+  if (sale.status === "CANCELLED") {
+    return { ok: false, error: "No se puede confirmar una venta cancelada." };
+  }
+  if (sale.status !== "DRAFT") {
+    return { ok: false, error: "La venta no está en estado DRAFT." };
+  }
+
+  // 3. Validar que tenga líneas
+  if (sale.items.length === 0) {
+    return { ok: false, error: "La venta no tiene líneas. Agrega al menos un producto antes de confirmar." };
+  }
+
+  // 4. Validar cada línea
+  for (const item of sale.items) {
+    if (Number(item.quantity) <= 0) {
+      return { ok: false, error: `La línea "${item.product_name_snapshot}" tiene cantidad inválida.` };
+    }
+    if (Number(item.unit_price) < 0) {
+      return { ok: false, error: `La línea "${item.product_name_snapshot}" tiene precio inválido.` };
+    }
+    if (Number(item.line_total) < 0) {
+      return { ok: false, error: `La línea "${item.product_name_snapshot}" tiene total inválido.` };
+    }
+  }
+
+  // 5. Validar total general
+  if (Number(sale.total_amount) < 0) {
+    return { ok: false, error: "El total de la venta no puede ser negativo." };
+  }
+
+  // 6. Validar tipo DTE activo
+  const ACTIVE_DTE_TYPES = ["01", "03"] as const;
+  type ActiveDteType = typeof ACTIVE_DTE_TYPES[number];
+  if (!ACTIVE_DTE_TYPES.includes(sale.primary_dte_type_code as ActiveDteType)) {
+    return {
+      ok:    false,
+      error: `Tipo de DTE "${sale.primary_dte_type_code}" no está activo para confirmación.`,
+    };
+  }
+
+  // 7. CCFE 03 exige cliente
+  if (sale.primary_dte_type_code === "03" && !sale.customer_id) {
+    return {
+      ok:    false,
+      error: "El Comprobante de Crédito Fiscal (CCFE 03) requiere un cliente seleccionado.",
+    };
+  }
+
+  // 8. Validar stock por lectura (sin modificar nada)
+  const stockableItems = sale.items.filter((i) => i.is_stockable_snapshot);
+  if (stockableItems.length > 0) {
+    const stockableProductIds = [...new Set(stockableItems.map((i) => i.product_id))];
+
+    const productLocations = await prisma.productLocation.findMany({
+      where: {
+        tenant_id,
+        location_id,
+        product_id: { in: stockableProductIds },
+        is_active:  true,
+      },
+      select: { product_id: true, current_stock: true },
+    });
+
+    const plMap = new Map(
+      productLocations.map((pl) => [pl.product_id, Number(pl.current_stock)]),
+    );
+
+    // Agrupar cantidades por producto (puede haber múltiples líneas del mismo)
+    const totalQtyByProduct = new Map<string, number>();
+    for (const item of stockableItems) {
+      totalQtyByProduct.set(
+        item.product_id,
+        (totalQtyByProduct.get(item.product_id) ?? 0) + Number(item.quantity),
+      );
+    }
+
+    for (const [productId, totalQty] of totalQtyByProduct) {
+      const itemName = stockableItems.find((i) => i.product_id === productId)?.product_name_snapshot ?? productId;
+
+      if (!plMap.has(productId)) {
+        return {
+          ok:    false,
+          error: `El producto "${itemName}" no tiene registro de stock en esta sucursal. Configura su inventario antes de confirmar.`,
+        };
+      }
+
+      const available = plMap.get(productId)!;
+      if (available < totalQty) {
+        return {
+          ok:    false,
+          error: `Stock insuficiente para "${itemName}". Disponible: ${available}, requerido: ${totalQty}.`,
+        };
+      }
+    }
+  }
+
+  // 9. Transacción: marcar CONFIRMED (sin movimientos de inventario)
+  await prisma.$transaction(async (tx) => {
+    await tx.sale.update({
+      where: { id: sale_id },
+      data: {
+        status:       "CONFIRMED",
+        confirmed_at: new Date(),
+        confirmed_by: user_id,
+        updated_by:   user_id,
+      },
+    });
+  });
+
+  return { ok: true };
+}
+
 // ── Cancelar venta DRAFT ──────────────────────────────────────────
 
 export async function cancelDraftSale(

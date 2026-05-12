@@ -2,12 +2,22 @@
 
 import { ArrowLeft, Save, RotateCcw, X, Loader2, Maximize2, Minimize2 } from "lucide-react";
 
+type SaleStatus = "DRAFT" | "CONFIRMED" | "CANCELLED";
+
+const STATUS_CHIP: Record<SaleStatus, { label: string; cls: string }> = {
+  DRAFT:     { label: "BORRADOR",   cls: "text-amber-400 bg-amber-900/20 border-amber-800/40" },
+  CONFIRMED: { label: "CONFIRMADA", cls: "text-emerald-400 bg-emerald-900/20 border-emerald-800/40" },
+  CANCELLED: { label: "ANULADA",    cls: "text-red-400 bg-red-900/20 border-red-800/40" },
+};
+
 interface Props {
   saleCode:             string | null;
   saleDate:             string;
   onSaleDateChange:     (d: string) => void;
   isSaving:             boolean;
   hasDraft:             boolean;
+  saleStatus?:          SaleStatus;
+  isReadOnly?:          boolean;
   onSave:               () => void;
   onBack:               () => void;
   onClear:              () => void;
@@ -30,6 +40,8 @@ export function SaleHeaderCard({
   onSaleDateChange,
   isSaving,
   hasDraft,
+  saleStatus = "DRAFT",
+  isReadOnly = false,
   onSave,
   onBack,
   onClear,
@@ -40,6 +52,7 @@ export function SaleHeaderCard({
   isCaptureMode,
   onToggleCaptureMode,
 }: Props) {
+  const statusChip = STATUS_CHIP[saleStatus] ?? STATUS_CHIP.DRAFT;
   return (
     <div className="flex-none border-b border-zinc-800 bg-zinc-900 px-3 py-2">
 
@@ -68,21 +81,22 @@ export function SaleHeaderCard({
         {/* Estado */}
         <div>
           <label className={labelCls}>Estado</label>
-          <span className="inline-flex items-center h-7 px-2 text-xs text-amber-400 bg-amber-900/20 border border-amber-800/40 rounded">
-            DRAFT
+          <span className={`inline-flex items-center h-7 px-2 text-xs border rounded ${statusChip.cls}`}>
+            {statusChip.label}
           </span>
         </div>
 
         {/* Fecha */}
         <div>
           <label className={labelCls}>
-            Fecha de venta <span className="text-red-400">*</span>
+            Fecha de venta {!isReadOnly && <span className="text-red-400">*</span>}
           </label>
           <input
             type="date"
             value={saleDate}
             onChange={(e) => onSaleDateChange(e.target.value)}
-            className={inputCls}
+            disabled={isReadOnly}
+            className={`${inputCls} disabled:opacity-50 disabled:cursor-not-allowed`}
           />
         </div>
 
@@ -107,54 +121,58 @@ export function SaleHeaderCard({
             Volver
           </button>
 
-          <button
-            type="button"
-            onClick={onSave}
-            disabled={isSaving || !saleDate}
-            className="h-7 px-2.5 flex items-center gap-1 text-xs font-medium bg-zinc-700 hover:bg-zinc-600 text-zinc-100 rounded disabled:opacity-40 transition-colors"
-          >
-            {isSaving
-              ? <><Loader2 className="h-3 w-3 animate-spin" />Guardando…</>
-              : <><Save className="h-3 w-3" />{hasDraft ? "Actualizar" : "Guardar borrador"}</>
-            }
-          </button>
+          {!isReadOnly && (
+            <>
+              <button
+                type="button"
+                onClick={onSave}
+                disabled={isSaving || !saleDate}
+                className="h-7 px-2.5 flex items-center gap-1 text-xs font-medium bg-zinc-700 hover:bg-zinc-600 text-zinc-100 rounded disabled:opacity-40 transition-colors"
+              >
+                {isSaving
+                  ? <><Loader2 className="h-3 w-3 animate-spin" />Guardando…</>
+                  : <><Save className="h-3 w-3" />{hasDraft ? "Actualizar" : "Guardar borrador"}</>
+                }
+              </button>
 
-          <button
-            type="button"
-            onClick={onClear}
-            className="h-7 px-2.5 flex items-center gap-1 text-xs text-zinc-400 border border-zinc-700 rounded hover:text-amber-400 transition-colors"
-          >
-            <RotateCcw className="h-3 w-3" />
-            Limpiar
-          </button>
+              <button
+                type="button"
+                onClick={onClear}
+                className="h-7 px-2.5 flex items-center gap-1 text-xs text-zinc-400 border border-zinc-700 rounded hover:text-amber-400 transition-colors"
+              >
+                <RotateCcw className="h-3 w-3" />
+                Limpiar
+              </button>
 
-          {onToggleCaptureMode && (
-            <button
-              type="button"
-              onClick={onToggleCaptureMode}
-              title={isCaptureMode ? "Volver al modo normal" : "Activar modo captura (más espacio para líneas)"}
-              className={`h-7 px-2.5 flex items-center gap-1 text-xs border rounded transition-colors ${
-                isCaptureMode
-                  ? "text-sky-400 border-sky-800/60 bg-sky-900/20 hover:bg-sky-900/40"
-                  : "text-zinc-400 border-zinc-700 hover:text-sky-400 hover:border-sky-800/60"
-              }`}
-            >
-              {isCaptureMode
-                ? <><Minimize2 className="h-3 w-3" />Modo normal</>
-                : <><Maximize2 className="h-3 w-3" />Modo captura</>
-              }
-            </button>
-          )}
+              {onToggleCaptureMode && (
+                <button
+                  type="button"
+                  onClick={onToggleCaptureMode}
+                  title={isCaptureMode ? "Volver al modo normal" : "Activar modo captura (más espacio para líneas)"}
+                  className={`h-7 px-2.5 flex items-center gap-1 text-xs border rounded transition-colors ${
+                    isCaptureMode
+                      ? "text-sky-400 border-sky-800/60 bg-sky-900/20 hover:bg-sky-900/40"
+                      : "text-zinc-400 border-zinc-700 hover:text-sky-400 hover:border-sky-800/60"
+                  }`}
+                >
+                  {isCaptureMode
+                    ? <><Minimize2 className="h-3 w-3" />Modo normal</>
+                    : <><Maximize2 className="h-3 w-3" />Modo captura</>
+                  }
+                </button>
+              )}
 
-          {hasDraft && (
-            <button
-              type="button"
-              onClick={onCancel}
-              className="h-7 px-2.5 flex items-center gap-1 text-xs text-red-600/70 border border-red-900/40 rounded hover:text-red-400 transition-colors"
-            >
-              <X className="h-3 w-3" />
-              Descartar borrador
-            </button>
+              {hasDraft && (
+                <button
+                  type="button"
+                  onClick={onCancel}
+                  className="h-7 px-2.5 flex items-center gap-1 text-xs text-red-600/70 border border-red-900/40 rounded hover:text-red-400 transition-colors"
+                >
+                  <X className="h-3 w-3" />
+                  Descartar borrador
+                </button>
+              )}
+            </>
           )}
         </div>
       </div>
