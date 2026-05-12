@@ -55,6 +55,19 @@ export interface SaleListItem {
   created_at_label: string;
 }
 
+// ── Documento DTE asociado a la venta ────────────────────────────
+
+export interface SaleDteDocument {
+  id:              string;
+  dte_type_code:   string;
+  generation_code: string | null;
+  control_number:  string | null;
+  reception_stamp: string | null;
+  dte_status:      string;
+  environment:     string;
+  created_at:      Date;
+}
+
 // ── Detalle completo de venta ─────────────────────────────────────
 
 export interface SaleDetail extends Omit<SaleListItem, "item_count"> {
@@ -86,7 +99,8 @@ export interface SaleDetail extends Omit<SaleListItem, "item_count"> {
   updated_by:      string | null;
   updated_by_name: string | null;
 
-  items: SaleItemDetail[];
+  items:        SaleItemDetail[];
+  dte_document: SaleDteDocument | null;
 }
 
 // ── Resultados de operaciones ─────────────────────────────────────

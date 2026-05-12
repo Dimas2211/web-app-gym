@@ -22,6 +22,22 @@ import type { SaleListItem, SaleStatus, SalePaymentStatus } from "../types/sale.
 // ── Sort ──────────────────────────────────────────────────────────
 
 type SortKey = "sale_code" | "sale_date" | "customer_name" | "total_amount" | "status" | "created_at";
+
+// ── Mapa de tipos DTE ─────────────────────────────────────────────
+
+const DTE_TYPE_LABELS: Record<string, string> = {
+  "01": "FE 01",
+  "03": "CCFE 03",
+  "04": "NR 04",
+  "05": "NC 05",
+  "06": "ND 06",
+  "07": "CR 07",
+  "08": "LFE 08",
+  "09": "DL 09",
+  "11": "FEX 11",
+  "14": "FSE 14",
+  "15": "CF 15",
+};
 type SortDir = "asc" | "desc";
 
 // ── Active cell ───────────────────────────────────────────────────
@@ -44,17 +60,18 @@ interface ColDef {
 const COLUMNS: ColDef[] = [
   { key: "sale_code",      label: "Código",       widthCls: "w-36",      sortKey: "sale_code"    },
   { key: "sale_date",      label: "Fecha",        widthCls: "w-24",      sortKey: "sale_date"    },
-  { key: "customer",       label: "Cliente",      widthCls: "w-[200px]", sortKey: "customer_name"},
+  { key: "customer",       label: "Cliente",      widthCls: "w-[180px]", sortKey: "customer_name"},
   { key: "status",         label: "Estado",       widthCls: "w-24",      sortKey: "status"       },
-  { key: "payment_status", label: "Estado pago",  widthCls: "w-28"                               },
-  { key: "item_count",     label: "Líneas",       widthCls: "w-16",      align: "right"          },
-  { key: "subtotal",       label: "Subtotal",     widthCls: "w-28",      align: "right"          },
+  { key: "dte_type",       label: "Tipo DTE",     widthCls: "w-20"                               },
+  { key: "payment_status", label: "Estado pago",  widthCls: "w-24"                               },
+  { key: "item_count",     label: "Líneas",       widthCls: "w-14",      align: "right"          },
+  { key: "subtotal",       label: "Subtotal",     widthCls: "w-24",      align: "right"          },
   { key: "tax_amount",     label: "IVA",          widthCls: "w-20",      align: "right"          },
-  { key: "total_amount",   label: "Total",        widthCls: "w-28",      sortKey: "total_amount", align: "right" },
+  { key: "total_amount",   label: "Total",        widthCls: "w-24",      sortKey: "total_amount", align: "right" },
   { key: "created_at",     label: "Creación",     widthCls: "w-24",      sortKey: "created_at"   },
 ];
 
-const COL_COUNT = COLUMNS.length;
+const COL_COUNT = COLUMNS.length; // 11
 
 // ── Badges ────────────────────────────────────────────────────────
 
@@ -238,7 +255,7 @@ export function SalesTable({ items, selectedId, onSelect }: SalesTableProps) {
           Sin ventas en esta location
         </div>
       ) : (
-        <table className="w-full min-w-[1100px] text-xs border-collapse">
+        <table className="w-full min-w-[1200px] text-xs border-collapse">
 
           {/* ── Encabezado sticky ───────────────────────── */}
           <thead className="sticky top-0 z-10">
@@ -276,8 +293,9 @@ export function SalesTable({ items, selectedId, onSelect }: SalesTableProps) {
           <tbody className="[&>tr>td]:scroll-mt-7">
             {sortedItems.map((item, rowIndex) => {
               const isSelected   = item.id === selectedId;
-              const statusBadge  = SALE_STATUS_CONFIG[item.status]         ?? SALE_STATUS_CONFIG.DRAFT;
-              const payBadge     = PAYMENT_STATUS_CONFIG[item.payment_status] ?? PAYMENT_STATUS_CONFIG.UNPAID;
+              const statusBadge  = SALE_STATUS_CONFIG[item.status]            ?? SALE_STATUS_CONFIG.DRAFT;
+              const payBadge     = PAYMENT_STATUS_CONFIG[item.payment_status]  ?? PAYMENT_STATUS_CONFIG.UNPAID;
+              const dteLabel     = DTE_TYPE_LABELS[item.primary_dte_type_code] ?? item.primary_dte_type_code;
 
               return (
                 <tr
@@ -329,58 +347,67 @@ export function SalesTable({ items, selectedId, onSelect }: SalesTableProps) {
                     </span>
                   </td>
 
-                  {/* 4 — Estado pago */}
+                  {/* 4 — Tipo DTE */}
                   <td
                     ref={cellRef(rowIndex, 4)}
                     onClick={() => handleCellClick(rowIndex, 4, item)}
                     className={`px-3 py-1.5 whitespace-nowrap${activeCellCls(rowIndex, 4)}`}
+                  >
+                    <span className="text-[10px] font-mono text-zinc-400">{dteLabel}</span>
+                  </td>
+
+                  {/* 5 — Estado pago */}
+                  <td
+                    ref={cellRef(rowIndex, 5)}
+                    onClick={() => handleCellClick(rowIndex, 5, item)}
+                    className={`px-3 py-1.5 whitespace-nowrap${activeCellCls(rowIndex, 5)}`}
                   >
                     <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${payBadge.cls}`}>
                       {payBadge.label}
                     </span>
                   </td>
 
-                  {/* 5 — Líneas */}
+                  {/* 6 — Líneas */}
                   <td
-                    ref={cellRef(rowIndex, 5)}
-                    onClick={() => handleCellClick(rowIndex, 5, item)}
-                    className={`px-3 py-1.5 whitespace-nowrap text-right${activeCellCls(rowIndex, 5)}`}
+                    ref={cellRef(rowIndex, 6)}
+                    onClick={() => handleCellClick(rowIndex, 6, item)}
+                    className={`px-3 py-1.5 whitespace-nowrap text-right${activeCellCls(rowIndex, 6)}`}
                   >
                     {item.item_count}
                   </td>
 
-                  {/* 6 — Subtotal */}
-                  <td
-                    ref={cellRef(rowIndex, 6)}
-                    onClick={() => handleCellClick(rowIndex, 6, item)}
-                    className={`px-3 py-1.5 whitespace-nowrap text-right font-mono${activeCellCls(rowIndex, 6)}`}
-                  >
-                    {formatMoney(item.subtotal)}
-                  </td>
-
-                  {/* 7 — IVA */}
+                  {/* 7 — Subtotal */}
                   <td
                     ref={cellRef(rowIndex, 7)}
                     onClick={() => handleCellClick(rowIndex, 7, item)}
                     className={`px-3 py-1.5 whitespace-nowrap text-right font-mono${activeCellCls(rowIndex, 7)}`}
                   >
-                    {formatMoney(item.tax_amount)}
+                    {formatMoney(item.subtotal)}
                   </td>
 
-                  {/* 8 — Total */}
+                  {/* 8 — IVA */}
                   <td
                     ref={cellRef(rowIndex, 8)}
                     onClick={() => handleCellClick(rowIndex, 8, item)}
                     className={`px-3 py-1.5 whitespace-nowrap text-right font-mono${activeCellCls(rowIndex, 8)}`}
                   >
-                    {formatMoney(item.total_amount)}
+                    {formatMoney(item.tax_amount)}
                   </td>
 
-                  {/* 9 — Creación */}
+                  {/* 9 — Total */}
                   <td
                     ref={cellRef(rowIndex, 9)}
                     onClick={() => handleCellClick(rowIndex, 9, item)}
-                    className={`px-3 py-1.5 whitespace-nowrap${activeCellCls(rowIndex, 9)}`}
+                    className={`px-3 py-1.5 whitespace-nowrap text-right font-mono${activeCellCls(rowIndex, 9)}`}
+                  >
+                    {formatMoney(item.total_amount)}
+                  </td>
+
+                  {/* 10 — Creación */}
+                  <td
+                    ref={cellRef(rowIndex, 10)}
+                    onClick={() => handleCellClick(rowIndex, 10, item)}
+                    className={`px-3 py-1.5 whitespace-nowrap${activeCellCls(rowIndex, 10)}`}
                   >
                     {item.created_at_label}
                   </td>

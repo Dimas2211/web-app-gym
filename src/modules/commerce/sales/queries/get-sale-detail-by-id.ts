@@ -47,6 +47,20 @@ export async function getSaleDetailById(
       updated_at:               true,
       updated_by:               true,
       customer:          { select: { name: true } },
+      dte_documents: {
+        orderBy: { created_at: "desc" },
+        take: 1,
+        select: {
+          id:              true,
+          dte_type_code:   true,
+          generation_code: true,
+          control_number:  true,
+          reception_stamp: true,
+          dte_status:      true,
+          environment:     true,
+          created_at:      true,
+        },
+      },
       confirmed_by_user: { select: { first_name: true, last_name: true } },
       cancelled_by_user: { select: { first_name: true, last_name: true } },
       created_by_user:   { select: { first_name: true, last_name: true } },
@@ -135,6 +149,19 @@ export async function getSaleDetailById(
     updated_by:       row.updated_by,
     updated_by_name:  row.updated_by_user
       ? `${row.updated_by_user.first_name} ${row.updated_by_user.last_name}`
+      : null,
+
+    dte_document: row.dte_documents[0]
+      ? {
+          id:              row.dte_documents[0].id,
+          dte_type_code:   row.dte_documents[0].dte_type_code,
+          generation_code: row.dte_documents[0].generation_code,
+          control_number:  row.dte_documents[0].control_number,
+          reception_stamp: row.dte_documents[0].reception_stamp,
+          dte_status:      row.dte_documents[0].dte_status,
+          environment:     row.dte_documents[0].environment,
+          created_at:      row.dte_documents[0].created_at,
+        }
       : null,
 
     items: row.items.map((item) => ({
