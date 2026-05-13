@@ -1,6 +1,6 @@
 # DTE Outgoing — Plan de generación desde venta confirmada
 
-Estado: **Fase 4I-1B-R — buildControlNumber auditado y corregido. Formato oficial confirmado. PENDING_GENERATION operativo.**
+Estado: **Fase 4I-2 — JSON preliminar FE 01 operativo. Estado cambia PENDING_GENERATION → GENERATED.**
 
 Fuentes revisadas para este documento:
 - `docs/modules/sales-summary.md`
@@ -446,27 +446,62 @@ const activeDte = await prisma.dteOutgoingDocument.findFirst({
 
 ### 4I-2 — Construir JSON FE 01
 
-**Objetivo:** construir el JSON completo de Factura Electrónica según esquema oficial MH.
+**Estado: COMPLETADA**
 
-**Pasos:**
-1. Cargar `DteOutgoingDocument` en `PENDING_GENERATION`.
-2. Cargar `Sale` + `SaleItem[]` + `Customer?`.
-3. Cargar `DteIssuerConfig`.
-4. Resolver catálogos necesarios (CAT-014, CAT-011, CAT-016, CAT-017, CAT-018).
-5. Construir objeto JSON con secciones:
-   - `identificacion` (version, ambiente, tipoDte, numeroControl, codigoGeneracion, tipoModelo, tipoOperacion, tipoContingencia, fecEmi, horEmi, tipoMoneda)
+**Objetivo:** construir el JSON preliminar de Factura Electrónica 01 y cambiar dte_status PENDING_GENERATION → GENERATED.
+
+**Reglas aplicadas:**
+- Solo FE 01. CCFE 03 queda para Fase 4I-3.
+- No firma. No transmite. No toca inventario. No modifica generation_code ni control_number.
+- No valida contra JSON Schema oficial del MH (Fase 4I-4 pendiente).
+
+**Pasos implementados:**
+1. Cargar `DteOutgoingDocument` — validar pertenece a tenant/location, tipo "01", estado "PENDING_GENERATION", generation_code y control_number presentes.
+2. Cargar `Sale` + `SaleItem[]` + `Customer?` + `SalePayment[]`.
+3. Validar: status CONFIRMED, inventory_moved true, items > 0, total_amount > 0.
+4. Validar: suma de line_total ≈ sale.total_amount (tolerancia 0.01).
+5. Cargar `DteIssuerConfig` — validar campos obligatorios (nit, nombre, codActividad, descActividad).
+6. Construir JSON con secciones:
+   - `identificacion` (version=1, ambiente, tipoDte="01", numeroControl, codigoGeneracion, tipoModelo=1, tipoOperacion=1, fecEmi, horEmi, tipoMoneda="USD")
    - `emisor` (desde DteIssuerConfig)
-   - `receptor` (desde Customer o consumidor final)
-   - `cuerpoDocumento` (array desde SaleItem[])
-   - `resumen` (totales calculados)
-   - `pagos` (desde SalePayment[] si aplica)
-   - `apendice` (si hay notas)
-6. Guardar JSON en `DteOutgoingDocument.json_document`.
-7. Actualizar `dte_status = GENERATED`.
-8. Registrar en `DteTransmissionLog` (action = `GENERATE`).
+   - `receptor` (desde Customer si existe, o consumidor final anónimo para FE 01)
+   - `cuerpoDocumento` (una línea por SaleItem)
+   - `resumen` (totales calculados + tributos IVA + pagos + totalLetras)
+   - `documentoRelacionado`, `otrosDocumentos`, `ventaTercero`, `extension`, `apendice` = null
+7. Validar coherencia resumen (subTotalVentas ≈ sale.subtotal, subTotal+totalIva ≈ montoTotalOperacion).
+8. Guardar `json_document` + `dte_status = GENERATED` + `generated_at = now()` en una sola operación Prisma.
 
-**Archivo nuevo a crear (futuro):**
-- `src/modules/commerce/dte/builders/fe-01.builder.ts`
+**Decisiones de mapeo MVP:**
+
+| Campo JSON         | Decisión                                                                |
+|--------------------|-------------------------------------------------------------------------|
+| `uniMedida`        | 59 (Unidades) — UnitOfMeasure no tiene código fiscal MH                 |
+| `tipoItem`         | 1=bien (PRODUCT/null), 2=servicio (SERVICE) — basado en product_type_snapshot |
+| `ambiente`         | "00"=TEST, "01"=PRODUCTION                                              |
+| descuentos         | Por línea en `montoDescu`; resumen: `descuGravada` y `descuExenta` desde líneas reales; `totalDescu` = suma real |
+| `pagos`            | Usa SalePayment.mh_payment_form_code si existe; fallback código "99"    |
+| `condicionOperacion` | parseInt(sale.condition_operation_code) ?? 1                          |
+| `totalLetras`      | Helper `numeroALetras()` — formato "PALABRAS cc/100 DOLARES"            |
+| receptor consumidor final | `null` completo — FE 01 sin customer_id usa receptor: null    |
+
+**Archivos creados:**
+- `src/modules/commerce/dte/utils/numero-a-letras.ts` — helper totalLetras
+- `src/modules/commerce/dte/services/generate-fe-json.service.ts` — lógica de negocio
+- `src/modules/commerce/dte/actions/generate-fe-json-for-sale.action.ts` — server action
+
+**Archivos modificados:**
+- `src/modules/commerce/dte/types/dte.types.ts` — agregado `GenerateFeJsonResult`
+- `src/modules/commerce/sales/components/sales-client.tsx` — botón "Generar JSON FE" + diálogo
+
+**Condición del botón "Generar JSON FE" en UI:**
+```
+selectedDetail.status === "CONFIRMED"
+&& selectedDetail.inventory_moved === true
+&& selectedDetail.dte_document existe
+&& selectedDetail.dte_document.dte_status === "PENDING_GENERATION"
+&& selectedDetail.dte_document.dte_type_code === "01"
+```
+El botón NO aparece para CCFE 03, DTE ya GENERATED, ventas sin DTE, DRAFT, CANCELLED o inventario pendiente.
 
 ---
 

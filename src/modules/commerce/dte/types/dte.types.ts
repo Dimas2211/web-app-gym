@@ -103,3 +103,7 @@ export type CreateDteIssuerConfigResult =
 export type CreatePendingDteResult =
   | { ok: true; dte_document_id: string }
   | { ok: false; error: string };
+
+export type GenerateFeJsonResult =
+  | { ok: true }
+  | { ok: false; error: string };
