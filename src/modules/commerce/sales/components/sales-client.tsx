@@ -18,7 +18,7 @@
 
 import { useState, useEffect, useRef, useCallback, useActionState } from "react";
 import { useRouter } from "next/navigation";
-import { Loader2, Package } from "lucide-react";
+import { Loader2, Package, FileText } from "lucide-react";
 import type { SaleListItem, SaleDetail } from "../types/sale.types";
 import { SalesTable } from "./sales-table";
 import { SaleItemsPanel } from "./sale-items-panel";
@@ -31,6 +31,7 @@ import {
 import { editSaleAuthAction } from "../actions/edit-sale-auth.action";
 import { deleteDraftSaleWithAuthAction } from "../actions/delete-draft-sale-with-auth.action";
 import { confirmSaleAction } from "../actions/confirm-sale.action";
+import { createPendingDteSimpleAction } from "@/modules/commerce/dte/actions/create-pending-dte-simple.action";
 
 // ── Props ─────────────────────────────────────────────────────────
 
@@ -86,6 +87,11 @@ export function SalesClient({ initialItems, initialTotal }: SalesClientProps) {
   const [applyInventoryOpen,  setApplyInventoryOpen]  = useState(false);
   const [isApplyingInventory, setIsApplyingInventory] = useState(false);
   const [applyInventoryError, setApplyInventoryError] = useState<string | null>(null);
+
+  // ── Estado de diálogo para generar DTE pendiente ──────────────────
+  const [dteDialogOpen,  setDteDialogOpen]  = useState(false);
+  const [isDteGenerating, setIsDteGenerating] = useState(false);
+  const [dteError,        setDteError]        = useState<string | null>(null);
 
   const filtersRef   = useRef<SaleFilterState>(EMPTY_SALE_FILTERS);
   filtersRef.current = filters;
@@ -225,6 +231,31 @@ export function SalesClient({ initialItems, initialTotal }: SalesClientProps) {
     }
   }
 
+  // ── Handler: generar DTE pendiente ───────────────────────────────
+  async function handleGenerateDte() {
+    if (!selectedId) return;
+    setIsDteGenerating(true);
+    setDteError(null);
+    try {
+      const result = await createPendingDteSimpleAction(selectedId);
+      if (result.ok) {
+        setDteDialogOpen(false);
+        fetchList();
+        setSelectedDetail(null);
+        setDetailLoading(true);
+        fetch(`/api/sales/${selectedId}`, { credentials: "same-origin" })
+          .then((r) => (r.ok ? r.json() : Promise.reject()))
+          .then((env) => setSelectedDetail(env.data as SaleDetail))
+          .catch(() => {})
+          .finally(() => setDetailLoading(false));
+      } else {
+        setDteError(result.error);
+      }
+    } finally {
+      setIsDteGenerating(false);
+    }
+  }
+
   const selectedItem = items.find((i) => i.id === selectedId) ?? null;
 
   return (
@@ -269,6 +300,24 @@ export function SalesClient({ initialItems, initialTotal }: SalesClientProps) {
             Aplicar inventario pendiente
           </button>
           <span className="text-xs text-zinc-600">Esta venta confirmada aún no ha descontado inventario.</span>
+        </div>
+      )}
+
+      {/* ── Acción contextual: Generar DTE (CONFIRMED + inventory_moved + tipo MVP + sin DTE) */}
+      {selectedDetail?.status === "CONFIRMED"
+        && selectedDetail.inventory_moved
+        && (selectedDetail.primary_dte_type_code === "01" || selectedDetail.primary_dte_type_code === "03")
+        && !selectedDetail.dte_document
+        && !detailLoading && (
+        <div className="flex-none border-b border-zinc-800 bg-zinc-900/60 px-3 py-1 flex items-center gap-2">
+          <button
+            onClick={() => { setDteError(null); setDteDialogOpen(true); }}
+            className="h-6 px-2 text-xs text-emerald-400 hover:text-emerald-200 border border-emerald-800/50 hover:border-emerald-600 rounded flex items-center gap-1 transition-colors"
+          >
+            <FileText className="h-3 w-3" />
+            Generar DTE
+          </button>
+          <span className="text-xs text-zinc-600">Crea el registro fiscal electrónico pendiente para esta venta.</span>
         </div>
       )}
 
@@ -466,6 +515,58 @@ export function SalesClient({ initialItems, initialTotal }: SalesClientProps) {
                 {isApplyingInventory
                   ? <><Loader2 className="h-3 w-3 animate-spin" />Aplicando…</>
                   : <><Package className="h-3 w-3" />Aplicar inventario</>
+                }
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Modal: Generar DTE pendiente ─────────────────────────── */}
+      {dteDialogOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+          <div className="bg-zinc-900 border border-emerald-900/50 rounded-lg p-6 w-96 shadow-xl">
+            <h2 className="text-sm font-semibold text-emerald-300 mb-1 flex items-center gap-2">
+              <FileText className="h-4 w-4" />
+              Generar DTE
+            </h2>
+            <p className="text-xs text-zinc-400 mb-4 leading-relaxed">
+              Se creará el documento fiscal electrónico pendiente para esta venta.
+              En esta fase <span className="text-zinc-200 font-medium">no se firmará ni transmitirá</span> a Hacienda.
+            </p>
+
+            {dteError && (
+              <p className="mb-3 text-xs text-red-400 bg-red-900/30 border border-red-700/40 rounded px-2 py-1">
+                {dteError}
+              </p>
+            )}
+
+            <p className="text-[10px] text-zinc-500 mb-4">
+              Venta:{" "}
+              <span className="text-zinc-300 font-medium">{selectedItem?.sale_code ?? "—"}</span>
+              {" · "}
+              Tipo DTE:{" "}
+              <span className="text-zinc-300 font-medium font-mono">{selectedDetail?.primary_dte_type_code ?? "—"}</span>
+            </p>
+
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setDteDialogOpen(false)}
+                disabled={isDteGenerating}
+                className="flex-1 h-8 text-xs border border-zinc-700 rounded text-zinc-400 hover:text-zinc-100 transition-colors disabled:opacity-50"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleGenerateDte}
+                disabled={isDteGenerating}
+                className="flex-1 h-8 text-xs bg-emerald-700 hover:bg-emerald-600 text-white rounded font-medium flex items-center justify-center gap-1 disabled:opacity-50 transition-colors"
+              >
+                {isDteGenerating
+                  ? <><Loader2 className="h-3 w-3 animate-spin" />Generando…</>
+                  : <><FileText className="h-3 w-3" />Generar DTE</>
                 }
               </button>
             </div>
