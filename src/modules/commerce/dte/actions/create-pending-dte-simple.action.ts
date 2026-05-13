@@ -69,19 +69,29 @@ export async function createPendingDteSimpleAction(
     };
   }
 
-  // Resolver la configuración DTE activa para este tenant+location
-  const issuerConfig = await prisma.dteIssuerConfig.findFirst({
-    where:   { tenant_id, location_id, is_active: true },
-    orderBy: { created_at: "desc" },
-    select:  { id: true, environment: true },
+  // Resolver la configuración DTE activa para este tenant+location.
+  // Si hay más de una config activa (TEST y PRODUCTION simultáneas),
+  // no inferimos silenciosamente para no activar producción por accidente.
+  const activeConfigs = await prisma.dteIssuerConfig.findMany({
+    where:  { tenant_id, location_id, is_active: true },
+    select: { id: true, environment: true },
+    take:   3,
   });
 
-  if (!issuerConfig) {
+  if (activeConfigs.length === 0) {
     return {
       ok:    false,
       error: "No existe una configuración DTE activa para esta location. Configure el emisor DTE primero.",
     };
   }
+  if (activeConfigs.length > 1) {
+    return {
+      ok:    false,
+      error: "Hay más de una configuración DTE activa (TEST y PRODUCTION). Desactive una de las dos antes de generar DTE.",
+    };
+  }
+
+  const issuerConfig = activeConfigs[0];
 
   const result = await createPendingDteForSale(
     tenant_id,

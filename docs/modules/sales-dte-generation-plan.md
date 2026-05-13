@@ -1,6 +1,6 @@
 # DTE Outgoing — Plan de generación desde venta confirmada
 
-Estado: **Fase 4I-0 — Diseño operativo. Sin código funcional.**
+Estado: **Fase 4I-1B-R — buildControlNumber auditado y corregido. Formato oficial confirmado. PENDING_GENERATION operativo.**
 
 Fuentes revisadas para este documento:
 - `docs/modules/sales-summary.md`
@@ -29,8 +29,9 @@ Fuentes revisadas para este documento:
 | `DteInvalidationEvent` — schema Prisma| Modelado. Sin lógica real.           |
 | Enum `DteOutgoingStatus`              | Migrado (12 estados)                 |
 | Enum `DteEnvironment`                 | Migrado (TEST / PRODUCTION)          |
-| `createPendingDteForSale` service     | Implementado                         |
-| `createPendingDteForSaleAction`       | Implementado                         |
+| `createPendingDteForSale` service     | Implementado — reserva generation_code + control_number (4I-1B) |
+| `createPendingDteSimpleAction`        | Implementado — ambigüedad issuer config corregida (4I-1B)        |
+| `buildControlNumber` util             | Implementado y corregido — formato DTE-XX-XXXXXXXX-{15} sin año (4I-1B-R) |
 | `DteIssuerConfig` queries y actions   | Implementados                        |
 | `DteOutgoingDocument` queries         | Implementados                        |
 | `DteTransmissionLog` queries          | Implementados                        |
@@ -303,13 +304,20 @@ Si `customer_id` es null o el cliente no tiene NIT/NRC, construir receptor como 
 | `year`          | Año del correlativo                                              |
 | `last_sequence` | Número de secuencia — se incrementa atómicamente                 |
 
-**Construcción del `numeroControl`** (formato oficial MH):
+**Construcción del `numeroControl`** (formato oficial MH confirmado en Fase 4I-1B-R):
 ```
-DTE-{dte_type_code}-{establishment_code}{point_of_sale_code}-{year}{sequence:15 dígitos cero-relleno}
+DTE-{dte_type_code(2)}-{establishment_code(4)}{point_of_sale_code(4)}-{sequence(15 dígitos cero-relleno)}
 
-Ejemplo:
-DTE-01-00010001-00000000000000001
+Longitud fija: 31 caracteres.
+El año NO forma parte del numeroControl — solo se usa en DteCorrelative para particionar la secuencia internamente.
+
+Ejemplos:
+  FE 01:   DTE-01-00010001-000000000000001
+  CCFE 03: DTE-03-00010001-000000000000001
 ```
+
+**Fuente de referencia:** DTEs reales importados vía `purchases` (`parse-dte-control-number.ts`) muestran el formato:
+`DTE-01-S001P002-000000000057584` — bloque de 8 alfanuméricos + secuencia de 15 dígitos, sin año.
 
 **Regla atómica:** El incremento de `last_sequence` y la creación de `DteOutgoingDocument` deben ocurrir en la misma transacción Prisma. Si falla la creación del documento, se hace rollback del correlativo.
 
@@ -352,7 +360,7 @@ Seed disponible: `prisma/seeds/seed.dte-catalog-items.ts`
 BEGIN TRANSACTION
   1. SELECT + FOR UPDATE en DteCorrelative (o usar prisma.$transaction con SELECT)
   2. next_sequence = last_sequence + 1
-  3. Construir control_number = "DTE-{type}-{estab}{pdv}-{year}{sequence:15}"
+  3. Construir control_number = "DTE-{type}-{estab}{pdv}-{sequence:15}"  // sin año en control_number
   4. Generar generation_code = crypto.randomUUID()
   5. UPDATE DteCorrelative SET last_sequence = next_sequence
   6. INSERT DteOutgoingDocument con generation_code + control_number + status = PENDING_GENERATION
@@ -395,28 +403,44 @@ const activeDte = await prisma.dteOutgoingDocument.findFirst({
 
 ### 4I-1 — Crear `DteOutgoingDocument` desde venta confirmada
 
-**Objetivo:** registrar la intención de emitir un DTE. No generar JSON.
+**Estado: COMPLETADA (4I-1A + 4I-1B)**
 
-**Trigger:** botón "Generar DTE" en `/dashboard/sales` (panel de detalle o listado).
+**Objetivo:** registrar la intención de emitir un DTE con identidad fiscal reservada. No generar JSON.
 
-**Pasos:**
-1. Validar precondiciones (sección 4 de este documento).
-2. Verificar que existe `DteIssuerConfig` activa para `tenant_id + location_id + environment`.
+**Trigger:** botón "Generar DTE" en `/dashboard/sales`.
+
+**Pasos implementados:**
+1. Validar precondiciones (status CONFIRMED, inventory_moved, tipo MVP, sale con ítems, CCFE→cliente con NIT+NRC).
+2. Verificar que existe exactamente UNA `DteIssuerConfig` activa para `tenant_id + location_id` (si hay TEST y PRODUCTION simultáneas, se bloquea con error claro).
 3. Verificar que no existe DTE activo para esa venta+tipo.
-4. Transacción:
-   - Reservar correlativo de `DteCorrelative`.
-   - Construir `control_number`.
-   - Generar `generation_code` (UUID).
+4. Transacción Prisma atómica:
+   - `tx.dteCorrelative.update({ data: { last_sequence: { increment: 1 } } })` — incremento atómico.
+   - Generar `generation_code = randomUUID().toUpperCase()`.
+   - Construir `control_number` con `buildControlNumber`.
    - Crear `DteOutgoingDocument` con `dte_status = PENDING_GENERATION`.
-5. Responder con `dte_document_id`.
-6. UI muestra estado actualizado de la venta.
+5. Si la transacción falla: rollback del correlativo — nunca se consume sin documento.
+6. UI muestra bloque DTE con generation_code, control_number y estado.
 
-**Archivos involucrados (futuro):**
-- `src/modules/commerce/dte/services/dte-outgoing.service.ts` ← ya tiene `createPendingDteForSale`; extender para incluir correlativo
-- `src/modules/commerce/dte/actions/create-pending-dte-for-sale.action.ts` ← ya existe
+**Archivos implementados:**
+- `src/modules/commerce/dte/utils/dte-control-number.ts` — `buildControlNumber`
+- `src/modules/commerce/dte/services/dte-outgoing.service.ts` — `createPendingDteForSale`
+- `src/modules/commerce/dte/actions/create-pending-dte-simple.action.ts` — wrapper con resolución de config
 
-**Nota:** el service actual `createPendingDteForSale` no asigna `generation_code` ni `control_number` todavía —
-eso queda para la extensión de esta subfase cuando se implemente.
+**Cómo se evita duplicado:**
+- Dentro de la transacción se hace `findFirst` de DTE activo antes de crear.
+- `generation_code` tiene `@unique` en el schema.
+- Si hay colisión de `generation_code` (P2002), se devuelve error de concurrencia.
+
+**Cómo se maneja el correlativo:**
+- `UPDATE DteCorrelative SET last_sequence = last_sequence + 1 RETURNING last_sequence` es atómico en PostgreSQL.
+- Cada transacción concurrente serializa sobre el row lock y obtiene un número único.
+- Si no existe correlativo para año/tipo/ambiente, se devuelve error descriptivo (P2025).
+
+**Riesgo pendiente:** `control_number` no tiene `@@unique` en el schema — la unicidad se garantiza por lógica transaccional. En V2 evaluar agregar constraint.
+
+**Estado del DTE creado:** `PENDING_GENERATION` — identidad fiscal reservada, sin JSON, sin firma, sin transmisión.
+
+**JSON real queda para:** Fase 4I-2 (FE 01) y 4I-3 (CCFE 03).
 
 ---
 
@@ -608,7 +632,7 @@ Producción: https://api.dtes.mh.gob.sv/fesv/consultadte/{ambiente}/{codigoGener
 │  Tipo:             Factura Electrónica (FE 01)           │
 │  Estado:           ACCEPTED                              │
 │  Código generación: XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX│
-│  Número control:   DTE-01-00010001-00000000000000001     │
+│  Número control:   DTE-01-00010001-000000000000001       │
 │  Sello recepción:  [XXXX...]                             │
 │  QR:               [ver enlace]                          │
 │                                                          │
@@ -760,3 +784,86 @@ Esta fase queda cerrada con la aprobación del usuario sobre este documento. Deb
 | Base remota           | Sin cambios requeridos                                              |
 | Migraciones           | Ninguna nueva en Fase 4I-0                                          |
 | Pendiente antes de codificar | Confirmar que DteCorrelative tiene registros iniciales para tenant/location |
+
+---
+
+## Fase 4I-1B-R — Auditoría y corrección de `numeroControl`
+
+**Estado: COMPLETADA**
+
+### Fuentes revisadas
+
+| Fuente                                              | Resultado                                                         |
+|-----------------------------------------------------|-------------------------------------------------------------------|
+| `docs/dte-official/extracts/normativa-dte-reglas-clave.md` | PDF original sin texto extraíble — no se obtuvieron reglas |
+| `docs/dte-official/extracts/catalogos-dte-resumen.md`      | Sin especificación de `numeroControl`                       |
+| `docs/dte-official/extracts/manual-tecnico-firma-transmision.md` | Sin pattern explícito de `numeroControl`              |
+| `docs/dte-official/data/dte-catalogos-minimos.json`        | Sin pattern explícito de `numeroControl`                    |
+| `src/modules/commerce/purchases/utils/parse-dte-control-number.ts` | **Fuente clave: DTE real importado confirmó formato** |
+| `docs/dte-official/originals/`                             | No existe en el proyecto                                    |
+| JSON Schemas oficiales MH (FE 01 / CCFE 03)               | **No presentes en el proyecto** — pendiente descargar       |
+
+**Nota importante:** Los JSON Schemas oficiales del MH (`fe-fc-v3.json`, `fe-ccf-v3.json`) no están en el repositorio. El patrón de `numeroControl` se confirmó a partir de DTEs reales importados vía purchases.
+
+### Patrón oficial confirmado (evidencia interna)
+
+```
+DTE-{tipoDte(2)}-{bloque8(establishment4+pointOfSale4)}-{secuencia(15 dígitos)}
+
+Longitud total: 31 caracteres.
+Caracteres permitidos en bloque8: alfanumérico uppercase [A-Z0-9].
+El año NO forma parte del numeroControl.
+
+Ejemplo real observado en DTEs importados vía purchases:
+  DTE-01-S001P002-000000000057584
+
+Ejemplos generados por nuestro sistema:
+  FE 01:   DTE-01-00010001-000000000000001
+  CCFE 03: DTE-03-00010001-000000000000002
+```
+
+### Error encontrado en `buildControlNumber` original
+
+El helper original generaba el año como prefijo del último segmento:
+```
+DTE-${type}-${estab}${pos}-${yr}${seq}
+→ DTE-01-00010001-2025000000000000001  (35 chars, último segmento = 19 dígitos)
+```
+
+Esto produce un `control_number` con **35 caracteres y 19 dígitos en el último segmento**, que no coincide con el formato real de los DTEs del MH (31 chars, 15 dígitos en último segmento).
+
+### Corrección aplicada
+
+| Aspecto                  | Antes (incorrecto)                        | Después (correcto)                      |
+|--------------------------|-------------------------------------------|-----------------------------------------|
+| Parámetro `year`         | Incluido en interfaz y formato            | Eliminado de la interfaz y del formato  |
+| Último segmento          | `yr(4) + seq(15)` = 19 dígitos            | `seq(15)` = 15 dígitos                  |
+| Longitud total           | 35 caracteres                             | 31 caracteres (fija)                    |
+| Validaciones             | Ninguna — generación silenciosa           | Lanza errores si bloque ≠ 8 o seq < 1  |
+
+### Archivos modificados
+
+| Archivo                                                   | Cambio                                                              |
+|-----------------------------------------------------------|---------------------------------------------------------------------|
+| `src/modules/commerce/dte/utils/dte-control-number.ts`   | Eliminado `year` de `ControlNumberParams`. Corregido último segmento a 15 dígitos. Agregadas validaciones. |
+| `src/modules/commerce/dte/services/dte-outgoing.service.ts` | Eliminado `year` del llamado a `buildControlNumber`.             |
+
+### Decisión sobre `control_number` en schema Prisma
+
+`control_number` tiene `@@index([control_number])` — sin `@@unique`.
+
+**Recomendación V2 (no implementar ahora):** agregar constraint único compuesto:
+```
+@@unique([tenant_id, location_id, environment, dte_type_code, control_number])
+```
+Por ahora, la unicidad está garantizada por la lógica transaccional de `DteCorrelative` (incremento atómico dentro de la misma transacción Prisma).
+
+### Pendiente crítico
+
+Los JSON Schemas oficiales del MH para FE 01 y CCFE 03 **no están en el proyecto**.
+Antes de la Fase 4I-4 (validación JSON contra schema oficial), deben descargarse desde el portal del MH y guardarse en:
+```
+src/modules/commerce/dte/schemas/mh-json-schemas/fe-fc-v3.json
+src/modules/commerce/dte/schemas/mh-json-schemas/fe-ccf-v3.json
+```
+El patrón exacto de `numeroControl` (`minLength`, `maxLength`, `pattern` con regex) deberá verificarse contra esos schemas antes de producción.

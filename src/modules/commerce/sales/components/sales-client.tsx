@@ -531,8 +531,9 @@ export function SalesClient({ initialItems, initialTotal }: SalesClientProps) {
               Generar DTE
             </h2>
             <p className="text-xs text-zinc-400 mb-4 leading-relaxed">
-              Se creará el documento fiscal electrónico pendiente para esta venta.
-              En esta fase <span className="text-zinc-200 font-medium">no se firmará ni transmitirá</span> a Hacienda.
+              Se creará el documento fiscal electrónico pendiente y se reservará su{" "}
+              <span className="text-zinc-200 font-medium">código de generación y número de control</span>.
+              En esta fase no se firmará ni transmitirá a Hacienda.
             </p>
 
             {dteError && (
