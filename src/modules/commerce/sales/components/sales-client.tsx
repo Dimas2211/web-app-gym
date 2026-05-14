@@ -32,7 +32,8 @@ import { editSaleAuthAction } from "../actions/edit-sale-auth.action";
 import { deleteDraftSaleWithAuthAction } from "../actions/delete-draft-sale-with-auth.action";
 import { confirmSaleAction } from "../actions/confirm-sale.action";
 import { createPendingDteSimpleAction } from "@/modules/commerce/dte/actions/create-pending-dte-simple.action";
-import { generateFeJsonForSaleAction } from "@/modules/commerce/dte/actions/generate-fe-json-for-sale.action";
+import { generateFeJsonForSaleAction }   from "@/modules/commerce/dte/actions/generate-fe-json-for-sale.action";
+import { generateCcfeJsonForSaleAction } from "@/modules/commerce/dte/actions/generate-ccfe-json-for-sale.action";
 
 // ── Props ─────────────────────────────────────────────────────────
 
@@ -98,6 +99,11 @@ export function SalesClient({ initialItems, initialTotal }: SalesClientProps) {
   const [feJsonDialogOpen,  setFeJsonDialogOpen]  = useState(false);
   const [isFeJsonGenerating, setIsFeJsonGenerating] = useState(false);
   const [feJsonError,        setFeJsonError]        = useState<string | null>(null);
+
+  // ── Estado de diálogo para generar JSON CCFE ──────────────────────
+  const [ccfeJsonDialogOpen,  setCcfeJsonDialogOpen]  = useState(false);
+  const [isCcfeJsonGenerating, setIsCcfeJsonGenerating] = useState(false);
+  const [ccfeJsonError,        setCcfeJsonError]        = useState<string | null>(null);
 
   const filtersRef   = useRef<SaleFilterState>(EMPTY_SALE_FILTERS);
   filtersRef.current = filters;
@@ -288,6 +294,32 @@ export function SalesClient({ initialItems, initialTotal }: SalesClientProps) {
     }
   }
 
+  // ── Handler: generar JSON CCFE 03 ────────────────────────────────
+  async function handleGenerateCcfeJson() {
+    const dteId = selectedDetail?.dte_document?.id;
+    if (!dteId || !selectedId) return;
+    setIsCcfeJsonGenerating(true);
+    setCcfeJsonError(null);
+    try {
+      const result = await generateCcfeJsonForSaleAction(dteId);
+      if (result.ok) {
+        setCcfeJsonDialogOpen(false);
+        fetchList();
+        setSelectedDetail(null);
+        setDetailLoading(true);
+        fetch(`/api/sales/${selectedId}`, { credentials: "same-origin" })
+          .then((r) => (r.ok ? r.json() : Promise.reject()))
+          .then((env) => setSelectedDetail(env.data as SaleDetail))
+          .catch(() => {})
+          .finally(() => setDetailLoading(false));
+      } else {
+        setCcfeJsonError(result.error);
+      }
+    } finally {
+      setIsCcfeJsonGenerating(false);
+    }
+  }
+
   const selectedItem = items.find((i) => i.id === selectedId) ?? null;
 
   return (
@@ -370,6 +402,27 @@ export function SalesClient({ initialItems, initialTotal }: SalesClientProps) {
           </button>
           <span className="text-xs text-zinc-600">
             Construye el JSON preliminar FE 01 · No firma · No transmite.
+          </span>
+        </div>
+      )}
+
+      {/* ── Acción contextual: Generar JSON CCFE 03 (DTE PENDING_GENERATION tipo 03) */}
+      {selectedDetail?.status === "CONFIRMED"
+        && selectedDetail.inventory_moved
+        && selectedDetail.dte_document
+        && selectedDetail.dte_document.dte_status === "PENDING_GENERATION"
+        && selectedDetail.dte_document.dte_type_code === "03"
+        && !detailLoading && (
+        <div className="flex-none border-b border-zinc-800 bg-zinc-900/60 px-3 py-1 flex items-center gap-2">
+          <button
+            onClick={() => { setCcfeJsonError(null); setCcfeJsonDialogOpen(true); }}
+            className="h-6 px-2 text-xs text-violet-400 hover:text-violet-200 border border-violet-800/50 hover:border-violet-600 rounded flex items-center gap-1 transition-colors"
+          >
+            <FileText className="h-3 w-3" />
+            Generar JSON CCFE
+          </button>
+          <span className="text-xs text-zinc-600">
+            Construye el JSON preliminar CCFE 03 · No firma · No transmite.
           </span>
         </div>
       )}
@@ -680,6 +733,65 @@ export function SalesClient({ initialItems, initialTotal }: SalesClientProps) {
                 {isFeJsonGenerating
                   ? <><Loader2 className="h-3 w-3 animate-spin" />Generando…</>
                   : <><FileText className="h-3 w-3" />Generar JSON FE</>
+                }
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Modal: Generar JSON CCFE 03 ─────────────────────────── */}
+      {ccfeJsonDialogOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+          <div className="bg-zinc-900 border border-violet-900/50 rounded-lg p-6 w-96 shadow-xl">
+            <h2 className="text-sm font-semibold text-violet-300 mb-1 flex items-center gap-2">
+              <FileText className="h-4 w-4" />
+              Generar JSON CCFE 03
+            </h2>
+            <p className="text-xs text-zinc-400 mb-4 leading-relaxed">
+              Se construirá el JSON preliminar de Comprobante de Crédito Fiscal según la
+              estructura del MH El Salvador. El estado pasará de{" "}
+              <span className="text-zinc-200 font-mono font-medium">PENDING_GENERATION</span>
+              {" "}a{" "}
+              <span className="text-zinc-200 font-mono font-medium">GENERATED</span>.
+            </p>
+            <p className="text-[10px] text-zinc-500 mb-1">
+              Venta:{" "}
+              <span className="text-zinc-300 font-medium">{selectedItem?.sale_code ?? "—"}</span>
+              {" · "}
+              DTE:{" "}
+              <span className="text-zinc-300 font-mono font-medium">
+                {selectedDetail?.dte_document?.control_number ?? "—"}
+              </span>
+            </p>
+            <p className="text-[10px] text-amber-600 mb-4">
+              No se firmará ni transmitirá a Hacienda en esta fase.
+            </p>
+
+            {ccfeJsonError && (
+              <p className="mb-3 text-xs text-red-400 bg-red-900/30 border border-red-700/40 rounded px-2 py-1">
+                {ccfeJsonError}
+              </p>
+            )}
+
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setCcfeJsonDialogOpen(false)}
+                disabled={isCcfeJsonGenerating}
+                className="flex-1 h-8 text-xs border border-zinc-700 rounded text-zinc-400 hover:text-zinc-100 transition-colors disabled:opacity-50"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleGenerateCcfeJson}
+                disabled={isCcfeJsonGenerating}
+                className="flex-1 h-8 text-xs bg-violet-700 hover:bg-violet-600 text-white rounded font-medium flex items-center justify-center gap-1 disabled:opacity-50 transition-colors"
+              >
+                {isCcfeJsonGenerating
+                  ? <><Loader2 className="h-3 w-3 animate-spin" />Generando…</>
+                  : <><FileText className="h-3 w-3" />Generar JSON CCFE</>
                 }
               </button>
             </div>

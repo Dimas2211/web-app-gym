@@ -99,6 +99,13 @@ export interface SaleDetail extends Omit<SaleListItem, "item_count"> {
   updated_by:      string | null;
   updated_by_name: string | null;
 
+  // Datos fiscales del customer (disponibles al cargar un draft con customer_id)
+  customer_nit:           string | null;
+  customer_nrc:           string | null;
+  customer_dui:           string | null;
+  customer_taxpayer_type: string | null;
+  customer_activity_code: string | null;
+
   items:        SaleItemDetail[];
   dte_document: SaleDteDocument | null;
 }

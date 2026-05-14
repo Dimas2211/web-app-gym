@@ -49,21 +49,18 @@ function toDateString(value: Date | string | undefined, fallback: string): strin
   return s.slice(0, 10);
 }
 
-// Construye un CustomerForSaleLookup mínimo desde los campos del detalle de venta
-function buildDraftCustomer(
-  id:   string | null | undefined,
-  name: string | null | undefined,
-): CustomerForSaleLookup | null {
-  if (!id || !name) return null;
+// Construye un CustomerForSaleLookup desde el detalle de venta cargado como draft
+function buildDraftCustomer(draft: SaleDetail): CustomerForSaleLookup | null {
+  if (!draft.customer_id || !draft.customer_name) return null;
   return {
-    id,
+    id:            draft.customer_id,
     customer_code: "",
-    name,
-    taxpayer_type: null,
-    nit:           null,
-    nrc:           null,
-    dui:           null,
-    activity_code: null,
+    name:          draft.customer_name,
+    taxpayer_type: (draft.customer_taxpayer_type as CustomerForSaleLookup["taxpayer_type"]) ?? null,
+    nit:           draft.customer_nit           ?? null,
+    nrc:           draft.customer_nrc           ?? null,
+    dui:           draft.customer_dui           ?? null,
+    activity_code: draft.customer_activity_code ?? null,
   };
 }
 
@@ -103,7 +100,7 @@ export function SaleNewClient({
     (initialDraft?.primary_dte_type_code as "01" | "03" | undefined) ?? "01",
   );
   const [selectedCustomer,       setSelectedCustomer]       = useState<CustomerForSaleLookup | null>(
-    initialDraft ? buildDraftCustomer(initialDraft.customer_id, initialDraft.customer_name) : null,
+    initialDraft ? buildDraftCustomer(initialDraft) : null,
   );
   const [conditionOperationCode, setConditionOperationCode] = useState<"1" | "2" | "3" | null>(
     (initialDraft?.condition_operation_code as "1" | "2" | "3" | null | undefined) ?? null,
@@ -181,6 +178,16 @@ export function SaleNewClient({
 
   // ── Helpers ───────────────────────────────────────────────────────
   function clearMessages() { setError(null); setSuccess(null); setLineError(null); }
+
+  // Persiste el cliente en el DRAFT inmediatamente al seleccionarlo.
+  // Limpia el error de "cliente requerido" cuando el usuario selecciona uno válido.
+  const handleCustomerSelect = useCallback((customer: CustomerForSaleLookup | null) => {
+    setSelectedCustomer(customer);
+    if (customer) setError(null);
+    if (saleId) {
+      void updateSaleDraftAction(saleId, { customer_id: customer?.id ?? null });
+    }
+  }, [saleId]);
 
   function resetAll() {
     setSaleId(null);
@@ -400,6 +407,7 @@ export function SaleNewClient({
       }
       setSaleStatus("CONFIRMED");
       setInventoryMoved(true);
+      setError(null);
       setSuccess("Venta confirmada e inventario aplicado.");
     });
   }
@@ -456,12 +464,12 @@ export function SaleNewClient({
                     <SaleCustomerSection
                       selectedCustomer={selectedCustomer}
                       primaryDteTypeCode={primaryDteTypeCode}
-                      onSelect={setSelectedCustomer}
+                      onSelect={handleCustomerSelect}
                     />
                   </div>
                   <SaleDteSection
                     primaryDteTypeCode={primaryDteTypeCode}
-                    onChange={setPrimaryDteTypeCode}
+                    onChange={(code) => { setPrimaryDteTypeCode(code); setError(null); }}
                   />
                 </div>
 
