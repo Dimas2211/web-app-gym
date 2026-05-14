@@ -1,6 +1,43 @@
 # DTE Outgoing — Plan de generación desde venta confirmada
 
-Estado: **Fase 4I-2 cerrada. 4I-3A — Auditoría receptor fiscal CCFE 03 completada. Próxima: 4I-3B.**
+Estado: **Fase 4I-2 cerrada. 4I-3A completada. 4I-3B-1 completada. Ajuste 4I-3B-1S completado — Customers alineado visual y operativamente con Suppliers. Próxima: 4I-3B-2 (JSON CCFE 03).**
+
+---
+
+## Fase 4I-3B-1 completada — Customers como módulo completo
+
+- Se creó el módulo `commerce/customers` como pantalla operativa completa estilo Suppliers.
+- Ruta: `/dashboard/customers`
+- UI: tabla grid, panel de detalle con indicadores FE/CCFE, formularios crear/editar, diálogo de estado.
+- El panel de detalle muestra en tiempo real si el cliente está listo para FE 01 y/o CCFE 03.
+- Este módulo prepara la base para generar JSON CCFE 03 en la fase siguiente.
+- **No se generó JSON DTE**, no se firmó, no se transmitió, no se tocó inventario.
+
+## Ajuste 4I-3B-1S completado — Customers con panel inferior y pestañas editables (estilo Suppliers)
+
+- Customers quedó alineado visual y operativamente con Suppliers.
+- Se reemplazó el panel de 4 bloques expandido por un resumen compacto de 3 bloques + panel de tabs.
+- Se creó `customer-detail-tabs.tsx` con 6 pestañas navegables:
+  - Identificación, Actividad económica, Dirección, Contacto (editables por sección)
+  - Preparación DTE (solo lectura, se actualiza en tiempo real al guardar)
+  - Auditoría (solo lectura)
+- Se crearon 4 Server Actions por sección: identificación, actividad, dirección, contacto.
+- La edición desde tabs usa los catálogos CAT-019 y CAT-013 (inline, sin reutilizar los pickers de diálogos).
+- Indicadores FE 01 / CCFE 03 reflejan cambios guardados sin recargar la página.
+- **No se generó JSON CCFE 03**, no se tocó Prisma ni inventario.
+- Pestaña Ventas NO incluida (se conectará en fase posterior).
+
+## Ajuste 4I-3B-1R completado — Customers alineado con Suppliers (captura fiscal)
+
+- Se alineó la captura de datos fiscales de Customers con el patrón de Suppliers.
+- `id_type_code` (CAT-022): selector cargado desde `/api/catalogs/identification-types` con fallback.
+- `activity_code` + `activity_name` (CAT-019): nuevo `ActivityPicker` con búsqueda debounce y keyboard nav.
+- `dept_code` + `municipality_code` (CAT-013): nuevo `MunicipalityPicker` con búsqueda debounce y pre-carga de selección en edición.
+- Ambos diálogos (crear y editar) usan la misma lógica de captura con catálogos.
+- Indicadores FE 01 / CCFE 03 se mantienen sin cambios.
+- **No se generó JSON CCFE**, no se tocó Prisma, no se tocó inventario.
+
+---
 
 Fuentes revisadas para este documento:
 - `docs/modules/sales-summary.md`

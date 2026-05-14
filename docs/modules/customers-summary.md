@@ -1,163 +1,255 @@
-# Customers — resumen técnico de diseño
+# commerce/customers — Summary
 
-Estado: en diseño técnico (Fase 1). No implementado.
+## Estado
+
+**Fase 4I-3B-1 completada — Módulo completo implementado.**
+
+- Schema Prisma ya existía (cerrado en fase previa).
+- Backend (services, actions, queries, API routes) ya existía.
+- UI completa implementada en esta fase.
+- Sin migraciones pendientes.
 
 ---
 
-## Propósito del maestro Customer/Receptor
+## Objetivo
 
-`commerce/customers` es el maestro de clientes y receptores fiscales del dominio `commerce`.
+Maestro de clientes fiscales del tenant. Cumple dos roles:
 
-Cumple dos roles simultáneos:
 1. **Receptor comercial**: entidad a quien se emite una venta (`Sale`).
 2. **Receptor fiscal**: entidad cuyos datos tributarios se incluyen en el JSON DTE para FE o CCFE.
 
-Es un maestro reusable a nivel `tenant_id`. No depende del negocio gimnasio.
+Es reusable a nivel `tenant_id`. No depende del negocio gimnasio.
+
+---
+
+## Ruta
+
+`/dashboard/customers`
+
+Roles: `super_admin`, `branch_admin`
 
 ---
 
 ## Por qué no reutilizar gym/clients
 
-`gym/clients` es una ficha operativa específica del negocio gimnasio: registra membresías, clases, entrenadores, portal de acceso y datos de entrenamiento.
+`gym/clients` es una ficha operativa del negocio gimnasio (membresías, clases, portal).
+`commerce/customers` es una entidad fiscal con NIT, NRC, actividad económica y dirección fiscal para DTE.
 
-`commerce/customers` es una entidad fiscal/comercial con campos de identidad tributaria (NIT, NRC, DUI, actividad económica, dirección fiscal) que el módulo DTE necesita para construir el JSON que va a Hacienda.
-
-Los datos son conceptualmente distintos:
-
-| Aspecto           | `gym/clients`                     | `commerce/customers`              |
-|-------------------|-----------------------------------|-----------------------------------|
-| Dominio           | Vertical GYM                      | Commerce transversal              |
-| Uso               | Membresías, clases, portal        | Ventas, facturación electrónica   |
-| Campos clave      | plan, trainer, foto, portal_user  | NIT, NRC, actividad, dirección fiscal |
-| Scope             | Solo instancias GYM               | Reusable en cualquier vertical    |
-
-Una persona puede ser simultáneamente un `gym/client` y un `commerce/customer`, pero son registros en tablas distintas. La unificación futura con CRM/core queda como decisión de arquitectura pendiente.
+Una persona puede ser ambas cosas, pero son registros en tablas distintas.
 
 ---
 
-## Relación con sales
+## Relación con Sales
 
 - `Sale.customer_id` es nullable (FK a `Customer`).
-- Para FE código `01` (consumidor final anónimo), el `customer_id` puede ser null.
-- Para CCFE código `03`, el `customer_id` es obligatorio y el cliente debe tener datos fiscales completos.
-- La validación de campos obligatorios del receptor se realiza al iniciar el flujo DTE, no en la confirmación interna de la venta.
+- FE código `01`: customer_id puede ser null (consumidor final anónimo).
+- CCFE código `03`: customer_id obligatorio + cliente con datos fiscales completos.
+- La validación de campos del receptor se hace al iniciar el flujo DTE.
 
 ---
 
-## Relación con DTE
+## Relación con DTE outgoing
 
-El JSON DTE (tanto FE como CCFE) requiere datos del receptor en su sección `receptor`. Estos datos provienen directamente de `Customer`.
+El receptor fiscal del JSON DTE se construye desde `Customer`:
 
-Para CCFE, campos obligatorios esperados en el receptor según catalogo DTE:
-- `nit` — número de identificación tributaria
-- `nrc` — número de registro de contribuyente
-- Actividad económica (`activity_code`)
-- Tipo de documento de identificación (`id_type_code`, CAT-022)
-- Dirección (departamento, municipio, complemento)
-
-Para FE consumidor final, el receptor puede tener solo nombre y datos básicos, o ser anónimo.
-
-La validación exacta de campos obligatorios por tipo DTE debe contrastarse contra los JSON Schemas oficiales del MH antes de implementar (pendiente de fases posteriores).
-
----
-
-## Campos conceptuales
-
-| Campo                | Tipo       | Descripción                                                           |
-|----------------------|------------|-----------------------------------------------------------------------|
-| `id`                 | UUID       | Identificador único                                                   |
-| `tenant_id`          | UUID       | Tenant propietario (maestro a nivel tenant)                           |
-| `customer_code`      | String     | Código interno de cliente (ej. `CLI-0001`)                            |
-| `name`               | String     | Nombre visible / nombre corto                                         |
-| `legal_name`         | String?    | Razón social legal (para CCFE)                                        |
-| `taxpayer_type`      | Enum?      | Tipo contribuyente: `FINAL_CONSUMER`, `REGISTERED_TAXPAYER`, `EXCLUDED_SUBJECT` |
-| `id_type_code`       | String?    | Código CAT-022: `36` NIT, `13` DUI, `37` Otro, `03` Pasaporte, `02` Carnet Residente |
-| `nit`                | String?    | NIT sin guiones (obligatorio para CCFE)                               |
-| `nrc`                | String?    | NRC del cliente (obligatorio para CCFE)                               |
-| `dui`                | String?    | DUI del cliente (consumidor final persona natural)                    |
-| `activity_code`      | String?    | Código de actividad económica CAT-019 (para CCFE)                     |
-| `activity_name`      | String?    | Descripción de la actividad económica                                 |
-| `dept_code`          | String?    | Código de departamento (dirección fiscal)                             |
-| `municipality_code`  | String?    | Código de municipio (dirección fiscal)                                |
-| `address_complement` | String?    | Complemento de dirección                                              |
-| `phone`              | String?    | Teléfono de contacto                                                  |
-| `email`              | String?    | Email de contacto o para envío de DTE                                 |
-| `status`             | Enum       | `ACTIVE`, `INACTIVE`                                                  |
-| `created_at`         | DateTime   | Auditoría                                                             |
-| `updated_at`         | DateTime   | Auditoría                                                             |
-| `created_by`         | UUID?      | Auditoría                                                             |
-| `updated_by`         | UUID?      | Auditoría                                                             |
+| Campo Customer        | Uso DTE                      |
+|-----------------------|------------------------------|
+| name                  | nombre del receptor          |
+| legal_name            | razón social (opcional)      |
+| taxpayer_type         | tipo de documento receptor   |
+| nit                   | NIT del receptor             |
+| nrc                   | NRC del receptor             |
+| activity_code         | giro económico del receptor  |
+| activity_name         | descripción del giro         |
+| dept_code             | dirección fiscal             |
+| municipality_code     | dirección fiscal             |
+| address_complement    | dirección fiscal             |
 
 ---
 
-## Tipos contribuyente — taxpayer_type
+## Campos fiscales
 
-| Valor                 | Descripción                                                       |
-|-----------------------|-------------------------------------------------------------------|
-| `FINAL_CONSUMER`      | Consumidor final. FE código `01`. Puede no tener NIT/NRC.         |
-| `REGISTERED_TAXPAYER` | Contribuyente registrado con NIT y NRC. Requerido para CCFE.      |
-| `EXCLUDED_SUBJECT`    | Sujeto excluido. FSE código `14`. Fuera del MVP.                  |
-
----
-
-## Reglas de negocio
-
-1. `customer_id` en `Sale` es nullable para FE consumidor final anónimo.
-2. Para CCFE código `03`, el `customer_id` no puede ser null. El cliente debe tener `nit`, `nrc` y actividad económica válidos.
-3. Los datos fiscales del cliente deben validarse antes de iniciar el flujo DTE, no al crear la venta.
-4. Un cliente puede tener múltiples ventas históricas aunque sea desactivado (`status = INACTIVE`). La desactivación es lógica.
-5. `customer_code` debe ser único por `tenant_id`.
-6. El campo `nit` (cuando existe) debe ser único por `tenant_id` para evitar duplicados de contribuyentes.
-7. No mezclar lógica de portal GYM con este maestro.
-
----
-
-## Alcance MVP
-
-- Diseño documental del maestro (este documento).
-- Definición del schema Prisma en Fase 2.
-- Sin UI todavía.
-- Sin API todavía.
-- El módulo se implementará como prerequisito del flujo DTE antes de la UI de sales.
+| Campo              | Tipo     | Obligatorio CCFE 03       |
+|--------------------|----------|---------------------------|
+| name               | string   | Sí                        |
+| legal_name         | string?  | No                        |
+| taxpayer_type      | enum     | Sí (REGISTERED_TAXPAYER)  |
+| id_type_code       | string?  | No (CAT-022)              |
+| nit                | string?  | Sí                        |
+| nrc                | string?  | Sí                        |
+| dui                | string?  | No                        |
+| activity_code      | string?  | Sí                        |
+| activity_name      | string?  | Sí                        |
+| dept_code          | string?  | Sí (CAT-012)              |
+| municipality_code  | string?  | Sí (CAT-013)              |
+| address_complement | string?  | Sí                        |
+| phone              | string?  | No                        |
+| email              | string?  | No                        |
 
 ---
 
-## Alcance fuera del MVP
+## Reglas para FE 01
 
-- UI de clientes (ABM completo).
-- Búsqueda por NIT/NRC/DUI.
-- Historial de ventas por cliente.
-- Límites de crédito por cliente.
-- Clasificación por segmento.
-- Importación masiva de clientes.
-- Sincronización con `gym/clients` si se decide unificar (decisión de arquitectura futura).
+- `name` presente.
+- Cliente puede ser cualquier tipo de contribuyente.
 
----
+## Reglas para CCFE 03
 
-## Relación futura con CRM/core
+- `taxpayer_type` = `REGISTERED_TAXPAYER`
+- `name` presente
+- `nit` presente
+- `nrc` presente
+- `activity_code` presente
+- `activity_name` presente
+- `dept_code` presente
+- `municipality_code` presente
+- `address_complement` presente
 
-Si en el futuro se decide construir un módulo de personas/CRM en `core` que unifique clientes GYM, clientes de venta, contactos, etc., `commerce/customers` puede mantenerse como vista especializada del módulo fiscal o migrarse hacia ese maestro centralizado.
-
-Por ahora, `commerce/customers` es autónomo y vive dentro del dominio `commerce`.
-
-No tomar decisiones de unificación en esta fase.
-
----
-
-## Pendientes para Fase 2 (Prisma schema)
-
-- Definir modelo Prisma `Customer`.
-- Definir enum `CustomerStatus` (`ACTIVE`, `INACTIVE`).
-- Definir enum `TaxpayerType` (`FINAL_CONSUMER`, `REGISTERED_TAXPAYER`, `EXCLUDED_SUBJECT`).
-- Definir índice único `(tenant_id, customer_code)`.
-- Definir índice único `(tenant_id, nit)` con `nit` nullable (índice único parcial o filtrado).
-- Definir relación `Customer` → `Sale[]`.
+Lógica de validación:
+- `customer.service.ts` → `validateCustomerForDteType` (backend)
+- `customer-summary-panel.tsx` → `checkFe01` + `checkCcfe03` (visual en UI)
 
 ---
 
-## Estado
+## Tipos contribuyente
 
-En diseño técnico — Fase 1.
-No implementado.
-No hay Prisma schema todavía.
-No hay UI todavía.
+| Valor                 | Descripción                                     |
+|-----------------------|-------------------------------------------------|
+| `FINAL_CONSUMER`      | Consumidor final. FE código `01`.               |
+| `REGISTERED_TAXPAYER` | Contribuyente con NIT y NRC. Requerido para CCFE.|
+| `EXCLUDED_SUBJECT`    | Sujeto excluido. FSE código `14`. Fuera del MVP. |
+
+---
+
+## UI implementada (Fase 4I-3B-1 + Ajuste 4I-3B-1R + Ajuste 4I-3B-1S)
+
+### Pantalla principal `/dashboard/customers`
+
+- Header con título + botón "Nuevo cliente"
+- Barra de filtros: búsqueda unificada, tipo contribuyente, estado, ordenamiento
+- Tabla grid con columnas:
+  - Código, Nombre, Razón social, NIT, NRC, DUI, Tipo contrib., Teléfono, Correo, Estado
+- Panel de resumen compacto con 3 bloques (style Suppliers):
+  - Bloque 1: Identidad (código, nombre, razón social, tipo contrib., fecha) + acciones (Editar, Cambiar estado)
+  - Bloque 2: Identificación fiscal (tipo doc., DUI, NIT, NRC, actividad económica)
+  - Bloque 3: Contacto (teléfono, correo, dirección)
+- Panel inferior con pestañas navegables (6 tabs):
+  - **Identificación**: nombre, razón social, tipo contribuyente, tipo documento, NIT, NRC, DUI (editable)
+  - **Actividad económica**: giro CAT-019 con buscador debounce y keyboard nav (editable)
+  - **Dirección**: municipio/departamento CAT-013 + complemento de dirección (editable)
+  - **Contacto**: teléfono y correo con validación de email (editable)
+  - **Preparación DTE**: estado FE 01 / CCFE 03 en tiempo real, campos faltantes (solo lectura)
+  - **Auditoría**: creado por / fecha, actualizado por / fecha, estado actual (solo lectura)
+- Diálogo crear cliente (formulario completo: 4 secciones, con catálogos)
+- Diálogo editar cliente (formulario completo prefilled: 4 secciones, con catálogos) — mantenido
+- Diálogo cambiar estado (activar/desactivar)
+
+### Edición por secciones desde tabs (Ajuste 4I-3B-1S)
+
+Cada pestaña editable tiene:
+- Vista de lectura con todos los campos de la sección
+- Botón "Editar [sección]" que activa modo edición inline
+- Formulario por sección que llama a su propio Server Action
+- Reset de estado al cambiar de cliente (via `useEffect` en `detail.id`)
+- Refresco de detalle + mantiene fila seleccionada al guardar (`onRefresh`)
+- Errores mostrados por sección
+
+---
+
+## Catálogos usados en captura fiscal (Ajuste 4I-3B-1R)
+
+Customers captura datos fiscales con los mismos catálogos que Suppliers, no con inputs libres:
+
+| Campo              | Antes           | Ahora                                              |
+|--------------------|-----------------|-----------------------------------------------------|
+| `taxpayer_type`    | select hardcoded | select hardcoded (correcto — valores distintos a Suppliers) |
+| `id_type_code`     | select hardcoded | select cargado desde `/api/catalogs/identification-types` (CAT-022) con fallback |
+| `activity_code`    | input libre      | `ActivityPicker` → búsqueda debounce `/api/catalogs/economic-activities` (CAT-019) |
+| `activity_name`    | input libre      | capturado automáticamente al seleccionar actividad |
+| `dept_code`        | input libre      | `MunicipalityPicker` → búsqueda debounce `/api/catalogs/municipalities` (CAT-013) |
+| `municipality_code`| input libre      | capturado automáticamente al seleccionar municipio |
+
+### Picker: ActivityPicker (`activity-picker.tsx`)
+
+- Búsqueda libre con debounce 350ms en CAT-019.
+- Keyboard navigation: ArrowUp/Down/Enter.
+- Al seleccionar: guarda `activity_code` + `activity_name` como hidden inputs.
+- Si el cliente ya tiene actividad asignada, se pre-carga como selección inicial.
+
+### Picker: MunicipalityPicker (`municipality-picker.tsx`)
+
+- Búsqueda libre con debounce 350ms en CAT-013.
+- Keyboard navigation: ArrowUp/Down/Enter.
+- Al seleccionar: guarda `dept_code` + `municipality_code` como hidden inputs.
+- En modo edición: si el cliente ya tiene dept_code + municipality_code, hace un
+  fetch al catálogo para resolver los nombres y mostrar el chip con información legible.
+- Nota: CustomerDetail no almacena `dept_name` ni `municipality_name` (schema sin cambios).
+  El panel de resumen muestra los códigos (formato: `dept_code/municipality_code`).
+
+---
+
+## Archivos backend (ya existían)
+
+| Archivo | Función |
+|---------|---------|
+| `schemas/customer.schemas.ts` | createCustomerSchema, updateCustomerSchema, customerFiltersSchema |
+| `types/customer.types.ts` | CustomerListItem, CustomerDetail, CustomerForSaleLookup |
+| `services/customer.service.ts` | createCustomer, updateCustomer, validateCustomerForDteType |
+| `actions/create-customer.action.ts` | createCustomerAction |
+| `actions/update-customer.action.ts` | updateCustomerAction |
+| `queries/list-customers.ts` | listCustomers (paginado + filtros) |
+| `queries/get-customer-by-id.ts` | getCustomerById |
+| `queries/search-customers-for-sale.ts` | búsqueda para lookup en ventas |
+
+## Archivos API (ya existían)
+
+| Ruta | Métodos |
+|------|---------|
+| `/api/customers` | GET (lista), POST (crear) |
+| `/api/customers/[id]` | GET (detalle), PATCH (actualizar) |
+| `/api/customers/search` | GET (lookup para ventas) |
+| `/api/catalogs/identification-types` | GET (CAT-022 — usado en id_type_code) |
+| `/api/catalogs/economic-activities` | GET (CAT-019 — usado en ActivityPicker) |
+| `/api/catalogs/municipalities` | GET (CAT-013 — usado en MunicipalityPicker) |
+
+## Archivos UI
+
+| Archivo | Función |
+|---------|---------|
+| `app/(dashboard)/dashboard/customers/page.tsx` | página servidor |
+| `app/(dashboard)/dashboard/customers/loading.tsx` | skeleton de carga |
+| `app/(dashboard)/dashboard/customers/error.tsx` | boundary de error |
+| `components/customers-client.tsx` | orquestador principal (tabla + panel + tabs) |
+| `components/customers-table.tsx` | grilla con navegación teclado |
+| `components/customer-summary-panel.tsx` | panel compacto 3 bloques (ajuste 4I-3B-1S) |
+| `components/customer-detail-tabs.tsx` | 6 pestañas navegables con edición (ajuste 4I-3B-1S) |
+| `components/new-customer-dialog.tsx` | formulario crear con catálogos |
+| `components/edit-customer-dialog.tsx` | formulario editar con catálogos |
+| `components/activity-picker.tsx` | widget selector CAT-019 (reutilizable en diálogos) |
+| `components/municipality-picker.tsx` | widget selector CAT-013 (reutilizable en diálogos) |
+| `components/toggle-customer-status-dialog.tsx` | cambiar estado |
+
+## Actions por sección (Ajuste 4I-3B-1S)
+
+| Archivo | Campos que actualiza |
+|---------|----------------------|
+| `actions/update-customer-identification.action.ts` | name, legal_name, taxpayer_type, id_type_code, nit, nrc, dui |
+| `actions/update-customer-activity.action.ts` | activity_code, activity_name |
+| `actions/update-customer-address.action.ts` | dept_code, municipality_code, address_complement |
+| `actions/update-customer-contact.action.ts` | phone, email |
+
+---
+
+## Pendientes
+
+- Almacenar `dept_name` y `municipality_name` en DB para display legible en panel (requiere Prisma)
+- Integración refinada con selector de cliente en ventas para auto-completar datos CCFE
+- Validación de formato NIT / NRC (regex) — no bloqueante aún
+- Pestaña Ventas por cliente (pestaña futura — no incluida en 4I-3B-1S deliberadamente)
+
+## No generado en esta fase
+
+- No se generó JSON DTE ni CCFE
+- No se firmó ni transmitió ningún documento
+- No se tocó inventario
+- No se modificó Prisma schema ni migraciones
