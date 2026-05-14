@@ -1,6 +1,6 @@
 # DTE Outgoing — Plan de generación desde venta confirmada
 
-Estado: **Fase 4I-2 — JSON preliminar FE 01 operativo. Estado cambia PENDING_GENERATION → GENERATED.**
+Estado: **Fase 4I-2 cerrada. 4I-3A — Auditoría receptor fiscal CCFE 03 completada. Próxima: 4I-3B.**
 
 Fuentes revisadas para este documento:
 - `docs/modules/sales-summary.md`
@@ -902,3 +902,311 @@ src/modules/commerce/dte/schemas/mh-json-schemas/fe-fc-v3.json
 src/modules/commerce/dte/schemas/mh-json-schemas/fe-ccf-v3.json
 ```
 El patrón exacto de `numeroControl` (`minLength`, `maxLength`, `pattern` con regex) deberá verificarse contra esos schemas antes de producción.
+
+---
+
+## 4I-3A — Auditoría receptor fiscal CCFE 03
+
+**Estado: COMPLETADA**
+**Fecha:** 2026-05-13
+
+### Fuentes auditadas
+
+| Fuente | Resultado |
+|--------|-----------|
+| `prisma/schema.prisma` — modelo `Customer` | Auditado completo |
+| `src/modules/commerce/customers/schemas/customer.schemas.ts` | Auditado — validaciones Zod |
+| `src/modules/commerce/customers/types/customer.types.ts` | Auditado — tipos TypeScript |
+| `src/modules/commerce/customers/services/customer.service.ts` | Auditado — createCustomer, updateCustomer, validateCustomerForDteType |
+| `src/modules/commerce/dte/services/dte-outgoing.service.ts` | Auditado — validación CCFE en createPendingDteForSale |
+| `src/modules/commerce/dte/services/generate-fe-json.service.ts` | Auditado — receptor FE 01, rechazo explícito de tipo "03" |
+| `docs/modules/sales-dte-generation-plan.md` secciones 6.3, 4I-3 | Consultado |
+| UI `/dashboard/customers/**` | **No existe** |
+
+---
+
+### 1. Campos actuales del modelo Customer (schema.prisma)
+
+| Campo | Tipo Prisma | Nullable | Descripción |
+|-------|-------------|----------|-------------|
+| `id` | String @id | No | UUID |
+| `tenant_id` | String | No | Identidad transversal |
+| `customer_code` | String | No | Código interno único por tenant |
+| `name` | String | No | Nombre comercial / razón social |
+| `legal_name` | String? | Sí | Razón social formal si difiere |
+| `taxpayer_type` | CustomerTaxpayerType? | Sí | FINAL_CONSUMER / REGISTERED_TAXPAYER / EXCLUDED_SUBJECT |
+| `id_type_code` | String? | Sí | CAT-022: "13" DUI, "36" NIT, "37" Otro, "02" Carnet, "03" Pasaporte |
+| `nit` | String? | Sí | Número de Identificación Tributaria |
+| `nrc` | String? | Sí | Número de Registro de Contribuyente (IVA) |
+| `dui` | String? | Sí | DUI si id_type_code = "13" |
+| `activity_code` | String? | Sí | CAT-019 código actividad económica |
+| `activity_name` | String? | Sí | CAT-019 nombre actividad económica |
+| `dept_code` | String? | Sí | Código de departamento MH |
+| `municipality_code` | String? | Sí | Código de municipio (relativo al departamento) |
+| `address_complement` | String? | Sí | Complemento de dirección libre |
+| `phone` | String? | Sí | Teléfono |
+| `email` | String? | Sí | Correo electrónico |
+| `status` | Status | No | active / inactive / suspended / deleted |
+| `created_at` | DateTime | No | Auditoría |
+| `updated_at` | DateTime | No | Auditoría |
+| `created_by` | String? | Sí | FK usuario |
+| `updated_by` | String? | Sí | FK usuario |
+
+---
+
+### 2. Campos actuales usados por Sale (modelo)
+
+| Campo Sale | Uso | Estado |
+|------------|-----|--------|
+| `customer_id` | FK opcional a Customer | Nullable — solo obligatorio para CCFE |
+| `primary_dte_type_code` | "01" FE o "03" CCFE | Guía el tipo de DTE esperado |
+| Relación `customer` (join) | Carga datos del receptor al generar JSON | Operativo |
+
+En `generate-fe-json.service.ts`, el join sobre `customer` selecciona:
+`id, name, id_type_code, nit, nrc, dui, activity_code, activity_name, dept_code, municipality_code, address_complement, phone, email`
+
+---
+
+### 3. Campos actuales usados por DteOutgoingDocument al crear CCFE
+
+En `dte-outgoing.service.ts` (createPendingDteForSale), la validación para CCFE 03 es:
+
+```typescript
+if (input.dte_type_code === "03") {
+  if (!sale.customer_id) { /* error */ }
+  if (!sale.customer?.nit || !sale.customer?.nrc) { /* error */ }
+}
+```
+
+Solo se validan `nit` y `nrc` al crear el registro PENDING_GENERATION.
+
+En `customer.service.ts` (validateCustomerForDteType), la validación completa para CCFE 03 es:
+
+```typescript
+// Valida: taxpayer_type = REGISTERED_TAXPAYER
+// Valida: nit no vacío
+// Valida: nrc no vacío
+// Valida: activity_code no vacío
+```
+
+---
+
+### 4. Campos obligatorios para CCFE 03 según esquema MH
+
+Sección `receptor` del JSON CCFE 03:
+
+| Campo JSON MH | Campo Customer | Obligatorio en CCFE 03 | Descripción |
+|---------------|----------------|------------------------|-------------|
+| `tipoDocumento` | `id_type_code` | Sí | CAT-022 — tipo de documento |
+| `numDocumento` | `nit` | Sí | NIT del receptor contribuyente |
+| `nrc` | `nrc` | **Sí** (diferencia clave vs FE 01) | NRC del receptor |
+| `nombre` | `name` | Sí | Nombre / razón social |
+| `codActividad` | `activity_code` | Sí | CAT-019 |
+| `descActividad` | `activity_name` | Sí | Nombre de la actividad |
+| `direccion.departamento` | `dept_code` | Sí | Código MH departamento |
+| `direccion.municipio` | `municipality_code` | Sí | Código MH municipio |
+| `direccion.complemento` | `address_complement` | Sí | Complemento libre |
+| `telefono` | `phone` | Opcional | Teléfono |
+| `correo` | `email` | Opcional (recomendado) | Correo |
+
+**Diferencia crítica entre FE 01 y CCFE 03 en el receptor:**
+
+| Aspecto | FE 01 | CCFE 03 |
+|---------|-------|---------|
+| `customer_id` en Sale | Opcional | **Obligatorio** |
+| `nrc` en JSON receptor | `null` | **Valor real requerido** |
+| `numDocumento` | DUI ?? NIT ?? null | **NIT obligatorio** |
+| `codActividad` | Opcional | **Obligatorio** |
+| `dirección` | Opcional | **Obligatoria** |
+| `taxpayer_type` | Cualquiera | **REGISTERED_TAXPAYER** |
+
+---
+
+### 5. Campos que ya existen en el modelo Customer
+
+| Campo fiscal | Existe en schema | Existe en Zod | Guardado en service | Índice DB |
+|-------------|-----------------|---------------|--------------------|-----------| 
+| Nombre / razón social (`name`) | ✅ | ✅ | ✅ | No (no necesario) |
+| Tipo documento (`id_type_code`) | ✅ | ✅ | ✅ | No |
+| NIT (`nit`) | ✅ | ✅ | ✅ | ✅ `@@index([tenant_id, nit])` |
+| NRC (`nrc`) | ✅ | ✅ | ✅ | ✅ `@@index([tenant_id, nrc])` |
+| DUI (`dui`) | ✅ | ✅ | ✅ | No |
+| Actividad económica código (`activity_code`) | ✅ | ✅ | ✅ | No |
+| Actividad económica nombre (`activity_name`) | ✅ | ✅ | ✅ | No |
+| Departamento código (`dept_code`) | ✅ | ✅ | ✅ | No |
+| Municipio código (`municipality_code`) | ✅ | ✅ | ✅ | No |
+| Complemento dirección (`address_complement`) | ✅ | ✅ | ✅ | No |
+| Teléfono (`phone`) | ✅ | ✅ | ✅ | No |
+| Correo (`email`) | ✅ | ✅ | ✅ | No |
+| Tipo contribuyente (`taxpayer_type`) | ✅ | ✅ | ✅ | No (filtro por lista) |
+
+**Conclusión: todos los campos necesarios para construir el receptor CCFE 03 ya existen en el modelo.**
+
+---
+
+### 6. Campos que faltan en el modelo Customer
+
+| Campo | Impacto en CCFE 03 | Decisión |
+|-------|--------------------|----------|
+| `dept_name` (nombre del departamento) | Ninguno — JSON MH usa `dept_code` | No necesario para JSON. Solo útil para display en UI (se puede hacer lookup a `Municipality`). No agregar al schema. |
+| `municipality_name` (nombre del municipio) | Ninguno — JSON MH usa `municipality_code` | Idem. No agregar. |
+| `country_code` / `country_name` | Ninguno para CCFE 03 doméstico (El Salvador) | Fuera de alcance V1. No agregar. |
+| `legal_name` como campo de `razón social oficial` | Ya existe — puede usarse si se prefiere sobre `name` | Ya existe. Sin brecha. |
+
+**No se detectaron campos críticos faltantes en el schema.**
+
+---
+
+### 7. Validaciones que ya existen para CCFE
+
+| Validación | Capa | Archivo | Estado |
+|-----------|------|---------|--------|
+| `customer_id` obligatorio para CCFE 03 | Service DTE | `dte-outgoing.service.ts:83-93` | ✅ Implementado |
+| `nit` no nulo para CCFE 03 | Service DTE | `dte-outgoing.service.ts:89` | ✅ Implementado |
+| `nrc` no nulo para CCFE 03 | Service DTE | `dte-outgoing.service.ts:89` | ✅ Implementado |
+| `taxpayer_type = REGISTERED_TAXPAYER` | Service Customer | `customer.service.ts:198` | ✅ Implementado |
+| `nit` no vacío | Service Customer | `customer.service.ts:206` | ✅ Implementado |
+| `nrc` no vacío | Service Customer | `customer.service.ts:213` | ✅ Implementado |
+| `activity_code` no vacío | Service Customer | `customer.service.ts:220` | ✅ Implementado |
+| Solo FE 01 acepta `customer_id = null` | Service JSON | `generate-fe-json.service.ts:98-103` | ✅ Implementado |
+| Rechazo explícito tipo "03" en builder FE | Service JSON | `generate-fe-json.service.ts:98-103` | ✅ Correcto — CCFE tiene su propio builder pendiente |
+
+---
+
+### 8. Validaciones que faltan para CCFE
+
+| Validación faltante | Tipo | Impacto | Prioridad |
+|--------------------|------|---------|-----------|
+| Formato de NIT — El Salvador: patrón `NNNN-NNNNNN-NNN-N` o 14 dígitos | Zod schema Customer | JSON MH puede rechazar formato incorrecto | Media |
+| Formato de NRC — El Salvador: numérico | Zod schema Customer | JSON MH puede rechazar formato incorrecto | Media |
+| Formato de DUI — El Salvador: `NNNNNNNN-N` | Zod schema Customer | Riesgo de formato | Baja |
+| Validación de `id_type_code` contra lista CAT-022 en Zod | Zod schema Customer | Actualmente acepta cualquier string de max 5 chars | Media |
+| `dept_code` obligatorio si `municipality_code` presente (y viceversa) | Zod schema o service | Lógica de integridad de dirección | Baja |
+| `activity_code` validado contra tabla `EconomicActivity` | Service Customer | Actualmente acepta cualquier string | Baja |
+| Validación de `address_complement` obligatorio para CCFE en el builder CCFE | Builder CCFE (pendiente) | JSON MH puede requerir `complemento` no vacío | Media |
+
+**Ninguna de estas validaciones es bloqueante para generar JSON CCFE 03 preliminar** (sin validación contra JSON Schema MH oficial).
+
+---
+
+### 9. UI existente para capturar datos fiscales del cliente
+
+| Pantalla | Estado |
+|----------|--------|
+| `/dashboard/customers` — lista de clientes | **No existe** |
+| `/dashboard/customers/new` — crear cliente | **No existe** |
+| `/dashboard/customers/[id]` — detalle/edición | **No existe** |
+| Quick create de cliente desde formulario de venta | **No existe** |
+| Selector de cliente en formulario de venta (`/dashboard/sales/new`) | ✅ Existe (search-customers-for-sale) |
+
+El módulo `commerce/customers` tiene:
+- ✅ Queries: `list-customers`, `get-customer-by-id`, `get-customer-by-code`, `search-customers-for-sale`
+- ✅ Actions: `create-customer.action`, `update-customer.action`
+- ✅ Schemas Zod completos
+- ✅ Service con `createCustomer`, `updateCustomer`, `validateCustomerForDteType`
+- ❌ **Cero páginas o componentes UI**
+
+Esto significa que actualmente solo es posible crear clientes programáticamente (seed, tests, Prisma Studio) o vía API interna. No hay flujo visual para que el operador ingrese los datos fiscales del receptor CCFE 03.
+
+---
+
+### 10. UI faltante
+
+| Componente UI | Necesidad para CCFE 03 | Prioridad |
+|--------------|----------------------|-----------|
+| Página `/dashboard/customers` — lista paginada con filtro por taxpayer_type | Alta — sin ella no hay maestro de clientes | Alta |
+| Formulario de creación de cliente — todos los campos fiscales | **Bloqueante** — sin esto no se pueden ingresar clientes con NIT/NRC/actividad/dirección | Alta |
+| Formulario de edición de cliente — mismos campos | Alta — para corregir datos fiscales incompletos | Alta |
+| Pantalla de detalle del cliente — mostrar todos los campos fiscales | Media | Media |
+| Quick create de cliente desde formulario de venta | Conveniente pero no bloqueante si el maestro ya existe | Media |
+| Indicador visual de completitud fiscal en selector de clientes de venta | Ayuda al operador a elegir clientes con datos CCFE completos | Baja |
+
+---
+
+### 11. Catálogos DTE sembrados
+
+| Catálogo | Tabla | Estado |
+|----------|-------|--------|
+| CAT-022 tipos de identificación (DUI, NIT, etc.) | `IdentificationType` | ✅ Tabla existe en schema |
+| CAT-019 actividades económicas | `EconomicActivity` | ✅ Tabla existe en schema |
+| CAT-013 municipios con departamento | `Municipality` | ✅ Tabla existe en schema |
+| Países ISO | `Country` | ✅ Tabla existe en schema |
+| Catálogos DTE generales | `DteCatalogItem` | ✅ Seed disponible |
+
+Los catálogos existen en schema. Su población depende de haber ejecutado los seeds correspondientes. Si no se ejecutaron los seeds de `IdentificationType`, `EconomicActivity` y `Municipality`, los selectores de UI no tendrán datos. Esto es un riesgo operacional, no de schema.
+
+---
+
+### 12. Riesgos antes de generar JSON CCFE
+
+| Riesgo | Nivel | Mitigación |
+|--------|-------|-----------|
+| No existe UI de customers — el operador no puede ingresar datos fiscales del receptor | **Alto** | Implementar UI mínima de customers antes de 4I-3B |
+| Clientes existentes pueden estar con datos fiscales incompletos (solo name, sin NIT/NRC) | **Alto** | La validación en `validateCustomerForDteType` ya rechaza clientes incompletos |
+| Formato de NIT/NRC sin validación Zod — puede guardarse con formato incorrecto | Medio | Agregar regex en schemas en 4I-3B |
+| `id_type_code` acepta cualquier string — puede llegar un valor fuera de CAT-022 | Medio | Agregar validación contra enum/literal types en schema Zod |
+| Seeds de catálogos no ejecutados — selectores vacíos en UI | Medio | Confirmar ejecución de seeds antes de arrancar UI |
+| CCFE 03 no tiene builder JSON todavía — `generate-fe-json.service.ts` rechaza tipo "03" | Alto (esperado) | Crear `generate-ccfe-json.service.ts` en 4I-3B |
+| `address_complement` puede estar vacío — JSON MH puede exigirlo no nulo | Medio | Validar en builder CCFE si campo es requerido según JSON Schema oficial |
+| JSON Schemas oficiales MH para CCFE 03 no están en el proyecto | Alto (para 4I-4) | Descargar antes de fase de validación |
+
+---
+
+### 13. Decisión final
+
+**Opción B — con precondición de UI.**
+
+El modelo de datos `Customer` ya tiene **todos los campos fiscales necesarios** para construir el receptor de un CCFE 03 preliminar:
+- `name`, `id_type_code`, `nit`, `nrc`, `activity_code`, `activity_name`, `dept_code`, `municipality_code`, `address_complement`, `phone`, `email`, `taxpayer_type`.
+
+No se requieren cambios en `schema.prisma` antes de implementar el builder CCFE 03.
+
+Sin embargo, la fase 4I-3B **no puede considerarse funcional de extremo a extremo** sin UI de customers, porque actualmente no existe forma visual de:
+1. Crear un cliente con datos fiscales completos.
+2. Verificar que un cliente tiene todos los campos requeridos para CCFE.
+
+**La recomendación es implementar 4I-3B en el siguiente orden:**
+
+| Paso | Tarea | Bloqueante para CCFE JSON preliminar |
+|------|-------|--------------------------------------|
+| 4I-3B-1 | UI mínima de Customers — lista + formulario crear/editar | Sí (operacionalmente) |
+| 4I-3B-2 | Validaciones Zod de formato NIT/NRC/DUI/id_type_code | No (deseable antes de generar) |
+| 4I-3B-3 | Builder `generate-ccfe-json.service.ts` | Sí (técnicamente) |
+| 4I-3B-4 | Action `generate-ccfe-json-for-sale.action.ts` | Sí |
+| 4I-3B-5 | Botón "Generar JSON CCFE" en UI de ventas | Sí |
+
+**No se requieren cambios en Prisma schema ni migraciones en 4I-3B.**
+
+---
+
+### 14. Comparación Customer vs Supplier en campos fiscales
+
+El modelo `Supplier` ya implementado tiene campos adicionales que `Customer` no tiene:
+
+| Campo | Supplier | Customer | Necesario para CCFE 03 |
+|-------|----------|----------|------------------------|
+| `dept_name` | ✅ | ❌ | No — JSON usa código, nombre solo para display |
+| `municipality_name` | ✅ | ❌ | No — idem |
+| `country_code` | ✅ | ❌ | No — CCFE 03 doméstico |
+| `country_name` | ✅ | ❌ | No |
+| `contact_name` | ✅ | ❌ | No |
+| `contact_role` | ✅ | ❌ | No |
+| `legal_name` | ✅ | ✅ | No requerido directamente en JSON receptor |
+| `other_document` | ✅ | ❌ | No |
+| `is_subject_to_1pct_retention` | ✅ | ❌ | No — aplica solo a compras |
+
+La diferencia de campos es intencionada: `Supplier` tiene más datos porque es maestro documental completo; `Customer` para CCFE 03 solo requiere los campos que van al JSON receptor.
+
+---
+
+## Impacto en bases de datos y sincronización local/remota
+
+**Sin cambios en schema.prisma ni migraciones en esta fase.**
+
+| Aspecto | Estado |
+|---------|--------|
+| `schema.prisma` | Sin cambios — modelo Customer ya tiene todos los campos necesarios |
+| Base local | Sin cambios requeridos |
+| Base remota | Sin cambios requeridos |
+| Migraciones | Ninguna nueva en Fase 4I-3A |
+| Pendiente para 4I-3B | No requiere cambios de schema — solo código y UI |
