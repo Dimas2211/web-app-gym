@@ -1,6 +1,6 @@
 # DTE Outgoing — Plan de generación desde venta confirmada
 
-Estado: **Fase 4I-2 cerrada. 4I-3A completada. 4I-3B-1 completada. Ajuste 4I-3B-1S completado — Customers alineado visual y operativamente con Suppliers. Próxima: 4I-3B-2 (JSON CCFE 03).**
+Estado: **Fase 4I-4D cerrada. Fases 4I-1, 4I-2, 4I-3 (CCFE 03), 4I-4, 4I-4B, 4I-4C, 4I-4D completadas. JSON FE 01 y CCFE 03 generado y validado localmente contra schemas MH oficiales. Probado en Vercel. Próxima: 4I-5 firma digital.**
 
 ---
 
@@ -560,20 +560,33 @@ El botón NO aparece para CCFE 03, DTE ya GENERATED, ventas sin DTE, DRAFT, CANC
 
 ### 4I-4 — Validar JSON contra schema oficial MH
 
+**Estado: COMPLETADA (incluyendo subfases 4I-4B, 4I-4C, 4I-4D).**
+
 **Objetivo:** validar estructura del JSON antes de enviarlo al firmador.
 
-**Pasos:**
+**Pasos implementados:**
 1. Cargar `DteOutgoingDocument` en `GENERATED`.
 2. Cargar JSON Schema oficial del MH para el tipo DTE correspondiente.
-3. Validar `json_document` contra el schema.
+3. Validar `json_document` con AJV + ajv-formats contra el schema.
 4. Si válido: actualizar `dte_status = SCHEMA_VALIDATED`, guardar `schema_validated_at`.
-5. Si inválido: guardar errores de validación en `DteTransmissionLog`, mantener estado `GENERATED`.
+5. Si inválido: guardar errores en `DteTransmissionLog`, mantener estado `GENERATED`.
 
-**Pendiente técnico:** los JSON Schemas oficiales del MH deben descargarse del portal oficial
-y guardarse en el proyecto en `/src/modules/commerce/dte/schemas/mh-json-schemas/`.
-
-**Archivo nuevo a crear (futuro):**
+**Archivos implementados:**
 - `src/modules/commerce/dte/validators/dte-json-schema.validator.ts`
+- `src/modules/commerce/dte/schemas/mh/fe-01.schema.json` — schema oficial MH FE 01
+- `src/modules/commerce/dte/schemas/mh/ccfe-03.schema.json` — schema oficial MH CCFE 03
+- `src/modules/commerce/dte/utils/fiscal-id.utils.ts` — normalización NIT/NRC
+
+**Subfases incluidas:**
+
+| Subfase | Descripción |
+|---------|-------------|
+| 4I-4    | AJV integrado. Schemas MH copiados al runtime. Validación completa. |
+| 4I-4B   | ajv-formats activado para `format: "date"` y `format: "email"`. |
+| 4I-4C   | CAT-013 corregido usando Código de carga agentes desde CSV oficial. 262 distritos cargados. |
+| 4I-4D   | CAT-022 corregido: código `36 — NIT` incluido. FE 01 con empresa/NIT validado. |
+
+Ver documentación completa en: `docs/modules/dte-json-validation-summary.md`
 
 ---
 

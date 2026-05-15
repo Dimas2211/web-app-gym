@@ -2,12 +2,15 @@
 
 ## Estado
 
-**Fase 4I-3B-1 completada — Módulo completo implementado.**
+**Módulo cerrado y operativo. Catálogos fiscales corregidos en Fase 4I-4C/4I-4D.**
 
 - Schema Prisma ya existía (cerrado en fase previa).
 - Backend (services, actions, queries, API routes) ya existía.
-- UI completa implementada en esta fase.
-- Sin migraciones pendientes.
+- UI completa implementada en Fase 4I-3B-1.
+- CAT-013 corregido en 4I-4C: `municipality_code` ahora usa Código de carga agentes del CSV oficial.
+- CAT-022 corregido en 4I-4D: código `36 — NIT` disponible para captura.
+- `update-customer-address` valida que la combinación `dept_code` + `municipality_code` exista en `Municipality`.
+- Migración remota aplicada. Seed remoto ejecutado.
 
 ---
 
@@ -185,6 +188,9 @@ Customers captura datos fiscales con los mismos catálogos que Suppliers, no con
   fetch al catálogo para resolver los nombres y mostrar el chip con información legible.
 - Nota: CustomerDetail no almacena `dept_name` ni `municipality_name` (schema sin cambios).
   El panel de resumen muestra los códigos (formato: `dept_code/municipality_code`).
+- CAT-013 usa Código de carga agentes: `dept_code` = primeros 2 dígitos, `municipality_code` = últimos 2 dígitos.
+- `update-customer-address` valida que la combinación `dept_code` + `municipality_code` exista en `Municipality`.
+  Si no existe, devuelve: "La combinación departamento/municipio no existe en el catálogo DTE. Seleccione un distrito válido."
 
 ---
 

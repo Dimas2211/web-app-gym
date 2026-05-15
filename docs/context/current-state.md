@@ -7,9 +7,9 @@
 - commerce/inventory cerrado.
 - commerce/purchases cerrado y operativo (UI + backend).
 - commerce/suppliers cerrado y operativo.
-- commerce/sales ciclo interno cerrado (Fase 4H-Z) — DRAFT, CONFIRMED, inventario, UI operativa. Pendiente: DTE real.
-- commerce/dte outgoing en diseño técnico (Fase 1 completada — sin Prisma, sin adaptadores, sin UI).
-- commerce/customers en diseño técnico (Fase 1 completada — sin Prisma, sin UI).
+- commerce/sales ciclo interno cerrado (Fase 4H-Z) — DRAFT, CONFIRMED, inventario, UI operativa.
+- commerce/customers cerrado y operativo — módulo completo con catálogos fiscales (Fase 4I-3B-1 + ajustes).
+- commerce/dte outgoing en progreso — Fases 4I-1 a 4I-4D cerradas. JSON FE 01 y CCFE 03 generado y validado contra schemas MH. Próxima: 4I-5 firma digital.
 - cash pendiente.
 
 ## Identidad activa
@@ -89,15 +89,15 @@
 - CCFE exige cliente. Validación de stock antes de confirmar.
 - Ver docs/modules/sales-summary.md para detalle completo.
 
-## Módulos en diseño técnico (no implementar todavía)
-- dte outgoing: ver docs/modules/dte-outgoing-summary.md
-- customers: ver docs/modules/customers-summary.md
+## Módulos en progreso
+- dte outgoing: ver docs/modules/sales-dte-generation-plan.md + docs/modules/dte-json-validation-summary.md
+- customers: cerrado. Ver docs/modules/customers-summary.md
 
 ## Próximos pasos
-- Fase 4I: DTE real desde venta confirmada (DteOutgoingDocument, JSON MH, firma, transmisión).
+- Fase 4I-5: Firma digital del DTE (firmador local Java/Docker, signed_jws, estado SIGNED).
+- Fase 4I-6: Transmisión a Hacienda (test / producción).
 - Fase posterior: Cash/Caja (pagos, cortes, cuentas por cobrar).
 - Fase posterior: Anulación de ventas confirmadas.
-- cash pendiente de fase futura.
 
 ## Deuda técnica
 - tests automatizados
