@@ -19,6 +19,7 @@
 import { revalidatePath } from "next/cache";
 import { requireAdmin } from "@/lib/permissions/guards";
 import { str, strNullable } from "@/lib/utils/form-data-parsers";
+import { prisma } from "@/lib/db/prisma";
 import { updateSupplierAddress } from "../services/supplier.service";
 
 export type UpdateSupplierAddressState =
@@ -51,6 +52,18 @@ export async function updateSupplierAddressAction(
     if (!dept_code)         return { error: "Si se asigna un municipio, el departamento es requerido." };
     if (!dept_name)         return { error: "Si se asigna un municipio, el nombre del departamento es requerido." };
     if (!municipality_name) return { error: "Si se asigna un código de municipio, el nombre del municipio es requerido." };
+
+    // Validar que la combinación departamento/municipio exista en el catálogo DTE
+    const mun = await prisma.municipality.findUnique({
+      where: { dept_code_code: { dept_code, code: municipality_code } },
+      select: { id: true },
+    });
+    if (!mun) {
+      return {
+        error:
+          "La combinación departamento/municipio no existe en el catálogo DTE. Seleccione un distrito válido.",
+      };
+    }
   }
 
   // 4. Coherencia país

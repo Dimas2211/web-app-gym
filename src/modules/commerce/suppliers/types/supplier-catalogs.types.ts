@@ -16,7 +16,7 @@
 
 /**
  * Ítem del catálogo de tipos de identificación.
- * Codes operativos: "00" | "02" | "03" | "13" | "37"
+ * Codes operativos: "00" | "02" | "03" | "13" | "36" | "37"
  * Usado en el selector de tipo de documento de la ficha del proveedor.
  */
 export interface IdentificationTypeItem {

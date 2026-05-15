@@ -59,12 +59,12 @@ const TAXPAYER_OPTIONS = [
 
 // Fallback CAT-022 si el endpoint falla
 const ID_TYPE_FALLBACK = [
-  { code: "13", name: "DUI"                },
-  { code: "00", name: "NIT"                },
-  { code: "36", name: "NIT (36 dígitos)"  },
-  { code: "02", name: "Carné de residente" },
+  { code: "36", name: "NIT"               },
+  { code: "13", name: "DUI"               },
+  { code: "02", name: "Carnet de residente" },
   { code: "03", name: "Pasaporte"          },
-  { code: "37", name: "Otro"               },
+  { code: "37", name: "Otro"              },
+  { code: "00", name: "Consumidor final"  },
 ];
 
 // ── Helpers ───────────────────────────────────────────────────────
@@ -225,7 +225,7 @@ export function EditCustomerDialog({ customer, onClose, onSuccess }: EditCustome
                 >
                   <option value="">— Sin tipo —</option>
                   {idTypes.map((t) => (
-                    <option key={t.code} value={t.code}>{t.name}</option>
+                    <option key={t.code} value={t.code}>{t.code} — {t.name}</option>
                   ))}
                 </select>
                 <FieldError errors={fieldErrors.id_type_code} />

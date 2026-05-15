@@ -18,6 +18,7 @@
 import { revalidatePath } from "next/cache";
 import { requireAdmin } from "@/lib/permissions/guards";
 import { str, strNullable } from "@/lib/utils/form-data-parsers";
+import { prisma } from "@/lib/db/prisma";
 import { updateCustomer } from "../services/customer.service";
 
 export type UpdateCustomerAddressState =
@@ -41,6 +42,20 @@ export async function updateCustomerAddressAction(
 
   if (municipality_code && !dept_code) {
     return { error: "Si se asigna un municipio, el departamento es requerido." };
+  }
+
+  // Validar que la combinación departamento/municipio exista en el catálogo DTE
+  if (dept_code && municipality_code) {
+    const mun = await prisma.municipality.findUnique({
+      where: { dept_code_code: { dept_code, code: municipality_code } },
+      select: { id: true },
+    });
+    if (!mun) {
+      return {
+        error:
+          "La combinación departamento/municipio no existe en el catálogo DTE. Seleccione un distrito válido.",
+      };
+    }
   }
 
   const result = await updateCustomer(id, tenantId, sessionUser.id, {

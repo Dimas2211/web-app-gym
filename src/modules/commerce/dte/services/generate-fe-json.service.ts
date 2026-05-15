@@ -24,9 +24,10 @@
 //   - pagos: usa SalePayment.mh_payment_form_code si existe; fallback "99".
 // ─────────────────────────────────────────────────────────────────
 
-import { Prisma }         from "@prisma/client";
-import { prisma }         from "@/lib/db/prisma";
-import { numeroALetras }  from "../utils/numero-a-letras";
+import { Prisma }                               from "@prisma/client";
+import { prisma }                               from "@/lib/db/prisma";
+import { numeroALetras }                        from "../utils/numero-a-letras";
+import { normalizeNitForDte, normalizeNrcForDte } from "../utils/fiscal-id.utils";
 
 const TOLERANCE = 0.01;
 
@@ -294,7 +295,8 @@ export async function generateFeJsonForDte(
         ventaNoSuj:      0,
         ventaExenta:     hasIva ? 0 : subtotal,
         ventaGravada:    hasIva ? subtotal : 0,
-        tributos:        hasIva ? ["20"] : null,
+        // FE-01: tributos no incluye "20" (IVA); el IVA por línea va en ivaItem.
+        tributos:        null,
         psv:             0,
         noGravado:       0,
         ivaItem:         hasIva ? ivaAmount : null,
@@ -388,7 +390,7 @@ export async function generateFeJsonForDte(
     interface Receptor {
       tipoDocumento: string | null;
       numDocumento:  string | null;
-      nrc:           null;
+      nrc:           string | null;
       nombre:        string | null;
       codActividad:  string | null;
       descActividad: string | null;
@@ -400,14 +402,36 @@ export async function generateFeJsonForDte(
     const c = sale.customer;
     let receptor: Receptor | null;
 
-    if (c) {
-      const numDoc = c.dui ?? c.nit ?? null;
+    if (c && c.id_type_code && c.id_type_code !== "00") {
+      const idTypeCode = c.id_type_code;
+
+      // Seleccionar número de documento según tipo:
+      // "36" (NIT) → c.nit; "13" (DUI) → c.dui; otros → dui ?? nit ?? null
+      let rawNumDoc: string | null;
+      if (idTypeCode === "36") {
+        rawNumDoc = c.nit ?? null;
+      } else if (idTypeCode === "13") {
+        rawNumDoc = c.dui ?? null;
+      } else {
+        rawNumDoc = c.dui ?? c.nit ?? null;
+      }
+
+      const numDoc = idTypeCode === "36"
+        ? normalizeNitForDte(rawNumDoc)
+        : rawNumDoc;
+
+      // FE-01 schema: nrc solo puede tener valor si tipoDocumento === "36";
+      // para cualquier otro tipo el schema exige nrc = null.
+      const nrcValue = idTypeCode === "36" && c.nrc
+        ? normalizeNrcForDte(c.nrc)
+        : null;
+
       const hasDireccion = c.dept_code || c.municipality_code || c.address_complement;
 
       receptor = {
-        tipoDocumento: c.id_type_code ?? null,
+        tipoDocumento: idTypeCode,
         numDocumento:  numDoc,
-        nrc:           null,
+        nrc:           nrcValue,
         nombre:        c.name,
         codActividad:  c.activity_code ?? null,
         descActividad: c.activity_name ?? null,
@@ -418,7 +442,7 @@ export async function generateFeJsonForDte(
         correo:        c.email ?? null,
       };
     } else {
-      // Consumidor final — FE 01 no requiere receptor; se envía null
+      // Sin cliente, sin tipo de documento, o "00" (consumidor final) → receptor null
       receptor = null;
     }
 
@@ -451,8 +475,8 @@ export async function generateFeJsonForDte(
       issuerConfig.dept_code || issuerConfig.municipality_code || issuerConfig.address_complement;
 
     const emisor = {
-      nit:                 issuerConfig.nit,
-      nrc:                 issuerConfig.nrc ?? null,
+      nit:                 normalizeNitForDte(issuerConfig.nit),
+      nrc:                 normalizeNrcForDte(issuerConfig.nrc),
       nombre:              issuerConfig.name,
       codActividad:        issuerConfig.activity_code,
       descActividad:       issuerConfig.activity_name,
@@ -485,9 +509,8 @@ export async function generateFeJsonForDte(
       descuGravada:         descuGravada,
       porcentajeDescuento:  0,
       totalDescu:           totalDescu,
-      tributos:             totalIva > 0
-        ? [{ codigo: "20", descripcion: "Impuesto al Valor Agregado 13%", valor: totalIva }]
-        : null,
+      // FE-01: resumen.tributos no acepta código "20"; el IVA total va en totalIva.
+      tributos:             null,
       subTotal:             subTotal,
       ivaRete1:             0,
       reteRenta:            0,

@@ -60,12 +60,13 @@ const TAXPAYER_OPTIONS = [
 
 // CAT-022 — Tipos de identificación DTE El Salvador
 const ID_TYPE_OPTIONS = [
-  { value: "",   label: "— Sin tipo —"         },
-  { value: "13", label: "DUI"                  },
-  { value: "00", label: "NIT"                  },
-  { value: "02", label: "Carné de residente"   },
-  { value: "03", label: "Pasaporte"            },
-  { value: "37", label: "Otro"                 },
+  { value: "",   label: "— Sin tipo —"              },
+  { value: "36", label: "36 — NIT"                  },
+  { value: "13", label: "13 — DUI"                  },
+  { value: "02", label: "02 — Carnet de residente"  },
+  { value: "03", label: "03 — Pasaporte"            },
+  { value: "37", label: "37 — Otro"                 },
+  { value: "00", label: "00 — Consumidor final"     },
 ] as const;
 
 // ── Props ─────────────────────────────────────────────────────────

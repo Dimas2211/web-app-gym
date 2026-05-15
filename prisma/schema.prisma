@@ -790,18 +790,41 @@ model EconomicActivity {
   @@map("economic_activities")
 }
 
-// CAT-013 El Salvador MH — municipios con departamento embebido
+// CAT-013 El Salvador MH — municipios/distritos con departamento embebido
+// code = últimos 2 dígitos de "Código de carga agentes" (código DTE real).
+// dte_full_code = código completo de 4 dígitos (ej: "0511" para Santa Tecla).
 model Municipality {
   id        String @id @default(uuid())
+
+  // Departamento (CAT-012)
   dept_code String  // "01"–"14"
   dept_name String
-  code      String  // código relativo al departamento, e.g., "01"
+
+  // Código DTE relativo al departamento (últimos 2 dígitos de dte_full_code)
+  code      String
+
+  // Código completo de carga agentes (4 dígitos) — es el código DTE unificado
+  dte_full_code String?
+
+  // Distrito según catálogo nuevo (Código Distritos / Distritos)
+  district_code String?
+  district_name String?
+
+  // Municipio nuevo agrupado (Código Municipios / Municipios)
+  new_municipality_code String?
+  new_municipality_name String?
+
+  // Nombre visible en UI: "${district_name} — ${new_municipality_name}"
   name      String
+
   status    Status @default(active)
 
   @@unique([dept_code, code])
+  @@unique([dte_full_code])
   @@index([dept_code])
   @@index([name])
+  @@index([district_code])
+  @@index([new_municipality_code])
   @@map("municipalities")
 }
 

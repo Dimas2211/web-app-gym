@@ -28,9 +28,10 @@
 //   - ivaPerci1/ivaRete1/reteRenta: 0 en esta fase preliminar.
 // ─────────────────────────────────────────────────────────────────
 
-import { Prisma }        from "@prisma/client";
-import { prisma }        from "@/lib/db/prisma";
-import { numeroALetras } from "../utils/numero-a-letras";
+import { Prisma }                               from "@prisma/client";
+import { prisma }                               from "@/lib/db/prisma";
+import { numeroALetras }                        from "../utils/numero-a-letras";
+import { normalizeNitForDte, normalizeNrcForDte } from "../utils/fiscal-id.utils";
 
 const TOLERANCE = 0.01;
 
@@ -281,6 +282,8 @@ export async function generateCcfeJsonForDte(
 
     type LineaTributo = string[];
 
+    // CCFE-03: ivaItem NO existe en el schema oficial MH para cuerpoDocumento.
+    // El IVA va solo en resumen.tributos y resumen.ivaPerci1/ivaRete1.
     interface CuerpoItem {
       numItem:         number;
       tipoItem:        number;
@@ -298,7 +301,6 @@ export async function generateCcfeJsonForDte(
       tributos:        LineaTributo | null;
       psv:             number;
       noGravado:       number;
-      ivaItem:         number | null;
     }
 
     const cuerpoDocumento: CuerpoItem[] = sale.items.map((item) => {
@@ -326,7 +328,6 @@ export async function generateCcfeJsonForDte(
         tributos:        hasIva ? ["20"] : null,
         psv:             0,
         noGravado:       0,
-        ivaItem:         hasIva ? ivaAmount : null,
       };
     });
 
@@ -408,8 +409,8 @@ export async function generateCcfeJsonForDte(
     // A diferencia de FE 01, CCFE no usa tipoDocumento/numDocumento.
     // El receptor siempre es un contribuyente registrado con NIT y NRC.
     const receptor = {
-      nit:             c.nit!,
-      nrc:             c.nrc!,
+      nit:             normalizeNitForDte(c.nit)!,
+      nrc:             normalizeNrcForDte(c.nrc)!,
       nombre:          c.name,
       codActividad:    c.activity_code!,
       descActividad:   c.activity_name!,
@@ -450,8 +451,8 @@ export async function generateCcfeJsonForDte(
       issuerConfig.dept_code || issuerConfig.municipality_code || issuerConfig.address_complement;
 
     const emisor = {
-      nit:                 issuerConfig.nit,
-      nrc:                 issuerConfig.nrc ?? null,
+      nit:                 normalizeNitForDte(issuerConfig.nit),
+      nrc:                 normalizeNrcForDte(issuerConfig.nrc),
       nombre:              issuerConfig.name,
       codActividad:        issuerConfig.activity_code,
       descActividad:       issuerConfig.activity_name,

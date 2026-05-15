@@ -34,6 +34,10 @@ import { confirmSaleAction } from "../actions/confirm-sale.action";
 import { createPendingDteSimpleAction } from "@/modules/commerce/dte/actions/create-pending-dte-simple.action";
 import { generateFeJsonForSaleAction }   from "@/modules/commerce/dte/actions/generate-fe-json-for-sale.action";
 import { generateCcfeJsonForSaleAction } from "@/modules/commerce/dte/actions/generate-ccfe-json-for-sale.action";
+import {
+  validateDteJsonSchemaAction,
+  type ValidateDteJsonSchemaResult,
+} from "@/modules/commerce/dte/actions/validate-dte-json-schema.action";
 
 // ── Props ─────────────────────────────────────────────────────────
 
@@ -104,6 +108,11 @@ export function SalesClient({ initialItems, initialTotal }: SalesClientProps) {
   const [ccfeJsonDialogOpen,  setCcfeJsonDialogOpen]  = useState(false);
   const [isCcfeJsonGenerating, setIsCcfeJsonGenerating] = useState(false);
   const [ccfeJsonError,        setCcfeJsonError]        = useState<string | null>(null);
+
+  // ── Estado de diálogo para validar schema oficial MH ──────────────
+  const [schemaValidateDialogOpen,    setSchemaValidateDialogOpen]    = useState(false);
+  const [isSchemaValidating,          setIsSchemaValidating]          = useState(false);
+  const [schemaValidateResult,        setSchemaValidateResult]        = useState<ValidateDteJsonSchemaResult | null>(null);
 
   const filtersRef   = useRef<SaleFilterState>(EMPTY_SALE_FILTERS);
   filtersRef.current = filters;
@@ -320,6 +329,30 @@ export function SalesClient({ initialItems, initialTotal }: SalesClientProps) {
     }
   }
 
+  // ── Handler: validar schema oficial MH ───────────────────────────
+  async function handleValidateDteSchema() {
+    const dteId = selectedDetail?.dte_document?.id;
+    if (!dteId || !selectedId) return;
+    setIsSchemaValidating(true);
+    setSchemaValidateResult(null);
+    try {
+      const result = await validateDteJsonSchemaAction(dteId);
+      setSchemaValidateResult(result);
+      if (result.ok) {
+        fetchList();
+        setSelectedDetail(null);
+        setDetailLoading(true);
+        fetch(`/api/sales/${selectedId}`, { credentials: "same-origin" })
+          .then((r) => (r.ok ? r.json() : Promise.reject()))
+          .then((env) => setSelectedDetail(env.data as SaleDetail))
+          .catch(() => {})
+          .finally(() => setDetailLoading(false));
+      }
+    } finally {
+      setIsSchemaValidating(false);
+    }
+  }
+
   const selectedItem = items.find((i) => i.id === selectedId) ?? null;
 
   return (
@@ -423,6 +456,27 @@ export function SalesClient({ initialItems, initialTotal }: SalesClientProps) {
           </button>
           <span className="text-xs text-zinc-600">
             Construye el JSON preliminar CCFE 03 · No firma · No transmite.
+          </span>
+        </div>
+      )}
+
+      {/* ── Acción contextual: Validar JSON Schema MH (DTE GENERATED, tipo 01 o 03) */}
+      {selectedDetail?.status === "CONFIRMED"
+        && selectedDetail.inventory_moved
+        && selectedDetail.dte_document
+        && selectedDetail.dte_document.dte_status === "GENERATED"
+        && (selectedDetail.dte_document.dte_type_code === "01" || selectedDetail.dte_document.dte_type_code === "03")
+        && !detailLoading && (
+        <div className="flex-none border-b border-zinc-800 bg-zinc-900/60 px-3 py-1 flex items-center gap-2">
+          <button
+            onClick={() => { setSchemaValidateResult(null); setSchemaValidateDialogOpen(true); }}
+            className="h-6 px-2 text-xs text-teal-400 hover:text-teal-200 border border-teal-800/50 hover:border-teal-600 rounded flex items-center gap-1 transition-colors"
+          >
+            <FileText className="h-3 w-3" />
+            Validar JSON
+          </button>
+          <span className="text-xs text-zinc-600">
+            Valida el JSON generado contra el schema oficial MH · No firma · No transmite.
           </span>
         </div>
       )}
@@ -794,6 +848,101 @@ export function SalesClient({ initialItems, initialTotal }: SalesClientProps) {
                   : <><FileText className="h-3 w-3" />Generar JSON CCFE</>
                 }
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Modal: Validar JSON Schema MH ──────────────────────── */}
+      {schemaValidateDialogOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+          <div className="bg-zinc-900 border border-teal-900/50 rounded-lg p-6 w-[28rem] shadow-xl max-h-[80vh] flex flex-col">
+            <h2 className="text-sm font-semibold text-teal-300 mb-1 flex items-center gap-2 flex-none">
+              <FileText className="h-4 w-4" />
+              Validar JSON contra Schema MH
+            </h2>
+
+            {!schemaValidateResult && (
+              <p className="text-xs text-zinc-400 mb-4 leading-relaxed flex-none">
+                Se verificará que el JSON generado cumpla el schema oficial del
+                Ministerio de Hacienda El Salvador. Si pasa, el estado cambiará a{" "}
+                <span className="text-zinc-200 font-mono font-medium">SCHEMA_VALIDATED</span>.
+              </p>
+            )}
+
+            <p className="text-[10px] text-zinc-500 mb-1 flex-none">
+              Venta:{" "}
+              <span className="text-zinc-300 font-medium">{selectedItem?.sale_code ?? "—"}</span>
+              {" · "}
+              DTE:{" "}
+              <span className="text-zinc-300 font-mono font-medium">
+                {selectedDetail?.dte_document?.control_number ?? "—"}
+              </span>
+            </p>
+
+            {!schemaValidateResult && (
+              <p className="text-[10px] text-amber-600 mb-4 flex-none">
+                No se firmará ni transmitirá a Hacienda en esta fase.
+              </p>
+            )}
+
+            {/* Resultado: éxito */}
+            {schemaValidateResult?.ok && (
+              <div className="mb-4 text-xs text-teal-300 bg-teal-900/30 border border-teal-700/40 rounded px-3 py-2 flex-none">
+                El JSON cumple el schema oficial MH. Estado actualizado a{" "}
+                <span className="font-mono font-semibold">SCHEMA_VALIDATED</span>.
+              </div>
+            )}
+
+            {/* Resultado: error de negocio (sin lista de errores de schema) */}
+            {schemaValidateResult && !schemaValidateResult.ok && !schemaValidateResult.validation_errors && (
+              <div className="mb-4 text-xs text-red-400 bg-red-900/30 border border-red-700/40 rounded px-3 py-2 flex-none">
+                {schemaValidateResult.error}
+              </div>
+            )}
+
+            {/* Resultado: errores de schema (lista detallada) */}
+            {schemaValidateResult && !schemaValidateResult.ok && schemaValidateResult.validation_errors && (
+              <div className="mb-4 flex-1 min-h-0 flex flex-col">
+                <p className="text-xs text-red-400 mb-2 flex-none">
+                  {schemaValidateResult.error}
+                </p>
+                <div className="overflow-y-auto flex-1 border border-red-800/40 rounded bg-red-950/20 p-2 space-y-1">
+                  {schemaValidateResult.validation_errors.map((err, idx) => (
+                    <div key={idx} className="text-[11px] leading-snug">
+                      <span className="text-zinc-500">Campo: </span>
+                      <span className="text-zinc-200 font-mono">{err.path}</span>
+                      <br />
+                      <span className="text-zinc-500">Error: </span>
+                      <span className="text-red-300">{err.message}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div className="flex gap-2 flex-none mt-2">
+              <button
+                type="button"
+                onClick={() => setSchemaValidateDialogOpen(false)}
+                disabled={isSchemaValidating}
+                className="flex-1 h-8 text-xs border border-zinc-700 rounded text-zinc-400 hover:text-zinc-100 transition-colors disabled:opacity-50"
+              >
+                {schemaValidateResult?.ok ? "Cerrar" : "Cancelar"}
+              </button>
+              {!schemaValidateResult?.ok && (
+                <button
+                  type="button"
+                  onClick={handleValidateDteSchema}
+                  disabled={isSchemaValidating}
+                  className="flex-1 h-8 text-xs bg-teal-700 hover:bg-teal-600 text-white rounded font-medium flex items-center justify-center gap-1 disabled:opacity-50 transition-colors"
+                >
+                  {isSchemaValidating
+                    ? <><Loader2 className="h-3 w-3 animate-spin" />Validando…</>
+                    : <><FileText className="h-3 w-3" />Validar JSON</>
+                  }
+                </button>
+              )}
             </div>
           </div>
         </div>

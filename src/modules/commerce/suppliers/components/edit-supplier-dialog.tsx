@@ -57,11 +57,12 @@ const TAXPAYER_OPTIONS = [
 ] as const;
 
 const ID_TYPE_FALLBACK: IdentificationTypeItem[] = [
+  { code: "36", name: "NIT",                description: null },
   { code: "13", name: "DUI",                description: null },
-  { code: "00", name: "NIT",                description: null },
-  { code: "02", name: "Carné de residente", description: null },
-  { code: "03", name: "Pasaporte",          description: null },
+  { code: "02", name: "Carnet de residente", description: null },
+  { code: "03", name: "Pasaporte",           description: null },
   { code: "37", name: "Otro",               description: null },
+  { code: "00", name: "Consumidor final",   description: null },
 ];
 
 // ── Props ─────────────────────────────────────────────────────────
@@ -250,7 +251,7 @@ export function EditSupplierDialog({
                 >
                   <option value="">— Sin tipo —</option>
                   {idTypes.map((t) => (
-                    <option key={t.code} value={t.code}>{t.name}</option>
+                    <option key={t.code} value={t.code}>{t.code} — {t.name}</option>
                   ))}
                 </select>
                 <FieldError errors={state?.errors?.id_type_code} />

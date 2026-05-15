@@ -40,8 +40,8 @@ const TEST_ISSUER = {
   establishment_type_code: "02",                  // CAT-009: Sucursal
   establishment_code:      "0001",               // Debe coincidir con el bloque de numeroControl
   point_of_sale_code:      "0001",               // Debe coincidir con el bloque de numeroControl
-  dept_code:               "06",                 // San Salvador
-  municipality_code:       "23",                 // San Salvador (municipio)
+  dept_code:               "06",                 // San Salvador (departamento)
+  municipality_code:       "14",                 // San Salvador (ciudad) — válido para dept 06: rango 01-19
   address_complement:      "Colonia Escalón, 1a Calle Pte. Local prueba",
   phone:                   "2222-0000",
   email:                   "dte-pruebas@gymtest.local",
