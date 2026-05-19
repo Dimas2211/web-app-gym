@@ -38,6 +38,10 @@ import {
   validateDteJsonSchemaAction,
   type ValidateDteJsonSchemaResult,
 } from "@/modules/commerce/dte/actions/validate-dte-json-schema.action";
+import {
+  signDteDocumentAction,
+  type SignDteDocumentResult,
+} from "@/modules/commerce/dte/actions/sign-dte-document.action";
 
 // ── Props ─────────────────────────────────────────────────────────
 
@@ -113,6 +117,12 @@ export function SalesClient({ initialItems, initialTotal }: SalesClientProps) {
   const [schemaValidateDialogOpen,    setSchemaValidateDialogOpen]    = useState(false);
   const [isSchemaValidating,          setIsSchemaValidating]          = useState(false);
   const [schemaValidateResult,        setSchemaValidateResult]        = useState<ValidateDteJsonSchemaResult | null>(null);
+
+  // ── Estado de firma de DTE ────────────────────────────────────────
+  const [signDteDialogOpen, setSignDteDialogOpen] = useState(false);
+  const [isSigningDte,      setIsSigningDte]      = useState(false);
+  const [signDteError,      setSignDteError]      = useState<string | null>(null);
+  const [signDteSuccess,    setSignDteSuccess]    = useState<string | null>(null);
 
   const filtersRef   = useRef<SaleFilterState>(EMPTY_SALE_FILTERS);
   filtersRef.current = filters;
@@ -353,6 +363,33 @@ export function SalesClient({ initialItems, initialTotal }: SalesClientProps) {
     }
   }
 
+  // ── Handler: firmar DTE (SCHEMA_VALIDATED → SIGNED) ─────────────
+  async function handleSignDte() {
+    const dteId = selectedDetail?.dte_document?.id;
+    if (!dteId || !selectedId) return;
+    setIsSigningDte(true);
+    setSignDteError(null);
+    setSignDteSuccess(null);
+    try {
+      const result: SignDteDocumentResult = await signDteDocumentAction(dteId);
+      if (result.ok) {
+        setSignDteSuccess("DTE firmado correctamente.");
+        fetchList();
+        setSelectedDetail(null);
+        setDetailLoading(true);
+        fetch(`/api/sales/${selectedId}`, { credentials: "same-origin" })
+          .then((r) => (r.ok ? r.json() : Promise.reject()))
+          .then((env) => setSelectedDetail(env.data as SaleDetail))
+          .catch(() => {})
+          .finally(() => setDetailLoading(false));
+      } else {
+        setSignDteError(result.error);
+      }
+    } finally {
+      setIsSigningDte(false);
+    }
+  }
+
   const selectedItem = items.find((i) => i.id === selectedId) ?? null;
 
   return (
@@ -477,6 +514,27 @@ export function SalesClient({ initialItems, initialTotal }: SalesClientProps) {
           </button>
           <span className="text-xs text-zinc-600">
             Valida el JSON generado contra el schema oficial MH · No firma · No transmite.
+          </span>
+        </div>
+      )}
+
+      {/* ── Acción contextual: Firmar DTE (SCHEMA_VALIDATED, tipo 01 o 03) */}
+      {selectedDetail?.status === "CONFIRMED"
+        && selectedDetail.inventory_moved
+        && selectedDetail.dte_document
+        && selectedDetail.dte_document.dte_status === "SCHEMA_VALIDATED"
+        && (selectedDetail.dte_document.dte_type_code === "01" || selectedDetail.dte_document.dte_type_code === "03")
+        && !detailLoading && (
+        <div className="flex-none border-b border-zinc-800 bg-zinc-900/60 px-3 py-1 flex items-center gap-2">
+          <button
+            onClick={() => { setSignDteError(null); setSignDteSuccess(null); setSignDteDialogOpen(true); }}
+            className="h-6 px-2 text-xs text-orange-400 hover:text-orange-200 border border-orange-800/50 hover:border-orange-600 rounded flex items-center gap-1 transition-colors"
+          >
+            <FileText className="h-3 w-3" />
+            Firmar DTE
+          </button>
+          <span className="text-xs text-zinc-600">
+            Firma el JSON validado con el certificado del emisor · No transmite a Hacienda.
           </span>
         </div>
       )}
@@ -940,6 +998,83 @@ export function SalesClient({ initialItems, initialTotal }: SalesClientProps) {
                   {isSchemaValidating
                     ? <><Loader2 className="h-3 w-3 animate-spin" />Validando…</>
                     : <><FileText className="h-3 w-3" />Validar JSON</>
+                  }
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Modal: Firmar DTE ──────────────────────────────────────── */}
+      {signDteDialogOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+          <div className="bg-zinc-900 border border-orange-900/50 rounded-lg p-6 w-96 shadow-xl">
+            <h2 className="text-sm font-semibold text-orange-300 mb-1 flex items-center gap-2">
+              <FileText className="h-4 w-4" />
+              Firmar DTE
+            </h2>
+
+            {!signDteSuccess && !signDteError && (
+              <p className="text-xs text-zinc-400 mb-4 leading-relaxed">
+                Se firmará el JSON validado usando el certificado del emisor configurado.
+                El estado pasará de{" "}
+                <span className="text-zinc-200 font-mono font-medium">SCHEMA_VALIDATED</span>
+                {" "}a{" "}
+                <span className="text-zinc-200 font-mono font-medium">SIGNED</span>.
+              </p>
+            )}
+
+            <p className="text-[10px] text-zinc-500 mb-1">
+              Venta:{" "}
+              <span className="text-zinc-300 font-medium">{selectedItem?.sale_code ?? "—"}</span>
+              {" · "}
+              DTE:{" "}
+              <span className="text-zinc-300 font-mono font-medium">
+                {selectedDetail?.dte_document?.control_number ?? "—"}
+              </span>
+            </p>
+
+            {!signDteSuccess && (
+              <p className="text-[10px] text-amber-600 mb-4">
+                No se transmitirá a Hacienda en esta fase.
+              </p>
+            )}
+
+            {/* Éxito */}
+            {signDteSuccess && (
+              <div className="mb-4 text-xs text-orange-300 bg-orange-900/30 border border-orange-700/40 rounded px-3 py-2">
+                {signDteSuccess} Estado actualizado a{" "}
+                <span className="font-mono font-semibold">SIGNED</span>.
+              </div>
+            )}
+
+            {/* Error */}
+            {signDteError && (
+              <div className="mb-4 text-xs text-red-400 bg-red-900/30 border border-red-700/40 rounded px-3 py-2">
+                {signDteError}
+              </div>
+            )}
+
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setSignDteDialogOpen(false)}
+                disabled={isSigningDte}
+                className="flex-1 h-8 text-xs border border-zinc-700 rounded text-zinc-400 hover:text-zinc-100 transition-colors disabled:opacity-50"
+              >
+                {signDteSuccess ? "Cerrar" : "Cancelar"}
+              </button>
+              {!signDteSuccess && (
+                <button
+                  type="button"
+                  onClick={handleSignDte}
+                  disabled={isSigningDte}
+                  className="flex-1 h-8 text-xs bg-orange-700 hover:bg-orange-600 text-white rounded font-medium flex items-center justify-center gap-1 disabled:opacity-50 transition-colors"
+                >
+                  {isSigningDte
+                    ? <><Loader2 className="h-3 w-3 animate-spin" />Firmando…</>
+                    : <><FileText className="h-3 w-3" />Firmar DTE</>
                   }
                 </button>
               )}
