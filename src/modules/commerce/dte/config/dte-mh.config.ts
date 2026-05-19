@@ -2,8 +2,10 @@
 
 import type { DteMhEnvironment } from "../types/dte-mh-auth.types";
 
-const AUTH_URL_TEST = "https://apitest.dtes.mh.gob.sv/seguridad/auth";
-const AUTH_URL_PROD = "https://api.dtes.mh.gob.sv/seguridad/auth";
+const AUTH_URL_TEST      = "https://apitest.dtes.mh.gob.sv/seguridad/auth";
+const AUTH_URL_PROD      = "https://api.dtes.mh.gob.sv/seguridad/auth";
+const RECEPTION_URL_TEST = "https://apitest.dtes.mh.gob.sv/fesv/recepciondte";
+const RECEPTION_URL_PROD = "https://api.dtes.mh.gob.sv/fesv/recepciondte";
 
 const DEFAULT_TIMEOUT_MS      = 8_000;
 const DEFAULT_TOKEN_CACHE_TTL = 3_000_000; // 50 minutes
@@ -11,6 +13,7 @@ const DEFAULT_TOKEN_CACHE_TTL = 3_000_000; // 50 minutes
 export interface DteMhConfig {
   environment: DteMhEnvironment;
   authUrl: string;
+  receptionUrl: string;
   user: string | null;
   password: string | null;
   timeoutMs: number;
@@ -36,6 +39,11 @@ export function getDteMhConfig(): DteMhConfig {
       ? (process.env["DTE_MH_AUTH_URL_PROD"] ?? AUTH_URL_PROD)
       : (process.env["DTE_MH_AUTH_URL_TEST"] ?? AUTH_URL_TEST);
 
+  const receptionUrl =
+    environment === "PRODUCTION"
+      ? (process.env["DTE_MH_RECEPTION_URL_PROD"] ?? RECEPTION_URL_PROD)
+      : (process.env["DTE_MH_RECEPTION_URL_TEST"] ?? RECEPTION_URL_TEST);
+
   const user     = process.env["DTE_MH_USER"]     ?? null;
   const password = process.env["DTE_MH_PASSWORD"] ?? null;
 
@@ -49,5 +57,5 @@ export function getDteMhConfig(): DteMhConfig {
     DEFAULT_TOKEN_CACHE_TTL,
   );
 
-  return { environment, authUrl, user, password, timeoutMs, tokenCacheTtlMs };
+  return { environment, authUrl, receptionUrl, user, password, timeoutMs, tokenCacheTtlMs };
 }
