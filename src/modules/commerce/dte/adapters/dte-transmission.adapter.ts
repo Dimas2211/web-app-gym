@@ -174,12 +174,13 @@ export class MhDteTransmissionAdapter {
     }
 
     // 6. Normalizar respuesta fiscal
-    return this._normalizeResponse(parsed, raw.status);
+    return this._normalizeResponse(parsed, raw.status, idEnvio);
   }
 
   private _normalizeResponse(
     parsed: unknown,
     httpStatus: number,
+    idEnvio: number,
   ): DteTransmissionResult {
     if (!isMhReceptionResponse(parsed)) {
       return makeError(
@@ -205,6 +206,7 @@ export class MhDteTransmissionAdapter {
         observaciones:    parsed.observaciones    ?? null,
         rawResponse:      parsed,
         httpStatus,
+        idEnvio,
       };
       return success;
     }

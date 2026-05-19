@@ -113,8 +113,8 @@ export class MhAuthAdapter {
     try {
       raw = await fetch(authUrl, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ user, pwd: password }),
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({ user, pwd: password }).toString(),
         signal: controller.signal,
       });
     } catch (err) {

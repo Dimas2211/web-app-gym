@@ -42,6 +42,10 @@ import {
   signDteDocumentAction,
   type SignDteDocumentResult,
 } from "@/modules/commerce/dte/actions/sign-dte-document.action";
+import {
+  transmitDteDocumentAction,
+  type TransmitDteDocumentResult,
+} from "@/modules/commerce/dte/actions/transmit-dte-document.action";
 
 // ── Props ─────────────────────────────────────────────────────────
 
@@ -123,6 +127,12 @@ export function SalesClient({ initialItems, initialTotal }: SalesClientProps) {
   const [isSigningDte,      setIsSigningDte]      = useState(false);
   const [signDteError,      setSignDteError]      = useState<string | null>(null);
   const [signDteSuccess,    setSignDteSuccess]    = useState<string | null>(null);
+
+  // ── Estado de transmisión DTE a Hacienda ──────────────────────────
+  const [transmitDteDialogOpen, setTransmitDteDialogOpen] = useState(false);
+  const [isTransmittingDte,     setIsTransmittingDte]     = useState(false);
+  const [transmitDteResult,     setTransmitDteResult]     = useState<TransmitDteDocumentResult | null>(null);
+  const [transmitDteError,      setTransmitDteError]      = useState<string | null>(null);
 
   const filtersRef   = useRef<SaleFilterState>(EMPTY_SALE_FILTERS);
   filtersRef.current = filters;
@@ -390,6 +400,33 @@ export function SalesClient({ initialItems, initialTotal }: SalesClientProps) {
     }
   }
 
+  // ── Handler: transmitir DTE firmado a Hacienda (SIGNED → ACCEPTED | OBSERVED | REJECTED) ──
+  async function handleTransmitDte() {
+    const dteId = selectedDetail?.dte_document?.id;
+    if (!dteId || !selectedId) return;
+    setIsTransmittingDte(true);
+    setTransmitDteError(null);
+    setTransmitDteResult(null);
+    try {
+      const result: TransmitDteDocumentResult = await transmitDteDocumentAction(dteId);
+      setTransmitDteResult(result);
+      if (result.ok) {
+        fetchList();
+        setSelectedDetail(null);
+        setDetailLoading(true);
+        fetch(`/api/sales/${selectedId}`, { credentials: "same-origin" })
+          .then((r) => (r.ok ? r.json() : Promise.reject()))
+          .then((env) => setSelectedDetail(env.data as SaleDetail))
+          .catch(() => {})
+          .finally(() => setDetailLoading(false));
+      } else {
+        setTransmitDteError(result.error);
+      }
+    } finally {
+      setIsTransmittingDte(false);
+    }
+  }
+
   const selectedItem = items.find((i) => i.id === selectedId) ?? null;
 
   return (
@@ -535,6 +572,28 @@ export function SalesClient({ initialItems, initialTotal }: SalesClientProps) {
           </button>
           <span className="text-xs text-zinc-600">
             Firma el JSON validado con el certificado del emisor · No transmite a Hacienda.
+          </span>
+        </div>
+      )}
+
+      {/* ── Acción contextual: Transmitir DTE a Hacienda (SIGNED, tipo 01 o 03) */}
+      {selectedDetail?.status === "CONFIRMED"
+        && selectedDetail.inventory_moved
+        && selectedDetail.dte_document
+        && selectedDetail.dte_document.dte_status === "SIGNED"
+        && (selectedDetail.dte_document.dte_type_code === "01" || selectedDetail.dte_document.dte_type_code === "03")
+        && !detailLoading && (
+        <div className="flex-none border-b border-zinc-800 bg-zinc-900/60 px-3 py-1 flex items-center gap-2">
+          <button
+            onClick={() => { setTransmitDteResult(null); setTransmitDteError(null); setTransmitDteDialogOpen(true); }}
+            className="h-6 px-2 text-xs text-indigo-400 hover:text-indigo-200 border border-indigo-800/50 hover:border-indigo-600 rounded flex items-center gap-1 transition-colors"
+          >
+            <FileText className="h-3 w-3" />
+            Transmitir a Hacienda
+          </button>
+          <span className="text-xs text-zinc-600">
+            Envía el DTE firmado al Ministerio de Hacienda
+            {selectedDetail.dte_document.environment === "TEST" ? " · Ambiente TEST" : " · Ambiente PRODUCCIÓN"}.
           </span>
         </div>
       )}
@@ -1075,6 +1134,148 @@ export function SalesClient({ initialItems, initialTotal }: SalesClientProps) {
                   {isSigningDte
                     ? <><Loader2 className="h-3 w-3 animate-spin" />Firmando…</>
                     : <><FileText className="h-3 w-3" />Firmar DTE</>
+                  }
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Modal: Transmitir DTE a Hacienda ────────────────────── */}
+      {transmitDteDialogOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+          <div className="bg-zinc-900 border border-indigo-900/50 rounded-lg p-6 w-[28rem] shadow-xl">
+            <h2 className="text-sm font-semibold text-indigo-300 mb-1 flex items-center gap-2">
+              <FileText className="h-4 w-4" />
+              Transmitir DTE a Hacienda
+            </h2>
+
+            {!transmitDteResult && (
+              <p className="text-xs text-zinc-400 mb-3 leading-relaxed">
+                Se enviará el DTE firmado al Ministerio de Hacienda El Salvador.
+                Esta acción es irreversible una vez enviada.
+              </p>
+            )}
+
+            <div className="text-[10px] text-zinc-500 mb-1 space-y-0.5">
+              <p>
+                Venta:{" "}
+                <span className="text-zinc-300 font-medium">{selectedItem?.sale_code ?? "—"}</span>
+                {" · "}
+                Tipo DTE:{" "}
+                <span className="text-zinc-300 font-mono font-medium">
+                  {selectedDetail?.dte_document?.dte_type_code === "01" ? "FE 01" : "CCFE 03"}
+                </span>
+              </p>
+              <p>
+                N° Control:{" "}
+                <span className="text-zinc-300 font-mono font-medium">
+                  {selectedDetail?.dte_document?.control_number ?? "—"}
+                </span>
+              </p>
+              <p>
+                Código generación:{" "}
+                <span className="text-zinc-300 font-mono font-medium break-all">
+                  {selectedDetail?.dte_document?.generation_code ?? "—"}
+                </span>
+              </p>
+              <p>
+                Ambiente:{" "}
+                <span className={selectedDetail?.dte_document?.environment === "PRODUCTION" ? "text-red-400 font-semibold" : "text-amber-400 font-semibold"}>
+                  {selectedDetail?.dte_document?.environment === "PRODUCTION" ? "PRODUCCIÓN" : "TEST"}
+                </span>
+              </p>
+            </div>
+
+            {!transmitDteResult && (
+              <p className="text-[10px] text-amber-600 mt-3 mb-4">
+                {selectedDetail?.dte_document?.environment === "PRODUCTION"
+                  ? "Se enviará al endpoint oficial de producción MH."
+                  : "Se enviará al endpoint de pruebas MH (TEST)."}
+              </p>
+            )}
+
+            {/* Resultado: ACCEPTED */}
+            {transmitDteResult?.ok && transmitDteResult.dteStatus === "ACCEPTED" && (
+              <div className="mb-4 mt-3 text-xs bg-emerald-900/30 border border-emerald-700/40 rounded px-3 py-2 space-y-1">
+                <p className="text-emerald-300 font-semibold">DTE aceptado por Hacienda.</p>
+                <p className="text-zinc-400">
+                  Estado fiscal:{" "}
+                  <span className="text-zinc-200 font-mono">ACCEPTED</span>
+                </p>
+                {transmitDteResult.selloRecibido && (
+                  <p className="text-zinc-400">
+                    Sello:{" "}
+                    <span className="text-zinc-300 font-mono text-[10px] break-all">
+                      {transmitDteResult.selloRecibido}
+                    </span>
+                  </p>
+                )}
+              </div>
+            )}
+
+            {/* Resultado: OBSERVED */}
+            {transmitDteResult?.ok && transmitDteResult.dteStatus === "OBSERVED" && (
+              <div className="mb-4 mt-3 text-xs bg-amber-900/30 border border-amber-700/40 rounded px-3 py-2 space-y-1">
+                <p className="text-amber-300 font-semibold">DTE recibido con observaciones.</p>
+                <p className="text-zinc-400">
+                  Estado fiscal:{" "}
+                  <span className="text-zinc-200 font-mono">OBSERVED</span>
+                </p>
+                {transmitDteResult.descripcionMsg && (
+                  <p className="text-zinc-400">
+                    MH:{" "}
+                    <span className="text-amber-200">{transmitDteResult.descripcionMsg}</span>
+                  </p>
+                )}
+              </div>
+            )}
+
+            {/* Resultado: REJECTED */}
+            {transmitDteResult?.ok && transmitDteResult.dteStatus === "REJECTED" && (
+              <div className="mb-4 mt-3 text-xs bg-red-900/30 border border-red-700/40 rounded px-3 py-2 space-y-1">
+                <p className="text-red-300 font-semibold">DTE rechazado por Hacienda.</p>
+                <p className="text-zinc-400">
+                  Estado fiscal:{" "}
+                  <span className="text-zinc-200 font-mono">REJECTED</span>
+                </p>
+                {transmitDteResult.descripcionMsg && (
+                  <p className="text-zinc-400">
+                    Motivo:{" "}
+                    <span className="text-red-300">{transmitDteResult.descripcionMsg}</span>
+                  </p>
+                )}
+              </div>
+            )}
+
+            {/* Error técnico */}
+            {transmitDteError && !transmitDteResult?.ok && (
+              <div className="mb-4 mt-3 text-xs text-red-400 bg-red-900/30 border border-red-700/40 rounded px-3 py-2">
+                {transmitDteError}
+                <p className="text-zinc-500 mt-1">El documento se mantiene en SIGNED. Puedes reintentar.</p>
+              </div>
+            )}
+
+            <div className="flex gap-2 mt-2">
+              <button
+                type="button"
+                onClick={() => setTransmitDteDialogOpen(false)}
+                disabled={isTransmittingDte}
+                className="flex-1 h-8 text-xs border border-zinc-700 rounded text-zinc-400 hover:text-zinc-100 transition-colors disabled:opacity-50"
+              >
+                {transmitDteResult?.ok ? "Cerrar" : "Cancelar"}
+              </button>
+              {!transmitDteResult?.ok && (
+                <button
+                  type="button"
+                  onClick={handleTransmitDte}
+                  disabled={isTransmittingDte}
+                  className="flex-1 h-8 text-xs bg-indigo-700 hover:bg-indigo-600 text-white rounded font-medium flex items-center justify-center gap-1 disabled:opacity-50 transition-colors"
+                >
+                  {isTransmittingDte
+                    ? <><Loader2 className="h-3 w-3 animate-spin" />Transmitiendo…</>
+                    : <><FileText className="h-3 w-3" />Transmitir a Hacienda</>
                   }
                 </button>
               )}

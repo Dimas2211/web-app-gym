@@ -68,6 +68,8 @@ export interface DteTransmissionSuccessResult {
   /** Respuesta MH cruda (sin signed_jws ni Authorization). */
   rawResponse: unknown;
   httpStatus: number;
+  /** Correlativo de envío usado en el POST. Necesario para persistencia en 4I-6C. */
+  idEnvio: number;
 }
 
 export interface DteTransmissionErrorResult {
