@@ -120,13 +120,20 @@ export async function createPendingDteForSale(
         },
         select: {
           id:                 true,
-          establishment_code: true,
-          point_of_sale_code: true,
+          cod_estable_mh:     true,
+          cod_punto_venta_mh: true,
         },
       });
       if (!issuerConfig) {
         throw new DteBusinessError(
           "La configuración DTE del emisor no existe, está inactiva o no corresponde al ambiente indicado.",
+        );
+      }
+
+      if (!issuerConfig.cod_estable_mh || !issuerConfig.cod_punto_venta_mh) {
+        throw new DteBusinessError(
+          "Faltan códigos MH de establecimiento y punto de venta para este emisor/ambiente. " +
+          "Configure cod_estable_mh y cod_punto_venta_mh en la configuración del emisor DTE.",
         );
       }
 
@@ -169,8 +176,8 @@ export async function createPendingDteForSale(
       // ── 6. Construir numeroControl ───────────────────────────────
       const control_number = buildControlNumber({
         dte_type_code:      input.dte_type_code,
-        establishment_code: issuerConfig.establishment_code,
-        point_of_sale_code: issuerConfig.point_of_sale_code,
+        cod_estable_mh:     issuerConfig.cod_estable_mh,
+        cod_punto_venta_mh: issuerConfig.cod_punto_venta_mh,
         sequence:           reservedSequence,
       });
 

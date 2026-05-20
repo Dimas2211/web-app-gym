@@ -31,6 +31,8 @@ export async function getActiveDteIssuerConfig(
       establishment_code:      true,
       establishment_type_code: true,
       point_of_sale_code:      true,
+      cod_estable_mh:          true,
+      cod_punto_venta_mh:      true,
       dept_code:               true,
       municipality_code:       true,
       address_complement:      true,

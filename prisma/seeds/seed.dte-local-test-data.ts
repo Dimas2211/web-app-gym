@@ -38,8 +38,12 @@ const TEST_ISSUER = {
   activity_code:           "93120",               // Actividades de clubes deportivos
   activity_name:           "Actividades de clubes deportivos y gimnasios",
   establishment_type_code: "02",                  // CAT-009: Sucursal
-  establishment_code:      "0001",               // Debe coincidir con el bloque de numeroControl
-  point_of_sale_code:      "0001",               // Debe coincidir con el bloque de numeroControl
+  establishment_code:      "0001",               // Código CAT-009 del sistema
+  point_of_sale_code:      "0001",               // Código CAT-009 del sistema
+  // ⚠️  REEMPLAZAR con los códigos reales asignados por MH para el ambiente TEST
+  // Formato: exactamente 4 caracteres alfanuméricos (ej. "M001", "P001")
+  cod_estable_mh:          "M001",               // Ficticio — reemplazar con el real de MH
+  cod_punto_venta_mh:      "P001",               // Ficticio — reemplazar con el real de MH
   dept_code:               "06",                 // San Salvador (departamento)
   municipality_code:       "14",                 // San Salvador (ciudad) — válido para dept 06: rango 01-19
   address_complement:      "Colonia Escalón, 1a Calle Pte. Local prueba",
@@ -120,6 +124,8 @@ async function main() {
       establishment_type_code: TEST_ISSUER.establishment_type_code,
       establishment_code:      TEST_ISSUER.establishment_code,
       point_of_sale_code:      TEST_ISSUER.point_of_sale_code,
+      cod_estable_mh:          TEST_ISSUER.cod_estable_mh,
+      cod_punto_venta_mh:      TEST_ISSUER.cod_punto_venta_mh,
       dept_code:               TEST_ISSUER.dept_code,
       municipality_code:       TEST_ISSUER.municipality_code,
       address_complement:      TEST_ISSUER.address_complement,
@@ -140,6 +146,8 @@ async function main() {
       establishment_type_code: TEST_ISSUER.establishment_type_code,
       establishment_code:      TEST_ISSUER.establishment_code,
       point_of_sale_code:      TEST_ISSUER.point_of_sale_code,
+      cod_estable_mh:          TEST_ISSUER.cod_estable_mh,
+      cod_punto_venta_mh:      TEST_ISSUER.cod_punto_venta_mh,
       dept_code:               TEST_ISSUER.dept_code,
       municipality_code:       TEST_ISSUER.municipality_code,
       address_complement:      TEST_ISSUER.address_complement,
@@ -147,7 +155,7 @@ async function main() {
       email:                   TEST_ISSUER.email,
       is_active:               true,
     },
-    select: { id: true, nit: true, establishment_code: true, point_of_sale_code: true },
+    select: { id: true, nit: true, establishment_code: true, point_of_sale_code: true, cod_estable_mh: true, cod_punto_venta_mh: true },
   });
 
   console.log(`\n  ✅ DteIssuerConfig (TEST) upserted:`);
@@ -155,6 +163,8 @@ async function main() {
   console.log(`     nit:                 ${issuerConfig.nit}`);
   console.log(`     establishment_code:  ${issuerConfig.establishment_code}`);
   console.log(`     point_of_sale_code:  ${issuerConfig.point_of_sale_code}`);
+  console.log(`     cod_estable_mh:      ${issuerConfig.cod_estable_mh}  ← código MH (reemplazar si es ficticio)`);
+  console.log(`     cod_punto_venta_mh:  ${issuerConfig.cod_punto_venta_mh}  ← código MH (reemplazar si es ficticio)`);
 
   // ── 4. DteCorrelative — upsert idempotente para FE 01 ─────────────
   //

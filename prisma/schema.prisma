@@ -1673,10 +1673,15 @@ model DteIssuerConfig {
   activity_code           String?
   activity_name           String?
 
-  // Establecimiento (CAT-009 MH)
+  // Establecimiento (CAT-009 MH) — códigos propios del sistema
   establishment_code      String?
   establishment_type_code String?
   point_of_sale_code      String?
+
+  // Códigos reales asignados por MH — usados en numeroControl
+  // Formato: exactamente 4 caracteres alfanuméricos (ej. "M001", "P001")
+  cod_estable_mh          String?
+  cod_punto_venta_mh      String?
 
   // Dirección fiscal
   dept_code               String?

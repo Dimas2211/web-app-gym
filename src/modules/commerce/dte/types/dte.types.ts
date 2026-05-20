@@ -38,6 +38,8 @@ export interface DteIssuerConfigDetail {
   establishment_code:      string | null;
   establishment_type_code: string | null;
   point_of_sale_code:      string | null;
+  cod_estable_mh:          string | null;
+  cod_punto_venta_mh:      string | null;
   dept_code:               string | null;
   municipality_code:       string | null;
   address_complement:      string | null;

@@ -274,12 +274,25 @@ export async function generateFeJsonForDte(
     }
 
     const cuerpoDocumento: CuerpoItem[] = sale.items.map((item) => {
-      const qty       = Number(item.quantity);
-      const unitPrice = r2(Number(item.unit_price));
-      const descu     = r2(Number(item.discount_amount));
-      const subtotal  = r2(Number(item.line_subtotal));
-      const ivaAmount = r2(Number(item.tax_amount));
-      const hasIva    = Number(item.tax_rate_snapshot) > 0 && ivaAmount > 0;
+      const qty           = Number(item.quantity);
+      const unitPriceBase = Number(item.unit_price);      // BASE sin IVA (cómo se almacena)
+      const descuBase     = Number(item.discount_amount); // descuento BASE sin IVA
+      const taxRate       = Number(item.tax_rate_snapshot ?? 0);
+      const hasIva        = taxRate > 0;
+      const taxFactor     = 1 + taxRate / 100;           // 1.13 para IVA 13 %
+
+      // FE-01: precioUni y montoDescu van CON IVA incluido para líneas gravadas.
+      // Hacienda verifica exactamente: ventaGravada == cantidad * precioUni - montoDescu.
+      const precioUniLine = hasIva ? r2(unitPriceBase * taxFactor) : r2(unitPriceBase);
+      const descuLine     = hasIva ? r2(descuBase * taxFactor)     : r2(descuBase);
+
+      // ventaGravada/ventaExenta: total neto por línea CON IVA incluido.
+      const lineNetWithIva    = r2(qty * precioUniLine - descuLine);
+      const ventaGravadaLine  = hasIva ? lineNetWithIva : 0;
+      const ventaExentaLine   = hasIva ? 0 : lineNetWithIva;
+
+      // ivaItem: IVA extraído del precio final — informativo, no se suma a montoTotalOperacion.
+      const ivaItemLine = hasIva ? r2(ventaGravadaLine - ventaGravadaLine / taxFactor) : null;
 
       return {
         numItem:         item.line_number,
@@ -290,16 +303,16 @@ export async function generateFeJsonForDte(
         codTributo:      null,
         uniMedida:       59, // CAT-014 "Unidades" — MVP: UnitOfMeasure no tiene código fiscal MH
         descripcion:     item.product_name_snapshot,
-        precioUni:       unitPrice,
-        montoDescu:      descu,
+        precioUni:       precioUniLine,
+        montoDescu:      descuLine,
         ventaNoSuj:      0,
-        ventaExenta:     hasIva ? 0 : subtotal,
-        ventaGravada:    hasIva ? subtotal : 0,
+        ventaExenta:     ventaExentaLine,
+        ventaGravada:    ventaGravadaLine,
         // FE-01: tributos no incluye "20" (IVA); el IVA por línea va en ivaItem.
         tributos:        null,
         psv:             0,
         noGravado:       0,
-        ivaItem:         hasIva ? ivaAmount : null,
+        ivaItem:         ivaItemLine,
       };
     });
 
@@ -309,41 +322,40 @@ export async function generateFeJsonForDte(
     let totalExenta  = 0;
     let descuGravada = 0;
     let descuExenta  = 0;
+    let totalIva     = 0;
 
     for (const item of cuerpoDocumento) {
       totalGravada += item.ventaGravada;
       totalExenta  += item.ventaExenta;
-      // Acumular descuentos por tipo de línea (gravada vs exenta)
       if (item.ventaGravada > 0) {
         descuGravada += item.montoDescu;
       } else {
         descuExenta += item.montoDescu;
+      }
+      if (item.ivaItem != null) {
+        totalIva += item.ivaItem;
       }
     }
     totalGravada = r2(totalGravada);
     totalExenta  = r2(totalExenta);
     descuGravada = r2(descuGravada);
     descuExenta  = r2(descuExenta);
+    totalIva     = r2(totalIva);
     const totalDescu = r2(descuGravada + descuExenta);
 
     const totalNoSuj       = 0;
-    const subTotalVentas   = r2(totalNoSuj + totalExenta + totalGravada);
-    const subTotal         = subTotalVentas;
-    const totalIva         = r2(taxAmount);
-    const montoTotalOperacion = r2(totalAmount);
-    const totalPagar       = montoTotalOperacion;
+    // FE-01: totalGravada ya incluye IVA → subTotalVentas y montoTotalOperacion
+    // son el total con IVA. totalIva es solo informativo; no se suma al total.
+    const subTotalVentas      = r2(totalNoSuj + totalExenta + totalGravada);
+    const subTotal            = subTotalVentas;
+    const montoTotalOperacion = subTotal; // + totalNoGravado (0 para MVP)
+    const totalPagar          = montoTotalOperacion;
 
-    // Validar coherencia resumen vs totales DB
-    if (Math.abs(subTotalVentas - r2(Number(sale.subtotal))) > TOLERANCE) {
+    // Validar que el total calculado coincide con el total_amount de la venta (ambos con IVA)
+    if (Math.abs(montoTotalOperacion - r2(totalAmount)) > TOLERANCE) {
       return {
         ok:    false,
-        error: `Inconsistencia en subTotalVentas: calculado=${subTotalVentas}, esperado=${r2(Number(sale.subtotal))}.`,
-      };
-    }
-    if (Math.abs(subTotal + totalIva - montoTotalOperacion) > TOLERANCE) {
-      return {
-        ok:    false,
-        error: `Inconsistencia: subTotal(${subTotal}) + totalIva(${totalIva}) = ${r2(subTotal + totalIva)} ≠ montoTotalOperacion(${montoTotalOperacion}).`,
+        error: `Inconsistencia: montoTotalOperacion calculado (${montoTotalOperacion}) difiere del total_amount de la venta (${r2(totalAmount)}).`,
       };
     }
 

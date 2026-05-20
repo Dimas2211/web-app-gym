@@ -74,6 +74,20 @@ export const createDteIssuerConfigSchema = z.object({
     .optional()
     .nullable(),
 
+  cod_estable_mh: z
+    .string()
+    .trim()
+    .length(4, "cod_estable_mh debe tener exactamente 4 caracteres (ej. 'M001')")
+    .optional()
+    .nullable(),
+
+  cod_punto_venta_mh: z
+    .string()
+    .trim()
+    .length(4, "cod_punto_venta_mh debe tener exactamente 4 caracteres (ej. 'P001')")
+    .optional()
+    .nullable(),
+
   dept_code: z
     .string()
     .trim()
