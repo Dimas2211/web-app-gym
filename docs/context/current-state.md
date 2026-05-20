@@ -9,7 +9,7 @@
 - commerce/suppliers cerrado y operativo.
 - commerce/sales ciclo interno cerrado (Fase 4H-Z) — DRAFT, CONFIRMED, inventario, UI operativa.
 - commerce/customers cerrado y operativo — módulo completo con catálogos fiscales (Fase 4I-3B-1 + ajustes).
-- commerce/dte outgoing en progreso — Fases 4I-1 a 4I-4D cerradas. JSON FE 01 y CCFE 03 generado y validado contra schemas MH. Próxima: 4I-5 firma digital.
+- commerce/dte outgoing — Fases 4I-1 a 4I-6 cerradas. FE 01 y CCFE 03 generados, validados, firmados y transmitidos a MH TEST con respuesta ACCEPTED. Sellos recibidos y persistidos. UI operativa. Ver docs/modules/dte-transmission-summary.md.
 - cash pendiente.
 
 ## Identidad activa
@@ -90,12 +90,12 @@
 - Ver docs/modules/sales-summary.md para detalle completo.
 
 ## Módulos en progreso
-- dte outgoing: ver docs/modules/sales-dte-generation-plan.md + docs/modules/dte-json-validation-summary.md
+- dte outgoing: cerrado FE 01 + CCFE 03 hasta transmisión MH TEST. Ver docs/modules/dte-transmission-summary.md.
 - customers: cerrado. Ver docs/modules/customers-summary.md
 
 ## Próximos pasos
-- Fase 4I-5: Firma digital del DTE (firmador local Java/Docker, signed_jws, estado SIGNED).
-- Fase 4I-6: Transmisión a Hacienda (test / producción).
+- Fase 4I-7+: QR URL pública, PDF, entrega por email, reintentos automáticos, vista de logs DTE.
+- Fase 4I-8+: Invalidación DTE, contingencia, notas de crédito/débito.
 - Fase posterior: Cash/Caja (pagos, cortes, cuentas por cobrar).
 - Fase posterior: Anulación de ventas confirmadas.
 

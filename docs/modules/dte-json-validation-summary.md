@@ -5,7 +5,7 @@
 **Fase 4I-4 cerrada (incluyendo subfases 4I-4B, 4I-4C, 4I-4D).**
 
 Probado localmente y en Vercel. No hay pendientes de código en esta fase.
-Siguiente fase: 4I-5 — Firma digital del DTE.
+Fases 4I-5 (firma) y 4I-6 (transmisión) también cerradas. FE 01 y CCFE 03 aceptados en portal MH TEST. Ver docs/modules/dte-transmission-summary.md.
 
 ---
 

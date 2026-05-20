@@ -413,8 +413,12 @@ Todos los campos son nullable. No rompen servicios existentes.
 
 ## Estado
 
-Fase 3C completada — modelado base DTE extendido.
-Schema Prisma implementado y migrado localmente.
-No hay UI todavía.
-No hay adaptadores de envío/firma todavía.
-No hay generación de PDF real todavía.
+**Fase 4I-6 cerrada — FE 01 y CCFE 03 completos en MH TEST.**
+
+- Schema Prisma migrado localmente y en Supabase.
+- FE 01 y CCFE 03 generados, validados (AJV), firmados y transmitidos con respuesta ACCEPTED.
+- Ambos documentos visibles en portal MH TEST.
+- Adaptadores de firma y transmisión implementados y operativos.
+- UI mostrando estado ACCEPTED con sello recibido.
+- Modelado de PDF, delivery, relaciones e invalidación pendiente de implementación.
+- Ver docs/modules/dte-transmission-summary.md para el cierre técnico completo.

@@ -1,6 +1,6 @@
 # DTE Outgoing — Plan de generación desde venta confirmada
 
-Estado: **Fase 4I-4D cerrada. Fases 4I-1, 4I-2, 4I-3 (CCFE 03), 4I-4, 4I-4B, 4I-4C, 4I-4D completadas. JSON FE 01 y CCFE 03 generado y validado localmente contra schemas MH oficiales. Probado en Vercel. Próxima: 4I-5 firma digital.**
+Estado: **Fase 4I-6 cerrada. Fases 4I-1 a 4I-6 completadas. FE 01 y CCFE 03 generados, validados, firmados y transmitidos a MH TEST con respuesta ACCEPTED. Ambos documentos visibles en portal MH TEST. Ver docs/modules/dte-transmission-summary.md para el cierre técnico completo.**
 
 ---
 
