@@ -6,7 +6,7 @@
 //
 // Reglas:
 //   - Solo opera sobre dte_status === "GENERATED".
-//   - Solo acepta dte_type_code "01" (FE) y "03" (CCFE).
+//   - Solo acepta dte_type_code "01" (FE), "03" (CCFE) y "05" (NC).
 //   - Si valida: cambia dte_status a SCHEMA_VALIDATED.
 //   - Si falla: mantiene GENERATED, devuelve errores legibles.
 //   - NO firma. NO transmite. NO toca json_document.
@@ -17,6 +17,7 @@ import addFormats  from "ajv-formats";
 import { prisma }  from "@/lib/db/prisma";
 import feSchema    from "../schemas/mh/fe-01.schema.json";
 import ccfeSchema  from "../schemas/mh/ccfe-03.schema.json";
+import ncSchema    from "../schemas/mh/fe-nc-v3.json";
 
 // ── Tipos públicos ────────────────────────────────────────────────
 
@@ -39,12 +40,14 @@ class DteValidationBusinessError extends Error {
 }
 
 // ── Mapa de schemas por dte_type_code ─────────────────────────────
-// "01" = Factura Electrónica   → fe-01.schema.json  (fe-fc-v1.json del ZIP MH)
-// "03" = Comprobante de Crédito Fiscal → ccfe-03.schema.json (fe-ccf-v3.json del ZIP MH)
+// "01" = Factura Electrónica             → fe-01.schema.json   (fe-fc-v1.json del ZIP MH)
+// "03" = Comprobante de Crédito Fiscal   → ccfe-03.schema.json (fe-ccf-v3.json del ZIP MH)
+// "05" = Nota de Crédito Electrónica     → fe-nc-v3.json       (fe-nc-v3.json del ZIP MH)
 
 const SCHEMA_MAP: Record<string, object> = {
   "01": feSchema   as object,
   "03": ccfeSchema as object,
+  "05": ncSchema   as object,
 };
 
 // ── Función principal ─────────────────────────────────────────────
@@ -91,7 +94,7 @@ export async function validateDteJsonSchema(
     const schema = SCHEMA_MAP[dteDoc.dte_type_code];
     if (!schema) {
       throw new DteValidationBusinessError(
-        `No existe schema oficial MH para el tipo DTE "${dteDoc.dte_type_code}". Solo se admiten "01" (FE) y "03" (CCFE).`,
+        `No existe schema oficial MH para el tipo DTE "${dteDoc.dte_type_code}". Solo se admiten "01" (FE), "03" (CCFE) y "05" (NC).`,
       );
     }
 

@@ -14,7 +14,7 @@ import type { DteMhEnvironment } from "./dte-mh-auth.types";
 export type DteMhAmbienteCode = "00" | "01";
 
 /** tipoDte aceptado por recepciondte */
-export type DteTypeCode = "01" | "03";
+export type DteTypeCode = "01" | "03" | "05";
 
 // Re-exportar para comodidad de consumers
 export type { DteMhEnvironment };
@@ -24,7 +24,7 @@ export type { DteMhEnvironment };
 export interface DteTransmissionInput {
   /** Ambiente destino. Si omite, usa DTE_ENVIRONMENT del config. */
   environment?: DteMhEnvironment;
-  /** "01" = FE, "03" = CCFE */
+  /** "01" = FE, "03" = CCFE, "05" = NC */
   dteTypeCode: DteTypeCode;
   /** version del DTE: FE 01 → 1, CCFE 03 → 3 */
   version: number;

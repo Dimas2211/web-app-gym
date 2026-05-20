@@ -228,6 +228,35 @@ async function main() {
   console.log(`     dte_type_code:  ${corrCCFE.dte_type_code}`);
   console.log(`     last_sequence:  ${corrCCFE.last_sequence}`);
 
+  // ── 6. DteCorrelative — upsert para NC 05 ─────────────────────────
+
+  const corrNC = await prisma.dteCorrelative.upsert({
+    where: {
+      tenant_id_location_id_environment_dte_type_code_year: {
+        tenant_id,
+        location_id,
+        environment:   "TEST",
+        dte_type_code: "05",
+        year,
+      },
+    },
+    update: {}, // No resetear si ya existe
+    create: {
+      tenant_id,
+      location_id,
+      environment:   "TEST",
+      dte_type_code: "05",
+      year,
+      last_sequence: 0,
+    },
+    select: { id: true, dte_type_code: true, year: true, last_sequence: true },
+  });
+
+  console.log(`\n  ✅ DteCorrelative NC 05 (TEST, ${year}) upserted:`);
+  console.log(`     id:             ${corrNC.id}`);
+  console.log(`     dte_type_code:  ${corrNC.dte_type_code}`);
+  console.log(`     last_sequence:  ${corrNC.last_sequence}`);
+
   // ── Resumen ────────────────────────────────────────────────────────
 
   console.log("\n──────────────────────────────────────────────────────────────");

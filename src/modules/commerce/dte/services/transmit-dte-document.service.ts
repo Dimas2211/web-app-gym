@@ -52,10 +52,11 @@ class TransmitDteBusinessError extends Error {
 
 // ── Helpers ───────────────────────────────────────────────────────
 
-const SUPPORTED_TYPE_CODES = new Set(["01", "03"]);
+const SUPPORTED_TYPE_CODES = new Set(["01", "03", "05"]);
 
 function dteTypeCodeToVersion(code: string): number {
-  return code === "03" ? 3 : 1;
+  if (code === "03" || code === "05") return 3;
+  return 1;
 }
 
 /**
@@ -138,7 +139,7 @@ export async function transmitDteDocument(
 
     // 4. Parámetros de transmisión
     const environment   = dteDoc.environment as "TEST" | "PRODUCTION";
-    const dteTypeCode   = dteDoc.dte_type_code as "01" | "03";
+    const dteTypeCode   = dteDoc.dte_type_code as "01" | "03" | "05";
     const version       = dteTypeCodeToVersion(dteTypeCode);
     const receptionUrl  = buildReceptionUrl(environment);
     const attemptNumber = dteDoc.retry_count + 1;
