@@ -454,8 +454,18 @@ export async function generateFeJsonForDte(
         correo:        c.email ?? null,
       };
     } else {
-      // Sin cliente, sin tipo de documento, o "00" (consumidor final) → receptor null
-      receptor = null;
+      // Sin cliente, sin tipo de documento, o "00" (consumidor final)
+      receptor = {
+        tipoDocumento: null,
+        numDocumento:  null,
+        nrc:           null,
+        nombre:        "CONSUMIDOR FINAL",
+        codActividad:  null,
+        descActividad: null,
+        direccion:     null,
+        telefono:      null,
+        correo:        null,
+      };
     }
 
     // ── 13. Construir identificacion ──────────────────────────────
