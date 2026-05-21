@@ -29,6 +29,7 @@ import {
   invalidationTypeLabel,
   invalidationStatusCls,
 } from "../utils/dte-status.utils";
+import { DteOutgoingActionBar } from "./dte-outgoing-action-bar";
 
 // ── Helpers de formato ────────────────────────────────────────────
 
@@ -535,7 +536,12 @@ export function DteOutgoingDetailPanel({
   if (!detail) return <EmptyPanel />;
 
   return (
-    <div className="grid grid-cols-[1fr_1fr_1fr_1fr] gap-x-4 gap-y-3 text-xs text-zinc-300 px-3 pt-3 pb-4">
+    <div className="flex flex-col">
+
+      {/* Barra de disponibilidad de acciones — Fase 5A */}
+      <DteOutgoingActionBar availability={detail.action_availability} />
+
+      <div className="grid grid-cols-[1fr_1fr_1fr_1fr] gap-x-4 gap-y-3 text-xs text-zinc-300 px-3 pt-3 pb-4">
 
       {/* Col 1 */}
       <IdentificationSection d={detail} />
@@ -560,6 +566,7 @@ export function DteOutgoingDetailPanel({
         <LogsSection d={detail} />
       </div>
 
+      </div>{/* end grid */}
     </div>
   );
 }

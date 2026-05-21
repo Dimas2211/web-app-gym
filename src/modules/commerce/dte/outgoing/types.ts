@@ -197,6 +197,9 @@ export interface DteOutgoingDetail {
 
   // 9. Logs de transmisión (sin response_body, request_payload, token, JWS)
   logs: DteOutgoingLogItem[];
+
+  // 10. Disponibilidad de acciones contextuales (calculada en servidor)
+  action_availability: DteOutgoingActionAvailability;
 }
 
 // ── Disponibilidad de acciones contextuales ───────────────────────
@@ -211,4 +214,12 @@ export interface DteOutgoingActionAvailability {
   canInvalidate:                  boolean;  // status=ACCEPTED, sin invalidación activa
   canDeliverExternal:             boolean;  // status=ACCEPTED, sin delivery exitoso previo
   canDeliverExternalInvalidation: boolean;  // invalidación ACCEPTED, sin delivery invalidación exitoso
+  reasons: {
+    sign?:                    string;
+    transmit?:                string;
+    createCreditNote?:        string;
+    invalidate?:              string;
+    sendExternalDte?:         string;
+    sendExternalInvalidation?: string;
+  };
 }

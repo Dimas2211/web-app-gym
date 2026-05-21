@@ -14,6 +14,7 @@ import type { DteOutgoingDetail, DteOutgoingRelationSummary } from "../types";
 import type { DteOutgoingStatus, DteEnvironment } from "../../types/dte.types";
 import type { DteInvalidationStatus } from "../../types/dte-invalidation.types";
 import { buildDeliverySummary } from "../utils/dte-delivery-summary.utils";
+import { computeDteOutgoingActionAvailability } from "../utils/dte-action-availability.utils";
 
 // ─────────────────────────────────────────────────────────────────
 
@@ -245,6 +246,19 @@ export async function getDteOutgoingDetailById(params: {
       }
     : null;
 
+  // ── Disponibilidad de acciones contextuales (servidor) ───────────
+  // Calculada internamente — el cliente solo lee el resultado.
+  // Ningún campo sensible es necesario para este cálculo.
+
+  const action_availability = computeDteOutgoingActionAvailability({
+    dte_status:            row.dte_status,
+    dte_type_code:         row.dte_type_code,
+    related_nc,
+    latest_invalidation,
+    delivery,
+    invalidation_delivery,
+  });
+
   // ── Resultado ─────────────────────────────────────────────────────
 
   return {
@@ -297,5 +311,7 @@ export async function getDteOutgoingDetailById(params: {
       error_message:  l.error_message,
       created_at:     l.created_at,
     })),
+
+    action_availability,
   };
 }
