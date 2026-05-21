@@ -5,7 +5,7 @@
 // ─────────────────────────────────────────────────────────────────
 
 import { prisma } from "@/lib/db/prisma";
-import type { SaleDetail } from "../types/sale.types";
+import type { SaleDetail, SaleDteRelatedNc, SaleDteInvalidationSummary, SaleExternalDeliverySummary } from "../types/sale.types";
 
 export async function getSaleDetailById(
   id:          string,
@@ -60,14 +60,67 @@ export async function getSaleDetailById(
         orderBy: { created_at: "desc" },
         take: 1,
         select: {
-          id:              true,
-          dte_type_code:   true,
-          generation_code: true,
-          control_number:  true,
-          reception_stamp: true,
-          dte_status:      true,
-          environment:     true,
-          created_at:      true,
+          id:               true,
+          dte_type_code:    true,
+          generation_code:  true,
+          control_number:   true,
+          reception_stamp:  true,
+          dte_status:       true,
+          environment:      true,
+          rejection_reason: true,
+          issued_at:        true,
+          accepted_at:      true,
+          rejected_at:      true,
+          invalidated_at:   true,
+          created_at:       true,
+          // NC 05 vinculadas como "nota de crédito de este DTE"
+          related_in_relations: {
+            where: { relation_type: "CREDIT_NOTE_OF" },
+            take: 1,
+            select: {
+              source_document: {
+                select: {
+                  id:              true,
+                  dte_type_code:   true,
+                  control_number:  true,
+                  generation_code: true,
+                  dte_status:      true,
+                  reception_stamp: true,
+                  created_at:      true,
+                },
+              },
+            },
+          },
+          // Logs de entrega externa (EXTERNAL_DELIVERY)
+          transmission_logs: {
+            where:   { operation_type: "EXTERNAL_DELIVERY" },
+            orderBy: { created_at: "desc" },
+            select: {
+              response_body: true,
+              error_message: true,
+              http_status:   true,
+              created_at:    true,
+            },
+          },
+          // Eventos de invalidación del DTE
+          invalidation_events: {
+            orderBy: { created_at: "desc" },
+            take: 5,
+            select: {
+              id:                     true,
+              invalidation_type_code: true,
+              reason:                 true,
+              status:                 true,
+              mh_estado:              true,
+              mh_sello_recibido:      true,
+              mh_codigo_msg:          true,
+              mh_descripcion_msg:     true,
+              accepted_at:            true,
+              rejected_at:            true,
+              last_error:             true,
+              created_at:             true,
+            },
+          },
         },
       },
       confirmed_by_user: { select: { first_name: true, last_name: true } },
@@ -101,6 +154,26 @@ export async function getSaleDetailById(
   });
 
   if (!row) return null;
+
+  function isSuccessfulDeliveryLog(log: {
+    response_body: unknown;
+    error_message: string | null;
+    http_status:   number | null;
+  }): boolean {
+    if (log.response_body && typeof log.response_body === "object" && !Array.isArray(log.response_body)) {
+      const body = log.response_body as Record<string, unknown>;
+      if ("ok" in body) return body.ok === true;
+    }
+    return log.error_message === null && log.http_status !== null && log.http_status >= 200 && log.http_status < 300;
+  }
+
+  const externalDeliveryLogs = row.dte_documents[0]?.transmission_logs ?? [];
+  const externalDeliverySummary: SaleExternalDeliverySummary = {
+    hasSuccessfulDelivery: externalDeliveryLogs.some(isSuccessfulDeliveryLog),
+    lastAttemptAt:         externalDeliveryLogs[0]?.created_at ?? null,
+    lastErrorMessage:      externalDeliveryLogs[0]?.error_message ?? null,
+    attemptsCount:         externalDeliveryLogs.length,
+  };
 
   return {
     id:             row.id,
@@ -167,16 +240,54 @@ export async function getSaleDetailById(
 
     dte_document: row.dte_documents[0]
       ? {
-          id:              row.dte_documents[0].id,
-          dte_type_code:   row.dte_documents[0].dte_type_code,
-          generation_code: row.dte_documents[0].generation_code,
-          control_number:  row.dte_documents[0].control_number,
-          reception_stamp: row.dte_documents[0].reception_stamp,
-          dte_status:      row.dte_documents[0].dte_status,
-          environment:     row.dte_documents[0].environment,
-          created_at:      row.dte_documents[0].created_at,
+          id:               row.dte_documents[0].id,
+          dte_type_code:    row.dte_documents[0].dte_type_code,
+          generation_code:  row.dte_documents[0].generation_code,
+          control_number:   row.dte_documents[0].control_number,
+          reception_stamp:  row.dte_documents[0].reception_stamp,
+          dte_status:       row.dte_documents[0].dte_status,
+          environment:      row.dte_documents[0].environment,
+          rejection_reason: row.dte_documents[0].rejection_reason,
+          issued_at:        row.dte_documents[0].issued_at,
+          accepted_at:      row.dte_documents[0].accepted_at,
+          rejected_at:      row.dte_documents[0].rejected_at,
+          invalidated_at:   row.dte_documents[0].invalidated_at,
+          created_at:       row.dte_documents[0].created_at,
         }
       : null,
+
+    dte_related_nc: (() => {
+      const rel = row.dte_documents[0]?.related_in_relations?.[0]?.source_document;
+      if (!rel) return null;
+      return {
+        id:              rel.id,
+        dte_type_code:   rel.dte_type_code,
+        control_number:  rel.control_number,
+        generation_code: rel.generation_code,
+        dte_status:      rel.dte_status,
+        reception_stamp: rel.reception_stamp,
+        created_at:      rel.created_at,
+      } satisfies SaleDteRelatedNc;
+    })(),
+
+    external_delivery: externalDeliverySummary,
+
+    dte_invalidation_events: (row.dte_documents[0]?.invalidation_events ?? []).map(
+      (ev): SaleDteInvalidationSummary => ({
+        id:                     ev.id,
+        invalidation_type_code: ev.invalidation_type_code,
+        reason:                 ev.reason,
+        status:                 ev.status,
+        mh_estado:              ev.mh_estado,
+        mh_sello_recibido:      ev.mh_sello_recibido,
+        mh_codigo_msg:          ev.mh_codigo_msg,
+        mh_descripcion_msg:     ev.mh_descripcion_msg,
+        accepted_at:            ev.accepted_at,
+        rejected_at:            ev.rejected_at,
+        last_error:             ev.last_error,
+        created_at:             ev.created_at,
+      }),
+    ),
 
     items: row.items.map((item) => ({
       id:                    item.id,

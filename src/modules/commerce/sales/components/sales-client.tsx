@@ -46,6 +46,20 @@ import {
   transmitDteDocumentAction,
   type TransmitDteDocumentResult,
 } from "@/modules/commerce/dte/actions/transmit-dte-document.action";
+import {
+  createAndTransmitCreditNoteAction,
+  type CreateAndTransmitCreditNoteResult,
+} from "@/modules/commerce/dte/actions/create-and-transmit-credit-note.action";
+import {
+  createSignTransmitInvalidationAction,
+  type CreateSignTransmitInvalidationResult,
+} from "@/modules/commerce/dte/actions/create-sign-transmit-invalidation.action";
+import {
+  deliverDteToExternalDbAction,
+  type DeliverDteToExternalDbResult,
+} from "@/modules/commerce/dte/actions/deliver-dte-to-external-db.action";
+import { SaleDteFiscalPanel } from "./sale-dte-fiscal-panel";
+import type { SaleDteRelatedNc, SaleDteInvalidationSummary } from "../types/sale.types";
 
 // ── Props ─────────────────────────────────────────────────────────
 
@@ -133,6 +147,29 @@ export function SalesClient({ initialItems, initialTotal }: SalesClientProps) {
   const [isTransmittingDte,     setIsTransmittingDte]     = useState(false);
   const [transmitDteResult,     setTransmitDteResult]     = useState<TransmitDteDocumentResult | null>(null);
   const [transmitDteError,      setTransmitDteError]      = useState<string | null>(null);
+
+  // ── Estado de modal Crear y Transmitir NC 05 ──────────────────────
+  const [ncDialogOpen,    setNcDialogOpen]    = useState(false);
+  const [isNcSubmitting,  setIsNcSubmitting]  = useState(false);
+  const [ncResult,        setNcResult]        = useState<CreateAndTransmitCreditNoteResult | null>(null);
+  const [ncReason,        setNcReason]        = useState("");
+
+  // ── Estado de modal Invalidar DTE ────────────────────────────────
+  const [invalidationDialogOpen,    setInvalidationDialogOpen]    = useState(false);
+  const [isInvalidating,            setIsInvalidating]            = useState(false);
+  const [invalidationResult,        setInvalidationResult]        = useState<CreateSignTransmitInvalidationResult | null>(null);
+  const [invReason,                 setInvReason]                 = useState("");
+  const [invResponsableNombre,      setInvResponsableNombre]      = useState("");
+  const [invResponsableTipoDoc,     setInvResponsableTipoDoc]     = useState("36");
+  const [invResponsableNumDoc,      setInvResponsableNumDoc]      = useState("");
+  const [invSolicitaNombre,         setInvSolicitaNombre]         = useState("");
+  const [invSolicitaTipoDoc,        setInvSolicitaTipoDoc]        = useState("36");
+  const [invSolicitaNumDoc,         setInvSolicitaNumDoc]         = useState("");
+
+  // ── Estado de modal Enviar DTE a sistema externo ─────────────────
+  const [externalDeliveryDialogOpen, setExternalDeliveryDialogOpen] = useState(false);
+  const [isExternalDelivering,       setIsExternalDelivering]       = useState(false);
+  const [externalDeliveryResult,     setExternalDeliveryResult]     = useState<DeliverDteToExternalDbResult | null>(null);
 
   const filtersRef   = useRef<SaleFilterState>(EMPTY_SALE_FILTERS);
   filtersRef.current = filters;
@@ -427,6 +464,106 @@ export function SalesClient({ initialItems, initialTotal }: SalesClientProps) {
     }
   }
 
+  // ── Helpers: disponibilidad de acciones NC e Invalidación ─────────
+
+  const NC_ACTIVE_STATUSES = new Set([
+    "PENDING_GENERATION", "GENERATED", "SCHEMA_VALIDATED", "SIGNED", "SENT", "ACCEPTED",
+  ]);
+  const INV_ACTIVE_STATUSES = new Set([
+    "DRAFT", "PENDING_SIGNATURE", "SIGNED", "SENT", "ACCEPTED",
+  ]);
+
+  function hasActiveNc(nc: SaleDteRelatedNc | null | undefined): boolean {
+    if (!nc) return false;
+    return NC_ACTIVE_STATUSES.has(nc.dte_status);
+  }
+
+  function hasActiveInvalidation(events: SaleDteInvalidationSummary[]): boolean {
+    return events.some((ev) => INV_ACTIVE_STATUSES.has(ev.status));
+  }
+
+  function refreshDetail() {
+    if (!selectedId) return;
+    setSelectedDetail(null);
+    setDetailLoading(true);
+    fetch(`/api/sales/${selectedId}`, { credentials: "same-origin" })
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((env) => setSelectedDetail(env.data as (typeof selectedDetail)))
+      .catch(() => {})
+      .finally(() => setDetailLoading(false));
+  }
+
+  // ── Handler: Crear + transmitir NC 05 desde CCFE 03 ACCEPTED ───────
+  async function handleCreateAndTransmitNc() {
+    const dteId = selectedDetail?.dte_document?.id;
+    if (!dteId || !ncReason.trim()) return;
+    setIsNcSubmitting(true);
+    setNcResult(null);
+    try {
+      const result = await createAndTransmitCreditNoteAction({
+        sourceDteDocumentId: dteId,
+        reasonText:          ncReason.trim(),
+      });
+      setNcResult(result);
+      if (result.ok) {
+        fetchList();
+        refreshDetail();
+      }
+    } finally {
+      setIsNcSubmitting(false);
+    }
+  }
+
+  // ── Handler: Crear + firmar + transmitir invalidación ────────────
+  async function handleCreateSignTransmitInvalidation() {
+    const dteId = selectedDetail?.dte_document?.id;
+    if (!dteId) return;
+    setIsInvalidating(true);
+    setInvalidationResult(null);
+    try {
+      const result = await createSignTransmitInvalidationAction({
+        dteDocumentId:        dteId,
+        invalidationTypeCode: "2",
+        reason:               invReason.trim() || null,
+        responsable: {
+          nombre:          invResponsableNombre.trim(),
+          tipoDocumento:   invResponsableTipoDoc.trim(),
+          numeroDocumento: invResponsableNumDoc.trim(),
+        },
+        solicita: {
+          nombre:          invSolicitaNombre.trim(),
+          tipoDocumento:   invSolicitaTipoDoc.trim(),
+          numeroDocumento: invSolicitaNumDoc.trim(),
+        },
+      });
+      setInvalidationResult(result);
+      if (result.ok) {
+        fetchList();
+        refreshDetail();
+      }
+    } finally {
+      setIsInvalidating(false);
+    }
+  }
+
+  // ── Handler: Enviar DTE ACCEPTED a base MariaDB externa ──────────
+  async function handleDeliverExternalDte() {
+    const dteId = selectedDetail?.dte_document?.id;
+    if (!dteId) return;
+    setIsExternalDelivering(true);
+    setExternalDeliveryResult(null);
+    try {
+      const result = await deliverDteToExternalDbAction(dteId);
+      setExternalDeliveryResult(result);
+      if (result.ok) {
+        fetchList();
+        refreshDetail();
+      }
+    } finally {
+      setIsExternalDelivering(false);
+    }
+  }
+
   const selectedItem = items.find((i) => i.id === selectedId) ?? null;
 
   return (
@@ -598,12 +735,70 @@ export function SalesClient({ initialItems, initialTotal }: SalesClientProps) {
         </div>
       )}
 
+      {/* ── Acción contextual: Crear Nota de Crédito (CCFE 03 ACCEPTED sin NC activa ni inv. activa) */}
+      {selectedDetail?.dte_document
+        && selectedDetail.dte_document.dte_status === "ACCEPTED"
+        && selectedDetail.dte_document.dte_type_code === "03"
+        && !hasActiveNc(selectedDetail.dte_related_nc)
+        && !hasActiveInvalidation(selectedDetail.dte_invalidation_events ?? [])
+        && !detailLoading && (
+        <div className="flex-none border-b border-zinc-800 bg-zinc-900/60 px-3 py-1 flex items-center gap-2">
+          <button
+            onClick={() => { setNcResult(null); setNcReason(""); setNcDialogOpen(true); }}
+            className="h-6 px-2 text-xs text-purple-400 hover:text-purple-200 border border-purple-800/50 hover:border-purple-600 rounded flex items-center gap-1 transition-colors"
+          >
+            <FileText className="h-3 w-3" />
+            Crear Nota de Crédito
+          </button>
+          <span className="text-xs text-zinc-600">
+            Genera y transmite NC 05 total sobre este CCFE 03 ACCEPTED.
+          </span>
+        </div>
+      )}
+
+      {/* ── Acción contextual: Invalidar DTE (cualquier ACCEPTED sin inv. activa ni NC ACCEPTED) */}
+      {selectedDetail?.dte_document
+        && selectedDetail.dte_document.dte_status === "ACCEPTED"
+        && !hasActiveInvalidation(selectedDetail.dte_invalidation_events ?? [])
+        && selectedDetail.dte_related_nc?.dte_status !== "ACCEPTED"
+        && !detailLoading && (
+        <div className="flex-none border-b border-zinc-800 bg-zinc-900/60 px-3 py-1 flex items-center gap-2">
+          <button
+            onClick={() => {
+              setInvalidationResult(null);
+              setInvReason(""); setInvResponsableNombre(""); setInvResponsableTipoDoc("36");
+              setInvResponsableNumDoc(""); setInvSolicitaNombre(""); setInvSolicitaTipoDoc("36");
+              setInvSolicitaNumDoc("");
+              setInvalidationDialogOpen(true);
+            }}
+            className="h-6 px-2 text-xs text-red-400 hover:text-red-200 border border-red-800/50 hover:border-red-600 rounded flex items-center gap-1 transition-colors"
+          >
+            <FileText className="h-3 w-3" />
+            Invalidar DTE
+          </button>
+          <span className="text-xs text-zinc-600">
+            Rescinde la operación ante Hacienda (Tipo 2).
+          </span>
+        </div>
+      )}
+
       {/* ── B: Resumen documental ─────────────────────────────────── */}
       <SaleSummaryPanel
         item={selectedItem}
         detail={selectedDetail}
         loading={detailLoading && !selectedDetail}
       />
+
+      {/* ── B2: Panel Fiscal DTE (visible cuando hay DTE document) ── */}
+      {selectedDetail?.dte_document && !detailLoading && (
+        <SaleDteFiscalPanel
+          detail={selectedDetail}
+          onDeliverExternal={() => {
+            setExternalDeliveryResult(null);
+            setExternalDeliveryDialogOpen(true);
+          }}
+        />
+      )}
 
       {/* ── Modal de autorización para edición ────────────────────── */}
       {editAuthOpen && (
@@ -1276,6 +1471,386 @@ export function SalesClient({ initialItems, initialTotal }: SalesClientProps) {
                   {isTransmittingDte
                     ? <><Loader2 className="h-3 w-3 animate-spin" />Transmitiendo…</>
                     : <><FileText className="h-3 w-3" />Transmitir a Hacienda</>
+                  }
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Modal: Crear y Transmitir NC 05 ─────────────────────── */}
+      {ncDialogOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+          <div className="bg-zinc-900 border border-purple-900/50 rounded-lg p-6 w-[28rem] shadow-xl max-h-[80vh] flex flex-col">
+            <h2 className="text-sm font-semibold text-purple-300 mb-1 flex items-center gap-2 flex-none">
+              <FileText className="h-4 w-4" />
+              Crear Nota de Crédito NC 05
+            </h2>
+
+            {!ncResult && (
+              <p className="text-xs text-zinc-400 mb-3 leading-relaxed flex-none">
+                Se generará, firmará y transmitirá una <span className="text-zinc-200 font-medium">NC 05 total</span> sobre
+                este CCFE 03 ACCEPTED. La operación es irreversible una vez enviada a Hacienda.
+              </p>
+            )}
+
+            <div className="text-[10px] text-zinc-500 mb-1 flex-none space-y-0.5">
+              <p>
+                Venta: <span className="text-zinc-300 font-medium">{selectedItem?.sale_code ?? "—"}</span>
+                {" · "}
+                DTE: <span className="text-zinc-300 font-mono font-medium">{selectedDetail?.dte_document?.control_number ?? "—"}</span>
+              </p>
+              <p>
+                Ambiente: <span className={selectedDetail?.dte_document?.environment === "PRODUCTION" ? "text-red-400 font-semibold" : "text-amber-400 font-semibold"}>
+                  {selectedDetail?.dte_document?.environment === "PRODUCTION" ? "PRODUCCIÓN" : "TEST"}
+                </span>
+              </p>
+            </div>
+
+            {!ncResult && (
+              <div className="mb-4 flex-none mt-2">
+                <label className="block text-[10px] font-medium text-zinc-500 mb-0.5 uppercase tracking-wide">
+                  Motivo / Razón de la NC <span className="text-red-400">*</span>
+                </label>
+                <textarea
+                  value={ncReason}
+                  onChange={(e) => setNcReason(e.target.value)}
+                  rows={3}
+                  maxLength={500}
+                  className="w-full bg-zinc-800 border border-zinc-700 rounded px-2 py-1.5 text-xs text-zinc-100 placeholder:text-zinc-600 focus:outline-none focus:border-zinc-500 resize-none"
+                  placeholder="Ej: Devolución total de mercancía por defecto de fabricación"
+                />
+                <p className="text-[10px] text-zinc-600 mt-0.5">
+                  Mínimo 3 caracteres · {ncReason.length}/500
+                </p>
+              </div>
+            )}
+
+            {/* Resultado: ACCEPTED */}
+            {ncResult?.ok && ncResult.finalStatus === "ACCEPTED" && (
+              <div className="mb-4 flex-none text-xs bg-emerald-900/30 border border-emerald-700/40 rounded px-3 py-2 space-y-1">
+                <p className="text-emerald-300 font-semibold">NC 05 aceptada por Hacienda.</p>
+                <p className="text-zinc-400">Nº Control: <span className="text-zinc-200 font-mono">{ncResult.controlNumber}</span></p>
+                {ncResult.selloRecibido && (
+                  <p className="text-zinc-400">Sello: <span className="text-zinc-300 font-mono text-[10px] break-all">{ncResult.selloRecibido}</span></p>
+                )}
+              </div>
+            )}
+
+            {/* Resultado: REJECTED / OBSERVED */}
+            {ncResult?.ok && ncResult.finalStatus !== "ACCEPTED" && (
+              <div className="mb-4 flex-none text-xs bg-amber-900/30 border border-amber-700/40 rounded px-3 py-2 space-y-1">
+                <p className="text-amber-300 font-semibold">NC transmitida con estado: {ncResult.finalStatus}</p>
+                {ncResult.descripcionMsg && (
+                  <p className="text-zinc-400">MH: <span className="text-amber-200">{ncResult.descripcionMsg}</span></p>
+                )}
+              </div>
+            )}
+
+            {/* Error */}
+            {ncResult && !ncResult.ok && (
+              <div className="mb-4 flex-none text-xs text-red-400 bg-red-900/30 border border-red-700/40 rounded px-3 py-2">
+                {ncResult.error}
+              </div>
+            )}
+
+            <div className="flex gap-2 flex-none mt-auto pt-2">
+              <button
+                type="button"
+                onClick={() => setNcDialogOpen(false)}
+                disabled={isNcSubmitting}
+                className="flex-1 h-8 text-xs border border-zinc-700 rounded text-zinc-400 hover:text-zinc-100 transition-colors disabled:opacity-50"
+              >
+                {ncResult?.ok ? "Cerrar" : "Cancelar"}
+              </button>
+              {!ncResult?.ok && (
+                <button
+                  type="button"
+                  onClick={handleCreateAndTransmitNc}
+                  disabled={isNcSubmitting || ncReason.trim().length < 3}
+                  className="flex-1 h-8 text-xs bg-purple-700 hover:bg-purple-600 text-white rounded font-medium flex items-center justify-center gap-1 disabled:opacity-50 transition-colors"
+                >
+                  {isNcSubmitting
+                    ? <><Loader2 className="h-3 w-3 animate-spin" />Procesando…</>
+                    : <><FileText className="h-3 w-3" />Crear y Transmitir NC</>
+                  }
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Modal: Invalidar DTE ──────────────────────────────────── */}
+      {invalidationDialogOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+          <div className="bg-zinc-900 border border-red-900/50 rounded-lg p-6 w-[32rem] shadow-xl max-h-[90vh] overflow-y-auto">
+            <h2 className="text-sm font-semibold text-red-300 mb-1 flex items-center gap-2">
+              <FileText className="h-4 w-4" />
+              Invalidar DTE ante Hacienda
+            </h2>
+
+            {!invalidationResult && (
+              <p className="text-xs text-zinc-400 mb-3 leading-relaxed">
+                Se creará, firmará y transmitirá un evento de invalidación{" "}
+                <span className="text-zinc-200 font-medium">Tipo 2 — Rescindir operación</span>.
+                Si MH acepta, el DTE quedará <span className="text-red-300 font-medium">INVALIDATED</span>.
+              </p>
+            )}
+
+            <div className="text-[10px] text-zinc-500 mb-3 space-y-0.5">
+              <p>
+                Venta: <span className="text-zinc-300 font-medium">{selectedItem?.sale_code ?? "—"}</span>
+                {" · "}
+                Tipo: <span className="text-zinc-300 font-mono">{selectedDetail?.dte_document?.dte_type_code === "01" ? "FE 01" : selectedDetail?.dte_document?.dte_type_code === "03" ? "CCFE 03" : selectedDetail?.dte_document?.dte_type_code ?? "—"}</span>
+              </p>
+              <p>
+                Nº Control: <span className="text-zinc-300 font-mono">{selectedDetail?.dte_document?.control_number ?? "—"}</span>
+              </p>
+              <p>
+                Ambiente: <span className={selectedDetail?.dte_document?.environment === "PRODUCTION" ? "text-red-400 font-semibold" : "text-amber-400 font-semibold"}>
+                  {selectedDetail?.dte_document?.environment === "PRODUCTION" ? "PRODUCCIÓN" : "TEST"}
+                </span>
+              </p>
+            </div>
+
+            {!invalidationResult && (
+              <div className="space-y-3">
+                {/* Tipo invalidación */}
+                <div>
+                  <label className="block text-[10px] font-medium text-zinc-500 mb-1 uppercase tracking-wide">Tipo de invalidación</label>
+                  <div className="space-y-1">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input type="radio" checked readOnly className="accent-red-500" />
+                      <span className="text-xs text-zinc-200">Tipo 2 — Rescindir operación</span>
+                    </label>
+                    <label className="flex items-center gap-2 cursor-not-allowed opacity-40" title="Requiere DTE reemplazante">
+                      <input type="radio" disabled className="accent-zinc-600" />
+                      <span className="text-xs text-zinc-500">Tipo 1 — Error en emisión (requiere DTE reemplazante)</span>
+                    </label>
+                    <label className="flex items-center gap-2 cursor-not-allowed opacity-40" title="Requiere DTE reemplazante">
+                      <input type="radio" disabled className="accent-zinc-600" />
+                      <span className="text-xs text-zinc-500">Tipo 3 — Otro (requiere DTE reemplazante)</span>
+                    </label>
+                  </div>
+                </div>
+
+                {/* Motivo */}
+                <div>
+                  <label className="block text-[10px] font-medium text-zinc-500 mb-0.5 uppercase tracking-wide">Motivo (opcional)</label>
+                  <input
+                    type="text"
+                    value={invReason}
+                    onChange={(e) => setInvReason(e.target.value)}
+                    maxLength={500}
+                    className="w-full h-8 bg-zinc-800 border border-zinc-700 rounded px-2 text-xs text-zinc-100 placeholder:text-zinc-600 focus:outline-none focus:border-zinc-500"
+                    placeholder="Ej: Cliente solicitó anulación de la operación"
+                  />
+                </div>
+
+                {/* Responsable */}
+                <div className="border border-zinc-800 rounded p-2 space-y-2">
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-zinc-500">Responsable de la invalidación</p>
+                  <div className="grid grid-cols-3 gap-2">
+                    <div className="col-span-3">
+                      <label className="block text-[10px] text-zinc-600 mb-0.5">Nombre <span className="text-red-400">*</span></label>
+                      <input type="text" value={invResponsableNombre} onChange={(e) => setInvResponsableNombre(e.target.value)}
+                        className="w-full h-7 bg-zinc-800 border border-zinc-700 rounded px-2 text-xs text-zinc-100 focus:outline-none focus:border-zinc-500"
+                        placeholder="Nombre completo" />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] text-zinc-600 mb-0.5">Tipo doc. <span className="text-red-400">*</span></label>
+                      <select value={invResponsableTipoDoc} onChange={(e) => setInvResponsableTipoDoc(e.target.value)}
+                        className="w-full h-7 bg-zinc-800 border border-zinc-700 rounded px-2 text-xs text-zinc-100 focus:outline-none focus:border-zinc-500">
+                        <option value="36">DUI (36)</option>
+                        <option value="13">NIT (13)</option>
+                        <option value="02">Pasaporte (02)</option>
+                        <option value="03">Carnet resid. (03)</option>
+                      </select>
+                    </div>
+                    <div className="col-span-2">
+                      <label className="block text-[10px] text-zinc-600 mb-0.5">Nº documento <span className="text-red-400">*</span></label>
+                      <input type="text" value={invResponsableNumDoc} onChange={(e) => setInvResponsableNumDoc(e.target.value)}
+                        className="w-full h-7 bg-zinc-800 border border-zinc-700 rounded px-2 text-xs text-zinc-100 focus:outline-none focus:border-zinc-500"
+                        placeholder="00000000-0" />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Solicitante */}
+                <div className="border border-zinc-800 rounded p-2 space-y-2">
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-zinc-500">Solicitante de la invalidación</p>
+                  <div className="grid grid-cols-3 gap-2">
+                    <div className="col-span-3">
+                      <label className="block text-[10px] text-zinc-600 mb-0.5">Nombre <span className="text-red-400">*</span></label>
+                      <input type="text" value={invSolicitaNombre} onChange={(e) => setInvSolicitaNombre(e.target.value)}
+                        className="w-full h-7 bg-zinc-800 border border-zinc-700 rounded px-2 text-xs text-zinc-100 focus:outline-none focus:border-zinc-500"
+                        placeholder="Nombre completo" />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] text-zinc-600 mb-0.5">Tipo doc. <span className="text-red-400">*</span></label>
+                      <select value={invSolicitaTipoDoc} onChange={(e) => setInvSolicitaTipoDoc(e.target.value)}
+                        className="w-full h-7 bg-zinc-800 border border-zinc-700 rounded px-2 text-xs text-zinc-100 focus:outline-none focus:border-zinc-500">
+                        <option value="36">DUI (36)</option>
+                        <option value="13">NIT (13)</option>
+                        <option value="02">Pasaporte (02)</option>
+                        <option value="03">Carnet resid. (03)</option>
+                      </select>
+                    </div>
+                    <div className="col-span-2">
+                      <label className="block text-[10px] text-zinc-600 mb-0.5">Nº documento <span className="text-red-400">*</span></label>
+                      <input type="text" value={invSolicitaNumDoc} onChange={(e) => setInvSolicitaNumDoc(e.target.value)}
+                        className="w-full h-7 bg-zinc-800 border border-zinc-700 rounded px-2 text-xs text-zinc-100 focus:outline-none focus:border-zinc-500"
+                        placeholder="00000000-0" />
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Resultado: ACCEPTED → INVALIDATED */}
+            {invalidationResult?.ok && invalidationResult.dteStatus === "INVALIDATED" && (
+              <div className="mt-3 text-xs bg-emerald-900/30 border border-emerald-700/40 rounded px-3 py-2 space-y-1">
+                <p className="text-emerald-300 font-semibold">DTE invalidado correctamente.</p>
+                <p className="text-zinc-400">Estado DTE: <span className="text-zinc-200 font-mono">INVALIDATED</span></p>
+                {invalidationResult.selloRecibido && (
+                  <p className="text-zinc-400">Sello: <span className="text-zinc-300 font-mono text-[10px] break-all">{invalidationResult.selloRecibido}</span></p>
+                )}
+                {invalidationResult.descripcionMsg && (
+                  <p className="text-zinc-400">MH: <span className="text-zinc-300">{invalidationResult.descripcionMsg}</span></p>
+                )}
+              </div>
+            )}
+
+            {/* Resultado: REJECTED por MH → DTE sigue ACCEPTED */}
+            {invalidationResult?.ok && invalidationResult.dteStatus === "ACCEPTED" && (
+              <div className="mt-3 text-xs bg-amber-900/30 border border-amber-700/40 rounded px-3 py-2 space-y-1">
+                <p className="text-amber-300 font-semibold">Hacienda rechazó la invalidación. DTE sigue ACCEPTED.</p>
+                {invalidationResult.descripcionMsg && (
+                  <p className="text-zinc-400">Motivo: <span className="text-amber-200">{invalidationResult.descripcionMsg}</span></p>
+                )}
+                {invalidationResult.codigoMsg && (
+                  <p className="text-zinc-400">Código: <span className="text-zinc-300">{invalidationResult.codigoMsg}</span></p>
+                )}
+              </div>
+            )}
+
+            {/* Error técnico */}
+            {invalidationResult && !invalidationResult.ok && (
+              <div className="mt-3 text-xs text-red-400 bg-red-900/30 border border-red-700/40 rounded px-3 py-2">
+                {invalidationResult.error}
+                <p className="text-zinc-500 mt-1">El DTE se mantiene en ACCEPTED.</p>
+              </div>
+            )}
+
+            <div className="flex gap-2 mt-4">
+              <button
+                type="button"
+                onClick={() => setInvalidationDialogOpen(false)}
+                disabled={isInvalidating}
+                className="flex-1 h-8 text-xs border border-zinc-700 rounded text-zinc-400 hover:text-zinc-100 transition-colors disabled:opacity-50"
+              >
+                {invalidationResult?.ok ? "Cerrar" : "Cancelar"}
+              </button>
+              {!invalidationResult?.ok && (
+                <button
+                  type="button"
+                  onClick={handleCreateSignTransmitInvalidation}
+                  disabled={
+                    isInvalidating
+                    || !invResponsableNombre.trim()
+                    || !invResponsableNumDoc.trim()
+                    || !invSolicitaNombre.trim()
+                    || !invSolicitaNumDoc.trim()
+                  }
+                  className="flex-1 h-8 text-xs bg-red-700 hover:bg-red-600 text-white rounded font-medium flex items-center justify-center gap-1 disabled:opacity-50 transition-colors"
+                >
+                  {isInvalidating
+                    ? <><Loader2 className="h-3 w-3 animate-spin" />Invalidando…</>
+                    : <><FileText className="h-3 w-3" />Invalidar DTE</>
+                  }
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Modal: Enviar DTE a sistema externo ─────────────────── */}
+      {externalDeliveryDialogOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+          <div className="bg-zinc-900 border border-cyan-900/50 rounded-lg p-6 w-[28rem] shadow-xl">
+            <h2 className="text-sm font-semibold text-cyan-300 mb-1 flex items-center gap-2">
+              <FileText className="h-4 w-4" />
+              Enviar DTE al sistema externo
+            </h2>
+
+            {!externalDeliveryResult && (
+              <p className="text-xs text-zinc-400 mb-3 leading-relaxed">
+                Se insertará el documento fiscal aceptado en la base externa para generación
+                de PDF, envío y archivo documental. Esta acción no retransmite el DTE a Hacienda.
+              </p>
+            )}
+
+            <div className="text-[10px] text-zinc-500 mb-3 space-y-0.5">
+              <p>
+                Venta:{" "}
+                <span className="text-zinc-300 font-medium">{selectedItem?.sale_code ?? "—"}</span>
+                {" · "}
+                Tipo DTE:{" "}
+                <span className="text-zinc-300 font-mono font-medium">
+                  {selectedDetail?.dte_document?.dte_type_code ?? "—"}
+                </span>
+              </p>
+              <p>
+                Nº Control:{" "}
+                <span className="text-zinc-300 font-mono font-medium">
+                  {selectedDetail?.dte_document?.control_number ?? "—"}
+                </span>
+              </p>
+            </div>
+
+            {/* Resultado: éxito */}
+            {externalDeliveryResult?.ok && (
+              <div className="mb-4 text-xs text-cyan-300 bg-cyan-900/30 border border-cyan-700/40 rounded px-3 py-2 space-y-1">
+                <p className="font-semibold">DTE enviado al sistema externo correctamente.</p>
+                {externalDeliveryResult.insertId !== null && (
+                  <p className="text-zinc-400">
+                    ID externo:{" "}
+                    <span className="text-zinc-200 font-mono">{String(externalDeliveryResult.insertId)}</span>
+                  </p>
+                )}
+              </div>
+            )}
+
+            {/* Resultado: error */}
+            {externalDeliveryResult && !externalDeliveryResult.ok && (
+              <div className="mb-4 text-xs text-red-400 bg-red-900/30 border border-red-700/40 rounded px-3 py-2">
+                {externalDeliveryResult.error}
+                <p className="text-zinc-500 mt-1">Puedes reintentar.</p>
+              </div>
+            )}
+
+            <div className="flex gap-2 mt-2">
+              <button
+                type="button"
+                onClick={() => setExternalDeliveryDialogOpen(false)}
+                disabled={isExternalDelivering}
+                className="flex-1 h-8 text-xs border border-zinc-700 rounded text-zinc-400 hover:text-zinc-100 transition-colors disabled:opacity-50"
+              >
+                {externalDeliveryResult?.ok ? "Cerrar" : "Cancelar"}
+              </button>
+              {!externalDeliveryResult?.ok && (
+                <button
+                  type="button"
+                  onClick={handleDeliverExternalDte}
+                  disabled={isExternalDelivering}
+                  className="flex-1 h-8 text-xs bg-cyan-700 hover:bg-cyan-600 text-white rounded font-medium flex items-center justify-center gap-1 disabled:opacity-50 transition-colors"
+                >
+                  {isExternalDelivering
+                    ? <><Loader2 className="h-3 w-3 animate-spin" />Enviando…</>
+                    : <><FileText className="h-3 w-3" />Enviar</>
                   }
                 </button>
               )}

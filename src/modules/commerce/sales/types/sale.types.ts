@@ -58,14 +58,57 @@ export interface SaleListItem {
 // ── Documento DTE asociado a la venta ────────────────────────────
 
 export interface SaleDteDocument {
+  id:               string;
+  dte_type_code:    string;
+  generation_code:  string | null;
+  control_number:   string | null;
+  reception_stamp:  string | null;
+  dte_status:       string;
+  environment:      string;
+  rejection_reason: string | null;
+  issued_at:        Date | null;
+  accepted_at:      Date | null;
+  rejected_at:      Date | null;
+  invalidated_at:   Date | null;
+  created_at:       Date;
+}
+
+// ── NC 05 relacionada con la venta (desde related_in_relations CREDIT_NOTE_OF) ──
+
+export interface SaleDteRelatedNc {
   id:              string;
   dte_type_code:   string;
-  generation_code: string | null;
   control_number:  string | null;
-  reception_stamp: string | null;
+  generation_code: string | null;
   dte_status:      string;
-  environment:     string;
+  reception_stamp: string | null;
   created_at:      Date;
+}
+
+// ── Resumen de entrega externa DTE ───────────────────────────────
+
+export interface SaleExternalDeliverySummary {
+  hasSuccessfulDelivery: boolean;
+  lastAttemptAt:         Date | null;
+  lastErrorMessage:      string | null;
+  attemptsCount:         number;
+}
+
+// ── Evento de invalidación resumido ──────────────────────────────
+
+export interface SaleDteInvalidationSummary {
+  id:                     string;
+  invalidation_type_code: string;
+  reason:                 string;
+  status:                 string;
+  mh_estado:              string | null;
+  mh_sello_recibido:      string | null;
+  mh_codigo_msg:          string | null;
+  mh_descripcion_msg:     string | null;
+  accepted_at:            Date | null;
+  rejected_at:            Date | null;
+  last_error:             string | null;
+  created_at:             Date;
 }
 
 // ── Detalle completo de venta ─────────────────────────────────────
@@ -106,8 +149,11 @@ export interface SaleDetail extends Omit<SaleListItem, "item_count"> {
   customer_taxpayer_type: string | null;
   customer_activity_code: string | null;
 
-  items:        SaleItemDetail[];
-  dte_document: SaleDteDocument | null;
+  items:                   SaleItemDetail[];
+  dte_document:            SaleDteDocument | null;
+  dte_related_nc:          SaleDteRelatedNc | null;
+  dte_invalidation_events: SaleDteInvalidationSummary[];
+  external_delivery:       SaleExternalDeliverySummary;
 }
 
 // ── Resultados de operaciones ─────────────────────────────────────
