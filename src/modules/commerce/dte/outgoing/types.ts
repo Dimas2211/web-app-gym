@@ -133,10 +133,70 @@ export interface DteOutgoingInvalidationSummary {
   mh_sello_recibido:      string | null;
   mh_codigo_msg:          string | null;
   mh_descripcion_msg:     string | null;
+  sent_at:                Date | null;
   accepted_at:            Date | null;
   rejected_at:            Date | null;
   last_error:             string | null;
   created_at:             Date;
+}
+
+// ── Detalle completo seguro (Fase 4) ──────────────────────────────
+// Retornado por getDteOutgoingDetailById y la API GET /api/dte/outgoing/:id.
+// NUNCA incluye: signed_jws, json_document, mh_response, observations,
+//               event_json, response_body, mh_observaciones.
+
+export interface DteOutgoingDetail {
+  // 1. Identificación
+  id:               string;
+  sale_id:          string;
+  dte_type_code:    string;
+  dte_status:       DteOutgoingStatus;
+  environment:      DteEnvironment;
+  control_number:   string | null;
+  generation_code:  string | null;
+  reception_stamp:  string | null;
+  issued_at:        Date | null;
+  sent_at:          Date | null;
+  accepted_at:      Date | null;
+  rejected_at:      Date | null;
+  invalidated_at:   Date | null;
+  created_at:       Date;
+  updated_at:       Date;
+  rejection_reason: string | null;
+
+  // 2. Venta relacionada
+  sale_code:    string | null;
+  sale_status:  string | null;
+  total_amount: number;
+  currency:     string;
+  customer_name: string | null;
+
+  // 3. Receptor (de sale.customer — nunca de json_document)
+  receptor_name:         string | null;
+  receptor_id_type_code: string | null;
+  receptor_id_number:    string | null;
+  receptor_nrc:          string | null;
+  receptor_email:        string | null;
+  receptor_phone:        string | null;
+
+  // 4. Resumen fiscal (de sale — nunca de json_document)
+  subtotal:   number | null;
+  tax_amount: number | null;
+  total:      number;
+
+  // 6. Relaciones NC
+  related_nc:        DteOutgoingRelationSummary | null;  // NC 05 que credita este CCFE 03
+  is_credit_note_of: DteOutgoingRelationSummary | null;  // CCFE 03 que esta NC 05 creditó
+
+  // 7. Invalidación (evento más reciente, sin event_json ni signed_jws)
+  latest_invalidation: DteOutgoingInvalidationSummary | null;
+
+  // 8. Delivery externo (calculado — sin response_body)
+  delivery:             DteOutgoingDeliverySummary;
+  invalidation_delivery: DteOutgoingDeliverySummary;
+
+  // 9. Logs de transmisión (sin response_body, request_payload, token, JWS)
+  logs: DteOutgoingLogItem[];
 }
 
 // ── Disponibilidad de acciones contextuales ───────────────────────

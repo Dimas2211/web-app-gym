@@ -8,16 +8,17 @@
 // Layout de 3 zonas fijas (sin scroll de página):
 //   A — barra de filtros
 //   B — grilla principal (scroll interno)
-//   C — zona inferior: placeholder detalle (Fase 4)
+//   C — panel de detalle fiscal (scroll interno, Fase 4)
 //
 // Los filtros actualizan URL/searchParams con router.push.
 // La recarga de datos la hace Next.js al cambiar la URL (Server Component).
+// El detalle se carga vía fetch al API route con AbortController.
 // ─────────────────────────────────────────────────────────────────
 
-import { useState, useTransition } from "react";
+import { useState, useTransition, useEffect, useRef } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import { Loader2 } from "lucide-react";
-import type { DteOutgoingGlobalResult, DteOutgoingGlobalListItem } from "../types";
+import type { DteOutgoingGlobalResult, DteOutgoingGlobalListItem, DteOutgoingDetail } from "../types";
 import type { DteOutgoingFiltersOutput } from "../schemas";
 import { DteOutgoingTable } from "./dte-outgoing-table";
 import {
@@ -25,6 +26,7 @@ import {
   type DteOutgoingFilterState,
   EMPTY_DTE_OUTGOING_FILTERS,
 } from "./dte-outgoing-filters-bar";
+import { DteOutgoingDetailPanel } from "./dte-outgoing-detail-panel";
 
 // ── Props ─────────────────────────────────────────────────────────
 
@@ -83,6 +85,68 @@ export function DteOutgoingClient({
   const selectedItem: DteOutgoingGlobalListItem | undefined =
     initialResult.items.find((i) => i.id === selectedId);
 
+  // ── Estado del detalle ────────────────────────────────────────
+
+  const [detail, setDetail]           = useState<DteOutgoingDetail | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailError, setDetailError] = useState<string | null>(null);
+
+  // Ref para cancelar fetch si el usuario cambia de fila rápido
+  const abortRef = useRef<AbortController | null>(null);
+
+  // ── Fetch del detalle ────────────────────────────────────────
+
+  useEffect(() => {
+    // Cancelar fetch anterior si existe
+    if (abortRef.current) {
+      abortRef.current.abort();
+    }
+
+    if (!selectedId) {
+      setDetail(null);
+      setDetailLoading(false);
+      setDetailError(null);
+      return;
+    }
+
+    const controller = new AbortController();
+    abortRef.current = controller;
+
+    setDetailLoading(true);
+    setDetailError(null);
+
+    fetch(`/api/dte/outgoing/${selectedId}`, { signal: controller.signal })
+      .then(async (res) => {
+        const json = await res.json();
+        if (!res.ok) {
+          throw new Error(json?.error ?? `Error ${res.status}`);
+        }
+        return json.data as DteOutgoingDetail;
+      })
+      .then((data) => {
+        setDetail(data);
+        setDetailLoading(false);
+      })
+      .catch((err: unknown) => {
+        if (err instanceof Error && err.name === "AbortError") return;
+        const msg = err instanceof Error ? err.message : "Error al cargar el detalle";
+        setDetailError(msg);
+        setDetailLoading(false);
+      });
+
+    return () => {
+      controller.abort();
+    };
+  }, [selectedId]);
+
+  // ── Limpiar detalle al cambiar de página o filtros ───────────
+
+  function clearDetail() {
+    setDetail(null);
+    setDetailLoading(false);
+    setDetailError(null);
+  }
+
   // ── Navegación ────────────────────────────────────────────────
 
   function pushFilters(state: DteOutgoingFilterState, page: number) {
@@ -100,6 +164,7 @@ export function DteOutgoingClient({
   function handleApply() {
     setCurrentPage(1);
     setSelectedId(null);
+    clearDetail();
     pushFilters(filters, 1);
   }
 
@@ -108,13 +173,21 @@ export function DteOutgoingClient({
     setFilters(cleared);
     setCurrentPage(1);
     setSelectedId(null);
+    clearDetail();
     pushFilters(cleared, 1);
   }
 
   function handlePageChange(newPage: number) {
     setCurrentPage(newPage);
     setSelectedId(null);
+    clearDetail();
     pushFilters(filters, newPage);
+  }
+
+  function handleSelect(id: string) {
+    if (id !== selectedId) {
+      setSelectedId(id);
+    }
   }
 
   // ── Paginación ────────────────────────────────────────────────
@@ -137,7 +210,7 @@ export function DteOutgoingClient({
         onClear={handleClear}
       />
 
-      {/* Indicador de carga durante transición */}
+      {/* Indicador de carga durante transición de filtros/página */}
       {isPending && (
         <div className="flex-none flex items-center gap-1.5 px-3 py-1 border-b border-zinc-800 bg-zinc-900 text-xs text-zinc-500">
           <Loader2 className="h-3 w-3 animate-spin" />
@@ -150,7 +223,7 @@ export function DteOutgoingClient({
         <DteOutgoingTable
           items={initialResult.items}
           selectedId={selectedId}
-          onSelect={setSelectedId}
+          onSelect={handleSelect}
         />
       </div>
 
@@ -177,30 +250,36 @@ export function DteOutgoingClient({
         </div>
       )}
 
-      {/* ── Zona C: Placeholder detalle (Fase 4) ─────────── */}
-      <div className="flex-none border-t border-zinc-800 bg-zinc-900/50 px-4 py-3">
-        {selectedItem ? (
-          <div className="flex items-center gap-3">
-            <div className="text-xs text-zinc-400">
-              <span className="font-semibold text-zinc-300">
-                DTE seleccionado:
+      {/* ── Zona C: Panel de detalle fiscal ───────────────── */}
+      <div className="flex-none border-t border-zinc-800 bg-zinc-900/40">
+        {/* Encabezado del panel */}
+        <div className="flex items-center gap-2 px-3 py-1.5 border-b border-zinc-800/60">
+          <span className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
+            Detalle fiscal
+          </span>
+          {selectedItem && (
+            <>
+              <span className="text-zinc-700">·</span>
+              <span className="font-mono text-[10px] text-zinc-400">
+                {selectedItem.control_number ?? selectedItem.generation_code ?? selectedItem.id}
               </span>
-              {" "}
-              <span className="font-mono">{selectedItem.control_number ?? selectedItem.generation_code ?? selectedItem.id}</span>
-              {" · "}
-              <span className="text-zinc-500">{selectedItem.dte_type_code}</span>
-              {" · "}
-              <span className="text-zinc-500">{selectedItem.dte_status}</span>
-            </div>
-            <span className="ml-auto text-[10px] text-zinc-600 italic">
-              Seleccione un DTE para revisar el detalle fiscal — disponible en Fase 4
-            </span>
-          </div>
-        ) : (
-          <p className="text-xs text-zinc-600 italic">
-            Seleccione un DTE para revisar el detalle fiscal en la siguiente fase.
-          </p>
-        )}
+              <span className="text-zinc-700">·</span>
+              <span className="text-[10px] text-zinc-500">{selectedItem.dte_type_code}</span>
+            </>
+          )}
+          {detailLoading && (
+            <Loader2 className="ml-auto h-3 w-3 animate-spin text-zinc-500" />
+          )}
+        </div>
+
+        {/* Cuerpo del panel — altura fija con scroll interno */}
+        <div className="h-[42vh] overflow-y-auto">
+          <DteOutgoingDetailPanel
+            detail={detail}
+            loading={detailLoading}
+            error={detailError}
+          />
+        </div>
       </div>
 
     </div>

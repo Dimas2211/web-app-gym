@@ -1,16 +1,23 @@
 // ─────────────────────────────────────────────────────────────────
 // api/dte/outgoing/[id]/route.ts
 //
-// GET /api/dte/outgoing/:id — detalle de un documento DTE outgoing
+// GET /api/dte/outgoing/:id — detalle seguro de un DteOutgoingDocument
+//
+// Seguridad:
+//   - Requiere sesión válida con canManageStaff.
+//   - tenantId y locationId se obtienen SIEMPRE del servidor (nunca del cliente).
+//   - Scoping por id + tenant_id + location_id aplicado en la query.
+//   - NUNCA retorna: signed_jws, json_document, mh_response, observations,
+//                    event_json, response_body, mh_observaciones.
 // ─────────────────────────────────────────────────────────────────
 
 export const dynamic = "force-dynamic";
 
 import { NextRequest, NextResponse } from "next/server";
-import { getDteOutgoingDocumentById } from "@/modules/commerce/dte/queries/get-dte-outgoing-document-by-id";
+import { getDteOutgoingDetailById } from "@/modules/commerce/dte/outgoing/queries/get-dte-outgoing-detail-by-id";
 import { getDteApiContext } from "../../dte-api-context";
 
-// ── GET — detalle ──────────────────────────────────────────────────
+// ── GET — detalle completo seguro ─────────────────────────────────
 
 export async function GET(
   req: NextRequest,
@@ -18,22 +25,27 @@ export async function GET(
 ) {
   const { id } = await params;
 
+  // Validar sesión, permisos y obtener tenantId/locationId del servidor
   const ctx = await getDteApiContext(req);
   if (!ctx.ok) {
     return NextResponse.json({ ok: false, error: ctx.error }, { status: ctx.status });
   }
 
-  const doc = await getDteOutgoingDocumentById(id, ctx.tenant_id);
-  if (!doc) {
-    return NextResponse.json({ ok: false, error: "El documento DTE no fue encontrado." }, { status: 404 });
+  // Query con scoping completo: id + tenant_id + location_id
+  const detail = await getDteOutgoingDetailById({
+    dteId:      id,
+    tenantId:   ctx.tenant_id,
+    locationId: ctx.location_id,
+  });
+
+  if (!detail) {
+    return NextResponse.json(
+      { ok: false, error: "El documento DTE no fue encontrado." },
+      { status: 404 },
+    );
   }
 
-  // Verificar que el documento pertenece a la location activa
-  if (doc.location_id !== ctx.location_id) {
-    return NextResponse.json({ ok: false, error: "El documento DTE no pertenece a la location activa." }, { status: 403 });
-  }
-
-  return NextResponse.json({ ok: true, data: doc }, {
+  return NextResponse.json({ ok: true, data: detail }, {
     headers: { "Cache-Control": "no-store, max-age=0" },
   });
 }
