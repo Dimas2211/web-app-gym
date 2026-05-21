@@ -11,6 +11,7 @@ import type {
   SaleDteInvalidationSummary,
   SaleExternalDeliverySummary,
 } from "../types/sale.types";
+import { buildDeliverySummary } from "@/modules/commerce/dte/outgoing/utils/dte-delivery-summary.utils";
 
 export async function getSaleDetailById(
   id:          string,
@@ -161,39 +162,14 @@ export async function getSaleDetailById(
 
   if (!row) return null;
 
-  function isSuccessfulDeliveryLog(log: {
-    response_body: unknown;
-    error_message: string | null;
-    http_status:   number | null;
-  }): boolean {
-    if (log.response_body && typeof log.response_body === "object" && !Array.isArray(log.response_body)) {
-      const body = log.response_body as Record<string, unknown>;
-      if ("ok" in body) return body.ok === true;
-    }
-    return log.error_message === null && log.http_status !== null && log.http_status >= 200 && log.http_status < 300;
-  }
-
-  function buildDeliverySummary(logs: {
-    operation_type: string;
-    response_body:  unknown;
-    error_message:  string | null;
-    http_status:    number | null;
-    created_at:     Date;
-  }[]): SaleExternalDeliverySummary {
-    return {
-      hasSuccessfulDelivery: logs.some(isSuccessfulDeliveryLog),
-      lastAttemptAt:         logs[0]?.created_at ?? null,
-      lastErrorMessage:      logs[0]?.error_message ?? null,
-      attemptsCount:         logs.length,
-    };
-  }
-
   const allTransmissionLogs = row.dte_documents[0]?.transmission_logs ?? [];
   const externalDeliveryLogs            = allTransmissionLogs.filter((l) => l.operation_type === "EXTERNAL_DELIVERY");
   const externalInvalidationDeliveryLogs = allTransmissionLogs.filter((l) => l.operation_type === "EXTERNAL_INVALIDATION_DELIVERY");
 
-  const externalDeliverySummary:            SaleExternalDeliverySummary = buildDeliverySummary(externalDeliveryLogs);
-  const externalInvalidationDeliverySummary: SaleExternalDeliverySummary = buildDeliverySummary(externalInvalidationDeliveryLogs);
+  // buildDeliverySummary del helper compartido — misma lógica, mismo comportamiento.
+  // SaleExternalDeliverySummary y DteOutgoingDeliverySummary son estructuralmente idénticos.
+  const externalDeliverySummary            = buildDeliverySummary(externalDeliveryLogs)            as SaleExternalDeliverySummary;
+  const externalInvalidationDeliverySummary = buildDeliverySummary(externalInvalidationDeliveryLogs) as SaleExternalDeliverySummary;
 
   return {
     id:             row.id,
