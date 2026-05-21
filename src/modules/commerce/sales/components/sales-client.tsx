@@ -58,6 +58,10 @@ import {
   deliverDteToExternalDbAction,
   type DeliverDteToExternalDbResult,
 } from "@/modules/commerce/dte/actions/deliver-dte-to-external-db.action";
+import {
+  deliverInvalidationToExternalDbAction,
+  type DeliverInvalidationToExternalDbResult,
+} from "@/modules/commerce/dte/actions/deliver-invalidation-to-external-db.action";
 import { SaleDteFiscalPanel } from "./sale-dte-fiscal-panel";
 import type { SaleDteRelatedNc, SaleDteInvalidationSummary } from "../types/sale.types";
 
@@ -170,6 +174,11 @@ export function SalesClient({ initialItems, initialTotal }: SalesClientProps) {
   const [externalDeliveryDialogOpen, setExternalDeliveryDialogOpen] = useState(false);
   const [isExternalDelivering,       setIsExternalDelivering]       = useState(false);
   const [externalDeliveryResult,     setExternalDeliveryResult]     = useState<DeliverDteToExternalDbResult | null>(null);
+
+  // ── Estado de modal Enviar invalidación a sistema externo ─────────
+  const [externalInvDeliveryDialogOpen, setExternalInvDeliveryDialogOpen] = useState(false);
+  const [isExternalInvDelivering,       setIsExternalInvDelivering]       = useState(false);
+  const [externalInvDeliveryResult,     setExternalInvDeliveryResult]     = useState<DeliverInvalidationToExternalDbResult | null>(null);
 
   const filtersRef   = useRef<SaleFilterState>(EMPTY_SALE_FILTERS);
   filtersRef.current = filters;
@@ -564,6 +573,26 @@ export function SalesClient({ initialItems, initialTotal }: SalesClientProps) {
     }
   }
 
+  // ── Handler: Enviar invalidación ACCEPTED a base MariaDB externa ─
+  async function handleDeliverExternalInvalidation() {
+    const invalidationEvent = selectedDetail?.dte_invalidation_events?.find(
+      (ev) => ev.status === "ACCEPTED",
+    );
+    if (!invalidationEvent) return;
+    setIsExternalInvDelivering(true);
+    setExternalInvDeliveryResult(null);
+    try {
+      const result = await deliverInvalidationToExternalDbAction(invalidationEvent.id);
+      setExternalInvDeliveryResult(result);
+      if (result.ok) {
+        fetchList();
+        refreshDetail();
+      }
+    } finally {
+      setIsExternalInvDelivering(false);
+    }
+  }
+
   const selectedItem = items.find((i) => i.id === selectedId) ?? null;
 
   return (
@@ -796,6 +825,10 @@ export function SalesClient({ initialItems, initialTotal }: SalesClientProps) {
           onDeliverExternal={() => {
             setExternalDeliveryResult(null);
             setExternalDeliveryDialogOpen(true);
+          }}
+          onDeliverExternalInvalidation={() => {
+            setExternalInvDeliveryResult(null);
+            setExternalInvDeliveryDialogOpen(true);
           }}
         />
       )}
@@ -1849,6 +1882,88 @@ export function SalesClient({ initialItems, initialTotal }: SalesClientProps) {
                   className="flex-1 h-8 text-xs bg-cyan-700 hover:bg-cyan-600 text-white rounded font-medium flex items-center justify-center gap-1 disabled:opacity-50 transition-colors"
                 >
                   {isExternalDelivering
+                    ? <><Loader2 className="h-3 w-3 animate-spin" />Enviando…</>
+                    : <><FileText className="h-3 w-3" />Enviar</>
+                  }
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Modal: Enviar invalidación a sistema externo ─────────── */}
+      {externalInvDeliveryDialogOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+          <div className="bg-zinc-900 border border-violet-900/50 rounded-lg p-6 w-[28rem] shadow-xl">
+            <h2 className="text-sm font-semibold text-violet-300 mb-1 flex items-center gap-2">
+              <FileText className="h-4 w-4" />
+              Enviar invalidación al sistema externo
+            </h2>
+
+            {!externalInvDeliveryResult && (
+              <p className="text-xs text-zinc-400 mb-3 leading-relaxed">
+                Se insertará el evento de invalidación aceptado en la base externa configurada
+                para invalidaciones. Esta acción no retransmite la invalidación a Hacienda.
+              </p>
+            )}
+
+            <div className="text-[10px] text-zinc-500 mb-3 space-y-0.5">
+              <p>
+                Venta:{" "}
+                <span className="text-zinc-300 font-medium">{selectedItem?.sale_code ?? "—"}</span>
+                {" · "}
+                DTE:{" "}
+                <span className="text-zinc-300 font-mono font-medium">
+                  {selectedDetail?.dte_document?.dte_type_code ?? "—"}
+                </span>
+              </p>
+              <p>
+                Nº Control:{" "}
+                <span className="text-zinc-300 font-mono font-medium">
+                  {selectedDetail?.dte_document?.control_number ?? "—"}
+                </span>
+              </p>
+            </div>
+
+            {/* Resultado: éxito */}
+            {externalInvDeliveryResult?.ok && (
+              <div className="mb-4 text-xs text-violet-300 bg-violet-900/30 border border-violet-700/40 rounded px-3 py-2 space-y-1">
+                <p className="font-semibold">Invalidación enviada al sistema externo correctamente.</p>
+                {externalInvDeliveryResult.insertId !== null && (
+                  <p className="text-zinc-400">
+                    ID externo:{" "}
+                    <span className="text-zinc-200 font-mono">{String(externalInvDeliveryResult.insertId)}</span>
+                  </p>
+                )}
+              </div>
+            )}
+
+            {/* Resultado: error */}
+            {externalInvDeliveryResult && !externalInvDeliveryResult.ok && (
+              <div className="mb-4 text-xs text-red-400 bg-red-900/30 border border-red-700/40 rounded px-3 py-2">
+                {externalInvDeliveryResult.error}
+                <p className="text-zinc-500 mt-1">Puedes reintentar.</p>
+              </div>
+            )}
+
+            <div className="flex gap-2 mt-2">
+              <button
+                type="button"
+                onClick={() => setExternalInvDeliveryDialogOpen(false)}
+                disabled={isExternalInvDelivering}
+                className="flex-1 h-8 text-xs border border-zinc-700 rounded text-zinc-400 hover:text-zinc-100 transition-colors disabled:opacity-50"
+              >
+                {externalInvDeliveryResult?.ok ? "Cerrar" : "Cancelar"}
+              </button>
+              {!externalInvDeliveryResult?.ok && (
+                <button
+                  type="button"
+                  onClick={handleDeliverExternalInvalidation}
+                  disabled={isExternalInvDelivering}
+                  className="flex-1 h-8 text-xs bg-violet-700 hover:bg-violet-600 text-white rounded font-medium flex items-center justify-center gap-1 disabled:opacity-50 transition-colors"
+                >
+                  {isExternalInvDelivering
                     ? <><Loader2 className="h-3 w-3 animate-spin" />Enviando…</>
                     : <><FileText className="h-3 w-3" />Enviar</>
                   }

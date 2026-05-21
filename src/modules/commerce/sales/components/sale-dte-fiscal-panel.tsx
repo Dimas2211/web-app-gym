@@ -18,8 +18,9 @@ import { getDteShortCode } from "../utils/dte-type-labels";
 // ── Props ─────────────────────────────────────────────────────────
 
 interface SaleDteFiscalPanelProps {
-  detail:             SaleDetail;
-  onDeliverExternal?: () => void;
+  detail:                          SaleDetail;
+  onDeliverExternal?:              () => void;
+  onDeliverExternalInvalidation?:  () => void;
 }
 
 // ── Estilos ───────────────────────────────────────────────────────
@@ -89,13 +90,18 @@ function envCls(env: string): string {
 
 const EXTERNAL_DELIVERY_TYPES = new Set(["01", "03", "05"]);
 
-export function SaleDteFiscalPanel({ detail, onDeliverExternal }: SaleDteFiscalPanelProps) {
+export function SaleDteFiscalPanel({
+  detail,
+  onDeliverExternal,
+  onDeliverExternalInvalidation,
+}: SaleDteFiscalPanelProps) {
   const dte = detail.dte_document;
   if (!dte) return null;
 
-  const nc     = detail.dte_related_nc;
-  const events = detail.dte_invalidation_events ?? [];
-  const extDel = detail.external_delivery;
+  const nc        = detail.dte_related_nc;
+  const events    = detail.dte_invalidation_events ?? [];
+  const extDel    = detail.external_delivery;
+  const extInvDel = detail.external_invalidation_delivery;
 
   const canDeliverExternal =
     dte.dte_status === "ACCEPTED"
@@ -103,6 +109,12 @@ export function SaleDteFiscalPanel({ detail, onDeliverExternal }: SaleDteFiscalP
     && !!dte.reception_stamp
     && !extDel.hasSuccessfulDelivery
     && !!onDeliverExternal;
+
+  const acceptedInvalidationEvent = events.find((ev) => ev.status === "ACCEPTED");
+  const canDeliverExternalInvalidation =
+    !!acceptedInvalidationEvent
+    && !extInvDel.hasSuccessfulDelivery
+    && !!onDeliverExternalInvalidation;
 
   return (
     <div className="flex-none border-t border-zinc-800 bg-zinc-900/60 px-3 py-2 space-y-2">
@@ -297,6 +309,47 @@ export function SaleDteFiscalPanel({ detail, onDeliverExternal }: SaleDteFiscalP
           </button>
         )}
       </div>
+
+      {/* Bloque B: entrega externa de invalidación (solo cuando existe evento ACCEPTED) */}
+      {acceptedInvalidationEvent && (
+        <div className="border-t border-zinc-800 pt-1.5">
+          <div className="flex items-center gap-2 mb-1">
+            <span className="text-[10px] font-semibold uppercase tracking-widest text-zinc-500">
+              Entrega externa · Invalidación
+            </span>
+            {extInvDel.hasSuccessfulDelivery && (
+              <span className="text-[10px] font-medium text-emerald-400 bg-emerald-900/30 border border-emerald-800/50 rounded px-1.5 py-0.5">
+                Invalidación enviada
+              </span>
+            )}
+            {!extInvDel.hasSuccessfulDelivery && extInvDel.attemptsCount > 0 && (
+              <span className="text-[10px] font-medium text-red-400 bg-red-900/30 border border-red-800/50 rounded px-1.5 py-0.5">
+                Error de envío
+              </span>
+            )}
+            {!extInvDel.hasSuccessfulDelivery && extInvDel.attemptsCount === 0 && (
+              <span className="text-[10px] text-zinc-600">No enviada</span>
+            )}
+          </div>
+          {extInvDel.lastAttemptAt && (
+            <p className="text-[10px] text-zinc-500 mb-0.5">
+              Último intento: <span className="text-zinc-400">{fmt(extInvDel.lastAttemptAt)}</span>
+            </p>
+          )}
+          {extInvDel.lastErrorMessage && !extInvDel.hasSuccessfulDelivery && (
+            <p className="text-[10px] text-red-400 mb-1 break-words">{extInvDel.lastErrorMessage}</p>
+          )}
+          {canDeliverExternalInvalidation && (
+            <button
+              type="button"
+              onClick={onDeliverExternalInvalidation}
+              className="mt-0.5 h-6 px-2 text-[10px] text-violet-400 hover:text-violet-200 border border-violet-800/50 hover:border-violet-600 rounded transition-colors"
+            >
+              Enviar invalidación a sistema externo
+            </button>
+          )}
+        </div>
+      )}
 
     </div>
   );

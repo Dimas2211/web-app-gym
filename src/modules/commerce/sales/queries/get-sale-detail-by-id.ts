@@ -5,7 +5,12 @@
 // ─────────────────────────────────────────────────────────────────
 
 import { prisma } from "@/lib/db/prisma";
-import type { SaleDetail, SaleDteRelatedNc, SaleDteInvalidationSummary, SaleExternalDeliverySummary } from "../types/sale.types";
+import type {
+  SaleDetail,
+  SaleDteRelatedNc,
+  SaleDteInvalidationSummary,
+  SaleExternalDeliverySummary,
+} from "../types/sale.types";
 
 export async function getSaleDetailById(
   id:          string,
@@ -91,15 +96,16 @@ export async function getSaleDetailById(
               },
             },
           },
-          // Logs de entrega externa (EXTERNAL_DELIVERY)
+          // Logs de entrega externa (ambos tipos: DTE e invalidación)
           transmission_logs: {
-            where:   { operation_type: "EXTERNAL_DELIVERY" },
+            where:   { operation_type: { in: ["EXTERNAL_DELIVERY", "EXTERNAL_INVALIDATION_DELIVERY"] } },
             orderBy: { created_at: "desc" },
             select: {
-              response_body: true,
-              error_message: true,
-              http_status:   true,
-              created_at:    true,
+              operation_type: true,
+              response_body:  true,
+              error_message:  true,
+              http_status:    true,
+              created_at:     true,
             },
           },
           // Eventos de invalidación del DTE
@@ -167,13 +173,27 @@ export async function getSaleDetailById(
     return log.error_message === null && log.http_status !== null && log.http_status >= 200 && log.http_status < 300;
   }
 
-  const externalDeliveryLogs = row.dte_documents[0]?.transmission_logs ?? [];
-  const externalDeliverySummary: SaleExternalDeliverySummary = {
-    hasSuccessfulDelivery: externalDeliveryLogs.some(isSuccessfulDeliveryLog),
-    lastAttemptAt:         externalDeliveryLogs[0]?.created_at ?? null,
-    lastErrorMessage:      externalDeliveryLogs[0]?.error_message ?? null,
-    attemptsCount:         externalDeliveryLogs.length,
-  };
+  function buildDeliverySummary(logs: {
+    operation_type: string;
+    response_body:  unknown;
+    error_message:  string | null;
+    http_status:    number | null;
+    created_at:     Date;
+  }[]): SaleExternalDeliverySummary {
+    return {
+      hasSuccessfulDelivery: logs.some(isSuccessfulDeliveryLog),
+      lastAttemptAt:         logs[0]?.created_at ?? null,
+      lastErrorMessage:      logs[0]?.error_message ?? null,
+      attemptsCount:         logs.length,
+    };
+  }
+
+  const allTransmissionLogs = row.dte_documents[0]?.transmission_logs ?? [];
+  const externalDeliveryLogs            = allTransmissionLogs.filter((l) => l.operation_type === "EXTERNAL_DELIVERY");
+  const externalInvalidationDeliveryLogs = allTransmissionLogs.filter((l) => l.operation_type === "EXTERNAL_INVALIDATION_DELIVERY");
+
+  const externalDeliverySummary:            SaleExternalDeliverySummary = buildDeliverySummary(externalDeliveryLogs);
+  const externalInvalidationDeliverySummary: SaleExternalDeliverySummary = buildDeliverySummary(externalInvalidationDeliveryLogs);
 
   return {
     id:             row.id,
@@ -270,7 +290,8 @@ export async function getSaleDetailById(
       } satisfies SaleDteRelatedNc;
     })(),
 
-    external_delivery: externalDeliverySummary,
+    external_delivery:              externalDeliverySummary,
+    external_invalidation_delivery: externalInvalidationDeliverySummary,
 
     dte_invalidation_events: (row.dte_documents[0]?.invalidation_events ?? []).map(
       (ev): SaleDteInvalidationSummary => ({

@@ -149,11 +149,12 @@ export interface SaleDetail extends Omit<SaleListItem, "item_count"> {
   customer_taxpayer_type: string | null;
   customer_activity_code: string | null;
 
-  items:                   SaleItemDetail[];
-  dte_document:            SaleDteDocument | null;
-  dte_related_nc:          SaleDteRelatedNc | null;
-  dte_invalidation_events: SaleDteInvalidationSummary[];
-  external_delivery:       SaleExternalDeliverySummary;
+  items:                              SaleItemDetail[];
+  dte_document:                       SaleDteDocument | null;
+  dte_related_nc:                     SaleDteRelatedNc | null;
+  dte_invalidation_events:            SaleDteInvalidationSummary[];
+  external_delivery:                  SaleExternalDeliverySummary;
+  external_invalidation_delivery:     SaleExternalDeliverySummary;
 }
 
 // ── Resultados de operaciones ─────────────────────────────────────
