@@ -1,6 +1,6 @@
 # DTE Outgoing — Plan de generación desde venta confirmada
 
-Estado: **Fase 4I-6 cerrada. Fases 4I-1 a 4I-6 completadas. FE 01 y CCFE 03 generados, validados, firmados y transmitidos a MH TEST con respuesta ACCEPTED. Ambos documentos visibles en portal MH TEST. Ver docs/modules/dte-transmission-summary.md para el cierre técnico completo.**
+Estado: **DTE V1 cerrado operativamente. FE 01, CCFE 03, NC 05 e Invalidación completos en MH TEST con delivery externo a MariaDB. Panel Fiscal DTE operativo en /dashboard/sales. Ver docs/modules/dte-v1-operational-close.md.**
 
 ---
 

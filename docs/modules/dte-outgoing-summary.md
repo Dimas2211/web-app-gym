@@ -413,12 +413,9 @@ Todos los campos son nullable. No rompen servicios existentes.
 
 ## Estado
 
-**Fase 4I-6 cerrada — FE 01 y CCFE 03 completos en MH TEST.**
+**DTE V1 cerrado operativamente.**
 
-- Schema Prisma migrado localmente y en Supabase.
-- FE 01 y CCFE 03 generados, validados (AJV), firmados y transmitidos con respuesta ACCEPTED.
-- Ambos documentos visibles en portal MH TEST.
-- Adaptadores de firma y transmisión implementados y operativos.
-- UI mostrando estado ACCEPTED con sello recibido.
-- Modelado de PDF, delivery, relaciones e invalidación pendiente de implementación.
-- Ver docs/modules/dte-transmission-summary.md para el cierre técnico completo.
+- FE 01, CCFE 03, NC 05 e Invalidación implementados y probados end-to-end en MH TEST.
+- Todos los documentos aceptados con sello y entregados a sistema externo MariaDB.
+- Panel Fiscal DTE operativo en /dashboard/sales.
+- Ver docs/modules/dte-v1-operational-close.md para el cierre técnico-operativo completo.

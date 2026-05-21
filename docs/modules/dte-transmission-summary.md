@@ -2,9 +2,9 @@
 
 ## Estado
 
-**Fases 4I-5 (firma) y 4I-6 (transmisión) cerradas.**
+**DTE V1 cerrado operativamente. Ver docs/modules/dte-v1-operational-close.md para el cierre completo.**
 
-FE 01 y CCFE 03 probados end-to-end en ambiente TEST del Ministerio de Hacienda. Ambos documentos aparecen aceptados en el portal MH TEST con sello recibido.
+FE 01, CCFE 03, NC 05 e Invalidación probados end-to-end en ambiente TEST del Ministerio de Hacienda. Todos aceptados con sello recibido y entregados a sistema externo MariaDB. Panel Fiscal DTE operativo en /dashboard/sales.
 
 Bases de datos locales y Supabase sincronizadas. `npx prisma migrate status` confirmó "Database schema is up to date" en ambas.
 

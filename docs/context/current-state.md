@@ -9,7 +9,7 @@
 - commerce/suppliers cerrado y operativo.
 - commerce/sales ciclo interno cerrado (Fase 4H-Z) — DRAFT, CONFIRMED, inventario, UI operativa.
 - commerce/customers cerrado y operativo — módulo completo con catálogos fiscales (Fase 4I-3B-1 + ajustes).
-- commerce/dte outgoing — Fases 4I-1 a 4I-6 cerradas. FE 01 y CCFE 03 generados, validados, firmados y transmitidos a MH TEST con respuesta ACCEPTED. Sellos recibidos y persistidos. UI operativa. Ver docs/modules/dte-transmission-summary.md.
+- commerce/dte outgoing — V1 cerrado operativamente. FE 01, CCFE 03, NC 05 e Invalidación generados, validados, firmados, transmitidos a MH TEST con respuesta ACCEPTED y entregados a sistema externo MariaDB. Panel Fiscal DTE operativo en /dashboard/sales. Ver docs/modules/dte-v1-operational-close.md.
 - cash pendiente.
 
 ## Identidad activa
@@ -89,15 +89,18 @@
 - CCFE exige cliente. Validación de stock antes de confirmar.
 - Ver docs/modules/sales-summary.md para detalle completo.
 
-## Módulos en progreso
-- dte outgoing: cerrado FE 01 + CCFE 03 hasta transmisión MH TEST. Ver docs/modules/dte-transmission-summary.md.
+## Módulos cerrados adicionales
+- dte outgoing V1: FE 01, CCFE 03, NC 05, Invalidación, delivery externo MariaDB. Ver docs/modules/dte-v1-operational-close.md.
 - customers: cerrado. Ver docs/modules/customers-summary.md
 
 ## Próximos pasos
-- Fase 4I-7+: QR URL pública, PDF, entrega por email, reintentos automáticos, vista de logs DTE.
-- Fase 4I-8+: Invalidación DTE, contingencia, notas de crédito/débito.
-- Fase posterior: Cash/Caja (pagos, cortes, cuentas por cobrar).
-- Fase posterior: Anulación de ventas confirmadas.
+- Vista global /dashboard/dte/outgoing (lista de DTEs emitidos).
+- Vista de logs DTE completa.
+- QR URL pública, PDF, entrega por email.
+- Reintentos automáticos de delivery externo.
+- Estrategia del firmador fuera de localhost para producción/Vercel.
+- Cash/Caja (pagos, cortes, cuentas por cobrar).
+- Anulación de ventas confirmadas.
 
 ## Deuda técnica
 - tests automatizados

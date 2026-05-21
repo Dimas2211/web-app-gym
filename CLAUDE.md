@@ -89,7 +89,8 @@ El proyecto ya cerró formalmente su transición base de reorganización.
 - `commerce/inventory` está cerrado y operativo.
 - `commerce/suppliers` está cerrado y operativo como maestro reusable de commerce.
 - `commerce/purchases` está cerrado y operativo, incluyendo importación DTE, alias proveedor-producto, líneas repetidas e historial en suppliers.
-- `commerce/sales` es el próximo módulo a diseñar (facturación electrónica DTE outgoing).
+- `commerce/sales` está cerrado y operativo — ciclo interno DRAFT/CONFIRMED/CANCELLED + Panel Fiscal DTE en /dashboard/sales.
+- `commerce/dte` V1 cerrado — FE 01, CCFE 03, NC 05, Invalidación y delivery externo MariaDB operativos. Ver docs/modules/dte-v1-operational-close.md.
 - `commerce/cash` está pendiente.
 
 ### Regla de interpretación
