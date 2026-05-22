@@ -17,10 +17,11 @@
 //
 // Fase 5B: diálogo de confirmación para "Enviar DTE externo".
 // Fase 5C: diálogo de confirmación para "Enviar invalidación externa".
+// Fase 5D: diálogo de confirmación para "Crear Nota de Crédito".
 // Sin campos sensibles (signed_jws, json_document, response_body, etc.).
 // ─────────────────────────────────────────────────────────────────
 
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { Loader2, AlertCircle } from "lucide-react";
 import type { DteOutgoingDetail } from "../types";
 import {
@@ -763,16 +764,183 @@ function InvalidationDeliveryConfirmDialog({
   );
 }
 
+// ── Diálogo de confirmación — Crear Nota de Crédito (Fase 5D) ─────
+
+interface CreateCreditNoteConfirmDialogProps {
+  detail:               DteOutgoingDetail;
+  isCreatingCreditNote: boolean;
+  onConfirm:            (reasonText: string) => void;
+  onCancel:             () => void;
+}
+
+function CreateCreditNoteConfirmDialog({
+  detail,
+  isCreatingCreditNote,
+  onConfirm,
+  onCancel,
+}: CreateCreditNoteConfirmDialogProps) {
+  const [reasonText, setReasonText] = useState("");
+  const [touched, setTouched]       = useState(false);
+  const inputRef                    = useRef<HTMLTextAreaElement>(null);
+
+  const trimmed     = reasonText.trim();
+  const hasError    = touched && trimmed.length < 3;
+  const canConfirm  = trimmed.length >= 3 && !isCreatingCreditNote;
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70"
+      onClick={isCreatingCreditNote ? undefined : onCancel}
+      aria-modal="true"
+      role="dialog"
+      aria-labelledby="create-nc-dialog-title"
+    >
+      <div
+        className="bg-zinc-900 border border-zinc-700 rounded-lg p-5 max-w-sm w-full mx-4 shadow-xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h2
+          id="create-nc-dialog-title"
+          className="text-sm font-bold text-zinc-100 mb-1.5"
+        >
+          Crear Nota de Crédito
+        </h2>
+        <p className="text-xs text-zinc-400 mb-4 leading-relaxed">
+          Se creará una Nota de Crédito Electrónica NC 05 relacionada con este
+          CCFE 03 aceptado. Esta acción usará la lógica fiscal existente y
+          registrará la relación documental correspondiente.
+        </p>
+
+        {/* Datos del CCFE origen */}
+        <div className="bg-zinc-800/50 rounded p-3 mb-4 text-xs space-y-1.5 border border-zinc-700/30">
+          <div className="flex justify-between gap-2">
+            <span className="text-zinc-500 shrink-0">Tipo DTE</span>
+            <span className="text-zinc-200 text-right">
+              {dteTypeLabelFull(detail.dte_type_code)}
+              <span className="ml-1 font-mono text-zinc-500 text-[10px]">{detail.dte_type_code}</span>
+            </span>
+          </div>
+          <div className="flex justify-between gap-2">
+            <span className="text-zinc-500 shrink-0">N° Control</span>
+            <span className="font-mono text-zinc-300 text-right">
+              {detail.control_number ?? "—"}
+            </span>
+          </div>
+          <div className="flex justify-between gap-2">
+            <span className="text-zinc-500 shrink-0">Cód. Generación</span>
+            <span className="font-mono text-[10px] text-zinc-400 text-right break-all">
+              {detail.generation_code
+                ? `…${detail.generation_code.slice(-14)}`
+                : "—"}
+            </span>
+          </div>
+          <div className="flex justify-between gap-2">
+            <span className="text-zinc-500 shrink-0">Receptor</span>
+            <span className="text-zinc-300 text-right truncate max-w-[180px]">
+              {detail.receptor_name ?? "Consumidor final"}
+            </span>
+          </div>
+          <div className="flex justify-between gap-2">
+            <span className="text-zinc-500 shrink-0">Total</span>
+            <span className="font-mono font-semibold text-zinc-100">
+              {new Intl.NumberFormat("es-SV", { style: "currency", currency: "USD" }).format(detail.total)}
+            </span>
+          </div>
+          <div className="flex justify-between gap-2">
+            <span className="text-zinc-500 shrink-0">Estado fiscal</span>
+            <span className={`font-semibold text-[10px] ${dteStatusCls(detail.dte_status)}`}>
+              {dteStatusLabel(detail.dte_status)}
+            </span>
+          </div>
+          {detail.accepted_at && (
+            <div className="flex justify-between gap-2">
+              <span className="text-zinc-500 shrink-0">Aceptado MH</span>
+              <span className="font-mono text-[10px] text-zinc-400">
+                {fmtDate(detail.accepted_at)}
+              </span>
+            </div>
+          )}
+        </div>
+
+        {/* Campo obligatorio: motivo */}
+        <div className="mb-4">
+          <label
+            htmlFor="nc-reason-text"
+            className="block text-[10px] font-semibold text-zinc-400 mb-1"
+          >
+            Motivo <span className="text-red-400">*</span>
+          </label>
+          <textarea
+            id="nc-reason-text"
+            ref={inputRef}
+            value={reasonText}
+            onChange={(e) => setReasonText(e.target.value)}
+            onBlur={() => setTouched(true)}
+            disabled={isCreatingCreditNote}
+            rows={2}
+            maxLength={500}
+            placeholder="Mínimo 3 caracteres…"
+            className={[
+              "w-full rounded border px-2.5 py-1.5 text-xs bg-zinc-800 text-zinc-100 resize-none",
+              "placeholder:text-zinc-600 focus:outline-none focus:ring-1",
+              hasError
+                ? "border-red-600/70 focus:ring-red-600/50"
+                : "border-zinc-700 focus:ring-violet-600/50",
+              isCreatingCreditNote ? "opacity-50 cursor-not-allowed" : "",
+            ].join(" ")}
+          />
+          {hasError && (
+            <p className="text-[10px] text-red-400 mt-0.5">
+              El motivo debe tener al menos 3 caracteres.
+            </p>
+          )}
+          <p className="text-[9px] text-zinc-600 mt-0.5 text-right">
+            {trimmed.length}/500
+          </p>
+        </div>
+
+        {/* Botones */}
+        <div className="flex gap-3 justify-end">
+          <button
+            type="button"
+            onClick={onCancel}
+            disabled={isCreatingCreditNote}
+            className="px-4 py-1.5 text-xs rounded border border-zinc-600 text-zinc-300 hover:border-zinc-400 hover:text-zinc-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+          >
+            Cancelar
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setTouched(true);
+              if (canConfirm) onConfirm(trimmed);
+            }}
+            disabled={!canConfirm}
+            className="inline-flex items-center gap-1.5 px-4 py-1.5 text-xs rounded bg-violet-700 hover:bg-violet-600 text-white font-medium disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          >
+            {isCreatingCreditNote && (
+              <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" />
+            )}
+            Crear Nota de Crédito
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Componente principal ──────────────────────────────────────────
 
 export interface DteOutgoingDetailPanelProps {
-  detail:                        DteOutgoingDetail | null;
-  loading:                       boolean;
-  error:                         string | null;
-  onDeliverExternal?:            () => Promise<void>;
-  isDelivering?:                 boolean;
-  onDeliverExternalInvalidation?: () => Promise<void>;
-  isDeliveringInvalidation?:     boolean;
+  detail:                          DteOutgoingDetail | null;
+  loading:                         boolean;
+  error:                           string | null;
+  onDeliverExternal?:              () => Promise<void>;
+  isDelivering?:                   boolean;
+  onDeliverExternalInvalidation?:  () => Promise<void>;
+  isDeliveringInvalidation?:       boolean;
+  onCreateCreditNote?:             (reasonText: string) => Promise<void>;
+  isCreatingCreditNote?:           boolean;
 }
 
 export function DteOutgoingDetailPanel({
@@ -783,9 +951,12 @@ export function DteOutgoingDetailPanel({
   isDelivering = false,
   onDeliverExternalInvalidation,
   isDeliveringInvalidation = false,
+  onCreateCreditNote,
+  isCreatingCreditNote = false,
 }: DteOutgoingDetailPanelProps) {
   const [showDeliveryDialog, setShowDeliveryDialog]                         = useState(false);
   const [showInvalidationDeliveryDialog, setShowInvalidationDeliveryDialog] = useState(false);
+  const [showCreditNoteDialog, setShowCreditNoteDialog]                     = useState(false);
 
   if (loading) return <LoadingPanel />;
   if (error)   return <ErrorPanel error={error} />;
@@ -801,6 +972,12 @@ export function DteOutgoingDetailPanel({
     if (!onDeliverExternalInvalidation) return;
     await onDeliverExternalInvalidation();
     setShowInvalidationDeliveryDialog(false);
+  }
+
+  async function handleConfirmCreateCreditNote(reasonText: string) {
+    if (!onCreateCreditNote) return;
+    await onCreateCreditNote(reasonText);
+    setShowCreditNoteDialog(false);
   }
 
   return (
@@ -826,7 +1003,17 @@ export function DteOutgoingDetailPanel({
         />
       )}
 
-      {/* Barra de acciones — Fase 5B + 5C */}
+      {/* Diálogo de confirmación — Fase 5D: Crear Nota de Crédito */}
+      {showCreditNoteDialog && (
+        <CreateCreditNoteConfirmDialog
+          detail={detail}
+          isCreatingCreditNote={isCreatingCreditNote}
+          onConfirm={handleConfirmCreateCreditNote}
+          onCancel={() => { if (!isCreatingCreditNote) setShowCreditNoteDialog(false); }}
+        />
+      )}
+
+      {/* Barra de acciones — Fase 5B + 5C + 5D */}
       <DteOutgoingActionBar
         availability={detail.action_availability}
         onRequestDeliver={
@@ -841,6 +1028,12 @@ export function DteOutgoingDetailPanel({
             : undefined
         }
         isDeliveringInvalidation={isDeliveringInvalidation}
+        onRequestCreateCreditNote={
+          onCreateCreditNote && detail.action_availability.canCreateCreditNote
+            ? () => setShowCreditNoteDialog(true)
+            : undefined
+        }
+        isCreatingCreditNote={isCreatingCreditNote}
       />
 
       <div className="grid grid-cols-[1fr_1fr_1fr_1fr] gap-x-4 gap-y-3 text-xs text-zinc-300 px-3 pt-3 pb-4">

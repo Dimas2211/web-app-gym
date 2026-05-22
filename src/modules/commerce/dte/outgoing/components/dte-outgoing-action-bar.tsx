@@ -4,14 +4,15 @@
 // commerce/dte/outgoing — dte-outgoing-action-bar.tsx
 //
 // Barra de acciones contextuales del panel de detalle DTE.
-// FASE 5C — "Enviar inv. externa" tiene ejecución real.
+// FASE 5D — "Crear NC" tiene ejecución real.
 //
 // Acciones con ejecución real:
-//   - Enviar DTE externo (canDeliverExternal)           — Fase 5B
+//   - Enviar DTE externo (canDeliverExternal)              — Fase 5B
 //   - Enviar inv. externa (canDeliverExternalInvalidation) — Fase 5C
+//   - Crear NC (canCreateCreditNote)                       — Fase 5D
 //
 // Acciones visuales/pendientes (sin ejecución):
-//   - Firmar, Transmitir, Crear NC, Invalidar
+//   - Firmar, Transmitir, Invalidar
 // ─────────────────────────────────────────────────────────────────
 
 import { Loader2 } from "lucide-react";
@@ -172,6 +173,66 @@ function DeliverExternalInvalidationChip({
   );
 }
 
+// ── Chip interactivo — Crear NC (Fase 5D) ─────────────────────────
+
+interface CreateCreditNoteChipProps {
+  available:               boolean;
+  reason?:                 string;
+  onRequestCreateCreditNote?: () => void;
+  isCreatingCreditNote?:   boolean;
+}
+
+function CreateCreditNoteChip({
+  available,
+  reason,
+  onRequestCreateCreditNote,
+  isCreatingCreditNote,
+}: CreateCreditNoteChipProps) {
+  if (isCreatingCreditNote) {
+    return (
+      <button
+        type="button"
+        disabled
+        aria-label="Creando Nota de Crédito…"
+        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded text-[10px] font-medium border bg-violet-950/80 border-violet-700/60 text-violet-300 cursor-default"
+      >
+        <Loader2 className="w-2.5 h-2.5 animate-spin shrink-0" aria-hidden="true" />
+        Creando NC…
+      </button>
+    );
+  }
+
+  if (!available) {
+    return (
+      <ActionChip
+        label="Crear NC"
+        available={false}
+        reason={reason}
+      />
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={onRequestCreateCreditNote}
+      disabled={!onRequestCreateCreditNote}
+      title="Crear Nota de Crédito NC 05 a partir de este CCFE 03 aceptado"
+      aria-label="Crear Nota de Crédito"
+      className={[
+        "inline-flex items-center gap-1 px-2.5 py-1 rounded text-[10px] font-medium border",
+        "transition-colors",
+        onRequestCreateCreditNote
+          ? "bg-violet-800/70 border-violet-600/70 text-violet-200 hover:bg-violet-700/80 hover:border-violet-500 cursor-pointer"
+          : "bg-violet-950/60 border-violet-700/50 text-violet-300 cursor-default",
+      ].join(" ")}
+    >
+      <span className="w-1.5 h-1.5 rounded-full bg-violet-400 shrink-0" aria-hidden="true" />
+      Crear NC
+    </button>
+  );
+}
+
 // ── Barra principal ───────────────────────────────────────────────
 
 export interface DteOutgoingActionBarProps {
@@ -180,6 +241,8 @@ export interface DteOutgoingActionBarProps {
   isDelivering?:                   boolean;
   onRequestDeliverInvalidation?:   () => void;
   isDeliveringInvalidation?:       boolean;
+  onRequestCreateCreditNote?:      () => void;
+  isCreatingCreditNote?:           boolean;
 }
 
 export function DteOutgoingActionBar({
@@ -188,18 +251,20 @@ export function DteOutgoingActionBar({
   isDelivering,
   onRequestDeliverInvalidation,
   isDeliveringInvalidation,
+  onRequestCreateCreditNote,
+  isCreatingCreditNote,
 }: DteOutgoingActionBarProps) {
   const staticActions: ActionChipProps[] = [
-    { label: "Firmar",     available: av.canSign,             reason: av.reasons.sign },
-    { label: "Transmitir", available: av.canTransmit,         reason: av.reasons.transmit },
-    { label: "Crear NC",   available: av.canCreateCreditNote, reason: av.reasons.createCreditNote },
-    { label: "Invalidar",  available: av.canInvalidate,       reason: av.reasons.invalidate },
+    { label: "Firmar",     available: av.canSign,     reason: av.reasons.sign },
+    { label: "Transmitir", available: av.canTransmit, reason: av.reasons.transmit },
+    { label: "Invalidar",  available: av.canInvalidate, reason: av.reasons.invalidate },
   ];
 
   const allAvailableCount =
     staticActions.filter((a) => a.available).length +
     (av.canDeliverExternal ? 1 : 0) +
-    (av.canDeliverExternalInvalidation ? 1 : 0);
+    (av.canDeliverExternalInvalidation ? 1 : 0) +
+    (av.canCreateCreditNote ? 1 : 0);
 
   return (
     <div className="flex items-center gap-3 flex-wrap px-3 py-2 border-b border-zinc-800/70 bg-zinc-900/30">
@@ -213,6 +278,14 @@ export function DteOutgoingActionBar({
         {staticActions.map((a) => (
           <ActionChip key={a.label} {...a} />
         ))}
+
+        {/* Chip interactivo — Fase 5D: Crear NC */}
+        <CreateCreditNoteChip
+          available={av.canCreateCreditNote}
+          reason={av.reasons.createCreditNote}
+          onRequestCreateCreditNote={onRequestCreateCreditNote}
+          isCreatingCreditNote={isCreatingCreditNote}
+        />
 
         {/* Chip interactivo — Fase 5B: Enviar DTE externo */}
         <DeliverExternalChip
@@ -239,7 +312,7 @@ export function DteOutgoingActionBar({
           </span>
         )}
         <span className="text-[9px] text-zinc-600 italic">
-          Fase 5C
+          Fase 5D
         </span>
       </div>
     </div>

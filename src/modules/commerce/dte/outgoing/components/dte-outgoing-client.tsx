@@ -12,6 +12,7 @@
 //
 // Fase 5B: "Enviar DTE externo" vía deliverDteToExternalDbAction.
 // Fase 5C: "Enviar invalidación externa" vía deliverInvalidationToExternalDbAction.
+// Fase 5D: "Crear NC" vía createAndTransmitCreditNoteAction.
 //   - tenantId/locationId resueltos en servidor (action usa requireAdmin).
 //   - Refresca el detalle vía detailRefreshToken tras éxito.
 //   - Refresca la grilla vía router.refresh() tras éxito.
@@ -32,6 +33,7 @@ import {
 import { DteOutgoingDetailPanel } from "./dte-outgoing-detail-panel";
 import { deliverDteToExternalDbAction }          from "@/modules/commerce/dte/actions/deliver-dte-to-external-db.action";
 import { deliverInvalidationToExternalDbAction } from "@/modules/commerce/dte/actions/deliver-invalidation-to-external-db.action";
+import { createAndTransmitCreditNoteAction }     from "@/modules/commerce/dte/actions/create-and-transmit-credit-note.action";
 
 // ── Props ─────────────────────────────────────────────────────────
 
@@ -113,6 +115,12 @@ export function DteOutgoingClient({
   const [invalidationDeliveryError, setInvalidationDeliveryError]     = useState<string | null>(null);
   const [invalidationDeliverySuccess, setInvalidationDeliverySuccess] = useState(false);
 
+  // ── Estado de Crear NC (Fase 5D) ─────────────────────────────
+
+  const [isCreatingCreditNote, setIsCreatingCreditNote]       = useState(false);
+  const [creditNoteError, setCreditNoteError]                 = useState<string | null>(null);
+  const [creditNoteSuccess, setCreditNoteSuccess]             = useState(false);
+
   // ── Fetch del detalle ────────────────────────────────────────
 
   useEffect(() => {
@@ -157,12 +165,14 @@ export function DteOutgoingClient({
     };
   }, [selectedId, detailRefreshToken]);
 
-  // Limpiar estado de delivery al cambiar de DTE seleccionado
+  // Limpiar estados de operaciones al cambiar de DTE seleccionado
   useEffect(() => {
     setDeliveryError(null);
     setDeliverySuccess(false);
     setInvalidationDeliveryError(null);
     setInvalidationDeliverySuccess(false);
+    setCreditNoteError(null);
+    setCreditNoteSuccess(false);
   }, [selectedId]);
 
   // ── Limpiar detalle al cambiar de página o filtros ───────────
@@ -175,6 +185,8 @@ export function DteOutgoingClient({
     setDeliverySuccess(false);
     setInvalidationDeliveryError(null);
     setInvalidationDeliverySuccess(false);
+    setCreditNoteError(null);
+    setCreditNoteSuccess(false);
   }
 
   // ── Enviar DTE externo (Fase 5B) ─────────────────────────────
@@ -245,6 +257,45 @@ export function DteOutgoingClient({
       );
     } finally {
       setIsDeliveringInvalidation(false);
+    }
+  }
+
+  // ── Crear Nota de Crédito (Fase 5D) ──────────────────────────
+  // sourceDteDocumentId = selectedId (el CCFE 03 ACCEPTED).
+  // tenantId/locationId resueltos en servidor por requireAdmin.
+  // Guardia de disponibilidad adicional en UI; el backend valida definitivamente.
+
+  async function handleCreateCreditNote(reasonText: string): Promise<void> {
+    if (!selectedId || isCreatingCreditNote) return;
+
+    // Guardia adicional: solo si la disponibilidad del servidor lo confirma
+    if (!detail?.action_availability.canCreateCreditNote) return;
+
+    setIsCreatingCreditNote(true);
+    setCreditNoteError(null);
+    setCreditNoteSuccess(false);
+
+    try {
+      const result = await createAndTransmitCreditNoteAction({
+        sourceDteDocumentId: selectedId,
+        reasonText,
+      });
+
+      if (result.ok) {
+        setCreditNoteSuccess(true);
+        // Refrescar detalle (action_availability.canCreateCreditNote → false + related_nc visible)
+        setDetailRefreshToken((t) => t + 1);
+        // Refrescar grilla del server component (has_credit_note, related_credit_note_status)
+        startTransition(() => {
+          router.refresh();
+        });
+      } else {
+        setCreditNoteError(result.error ?? "Error al crear la Nota de Crédito.");
+      }
+    } catch {
+      setCreditNoteError("Error inesperado al crear la Nota de Crédito. Intente nuevamente.");
+    } finally {
+      setIsCreatingCreditNote(false);
     }
   }
 
@@ -368,7 +419,7 @@ export function DteOutgoingClient({
               <span className="text-[10px] text-zinc-500">{selectedItem.dte_type_code}</span>
             </>
           )}
-          {(detailLoading || isDelivering || isDeliveringInvalidation) && (
+          {(detailLoading || isDelivering || isDeliveringInvalidation || isCreatingCreditNote) && (
             <Loader2 className="ml-auto h-3 w-3 animate-spin text-zinc-500" />
           )}
         </div>
@@ -421,6 +472,30 @@ export function DteOutgoingClient({
           </div>
         )}
 
+        {/* Banner de resultado — Crear Nota de Crédito (Fase 5D) */}
+        {(creditNoteSuccess || creditNoteError) && (
+          <div
+            className={[
+              "flex items-center gap-2 px-3 py-1.5 text-xs border-b",
+              creditNoteSuccess
+                ? "bg-emerald-950/50 border-emerald-800/40 text-emerald-300"
+                : "bg-red-950/50 border-red-800/40 text-red-400",
+            ].join(" ")}
+          >
+            {creditNoteSuccess ? (
+              <>
+                <CheckCircle2 className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                Nota de Crédito creada correctamente
+              </>
+            ) : (
+              <>
+                <AlertCircle className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                {creditNoteError}
+              </>
+            )}
+          </div>
+        )}
+
         {/* Cuerpo del panel — altura fija con scroll interno */}
         <div className="h-[42vh] overflow-y-auto">
           <DteOutgoingDetailPanel
@@ -431,6 +506,8 @@ export function DteOutgoingClient({
             isDelivering={isDelivering}
             onDeliverExternalInvalidation={handleDeliverExternalInvalidation}
             isDeliveringInvalidation={isDeliveringInvalidation}
+            onCreateCreditNote={handleCreateCreditNote}
+            isCreatingCreditNote={isCreatingCreditNote}
           />
         </div>
       </div>
