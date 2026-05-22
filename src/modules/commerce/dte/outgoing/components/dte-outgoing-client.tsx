@@ -13,6 +13,7 @@
 // Fase 5B: "Enviar DTE externo" vía deliverDteToExternalDbAction.
 // Fase 5C: "Enviar invalidación externa" vía deliverInvalidationToExternalDbAction.
 // Fase 5D: "Crear NC" vía createAndTransmitCreditNoteAction.
+// Fase 5E: "Invalidar DTE" vía createSignTransmitInvalidationAction.
 //   - tenantId/locationId resueltos en servidor (action usa requireAdmin).
 //   - Refresca el detalle vía detailRefreshToken tras éxito.
 //   - Refresca la grilla vía router.refresh() tras éxito.
@@ -22,7 +23,7 @@
 import { useState, useTransition, useEffect, useRef } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import { Loader2, CheckCircle2, AlertCircle } from "lucide-react";
-import type { DteOutgoingGlobalResult, DteOutgoingGlobalListItem, DteOutgoingDetail } from "../types";
+import type { DteOutgoingGlobalResult, DteOutgoingGlobalListItem, DteOutgoingDetail, DteOutgoingInvalidationFormData } from "../types";
 import type { DteOutgoingFiltersOutput } from "../schemas";
 import { DteOutgoingTable } from "./dte-outgoing-table";
 import {
@@ -31,9 +32,13 @@ import {
   EMPTY_DTE_OUTGOING_FILTERS,
 } from "./dte-outgoing-filters-bar";
 import { DteOutgoingDetailPanel } from "./dte-outgoing-detail-panel";
-import { deliverDteToExternalDbAction }          from "@/modules/commerce/dte/actions/deliver-dte-to-external-db.action";
-import { deliverInvalidationToExternalDbAction } from "@/modules/commerce/dte/actions/deliver-invalidation-to-external-db.action";
-import { createAndTransmitCreditNoteAction }     from "@/modules/commerce/dte/actions/create-and-transmit-credit-note.action";
+import { deliverDteToExternalDbAction }                from "@/modules/commerce/dte/actions/deliver-dte-to-external-db.action";
+import { deliverInvalidationToExternalDbAction }       from "@/modules/commerce/dte/actions/deliver-invalidation-to-external-db.action";
+import { createAndTransmitCreditNoteAction }           from "@/modules/commerce/dte/actions/create-and-transmit-credit-note.action";
+import {
+  createSignTransmitInvalidationAction,
+  type CreateSignTransmitInvalidationResult,
+} from "@/modules/commerce/dte/actions/create-sign-transmit-invalidation.action";
 
 // ── Props ─────────────────────────────────────────────────────────
 
@@ -121,6 +126,13 @@ export function DteOutgoingClient({
   const [creditNoteError, setCreditNoteError]                 = useState<string | null>(null);
   const [creditNoteSuccess, setCreditNoteSuccess]             = useState(false);
 
+  // ── Estado de Invalidar DTE (Fase 5E) ────────────────────────
+
+  const [isInvalidating, setIsInvalidating]                               = useState(false);
+  const [invalidationResult, setInvalidationResult]                       = useState<CreateSignTransmitInvalidationResult | null>(null);
+  const [invalidationBannerMsg, setInvalidationBannerMsg]                 = useState<string | null>(null);
+  const [invalidationBannerType, setInvalidationBannerType]               = useState<"success" | "warning" | "error" | null>(null);
+
   // ── Fetch del detalle ────────────────────────────────────────
 
   useEffect(() => {
@@ -173,6 +185,9 @@ export function DteOutgoingClient({
     setInvalidationDeliverySuccess(false);
     setCreditNoteError(null);
     setCreditNoteSuccess(false);
+    setInvalidationResult(null);
+    setInvalidationBannerMsg(null);
+    setInvalidationBannerType(null);
   }, [selectedId]);
 
   // ── Limpiar detalle al cambiar de página o filtros ───────────
@@ -187,6 +202,9 @@ export function DteOutgoingClient({
     setInvalidationDeliverySuccess(false);
     setCreditNoteError(null);
     setCreditNoteSuccess(false);
+    setInvalidationResult(null);
+    setInvalidationBannerMsg(null);
+    setInvalidationBannerType(null);
   }
 
   // ── Enviar DTE externo (Fase 5B) ─────────────────────────────
@@ -297,6 +315,70 @@ export function DteOutgoingClient({
     } finally {
       setIsCreatingCreditNote(false);
     }
+  }
+
+  // ── Invalidar DTE (Fase 5E) ───────────────────────────────────
+  // dteDocumentId = selectedId. tenantId/locationId resueltos en servidor.
+  // Guardia adicional en UI; el backend valida definitivamente vía requireAdmin.
+
+  function handleInvalidate(data: DteOutgoingInvalidationFormData): void {
+    if (!selectedId || isInvalidating) return;
+
+    // Guardia adicional: solo si la disponibilidad del servidor lo confirma
+    if (!detail?.action_availability.canInvalidate) return;
+
+    setIsInvalidating(true);
+    setInvalidationResult(null);
+    setInvalidationBannerMsg(null);
+    setInvalidationBannerType(null);
+
+    createSignTransmitInvalidationAction({
+      dteDocumentId:        selectedId,
+      invalidationTypeCode: "2",
+      reason:               data.reason || null,
+      responsable: {
+        nombre:          data.responsableNombre,
+        tipoDocumento:   data.responsableTipoDoc,
+        numeroDocumento: data.responsableNumDoc,
+      },
+      solicita: {
+        nombre:          data.solicitaNombre,
+        tipoDocumento:   data.solicitaTipoDoc,
+        numeroDocumento: data.solicitaNumDoc,
+      },
+    })
+      .then((result) => {
+        setInvalidationResult(result);
+
+        if (result.ok && result.dteStatus === "INVALIDATED") {
+          setInvalidationBannerMsg("DTE invalidado correctamente.");
+          setInvalidationBannerType("success");
+          setDetailRefreshToken((t) => t + 1);
+          startTransition(() => { router.refresh(); });
+        } else if (result.ok && result.dteStatus === "ACCEPTED") {
+          setInvalidationBannerMsg(
+            result.descripcionMsg
+              ? `Hacienda rechazó la invalidación: ${result.descripcionMsg}`
+              : "Hacienda rechazó la invalidación. El DTE sigue en ACCEPTED.",
+          );
+          setInvalidationBannerType("warning");
+          // Refrescar detalle para reflejar el evento REJECTED
+          setDetailRefreshToken((t) => t + 1);
+          startTransition(() => { router.refresh(); });
+        } else if (!result.ok) {
+          setInvalidationBannerMsg(result.error ?? "Error al invalidar el DTE.");
+          setInvalidationBannerType("error");
+        }
+      })
+      .catch(() => {
+        const fallback = "Error inesperado al invalidar el DTE. Intente nuevamente.";
+        setInvalidationResult({ ok: false, error: fallback });
+        setInvalidationBannerMsg(fallback);
+        setInvalidationBannerType("error");
+      })
+      .finally(() => {
+        setIsInvalidating(false);
+      });
   }
 
   // ── Navegación ────────────────────────────────────────────────
@@ -419,7 +501,7 @@ export function DteOutgoingClient({
               <span className="text-[10px] text-zinc-500">{selectedItem.dte_type_code}</span>
             </>
           )}
-          {(detailLoading || isDelivering || isDeliveringInvalidation || isCreatingCreditNote) && (
+          {(detailLoading || isDelivering || isDeliveringInvalidation || isCreatingCreditNote || isInvalidating) && (
             <Loader2 className="ml-auto h-3 w-3 animate-spin text-zinc-500" />
           )}
         </div>
@@ -496,6 +578,27 @@ export function DteOutgoingClient({
           </div>
         )}
 
+        {/* Banner de resultado — Invalidar DTE (Fase 5E) */}
+        {invalidationBannerMsg && invalidationBannerType && (
+          <div
+            className={[
+              "flex items-center gap-2 px-3 py-1.5 text-xs border-b",
+              invalidationBannerType === "success"
+                ? "bg-emerald-950/50 border-emerald-800/40 text-emerald-300"
+                : invalidationBannerType === "warning"
+                  ? "bg-amber-950/50 border-amber-800/40 text-amber-300"
+                  : "bg-red-950/50 border-red-800/40 text-red-400",
+            ].join(" ")}
+          >
+            {invalidationBannerType === "success" ? (
+              <CheckCircle2 className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+            ) : (
+              <AlertCircle className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+            )}
+            {invalidationBannerMsg}
+          </div>
+        )}
+
         {/* Cuerpo del panel — altura fija con scroll interno */}
         <div className="h-[42vh] overflow-y-auto">
           <DteOutgoingDetailPanel
@@ -508,6 +611,9 @@ export function DteOutgoingClient({
             isDeliveringInvalidation={isDeliveringInvalidation}
             onCreateCreditNote={handleCreateCreditNote}
             isCreatingCreditNote={isCreatingCreditNote}
+            onInvalidate={handleInvalidate}
+            isInvalidating={isInvalidating}
+            invalidationResult={invalidationResult}
           />
         </div>
       </div>

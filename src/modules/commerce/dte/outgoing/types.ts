@@ -202,6 +202,19 @@ export interface DteOutgoingDetail {
   action_availability: DteOutgoingActionAvailability;
 }
 
+// ── Datos de formulario para invalidación (Fase 5E) ──────────────
+// Solo campos del formulario UI — el backend resuelve tenant/location.
+
+export interface DteOutgoingInvalidationFormData {
+  reason:              string;
+  responsableNombre:   string;
+  responsableTipoDoc:  string;
+  responsableNumDoc:   string;
+  solicitaNombre:      string;
+  solicitaTipoDoc:     string;
+  solicitaNumDoc:      string;
+}
+
 // ── Disponibilidad de acciones contextuales ───────────────────────
 // Calculada en servidor. El cliente solo lee este objeto — no recalcula.
 

@@ -18,12 +18,14 @@
 // Fase 5B: diálogo de confirmación para "Enviar DTE externo".
 // Fase 5C: diálogo de confirmación para "Enviar invalidación externa".
 // Fase 5D: diálogo de confirmación para "Crear Nota de Crédito".
+// Fase 5E: diálogo de confirmación para "Invalidar DTE".
 // Sin campos sensibles (signed_jws, json_document, response_body, etc.).
 // ─────────────────────────────────────────────────────────────────
 
 import { useState, useRef } from "react";
 import { Loader2, AlertCircle } from "lucide-react";
-import type { DteOutgoingDetail } from "../types";
+import type { DteOutgoingDetail, DteOutgoingInvalidationFormData } from "../types";
+import type { CreateSignTransmitInvalidationResult } from "@/modules/commerce/dte/actions/create-sign-transmit-invalidation.action";
 import {
   dteStatusLabel,
   dteStatusCls,
@@ -929,6 +931,369 @@ function CreateCreditNoteConfirmDialog({
   );
 }
 
+// ── Diálogo de confirmación — Invalidar DTE (Fase 5E) ────────────
+
+interface InvalidateConfirmDialogProps {
+  detail:          DteOutgoingDetail;
+  isInvalidating:  boolean;
+  result:          CreateSignTransmitInvalidationResult | null;
+  onConfirm:       (data: DteOutgoingInvalidationFormData) => void;
+  onClose:         () => void;
+}
+
+function InvalidateConfirmDialog({
+  detail,
+  isInvalidating,
+  result,
+  onConfirm,
+  onClose,
+}: InvalidateConfirmDialogProps) {
+  const [reason,              setReason]              = useState("");
+  const [respNombre,          setRespNombre]          = useState("");
+  const [respTipoDoc,         setRespTipoDoc]         = useState("36");
+  const [respNumDoc,          setRespNumDoc]          = useState("");
+  const [solNombre,           setSolNombre]           = useState("");
+  const [solTipoDoc,          setSolTipoDoc]          = useState("36");
+  const [solNumDoc,           setSolNumDoc]           = useState("");
+  const [touched,             setTouched]             = useState(false);
+
+  const canConfirm =
+    !isInvalidating &&
+    !result &&
+    respNombre.trim().length > 0 &&
+    respNumDoc.trim().length > 0 &&
+    solNombre.trim().length > 0 &&
+    solNumDoc.trim().length > 0;
+
+  function handleSubmit() {
+    setTouched(true);
+    if (!canConfirm) return;
+    onConfirm({
+      reason:             reason.trim(),
+      responsableNombre:  respNombre.trim(),
+      responsableTipoDoc: respTipoDoc,
+      responsableNumDoc:  respNumDoc.trim(),
+      solicitaNombre:     solNombre.trim(),
+      solicitaTipoDoc:    solTipoDoc,
+      solicitaNumDoc:     solNumDoc.trim(),
+    });
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70"
+      onClick={isInvalidating ? undefined : onClose}
+      aria-modal="true"
+      role="dialog"
+      aria-labelledby="invalidate-dte-dialog-title"
+    >
+      <div
+        className="bg-zinc-900 border border-red-900/50 rounded-lg p-5 max-w-md w-full mx-4 shadow-xl max-h-[90vh] overflow-y-auto"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h2
+          id="invalidate-dte-dialog-title"
+          className="text-sm font-bold text-red-300 mb-1.5"
+        >
+          Invalidar DTE
+        </h2>
+
+        {!result && (
+          <p className="text-xs text-zinc-400 mb-3 leading-relaxed">
+            Se enviará un evento de invalidación{" "}
+            <span className="text-zinc-200 font-medium">Tipo 2 — Rescindir operación</span>.
+            Si Hacienda acepta, el documento quedará marcado como{" "}
+            <span className="text-red-300 font-medium">INVALIDATED</span>.
+          </p>
+        )}
+
+        {/* Datos del DTE */}
+        <div className="bg-zinc-800/50 rounded p-3 mb-4 text-xs space-y-1.5 border border-zinc-700/30">
+          <div className="flex justify-between gap-2">
+            <span className="text-zinc-500 shrink-0">Tipo DTE</span>
+            <span className="text-zinc-200 text-right">
+              {dteTypeLabelFull(detail.dte_type_code)}
+              <span className="ml-1 font-mono text-zinc-500 text-[10px]">{detail.dte_type_code}</span>
+            </span>
+          </div>
+          <div className="flex justify-between gap-2">
+            <span className="text-zinc-500 shrink-0">N° Control</span>
+            <span className="font-mono text-zinc-300 text-right">{detail.control_number ?? "—"}</span>
+          </div>
+          <div className="flex justify-between gap-2">
+            <span className="text-zinc-500 shrink-0">Cód. Generación</span>
+            <span className="font-mono text-[10px] text-zinc-400 text-right break-all">
+              {detail.generation_code ? `…${detail.generation_code.slice(-14)}` : "—"}
+            </span>
+          </div>
+          <div className="flex justify-between gap-2">
+            <span className="text-zinc-500 shrink-0">Receptor</span>
+            <span className="text-zinc-300 text-right truncate max-w-[180px]">
+              {detail.receptor_name ?? "Consumidor final"}
+            </span>
+          </div>
+          <div className="flex justify-between gap-2">
+            <span className="text-zinc-500 shrink-0">Total</span>
+            <span className="font-mono font-semibold text-zinc-100">
+              {new Intl.NumberFormat("es-SV", { style: "currency", currency: "USD" }).format(detail.total)}
+            </span>
+          </div>
+          <div className="flex justify-between gap-2">
+            <span className="text-zinc-500 shrink-0">Estado fiscal</span>
+            <span className={`font-semibold text-[10px] ${dteStatusCls(detail.dte_status)}`}>
+              {dteStatusLabel(detail.dte_status)}
+            </span>
+          </div>
+          {detail.reception_stamp && (
+            <div className="flex justify-between gap-2">
+              <span className="text-zinc-500 shrink-0">Sello recibido</span>
+              <span className="rounded px-1.5 py-0.5 text-[9px] font-medium bg-emerald-900/50 text-emerald-300 border border-emerald-700/50">Sí</span>
+            </div>
+          )}
+          {detail.accepted_at && (
+            <div className="flex justify-between gap-2">
+              <span className="text-zinc-500 shrink-0">Aceptado MH</span>
+              <span className="font-mono text-[10px] text-zinc-400">
+                {fmtDate(detail.accepted_at)}
+              </span>
+            </div>
+          )}
+        </div>
+
+        {/* Formulario — solo visible si no hay resultado todavía */}
+        {!result && (
+          <div className="space-y-3">
+            {/* Tipo invalidación (fijo tipo 2) */}
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-zinc-500 mb-1">
+                Tipo de invalidación
+              </p>
+              <label className="flex items-center gap-2">
+                <input type="radio" checked readOnly className="accent-red-500" />
+                <span className="text-xs text-zinc-200">Tipo 2 — Rescindir operación</span>
+              </label>
+              <label className="flex items-center gap-2 opacity-40 cursor-not-allowed" title="Requiere DTE reemplazante">
+                <input type="radio" disabled className="accent-zinc-600" />
+                <span className="text-xs text-zinc-500">Tipo 1 — Error en emisión (requiere DTE reemplazante)</span>
+              </label>
+              <label className="flex items-center gap-2 opacity-40 cursor-not-allowed" title="Requiere DTE reemplazante">
+                <input type="radio" disabled className="accent-zinc-600" />
+                <span className="text-xs text-zinc-500">Tipo 3 — Otro (requiere DTE reemplazante)</span>
+              </label>
+            </div>
+
+            {/* Motivo (opcional) */}
+            <div>
+              <label
+                htmlFor="inv-reason"
+                className="block text-[10px] font-semibold uppercase tracking-wide text-zinc-500 mb-0.5"
+              >
+                Motivo <span className="text-zinc-600 font-normal normal-case">(opcional)</span>
+              </label>
+              <input
+                id="inv-reason"
+                type="text"
+                value={reason}
+                onChange={(e) => setReason(e.target.value)}
+                disabled={isInvalidating}
+                maxLength={500}
+                placeholder="Ej: Cliente solicitó anulación de la operación"
+                className="w-full h-8 bg-zinc-800 border border-zinc-700 rounded px-2 text-xs text-zinc-100 placeholder:text-zinc-600 focus:outline-none focus:border-zinc-500 disabled:opacity-50"
+              />
+            </div>
+
+            {/* Responsable */}
+            <div className="border border-zinc-800 rounded p-2.5 space-y-2">
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-zinc-500">
+                Responsable de la invalidación
+              </p>
+              <div className="grid grid-cols-3 gap-2">
+                <div className="col-span-3">
+                  <label className="block text-[10px] text-zinc-600 mb-0.5">
+                    Nombre <span className="text-red-400">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={respNombre}
+                    onChange={(e) => setRespNombre(e.target.value)}
+                    disabled={isInvalidating}
+                    placeholder="Nombre completo"
+                    className={[
+                      "w-full h-7 bg-zinc-800 border rounded px-2 text-xs text-zinc-100 focus:outline-none focus:border-zinc-500 disabled:opacity-50",
+                      touched && !respNombre.trim() ? "border-red-600/70" : "border-zinc-700",
+                    ].join(" ")}
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] text-zinc-600 mb-0.5">
+                    Tipo doc. <span className="text-red-400">*</span>
+                  </label>
+                  <select
+                    value={respTipoDoc}
+                    onChange={(e) => setRespTipoDoc(e.target.value)}
+                    disabled={isInvalidating}
+                    className="w-full h-7 bg-zinc-800 border border-zinc-700 rounded px-2 text-xs text-zinc-100 focus:outline-none focus:border-zinc-500 disabled:opacity-50"
+                  >
+                    <option value="36">DUI (36)</option>
+                    <option value="13">NIT (13)</option>
+                    <option value="02">Pasaporte (02)</option>
+                    <option value="03">Carnet resid. (03)</option>
+                  </select>
+                </div>
+                <div className="col-span-2">
+                  <label className="block text-[10px] text-zinc-600 mb-0.5">
+                    Nº documento <span className="text-red-400">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={respNumDoc}
+                    onChange={(e) => setRespNumDoc(e.target.value)}
+                    disabled={isInvalidating}
+                    placeholder="00000000-0"
+                    className={[
+                      "w-full h-7 bg-zinc-800 border rounded px-2 text-xs text-zinc-100 focus:outline-none focus:border-zinc-500 disabled:opacity-50",
+                      touched && !respNumDoc.trim() ? "border-red-600/70" : "border-zinc-700",
+                    ].join(" ")}
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Solicitante */}
+            <div className="border border-zinc-800 rounded p-2.5 space-y-2">
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-zinc-500">
+                Solicitante de la invalidación
+              </p>
+              <div className="grid grid-cols-3 gap-2">
+                <div className="col-span-3">
+                  <label className="block text-[10px] text-zinc-600 mb-0.5">
+                    Nombre <span className="text-red-400">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={solNombre}
+                    onChange={(e) => setSolNombre(e.target.value)}
+                    disabled={isInvalidating}
+                    placeholder="Nombre completo"
+                    className={[
+                      "w-full h-7 bg-zinc-800 border rounded px-2 text-xs text-zinc-100 focus:outline-none focus:border-zinc-500 disabled:opacity-50",
+                      touched && !solNombre.trim() ? "border-red-600/70" : "border-zinc-700",
+                    ].join(" ")}
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] text-zinc-600 mb-0.5">
+                    Tipo doc. <span className="text-red-400">*</span>
+                  </label>
+                  <select
+                    value={solTipoDoc}
+                    onChange={(e) => setSolTipoDoc(e.target.value)}
+                    disabled={isInvalidating}
+                    className="w-full h-7 bg-zinc-800 border border-zinc-700 rounded px-2 text-xs text-zinc-100 focus:outline-none focus:border-zinc-500 disabled:opacity-50"
+                  >
+                    <option value="36">DUI (36)</option>
+                    <option value="13">NIT (13)</option>
+                    <option value="02">Pasaporte (02)</option>
+                    <option value="03">Carnet resid. (03)</option>
+                  </select>
+                </div>
+                <div className="col-span-2">
+                  <label className="block text-[10px] text-zinc-600 mb-0.5">
+                    Nº documento <span className="text-red-400">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={solNumDoc}
+                    onChange={(e) => setSolNumDoc(e.target.value)}
+                    disabled={isInvalidating}
+                    placeholder="00000000-0"
+                    className={[
+                      "w-full h-7 bg-zinc-800 border rounded px-2 text-xs text-zinc-100 focus:outline-none focus:border-zinc-500 disabled:opacity-50",
+                      touched && !solNumDoc.trim() ? "border-red-600/70" : "border-zinc-700",
+                    ].join(" ")}
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Resultado: MH aceptó → DTE INVALIDATED */}
+        {result?.ok && result.dteStatus === "INVALIDATED" && (
+          <div className="mt-3 text-xs bg-emerald-900/30 border border-emerald-700/40 rounded px-3 py-2 space-y-1">
+            <p className="text-emerald-300 font-semibold">DTE invalidado correctamente.</p>
+            <p className="text-zinc-400">
+              Estado DTE: <span className="text-zinc-200 font-mono">INVALIDATED</span>
+            </p>
+            {result.selloRecibido && (
+              <p className="text-zinc-400">
+                Sello inv.: <span className="text-zinc-300 font-mono text-[10px] break-all">{result.selloRecibido}</span>
+              </p>
+            )}
+            {result.descripcionMsg && (
+              <p className="text-zinc-400">
+                MH: <span className="text-zinc-300">{result.descripcionMsg}</span>
+              </p>
+            )}
+          </div>
+        )}
+
+        {/* Resultado: MH rechazó → DTE sigue ACCEPTED */}
+        {result?.ok && result.dteStatus === "ACCEPTED" && (
+          <div className="mt-3 text-xs bg-amber-900/30 border border-amber-700/40 rounded px-3 py-2 space-y-1">
+            <p className="text-amber-300 font-semibold">
+              Hacienda rechazó la invalidación. El DTE sigue en ACCEPTED.
+            </p>
+            {result.descripcionMsg && (
+              <p className="text-zinc-400">
+                Motivo: <span className="text-amber-200">{result.descripcionMsg}</span>
+              </p>
+            )}
+            {result.codigoMsg && (
+              <p className="text-zinc-400">
+                Código: <span className="text-zinc-300">{result.codigoMsg}</span>
+              </p>
+            )}
+          </div>
+        )}
+
+        {/* Resultado: error técnico */}
+        {result && !result.ok && (
+          <div className="mt-3 text-xs text-red-400 bg-red-900/30 border border-red-700/40 rounded px-3 py-2">
+            <p>{result.error}</p>
+            <p className="text-zinc-500 mt-1">El DTE se mantiene en su estado actual.</p>
+          </div>
+        )}
+
+        {/* Botones */}
+        <div className="flex gap-3 justify-end mt-4">
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={isInvalidating}
+            className="px-4 py-1.5 text-xs rounded border border-zinc-600 text-zinc-300 hover:border-zinc-400 hover:text-zinc-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+          >
+            {result?.ok ? "Cerrar" : "Cancelar"}
+          </button>
+          {!result?.ok && (
+            <button
+              type="button"
+              onClick={handleSubmit}
+              disabled={isInvalidating || !!result}
+              className="inline-flex items-center gap-1.5 px-4 py-1.5 text-xs rounded bg-red-800 hover:bg-red-700 text-white font-medium disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              {isInvalidating && (
+                <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" />
+              )}
+              Invalidar DTE
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Componente principal ──────────────────────────────────────────
 
 export interface DteOutgoingDetailPanelProps {
@@ -941,6 +1306,9 @@ export interface DteOutgoingDetailPanelProps {
   isDeliveringInvalidation?:       boolean;
   onCreateCreditNote?:             (reasonText: string) => Promise<void>;
   isCreatingCreditNote?:           boolean;
+  onInvalidate?:                   (data: DteOutgoingInvalidationFormData) => void;
+  isInvalidating?:                 boolean;
+  invalidationResult?:             CreateSignTransmitInvalidationResult | null;
 }
 
 export function DteOutgoingDetailPanel({
@@ -953,10 +1321,14 @@ export function DteOutgoingDetailPanel({
   isDeliveringInvalidation = false,
   onCreateCreditNote,
   isCreatingCreditNote = false,
+  onInvalidate,
+  isInvalidating = false,
+  invalidationResult = null,
 }: DteOutgoingDetailPanelProps) {
   const [showDeliveryDialog, setShowDeliveryDialog]                         = useState(false);
   const [showInvalidationDeliveryDialog, setShowInvalidationDeliveryDialog] = useState(false);
   const [showCreditNoteDialog, setShowCreditNoteDialog]                     = useState(false);
+  const [showInvalidateDialog, setShowInvalidateDialog]                     = useState(false);
 
   if (loading) return <LoadingPanel />;
   if (error)   return <ErrorPanel error={error} />;
@@ -1013,7 +1385,22 @@ export function DteOutgoingDetailPanel({
         />
       )}
 
-      {/* Barra de acciones — Fase 5B + 5C + 5D */}
+      {/* Diálogo de confirmación — Fase 5E: Invalidar DTE */}
+      {showInvalidateDialog && (
+        <InvalidateConfirmDialog
+          detail={detail}
+          isInvalidating={isInvalidating}
+          result={invalidationResult}
+          onConfirm={(data) => {
+            if (onInvalidate) onInvalidate(data);
+          }}
+          onClose={() => {
+            if (!isInvalidating) setShowInvalidateDialog(false);
+          }}
+        />
+      )}
+
+      {/* Barra de acciones — Fase 5B + 5C + 5D + 5E */}
       <DteOutgoingActionBar
         availability={detail.action_availability}
         onRequestDeliver={
@@ -1034,6 +1421,12 @@ export function DteOutgoingDetailPanel({
             : undefined
         }
         isCreatingCreditNote={isCreatingCreditNote}
+        onRequestInvalidate={
+          onInvalidate && detail.action_availability.canInvalidate
+            ? () => setShowInvalidateDialog(true)
+            : undefined
+        }
+        isInvalidating={isInvalidating}
       />
 
       <div className="grid grid-cols-[1fr_1fr_1fr_1fr] gap-x-4 gap-y-3 text-xs text-zinc-300 px-3 pt-3 pb-4">

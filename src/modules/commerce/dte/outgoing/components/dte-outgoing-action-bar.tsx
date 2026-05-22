@@ -4,15 +4,16 @@
 // commerce/dte/outgoing — dte-outgoing-action-bar.tsx
 //
 // Barra de acciones contextuales del panel de detalle DTE.
-// FASE 5D — "Crear NC" tiene ejecución real.
+// FASE 5E — "Invalidar" tiene ejecución real.
 //
 // Acciones con ejecución real:
 //   - Enviar DTE externo (canDeliverExternal)              — Fase 5B
 //   - Enviar inv. externa (canDeliverExternalInvalidation) — Fase 5C
 //   - Crear NC (canCreateCreditNote)                       — Fase 5D
+//   - Invalidar DTE (canInvalidate)                        — Fase 5E
 //
 // Acciones visuales/pendientes (sin ejecución):
-//   - Firmar, Transmitir, Invalidar
+//   - Firmar, Transmitir
 // ─────────────────────────────────────────────────────────────────
 
 import { Loader2 } from "lucide-react";
@@ -233,6 +234,66 @@ function CreateCreditNoteChip({
   );
 }
 
+// ── Chip interactivo — Invalidar DTE (Fase 5E) ───────────────────
+
+interface InvalidateChipProps {
+  available:            boolean;
+  reason?:              string;
+  onRequestInvalidate?: () => void;
+  isInvalidating?:      boolean;
+}
+
+function InvalidateChip({
+  available,
+  reason,
+  onRequestInvalidate,
+  isInvalidating,
+}: InvalidateChipProps) {
+  if (isInvalidating) {
+    return (
+      <button
+        type="button"
+        disabled
+        aria-label="Invalidando DTE…"
+        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded text-[10px] font-medium border bg-red-950/80 border-red-700/60 text-red-300 cursor-default"
+      >
+        <Loader2 className="w-2.5 h-2.5 animate-spin shrink-0" aria-hidden="true" />
+        Invalidando…
+      </button>
+    );
+  }
+
+  if (!available) {
+    return (
+      <ActionChip
+        label="Invalidar"
+        available={false}
+        reason={reason}
+      />
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={onRequestInvalidate}
+      disabled={!onRequestInvalidate}
+      title="Invalidar este DTE aceptado ante Hacienda"
+      aria-label="Invalidar DTE"
+      className={[
+        "inline-flex items-center gap-1 px-2.5 py-1 rounded text-[10px] font-medium border",
+        "transition-colors",
+        onRequestInvalidate
+          ? "bg-red-900/70 border-red-700/70 text-red-200 hover:bg-red-800/80 hover:border-red-600 cursor-pointer"
+          : "bg-red-950/60 border-red-800/50 text-red-400 cursor-default",
+      ].join(" ")}
+    >
+      <span className="w-1.5 h-1.5 rounded-full bg-red-400 shrink-0" aria-hidden="true" />
+      Invalidar
+    </button>
+  );
+}
+
 // ── Barra principal ───────────────────────────────────────────────
 
 export interface DteOutgoingActionBarProps {
@@ -243,6 +304,8 @@ export interface DteOutgoingActionBarProps {
   isDeliveringInvalidation?:       boolean;
   onRequestCreateCreditNote?:      () => void;
   isCreatingCreditNote?:           boolean;
+  onRequestInvalidate?:            () => void;
+  isInvalidating?:                 boolean;
 }
 
 export function DteOutgoingActionBar({
@@ -253,18 +316,20 @@ export function DteOutgoingActionBar({
   isDeliveringInvalidation,
   onRequestCreateCreditNote,
   isCreatingCreditNote,
+  onRequestInvalidate,
+  isInvalidating,
 }: DteOutgoingActionBarProps) {
   const staticActions: ActionChipProps[] = [
     { label: "Firmar",     available: av.canSign,     reason: av.reasons.sign },
     { label: "Transmitir", available: av.canTransmit, reason: av.reasons.transmit },
-    { label: "Invalidar",  available: av.canInvalidate, reason: av.reasons.invalidate },
   ];
 
   const allAvailableCount =
     staticActions.filter((a) => a.available).length +
     (av.canDeliverExternal ? 1 : 0) +
     (av.canDeliverExternalInvalidation ? 1 : 0) +
-    (av.canCreateCreditNote ? 1 : 0);
+    (av.canCreateCreditNote ? 1 : 0) +
+    (av.canInvalidate ? 1 : 0);
 
   return (
     <div className="flex items-center gap-3 flex-wrap px-3 py-2 border-b border-zinc-800/70 bg-zinc-900/30">
@@ -302,6 +367,14 @@ export function DteOutgoingActionBar({
           onRequestDeliverInvalidation={onRequestDeliverInvalidation}
           isDeliveringInvalidation={isDeliveringInvalidation}
         />
+
+        {/* Chip interactivo — Fase 5E: Invalidar DTE */}
+        <InvalidateChip
+          available={av.canInvalidate}
+          reason={av.reasons.invalidate}
+          onRequestInvalidate={onRequestInvalidate}
+          isInvalidating={isInvalidating}
+        />
       </div>
 
       {/* Indicador de disponibles */}
@@ -312,7 +385,7 @@ export function DteOutgoingActionBar({
           </span>
         )}
         <span className="text-[9px] text-zinc-600 italic">
-          Fase 5D
+          Fase 5E
         </span>
       </div>
     </div>
