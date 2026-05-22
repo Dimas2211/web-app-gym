@@ -4,13 +4,14 @@
 // commerce/dte/outgoing — dte-outgoing-action-bar.tsx
 //
 // Barra de acciones contextuales del panel de detalle DTE.
-// FASE 5B — "Enviar DTE externo" tiene ejecución real.
+// FASE 5C — "Enviar inv. externa" tiene ejecución real.
 //
 // Acciones con ejecución real:
-//   - Enviar DTE externo (canDeliverExternal)
+//   - Enviar DTE externo (canDeliverExternal)           — Fase 5B
+//   - Enviar inv. externa (canDeliverExternalInvalidation) — Fase 5C
 //
 // Acciones visuales/pendientes (sin ejecución):
-//   - Firmar, Transmitir, Crear NC, Invalidar, Enviar inv. externa
+//   - Firmar, Transmitir, Crear NC, Invalidar
 // ─────────────────────────────────────────────────────────────────
 
 import { Loader2 } from "lucide-react";
@@ -66,7 +67,6 @@ function DeliverExternalChip({
   onRequestDeliver,
   isDelivering,
 }: DeliverExternalChipProps) {
-  // Estado: ejecutando
   if (isDelivering) {
     return (
       <button
@@ -81,7 +81,6 @@ function DeliverExternalChip({
     );
   }
 
-  // Estado: no disponible
   if (!available) {
     return (
       <ActionChip
@@ -92,7 +91,6 @@ function DeliverExternalChip({
     );
   }
 
-  // Estado: disponible y clickeable
   return (
     <button
       type="button"
@@ -114,30 +112,94 @@ function DeliverExternalChip({
   );
 }
 
+// ── Chip interactivo — Enviar inv. externa (Fase 5C) ──────────────
+
+interface DeliverExternalInvalidationChipProps {
+  available:                      boolean;
+  reason?:                        string;
+  onRequestDeliverInvalidation?:  () => void;
+  isDeliveringInvalidation?:      boolean;
+}
+
+function DeliverExternalInvalidationChip({
+  available,
+  reason,
+  onRequestDeliverInvalidation,
+  isDeliveringInvalidation,
+}: DeliverExternalInvalidationChipProps) {
+  if (isDeliveringInvalidation) {
+    return (
+      <button
+        type="button"
+        disabled
+        aria-label="Enviando invalidación al sistema externo…"
+        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded text-[10px] font-medium border bg-amber-950/80 border-amber-700/60 text-amber-300 cursor-default"
+      >
+        <Loader2 className="w-2.5 h-2.5 animate-spin shrink-0" aria-hidden="true" />
+        Enviando inv.…
+      </button>
+    );
+  }
+
+  if (!available) {
+    return (
+      <ActionChip
+        label="Enviar inv. ext."
+        available={false}
+        reason={reason}
+      />
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={onRequestDeliverInvalidation}
+      disabled={!onRequestDeliverInvalidation}
+      title="Enviar invalidación aceptada al sistema externo"
+      aria-label="Enviar invalidación externa"
+      className={[
+        "inline-flex items-center gap-1 px-2.5 py-1 rounded text-[10px] font-medium border",
+        "transition-colors",
+        onRequestDeliverInvalidation
+          ? "bg-amber-800/70 border-amber-600/70 text-amber-200 hover:bg-amber-700/80 hover:border-amber-500 cursor-pointer"
+          : "bg-amber-950/60 border-amber-700/50 text-amber-300 cursor-default",
+      ].join(" ")}
+    >
+      <span className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0" aria-hidden="true" />
+      Enviar inv. ext.
+    </button>
+  );
+}
+
 // ── Barra principal ───────────────────────────────────────────────
 
 export interface DteOutgoingActionBarProps {
-  availability:      DteOutgoingActionAvailability;
-  onRequestDeliver?: () => void;
-  isDelivering?:     boolean;
+  availability:                    DteOutgoingActionAvailability;
+  onRequestDeliver?:               () => void;
+  isDelivering?:                   boolean;
+  onRequestDeliverInvalidation?:   () => void;
+  isDeliveringInvalidation?:       boolean;
 }
 
 export function DteOutgoingActionBar({
   availability: av,
   onRequestDeliver,
   isDelivering,
+  onRequestDeliverInvalidation,
+  isDeliveringInvalidation,
 }: DteOutgoingActionBarProps) {
   const staticActions: ActionChipProps[] = [
-    { label: "Firmar",          available: av.canSign,                        reason: av.reasons.sign },
-    { label: "Transmitir",      available: av.canTransmit,                    reason: av.reasons.transmit },
-    { label: "Crear NC",        available: av.canCreateCreditNote,            reason: av.reasons.createCreditNote },
-    { label: "Invalidar",       available: av.canInvalidate,                  reason: av.reasons.invalidate },
-    { label: "Enviar inv. ext.", available: av.canDeliverExternalInvalidation, reason: av.reasons.sendExternalInvalidation },
+    { label: "Firmar",     available: av.canSign,             reason: av.reasons.sign },
+    { label: "Transmitir", available: av.canTransmit,         reason: av.reasons.transmit },
+    { label: "Crear NC",   available: av.canCreateCreditNote, reason: av.reasons.createCreditNote },
+    { label: "Invalidar",  available: av.canInvalidate,       reason: av.reasons.invalidate },
   ];
 
   const allAvailableCount =
     staticActions.filter((a) => a.available).length +
-    (av.canDeliverExternal ? 1 : 0);
+    (av.canDeliverExternal ? 1 : 0) +
+    (av.canDeliverExternalInvalidation ? 1 : 0);
 
   return (
     <div className="flex items-center gap-3 flex-wrap px-3 py-2 border-b border-zinc-800/70 bg-zinc-900/30">
@@ -152,12 +214,20 @@ export function DteOutgoingActionBar({
           <ActionChip key={a.label} {...a} />
         ))}
 
-        {/* Chip interactivo — Fase 5B */}
+        {/* Chip interactivo — Fase 5B: Enviar DTE externo */}
         <DeliverExternalChip
           available={av.canDeliverExternal}
           reason={av.reasons.sendExternalDte}
           onRequestDeliver={onRequestDeliver}
           isDelivering={isDelivering}
+        />
+
+        {/* Chip interactivo — Fase 5C: Enviar invalidación externa */}
+        <DeliverExternalInvalidationChip
+          available={av.canDeliverExternalInvalidation}
+          reason={av.reasons.sendExternalInvalidation}
+          onRequestDeliverInvalidation={onRequestDeliverInvalidation}
+          isDeliveringInvalidation={isDeliveringInvalidation}
         />
       </div>
 
@@ -169,7 +239,7 @@ export function DteOutgoingActionBar({
           </span>
         )}
         <span className="text-[9px] text-zinc-600 italic">
-          Fase 5B
+          Fase 5C
         </span>
       </div>
     </div>

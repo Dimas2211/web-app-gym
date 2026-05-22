@@ -15,7 +15,8 @@
 //   7. Delivery externo
 //   8. Logs de transmisión
 //
-// Fase 5B: incluye diálogo de confirmación para "Enviar DTE externo".
+// Fase 5B: diálogo de confirmación para "Enviar DTE externo".
+// Fase 5C: diálogo de confirmación para "Enviar invalidación externa".
 // Sin campos sensibles (signed_jws, json_document, response_body, etc.).
 // ─────────────────────────────────────────────────────────────────
 
@@ -631,14 +632,147 @@ function DeliveryConfirmDialog({
   );
 }
 
+// ── Diálogo de confirmación — Enviar invalidación externa (Fase 5C) ─
+
+interface InvalidationDeliveryConfirmDialogProps {
+  detail:                    DteOutgoingDetail;
+  isDeliveringInvalidation:  boolean;
+  onConfirm:                 () => void;
+  onCancel:                  () => void;
+}
+
+function InvalidationDeliveryConfirmDialog({
+  detail,
+  isDeliveringInvalidation,
+  onConfirm,
+  onCancel,
+}: InvalidationDeliveryConfirmDialogProps) {
+  const inv = detail.latest_invalidation;
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70"
+      onClick={isDeliveringInvalidation ? undefined : onCancel}
+      aria-modal="true"
+      role="dialog"
+      aria-labelledby="deliver-inv-dialog-title"
+    >
+      <div
+        className="bg-zinc-900 border border-zinc-700 rounded-lg p-5 max-w-sm w-full mx-4 shadow-xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h2
+          id="deliver-inv-dialog-title"
+          className="text-sm font-bold text-zinc-100 mb-1.5"
+        >
+          Enviar invalidación a sistema externo
+        </h2>
+        <p className="text-xs text-zinc-400 mb-4 leading-relaxed">
+          Se enviará la invalidación aceptada de este DTE al sistema externo
+          configurado. Esta acción registrará un intento de delivery externo
+          de invalidación. ¿Desea continuar?
+        </p>
+
+        <div className="bg-zinc-800/50 rounded p-3 mb-4 text-xs space-y-1.5 border border-zinc-700/30">
+          <div className="flex justify-between gap-2">
+            <span className="text-zinc-500 shrink-0">Tipo DTE</span>
+            <span className="text-zinc-200 text-right">
+              {dteTypeLabelFull(detail.dte_type_code)}
+              <span className="ml-1 font-mono text-zinc-500 text-[10px]">{detail.dte_type_code}</span>
+            </span>
+          </div>
+          <div className="flex justify-between gap-2">
+            <span className="text-zinc-500 shrink-0">N° Control</span>
+            <span className="font-mono text-zinc-300 text-right">
+              {detail.control_number ?? "—"}
+            </span>
+          </div>
+          <div className="flex justify-between gap-2">
+            <span className="text-zinc-500 shrink-0">Cód. Generación</span>
+            <span className="font-mono text-[10px] text-zinc-400 text-right break-all">
+              {detail.generation_code
+                ? `…${detail.generation_code.slice(-14)}`
+                : "—"}
+            </span>
+          </div>
+          <div className="flex justify-between gap-2">
+            <span className="text-zinc-500 shrink-0">Receptor</span>
+            <span className="text-zinc-300 text-right truncate max-w-[180px]">
+              {detail.receptor_name ?? "Consumidor final"}
+            </span>
+          </div>
+          <div className="flex justify-between gap-2">
+            <span className="text-zinc-500 shrink-0">Estado fiscal</span>
+            <span className={`font-semibold text-[10px] ${dteStatusCls(detail.dte_status)}`}>
+              {dteStatusLabel(detail.dte_status)}
+            </span>
+          </div>
+          {inv && (
+            <>
+              <div className="flex justify-between gap-2">
+                <span className="text-zinc-500 shrink-0">Estado inv.</span>
+                <span className={`font-semibold text-[10px] ${invalidationStatusCls(inv.status)}`}>
+                  {inv.status}
+                </span>
+              </div>
+              {inv.mh_sello_recibido && (
+                <div className="flex justify-between gap-2">
+                  <span className="text-zinc-500 shrink-0">Sello inv.</span>
+                  <span className="font-mono text-[10px] text-zinc-400 text-right break-all">
+                    {`…${inv.mh_sello_recibido.slice(-14)}`}
+                  </span>
+                </div>
+              )}
+              {(inv.accepted_at ?? inv.sent_at) && (
+                <div className="flex justify-between gap-2">
+                  <span className="text-zinc-500 shrink-0">
+                    {inv.accepted_at ? "Aceptada" : "Enviada"}
+                  </span>
+                  <span className="font-mono text-[10px] text-zinc-400">
+                    {fmtDate(inv.accepted_at ?? inv.sent_at)}
+                  </span>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+
+        <div className="flex gap-3 justify-end">
+          <button
+            type="button"
+            onClick={onCancel}
+            disabled={isDeliveringInvalidation}
+            className="px-4 py-1.5 text-xs rounded border border-zinc-600 text-zinc-300 hover:border-zinc-400 hover:text-zinc-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+          >
+            Cancelar
+          </button>
+          <button
+            type="button"
+            onClick={onConfirm}
+            disabled={isDeliveringInvalidation}
+            className="inline-flex items-center gap-1.5 px-4 py-1.5 text-xs rounded bg-amber-700 hover:bg-amber-600 text-white font-medium disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          >
+            {isDeliveringInvalidation && (
+              <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" />
+            )}
+            Enviar invalidación externa
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Componente principal ──────────────────────────────────────────
 
 export interface DteOutgoingDetailPanelProps {
-  detail:             DteOutgoingDetail | null;
-  loading:            boolean;
-  error:              string | null;
-  onDeliverExternal?: () => Promise<void>;
-  isDelivering?:      boolean;
+  detail:                        DteOutgoingDetail | null;
+  loading:                       boolean;
+  error:                         string | null;
+  onDeliverExternal?:            () => Promise<void>;
+  isDelivering?:                 boolean;
+  onDeliverExternalInvalidation?: () => Promise<void>;
+  isDeliveringInvalidation?:     boolean;
 }
 
 export function DteOutgoingDetailPanel({
@@ -647,8 +781,11 @@ export function DteOutgoingDetailPanel({
   error,
   onDeliverExternal,
   isDelivering = false,
+  onDeliverExternalInvalidation,
+  isDeliveringInvalidation = false,
 }: DteOutgoingDetailPanelProps) {
-  const [showDeliveryDialog, setShowDeliveryDialog] = useState(false);
+  const [showDeliveryDialog, setShowDeliveryDialog]                         = useState(false);
+  const [showInvalidationDeliveryDialog, setShowInvalidationDeliveryDialog] = useState(false);
 
   if (loading) return <LoadingPanel />;
   if (error)   return <ErrorPanel error={error} />;
@@ -660,10 +797,16 @@ export function DteOutgoingDetailPanel({
     setShowDeliveryDialog(false);
   }
 
+  async function handleConfirmInvalidationDelivery() {
+    if (!onDeliverExternalInvalidation) return;
+    await onDeliverExternalInvalidation();
+    setShowInvalidationDeliveryDialog(false);
+  }
+
   return (
     <div className="flex flex-col">
 
-      {/* Diálogo de confirmación — Fase 5B */}
+      {/* Diálogo de confirmación — Fase 5B: Enviar DTE externo */}
       {showDeliveryDialog && (
         <DeliveryConfirmDialog
           detail={detail}
@@ -673,7 +816,17 @@ export function DteOutgoingDetailPanel({
         />
       )}
 
-      {/* Barra de acciones — Fase 5B */}
+      {/* Diálogo de confirmación — Fase 5C: Enviar invalidación externa */}
+      {showInvalidationDeliveryDialog && (
+        <InvalidationDeliveryConfirmDialog
+          detail={detail}
+          isDeliveringInvalidation={isDeliveringInvalidation}
+          onConfirm={handleConfirmInvalidationDelivery}
+          onCancel={() => { if (!isDeliveringInvalidation) setShowInvalidationDeliveryDialog(false); }}
+        />
+      )}
+
+      {/* Barra de acciones — Fase 5B + 5C */}
       <DteOutgoingActionBar
         availability={detail.action_availability}
         onRequestDeliver={
@@ -682,6 +835,12 @@ export function DteOutgoingDetailPanel({
             : undefined
         }
         isDelivering={isDelivering}
+        onRequestDeliverInvalidation={
+          onDeliverExternalInvalidation && detail.action_availability.canDeliverExternalInvalidation
+            ? () => setShowInvalidationDeliveryDialog(true)
+            : undefined
+        }
+        isDeliveringInvalidation={isDeliveringInvalidation}
       />
 
       <div className="grid grid-cols-[1fr_1fr_1fr_1fr] gap-x-4 gap-y-3 text-xs text-zinc-300 px-3 pt-3 pb-4">

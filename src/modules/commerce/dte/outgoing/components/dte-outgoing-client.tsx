@@ -10,7 +10,8 @@
 //   B — grilla principal (scroll interno)
 //   C — panel de detalle fiscal (scroll interno)
 //
-// Fase 5B: ejecuta "Enviar DTE externo" vía server action.
+// Fase 5B: "Enviar DTE externo" vía deliverDteToExternalDbAction.
+// Fase 5C: "Enviar invalidación externa" vía deliverInvalidationToExternalDbAction.
 //   - tenantId/locationId resueltos en servidor (action usa requireAdmin).
 //   - Refresca el detalle vía detailRefreshToken tras éxito.
 //   - Refresca la grilla vía router.refresh() tras éxito.
@@ -29,7 +30,8 @@ import {
   EMPTY_DTE_OUTGOING_FILTERS,
 } from "./dte-outgoing-filters-bar";
 import { DteOutgoingDetailPanel } from "./dte-outgoing-detail-panel";
-import { deliverDteToExternalDbAction } from "@/modules/commerce/dte/actions/deliver-dte-to-external-db.action";
+import { deliverDteToExternalDbAction }          from "@/modules/commerce/dte/actions/deliver-dte-to-external-db.action";
+import { deliverInvalidationToExternalDbAction } from "@/modules/commerce/dte/actions/deliver-invalidation-to-external-db.action";
 
 // ── Props ─────────────────────────────────────────────────────────
 
@@ -99,11 +101,17 @@ export function DteOutgoingClient({
   // Ref para cancelar fetch si el usuario cambia de fila rápido
   const abortRef = useRef<AbortController | null>(null);
 
-  // ── Estado de delivery externo (Fase 5B) ─────────────────────
+  // ── Estado de delivery externo — DTE (Fase 5B) ───────────────
 
-  const [isDelivering, setIsDelivering]   = useState(false);
-  const [deliveryError, setDeliveryError] = useState<string | null>(null);
+  const [isDelivering, setIsDelivering]       = useState(false);
+  const [deliveryError, setDeliveryError]     = useState<string | null>(null);
   const [deliverySuccess, setDeliverySuccess] = useState(false);
+
+  // ── Estado de delivery externo — Invalidación (Fase 5C) ──────
+
+  const [isDeliveringInvalidation, setIsDeliveringInvalidation]       = useState(false);
+  const [invalidationDeliveryError, setInvalidationDeliveryError]     = useState<string | null>(null);
+  const [invalidationDeliverySuccess, setInvalidationDeliverySuccess] = useState(false);
 
   // ── Fetch del detalle ────────────────────────────────────────
 
@@ -153,6 +161,8 @@ export function DteOutgoingClient({
   useEffect(() => {
     setDeliveryError(null);
     setDeliverySuccess(false);
+    setInvalidationDeliveryError(null);
+    setInvalidationDeliverySuccess(false);
   }, [selectedId]);
 
   // ── Limpiar detalle al cambiar de página o filtros ───────────
@@ -163,6 +173,8 @@ export function DteOutgoingClient({
     setDetailError(null);
     setDeliveryError(null);
     setDeliverySuccess(false);
+    setInvalidationDeliveryError(null);
+    setInvalidationDeliverySuccess(false);
   }
 
   // ── Enviar DTE externo (Fase 5B) ─────────────────────────────
@@ -181,9 +193,7 @@ export function DteOutgoingClient({
 
       if (result.ok) {
         setDeliverySuccess(true);
-        // Refrescar detalle (action_availability.canDeliverExternal → false)
         setDetailRefreshToken((t) => t + 1);
-        // Refrescar grilla del server component (badge external_delivery_status)
         startTransition(() => {
           router.refresh();
         });
@@ -194,6 +204,47 @@ export function DteOutgoingClient({
       setDeliveryError("Error inesperado al enviar el DTE externo. Intente nuevamente.");
     } finally {
       setIsDelivering(false);
+    }
+  }
+
+  // ── Enviar invalidación externa (Fase 5C) ────────────────────
+  // Requiere detail.latest_invalidation.id (invalidationEventId).
+  // tenantId/locationId resueltos en servidor por requireAdmin.
+
+  async function handleDeliverExternalInvalidation(): Promise<void> {
+    const invalidationEventId = detail?.latest_invalidation?.id;
+
+    if (!invalidationEventId || isDeliveringInvalidation) return;
+
+    // Guardia adicional: solo si la disponibilidad del servidor lo confirma
+    if (!detail?.action_availability.canDeliverExternalInvalidation) return;
+
+    setIsDeliveringInvalidation(true);
+    setInvalidationDeliveryError(null);
+    setInvalidationDeliverySuccess(false);
+
+    try {
+      const result = await deliverInvalidationToExternalDbAction(invalidationEventId);
+
+      if (result.ok) {
+        setInvalidationDeliverySuccess(true);
+        // Refrescar detalle (action_availability.canDeliverExternalInvalidation → false)
+        setDetailRefreshToken((t) => t + 1);
+        // Refrescar grilla del server component (badge external_invalidation_delivery_status)
+        startTransition(() => {
+          router.refresh();
+        });
+      } else {
+        setInvalidationDeliveryError(
+          result.error ?? "Error al enviar la invalidación al sistema externo.",
+        );
+      }
+    } catch {
+      setInvalidationDeliveryError(
+        "Error inesperado al enviar la invalidación externa. Intente nuevamente.",
+      );
+    } finally {
+      setIsDeliveringInvalidation(false);
     }
   }
 
@@ -317,12 +368,12 @@ export function DteOutgoingClient({
               <span className="text-[10px] text-zinc-500">{selectedItem.dte_type_code}</span>
             </>
           )}
-          {(detailLoading || isDelivering) && (
+          {(detailLoading || isDelivering || isDeliveringInvalidation) && (
             <Loader2 className="ml-auto h-3 w-3 animate-spin text-zinc-500" />
           )}
         </div>
 
-        {/* Banner de resultado delivery externo (Fase 5B) */}
+        {/* Banner de resultado — Enviar DTE externo (Fase 5B) */}
         {(deliverySuccess || deliveryError) && (
           <div
             className={[
@@ -346,6 +397,30 @@ export function DteOutgoingClient({
           </div>
         )}
 
+        {/* Banner de resultado — Enviar invalidación externa (Fase 5C) */}
+        {(invalidationDeliverySuccess || invalidationDeliveryError) && (
+          <div
+            className={[
+              "flex items-center gap-2 px-3 py-1.5 text-xs border-b",
+              invalidationDeliverySuccess
+                ? "bg-emerald-950/50 border-emerald-800/40 text-emerald-300"
+                : "bg-red-950/50 border-red-800/40 text-red-400",
+            ].join(" ")}
+          >
+            {invalidationDeliverySuccess ? (
+              <>
+                <CheckCircle2 className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                Invalidación enviada al sistema externo correctamente
+              </>
+            ) : (
+              <>
+                <AlertCircle className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                {invalidationDeliveryError}
+              </>
+            )}
+          </div>
+        )}
+
         {/* Cuerpo del panel — altura fija con scroll interno */}
         <div className="h-[42vh] overflow-y-auto">
           <DteOutgoingDetailPanel
@@ -354,6 +429,8 @@ export function DteOutgoingClient({
             error={detailError}
             onDeliverExternal={handleDeliverExternal}
             isDelivering={isDelivering}
+            onDeliverExternalInvalidation={handleDeliverExternalInvalidation}
+            isDeliveringInvalidation={isDeliveringInvalidation}
           />
         </div>
       </div>
