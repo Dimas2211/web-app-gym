@@ -3,7 +3,7 @@
 // ─────────────────────────────────────────────────────────────────
 // commerce/dte/outgoing — dte-outgoing-detail-panel.tsx
 //
-// Panel de detalle fiscal seguro para /dashboard/dte/outgoing.
+// Panel de detalle fiscal para /dashboard/dte/outgoing.
 //
 // Secciones:
 //   1. Identificación fiscal
@@ -15,9 +15,11 @@
 //   7. Delivery externo
 //   8. Logs de transmisión
 //
-// Reglas: solo consulta — sin acciones. Sin campos sensibles.
+// Fase 5B: incluye diálogo de confirmación para "Enviar DTE externo".
+// Sin campos sensibles (signed_jws, json_document, response_body, etc.).
 // ─────────────────────────────────────────────────────────────────
 
+import { useState } from "react";
 import { Loader2, AlertCircle } from "lucide-react";
 import type { DteOutgoingDetail } from "../types";
 import {
@@ -518,28 +520,169 @@ function LogsSection({ d }: { d: DteOutgoingDetail }) {
   );
 }
 
+// ── Diálogo de confirmación — Enviar DTE externo (Fase 5B) ───────
+
+interface DeliveryConfirmDialogProps {
+  detail:      DteOutgoingDetail;
+  isDelivering: boolean;
+  onConfirm:   () => void;
+  onCancel:    () => void;
+}
+
+function DeliveryConfirmDialog({
+  detail,
+  isDelivering,
+  onConfirm,
+  onCancel,
+}: DeliveryConfirmDialogProps) {
+  return (
+    /* Backdrop */
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70"
+      onClick={isDelivering ? undefined : onCancel}
+      aria-modal="true"
+      role="dialog"
+      aria-labelledby="deliver-dte-dialog-title"
+    >
+      {/* Panel — evita que el click en el panel cierre el diálogo */}
+      <div
+        className="bg-zinc-900 border border-zinc-700 rounded-lg p-5 max-w-sm w-full mx-4 shadow-xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h2
+          id="deliver-dte-dialog-title"
+          className="text-sm font-bold text-zinc-100 mb-1.5"
+        >
+          Enviar DTE a sistema externo
+        </h2>
+        <p className="text-xs text-zinc-400 mb-4 leading-relaxed">
+          Se enviará este DTE aceptado al sistema externo configurado.
+          Esta acción registrará un intento de delivery externo.
+          ¿Desea continuar?
+        </p>
+
+        {/* Datos del DTE para revisión */}
+        <div className="bg-zinc-800/50 rounded p-3 mb-4 text-xs space-y-1.5 border border-zinc-700/30">
+          <div className="flex justify-between gap-2">
+            <span className="text-zinc-500 shrink-0">Tipo DTE</span>
+            <span className="text-zinc-200 text-right">
+              {dteTypeLabelFull(detail.dte_type_code)}
+              <span className="ml-1 font-mono text-zinc-500 text-[10px]">{detail.dte_type_code}</span>
+            </span>
+          </div>
+          <div className="flex justify-between gap-2">
+            <span className="text-zinc-500 shrink-0">N° Control</span>
+            <span className="font-mono text-zinc-300 text-right">
+              {detail.control_number ?? "—"}
+            </span>
+          </div>
+          <div className="flex justify-between gap-2">
+            <span className="text-zinc-500 shrink-0">Cód. Generación</span>
+            <span className="font-mono text-[10px] text-zinc-400 text-right break-all">
+              {detail.generation_code
+                ? `…${detail.generation_code.slice(-14)}`
+                : "—"}
+            </span>
+          </div>
+          <div className="flex justify-between gap-2">
+            <span className="text-zinc-500 shrink-0">Receptor</span>
+            <span className="text-zinc-300 text-right truncate max-w-[180px]">
+              {detail.receptor_name ?? "Consumidor final"}
+            </span>
+          </div>
+          <div className="flex justify-between gap-2">
+            <span className="text-zinc-500 shrink-0">Total</span>
+            <span className="font-mono font-semibold text-zinc-100">
+              {new Intl.NumberFormat("es-SV", { style: "currency", currency: "USD" }).format(detail.total)}
+            </span>
+          </div>
+          <div className="flex justify-between gap-2">
+            <span className="text-zinc-500 shrink-0">Estado fiscal</span>
+            <span className={`font-semibold text-[10px] ${dteStatusCls(detail.dte_status)}`}>
+              {dteStatusLabel(detail.dte_status)}
+            </span>
+          </div>
+        </div>
+
+        {/* Botones */}
+        <div className="flex gap-3 justify-end">
+          <button
+            type="button"
+            onClick={onCancel}
+            disabled={isDelivering}
+            className="px-4 py-1.5 text-xs rounded border border-zinc-600 text-zinc-300 hover:border-zinc-400 hover:text-zinc-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+          >
+            Cancelar
+          </button>
+          <button
+            type="button"
+            onClick={onConfirm}
+            disabled={isDelivering}
+            className="inline-flex items-center gap-1.5 px-4 py-1.5 text-xs rounded bg-blue-700 hover:bg-blue-600 text-white font-medium disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          >
+            {isDelivering && (
+              <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" />
+            )}
+            Enviar DTE externo
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Componente principal ──────────────────────────────────────────
 
 export interface DteOutgoingDetailPanelProps {
-  detail:  DteOutgoingDetail | null;
-  loading: boolean;
-  error:   string | null;
+  detail:             DteOutgoingDetail | null;
+  loading:            boolean;
+  error:              string | null;
+  onDeliverExternal?: () => Promise<void>;
+  isDelivering?:      boolean;
 }
 
 export function DteOutgoingDetailPanel({
   detail,
   loading,
   error,
+  onDeliverExternal,
+  isDelivering = false,
 }: DteOutgoingDetailPanelProps) {
+  const [showDeliveryDialog, setShowDeliveryDialog] = useState(false);
+
   if (loading) return <LoadingPanel />;
   if (error)   return <ErrorPanel error={error} />;
   if (!detail) return <EmptyPanel />;
 
+  async function handleConfirmDelivery() {
+    if (!onDeliverExternal) return;
+    await onDeliverExternal();
+    setShowDeliveryDialog(false);
+  }
+
   return (
     <div className="flex flex-col">
 
-      {/* Barra de disponibilidad de acciones — Fase 5A */}
-      <DteOutgoingActionBar availability={detail.action_availability} />
+      {/* Diálogo de confirmación — Fase 5B */}
+      {showDeliveryDialog && (
+        <DeliveryConfirmDialog
+          detail={detail}
+          isDelivering={isDelivering}
+          onConfirm={handleConfirmDelivery}
+          onCancel={() => { if (!isDelivering) setShowDeliveryDialog(false); }}
+        />
+      )}
+
+      {/* Barra de acciones — Fase 5B */}
+      <DteOutgoingActionBar
+        availability={detail.action_availability}
+        onRequestDeliver={
+          onDeliverExternal && detail.action_availability.canDeliverExternal
+            ? () => setShowDeliveryDialog(true)
+            : undefined
+        }
+        isDelivering={isDelivering}
+      />
 
       <div className="grid grid-cols-[1fr_1fr_1fr_1fr] gap-x-4 gap-y-3 text-xs text-zinc-300 px-3 pt-3 pb-4">
 

@@ -3,21 +3,20 @@
 // ─────────────────────────────────────────────────────────────────
 // commerce/dte/outgoing — dte-outgoing-action-bar.tsx
 //
-// Barra visual de disponibilidad de acciones contextuales.
-// FASE 5A — solo muestra disponibilidad. Ningún botón ejecuta acciones.
+// Barra de acciones contextuales del panel de detalle DTE.
+// FASE 5B — "Enviar DTE externo" tiene ejecución real.
 //
-// Reglas absolutas:
-//   - NO onClick reales
-//   - NO llamadas a server actions
-//   - NO fetch POST
-//   - NO modificación de estado fiscal
-//   - NO envío a Hacienda
-//   - NO envío a MariaDB
+// Acciones con ejecución real:
+//   - Enviar DTE externo (canDeliverExternal)
+//
+// Acciones visuales/pendientes (sin ejecución):
+//   - Firmar, Transmitir, Crear NC, Invalidar, Enviar inv. externa
 // ─────────────────────────────────────────────────────────────────
 
+import { Loader2 } from "lucide-react";
 import type { DteOutgoingActionAvailability } from "../types";
 
-// ── Botón de acción individual ────────────────────────────────────
+// ── Chip estático (sin ejecución) ─────────────────────────────────
 
 interface ActionChipProps {
   label:     string;
@@ -27,7 +26,7 @@ interface ActionChipProps {
 
 function ActionChip({ label, available, reason }: ActionChipProps) {
   const title = available
-    ? `${label} — disponible (Fase 5A: sin ejecución)`
+    ? `${label} — disponible (sin implementación en esta fase)`
     : (reason ?? `${label} — no disponible`);
 
   return (
@@ -38,19 +37,79 @@ function ActionChip({ label, available, reason }: ActionChipProps) {
       aria-label={title}
       className={[
         "inline-flex items-center gap-1 px-2.5 py-1 rounded text-[10px] font-medium border",
-        "cursor-default select-none transition-none",
+        "cursor-default select-none",
         available
           ? "bg-blue-950/60 border-blue-700/50 text-blue-300"
           : "bg-zinc-800/30 border-zinc-700/30 text-zinc-600",
       ].join(" ")}
     >
       {available && (
-        <span
-          className="w-1.5 h-1.5 rounded-full bg-blue-400 shrink-0"
-          aria-hidden="true"
-        />
+        <span className="w-1.5 h-1.5 rounded-full bg-blue-400 shrink-0" aria-hidden="true" />
       )}
       {label}
+    </button>
+  );
+}
+
+// ── Chip interactivo — Enviar DTE externo (Fase 5B) ───────────────
+
+interface DeliverExternalChipProps {
+  available:         boolean;
+  reason?:           string;
+  onRequestDeliver?: () => void;
+  isDelivering?:     boolean;
+}
+
+function DeliverExternalChip({
+  available,
+  reason,
+  onRequestDeliver,
+  isDelivering,
+}: DeliverExternalChipProps) {
+  // Estado: ejecutando
+  if (isDelivering) {
+    return (
+      <button
+        type="button"
+        disabled
+        aria-label="Enviando DTE al sistema externo…"
+        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded text-[10px] font-medium border bg-blue-950/80 border-blue-700/60 text-blue-300 cursor-default"
+      >
+        <Loader2 className="w-2.5 h-2.5 animate-spin shrink-0" aria-hidden="true" />
+        Enviando…
+      </button>
+    );
+  }
+
+  // Estado: no disponible
+  if (!available) {
+    return (
+      <ActionChip
+        label="Enviar DTE externo"
+        available={false}
+        reason={reason}
+      />
+    );
+  }
+
+  // Estado: disponible y clickeable
+  return (
+    <button
+      type="button"
+      onClick={onRequestDeliver}
+      disabled={!onRequestDeliver}
+      title="Enviar DTE externo al sistema configurado"
+      aria-label="Enviar DTE externo"
+      className={[
+        "inline-flex items-center gap-1 px-2.5 py-1 rounded text-[10px] font-medium border",
+        "transition-colors",
+        onRequestDeliver
+          ? "bg-blue-800/70 border-blue-600/70 text-blue-200 hover:bg-blue-700/80 hover:border-blue-500 cursor-pointer"
+          : "bg-blue-950/60 border-blue-700/50 text-blue-300 cursor-default",
+      ].join(" ")}
+    >
+      <span className="w-1.5 h-1.5 rounded-full bg-blue-400 shrink-0" aria-hidden="true" />
+      Enviar DTE externo
     </button>
   );
 }
@@ -58,44 +117,27 @@ function ActionChip({ label, available, reason }: ActionChipProps) {
 // ── Barra principal ───────────────────────────────────────────────
 
 export interface DteOutgoingActionBarProps {
-  availability: DteOutgoingActionAvailability;
+  availability:      DteOutgoingActionAvailability;
+  onRequestDeliver?: () => void;
+  isDelivering?:     boolean;
 }
 
-export function DteOutgoingActionBar({ availability: av }: DteOutgoingActionBarProps) {
-  const actions: ActionChipProps[] = [
-    {
-      label:     "Firmar",
-      available: av.canSign,
-      reason:    av.reasons.sign,
-    },
-    {
-      label:     "Transmitir",
-      available: av.canTransmit,
-      reason:    av.reasons.transmit,
-    },
-    {
-      label:     "Crear NC",
-      available: av.canCreateCreditNote,
-      reason:    av.reasons.createCreditNote,
-    },
-    {
-      label:     "Invalidar",
-      available: av.canInvalidate,
-      reason:    av.reasons.invalidate,
-    },
-    {
-      label:     "Enviar DTE externo",
-      available: av.canDeliverExternal,
-      reason:    av.reasons.sendExternalDte,
-    },
-    {
-      label:     "Enviar inv. externa",
-      available: av.canDeliverExternalInvalidation,
-      reason:    av.reasons.sendExternalInvalidation,
-    },
+export function DteOutgoingActionBar({
+  availability: av,
+  onRequestDeliver,
+  isDelivering,
+}: DteOutgoingActionBarProps) {
+  const staticActions: ActionChipProps[] = [
+    { label: "Firmar",          available: av.canSign,                        reason: av.reasons.sign },
+    { label: "Transmitir",      available: av.canTransmit,                    reason: av.reasons.transmit },
+    { label: "Crear NC",        available: av.canCreateCreditNote,            reason: av.reasons.createCreditNote },
+    { label: "Invalidar",       available: av.canInvalidate,                  reason: av.reasons.invalidate },
+    { label: "Enviar inv. ext.", available: av.canDeliverExternalInvalidation, reason: av.reasons.sendExternalInvalidation },
   ];
 
-  const availableCount = actions.filter((a) => a.available).length;
+  const allAvailableCount =
+    staticActions.filter((a) => a.available).length +
+    (av.canDeliverExternal ? 1 : 0);
 
   return (
     <div className="flex items-center gap-3 flex-wrap px-3 py-2 border-b border-zinc-800/70 bg-zinc-900/30">
@@ -106,20 +148,28 @@ export function DteOutgoingActionBar({ availability: av }: DteOutgoingActionBarP
 
       {/* Chips */}
       <div className="flex items-center gap-1.5 flex-wrap">
-        {actions.map((a) => (
+        {staticActions.map((a) => (
           <ActionChip key={a.label} {...a} />
         ))}
+
+        {/* Chip interactivo — Fase 5B */}
+        <DeliverExternalChip
+          available={av.canDeliverExternal}
+          reason={av.reasons.sendExternalDte}
+          onRequestDeliver={onRequestDeliver}
+          isDelivering={isDelivering}
+        />
       </div>
 
-      {/* Indicador de disponibles + aviso de fase */}
+      {/* Indicador de disponibles */}
       <div className="ml-auto flex items-center gap-2 shrink-0">
-        {availableCount > 0 && (
+        {allAvailableCount > 0 && (
           <span className="text-[9px] text-blue-500">
-            {availableCount} disponible{availableCount > 1 ? "s" : ""}
+            {allAvailableCount} disponible{allAvailableCount > 1 ? "s" : ""}
           </span>
         )}
         <span className="text-[9px] text-zinc-600 italic">
-          Fase 5A — solo disponibilidad
+          Fase 5B
         </span>
       </div>
     </div>

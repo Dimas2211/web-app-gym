@@ -8,16 +8,18 @@
 // Layout de 3 zonas fijas (sin scroll de página):
 //   A — barra de filtros
 //   B — grilla principal (scroll interno)
-//   C — panel de detalle fiscal (scroll interno, Fase 4)
+//   C — panel de detalle fiscal (scroll interno)
 //
-// Los filtros actualizan URL/searchParams con router.push.
-// La recarga de datos la hace Next.js al cambiar la URL (Server Component).
-// El detalle se carga vía fetch al API route con AbortController.
+// Fase 5B: ejecuta "Enviar DTE externo" vía server action.
+//   - tenantId/locationId resueltos en servidor (action usa requireAdmin).
+//   - Refresca el detalle vía detailRefreshToken tras éxito.
+//   - Refresca la grilla vía router.refresh() tras éxito.
+//   - Banner de resultado persiste durante el reload del detalle.
 // ─────────────────────────────────────────────────────────────────
 
 import { useState, useTransition, useEffect, useRef } from "react";
 import { useRouter, usePathname } from "next/navigation";
-import { Loader2 } from "lucide-react";
+import { Loader2, CheckCircle2, AlertCircle } from "lucide-react";
 import type { DteOutgoingGlobalResult, DteOutgoingGlobalListItem, DteOutgoingDetail } from "../types";
 import type { DteOutgoingFiltersOutput } from "../schemas";
 import { DteOutgoingTable } from "./dte-outgoing-table";
@@ -27,6 +29,7 @@ import {
   EMPTY_DTE_OUTGOING_FILTERS,
 } from "./dte-outgoing-filters-bar";
 import { DteOutgoingDetailPanel } from "./dte-outgoing-detail-panel";
+import { deliverDteToExternalDbAction } from "@/modules/commerce/dte/actions/deliver-dte-to-external-db.action";
 
 // ── Props ─────────────────────────────────────────────────────────
 
@@ -87,17 +90,24 @@ export function DteOutgoingClient({
 
   // ── Estado del detalle ────────────────────────────────────────
 
-  const [detail, setDetail]           = useState<DteOutgoingDetail | null>(null);
+  const [detail, setDetail]               = useState<DteOutgoingDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
-  const [detailError, setDetailError] = useState<string | null>(null);
+  const [detailError, setDetailError]     = useState<string | null>(null);
+  // Incrementar para forzar re-fetch del detalle sin cambiar selectedId
+  const [detailRefreshToken, setDetailRefreshToken] = useState(0);
 
   // Ref para cancelar fetch si el usuario cambia de fila rápido
   const abortRef = useRef<AbortController | null>(null);
 
+  // ── Estado de delivery externo (Fase 5B) ─────────────────────
+
+  const [isDelivering, setIsDelivering]   = useState(false);
+  const [deliveryError, setDeliveryError] = useState<string | null>(null);
+  const [deliverySuccess, setDeliverySuccess] = useState(false);
+
   // ── Fetch del detalle ────────────────────────────────────────
 
   useEffect(() => {
-    // Cancelar fetch anterior si existe
     if (abortRef.current) {
       abortRef.current.abort();
     }
@@ -137,6 +147,12 @@ export function DteOutgoingClient({
     return () => {
       controller.abort();
     };
+  }, [selectedId, detailRefreshToken]);
+
+  // Limpiar estado de delivery al cambiar de DTE seleccionado
+  useEffect(() => {
+    setDeliveryError(null);
+    setDeliverySuccess(false);
   }, [selectedId]);
 
   // ── Limpiar detalle al cambiar de página o filtros ───────────
@@ -145,6 +161,40 @@ export function DteOutgoingClient({
     setDetail(null);
     setDetailLoading(false);
     setDetailError(null);
+    setDeliveryError(null);
+    setDeliverySuccess(false);
+  }
+
+  // ── Enviar DTE externo (Fase 5B) ─────────────────────────────
+  // tenantId/locationId resueltos en servidor por requireAdmin +
+  // getEffectiveLocationId. El cliente solo envía el dteId.
+
+  async function handleDeliverExternal(): Promise<void> {
+    if (!selectedId || isDelivering) return;
+
+    setIsDelivering(true);
+    setDeliveryError(null);
+    setDeliverySuccess(false);
+
+    try {
+      const result = await deliverDteToExternalDbAction(selectedId);
+
+      if (result.ok) {
+        setDeliverySuccess(true);
+        // Refrescar detalle (action_availability.canDeliverExternal → false)
+        setDetailRefreshToken((t) => t + 1);
+        // Refrescar grilla del server component (badge external_delivery_status)
+        startTransition(() => {
+          router.refresh();
+        });
+      } else {
+        setDeliveryError(result.error ?? "Error al enviar el DTE al sistema externo.");
+      }
+    } catch {
+      setDeliveryError("Error inesperado al enviar el DTE externo. Intente nuevamente.");
+    } finally {
+      setIsDelivering(false);
+    }
   }
 
   // ── Navegación ────────────────────────────────────────────────
@@ -267,10 +317,34 @@ export function DteOutgoingClient({
               <span className="text-[10px] text-zinc-500">{selectedItem.dte_type_code}</span>
             </>
           )}
-          {detailLoading && (
+          {(detailLoading || isDelivering) && (
             <Loader2 className="ml-auto h-3 w-3 animate-spin text-zinc-500" />
           )}
         </div>
+
+        {/* Banner de resultado delivery externo (Fase 5B) */}
+        {(deliverySuccess || deliveryError) && (
+          <div
+            className={[
+              "flex items-center gap-2 px-3 py-1.5 text-xs border-b",
+              deliverySuccess
+                ? "bg-emerald-950/50 border-emerald-800/40 text-emerald-300"
+                : "bg-red-950/50 border-red-800/40 text-red-400",
+            ].join(" ")}
+          >
+            {deliverySuccess ? (
+              <>
+                <CheckCircle2 className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                DTE enviado al sistema externo correctamente
+              </>
+            ) : (
+              <>
+                <AlertCircle className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                {deliveryError}
+              </>
+            )}
+          </div>
+        )}
 
         {/* Cuerpo del panel — altura fija con scroll interno */}
         <div className="h-[42vh] overflow-y-auto">
@@ -278,6 +352,8 @@ export function DteOutgoingClient({
             detail={detail}
             loading={detailLoading}
             error={detailError}
+            onDeliverExternal={handleDeliverExternal}
+            isDelivering={isDelivering}
           />
         </div>
       </div>
