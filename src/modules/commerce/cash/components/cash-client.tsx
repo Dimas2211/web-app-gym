@@ -4,15 +4,19 @@
 // commerce/cash — cash-client.tsx
 //
 // Orquestador visual del módulo de caja.
-// Permite seleccionar una caja, ver su estado, abrir y cerrar sesión.
+// Permite seleccionar una caja, ver su estado, abrir y cerrar sesión,
+// y registrar/consultar movimientos manuales de la sesión activa.
 // No integra ventas, pagos, DTE ni inventario.
 // ─────────────────────────────────────────────────────────────────
 
-import { useState } from "react";
-import type { CashWorkspaceState } from "../types/cash.types";
+import { useState, useEffect } from "react";
+import type { CashWorkspaceState, CashMovementItem } from "../types/cash.types";
 import { getCashWorkspaceStateAction } from "../actions/get-cash-workspace-state.action";
 import { openCashSessionAction }       from "../actions/open-cash-session.action";
 import { closeCashSessionAction }      from "../actions/close-cash-session.action";
+import { listCashMovementsAction }     from "../actions/list-cash-movements.action";
+import { CashMovementForm }            from "./cash-movement-form";
+import { CashMovementsTable }          from "./cash-movements-table";
 
 // ── Helper ────────────────────────────────────────────────────────
 
@@ -61,6 +65,13 @@ export function CashClient({ initialState }: CashClientProps) {
   const [declaredAmount, setDeclaredAmount] = useState<string>("");
   const [closingNotes, setClosingNotes]     = useState<string>("");
 
+  // Movimientos manuales
+  const [movements, setMovements]             = useState<CashMovementItem[]>([]);
+  const [movementsLoading, setMovementsLoading] = useState(false);
+  const [movementsError, setMovementsError]   = useState<string | null>(null);
+  // Token para forzar recarga de movimientos sin cambio de sesión
+  const [movementsToken, setMovementsToken]   = useState(0);
+
   // ── Computed ────────────────────────────────────────────────────
 
   const selectedRegister = workspace.registers.find((r) => r.id === selectedId) ?? null;
@@ -73,6 +84,37 @@ export function CashClient({ initialState }: CashClientProps) {
     if (isNaN(declared)) return null;
     return declared - (openSession.expected_cash_amount ?? 0);
   })();
+
+  // ── Carga de movimientos ─────────────────────────────────────────
+  // Se dispara cuando la sesión abierta cambia o cuando movementsToken
+  // se incrementa (movimiento recién creado).
+
+  useEffect(() => {
+    if (!openSession?.id) {
+      setMovements([]);
+      setMovementsError(null);
+      return;
+    }
+
+    const sessionId = openSession.id;
+    setMovementsLoading(true);
+    setMovementsError(null);
+
+    listCashMovementsAction({ cash_session_id: sessionId })
+      .then((result) => {
+        if (result.ok) {
+          setMovements(result.data);
+        } else {
+          setMovementsError(result.error ?? "Error al cargar movimientos.");
+        }
+      })
+      .catch(() => {
+        setMovementsError("Error inesperado al cargar movimientos.");
+      })
+      .finally(() => {
+        setMovementsLoading(false);
+      });
+  }, [openSession?.id, movementsToken]);
 
   // ── Helpers de estado ───────────────────────────────────────────
 
@@ -166,6 +208,16 @@ export function CashClient({ initialState }: CashClientProps) {
     setClosingNotes("");
     await refreshWorkspace(selectedId ?? undefined);
   }
+
+  // Callback del formulario de movimientos: recarga movimientos y workspace
+  async function handleMovementCreated() {
+    setMovementsToken((t) => t + 1);
+    await refreshWorkspace(selectedId ?? undefined);
+  }
+
+  // ── Computed para el resumen de movimientos ──────────────────────
+
+  const lastMovement = movements[0] ?? null;
 
   // ── Render ──────────────────────────────────────────────────────
 
@@ -470,6 +522,84 @@ export function CashClient({ initialState }: CashClientProps) {
                   </form>
                 </div>
               )}
+
+              {/* ── Sección de movimientos manuales ─────────────────── */}
+              <div className="rounded-lg border border-zinc-200 bg-white">
+                <div className="border-b border-zinc-200 px-4 py-3">
+                  <h2 className="text-sm font-medium text-zinc-700">
+                    Movimientos manuales de caja
+                  </h2>
+                </div>
+
+                {!openSession ? (
+                  <div className="px-4 py-6 text-center text-sm text-zinc-400">
+                    Abre una sesión de caja para registrar movimientos manuales.
+                  </div>
+                ) : (
+                  <div className="px-4 py-4 space-y-6">
+
+                    {/* Resumen rápido */}
+                    <div className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm sm:grid-cols-3">
+                      <div>
+                        <p className="text-xs text-zinc-400">Efectivo esperado</p>
+                        <p className="text-base font-semibold text-zinc-900">
+                          {formatCurrency(openSession.expected_cash_amount)}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-zinc-400">Movimientos registrados</p>
+                        <p className="font-medium text-zinc-800">
+                          {movementsLoading ? "..." : movements.length}
+                        </p>
+                      </div>
+                      {lastMovement && (
+                        <div>
+                          <p className="text-xs text-zinc-400">Último movimiento</p>
+                          <p className="text-sm text-zinc-700">
+                            {lastMovement.movement_type_label}{" "}
+                            <span
+                              className={
+                                lastMovement.direction === "IN"
+                                  ? "font-medium text-green-700"
+                                  : "font-medium text-red-600"
+                              }
+                            >
+                              {lastMovement.direction === "IN" ? "+" : "-"}
+                              {formatCurrency(lastMovement.amount)}
+                            </span>
+                          </p>
+                          <p className="text-xs text-zinc-400">
+                            {formatDate(lastMovement.performed_at)}
+                          </p>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Formulario de registro */}
+                    <div>
+                      <p className="mb-3 text-xs font-medium uppercase tracking-wide text-zinc-400">
+                        Registrar movimiento
+                      </p>
+                      <CashMovementForm
+                        cashSessionId={openSession.id}
+                        onMovementCreated={handleMovementCreated}
+                      />
+                    </div>
+
+                    {/* Tabla de movimientos */}
+                    <div>
+                      <p className="mb-3 text-xs font-medium uppercase tracking-wide text-zinc-400">
+                        Movimientos de la sesión
+                      </p>
+                      <CashMovementsTable
+                        movements={movements}
+                        loading={movementsLoading}
+                        error={movementsError}
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
             </>
           )}
         </div>
