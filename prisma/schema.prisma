@@ -114,6 +114,8 @@ model User {
   dte_deliveries_created            DteDelivery[]          @relation("DteDeliveryCreatedBy")
   dte_document_relations_created    DteDocumentRelation[]  @relation("DteDocumentRelationCreatedBy")
   dte_invalidation_events_requested DteInvalidationEvent[] @relation("DteInvalidationEventRequestedBy")
+  cash_sessions_opened              CashSession[]          @relation("CashSessionOpenedBy")
+  cash_sessions_closed              CashSession[]          @relation("CashSessionClosedBy")
 
   @@unique([gym_id, operational_code])
   @@index([gym_id])
@@ -1430,6 +1432,14 @@ enum CustomerTaxpayerType {
   EXCLUDED_SUBJECT     // Sujeto excluido — FSEE código 14 (fuera del MVP)
 }
 
+// ── Enums commerce/cash ──────────────────────────────────────────
+
+enum CashSessionStatus {
+  OPEN
+  CLOSED
+  CANCELLED
+}
+
 // ═════════════════════════════════════════════════════════════════
 // COMMERCE — Maestro de clientes/receptores fiscales (commerce/customers)
 //
@@ -2020,4 +2030,68 @@ model DteInvalidationEvent {
   @@index([dte_document_id])
   @@index([status])
   @@map("dte_invalidation_events")
+}
+
+// ═════════════════════════════════════════════════════════════════
+// COMMERCE — Caja (commerce/cash)
+//
+// CashRegister = caja física o virtual registrada en una location
+// CashSession  = sesión de apertura/cierre de una caja concreta
+//
+// Reglas:
+//   - Una caja no debe tener dos sesiones OPEN al mismo tiempo.
+//     Esta restricción se valida en el service de apertura (Fase 1B).
+//   - El cierre registra monto declarado y calcula diferencia.
+//   - Cash NO confirma ventas, NO descuenta inventario, NO genera DTE.
+// ═════════════════════════════════════════════════════════════════
+
+model CashRegister {
+  id          String   @id @default(uuid())
+  tenant_id   String
+  location_id String
+  code        String
+  name        String
+  is_active   Boolean  @default(true)
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+  created_by  String?
+  updated_by  String?
+
+  sessions CashSession[]
+
+  @@unique([tenant_id, location_id, code])
+  @@index([tenant_id, location_id])
+  @@map("cash_registers")
+}
+
+model CashSession {
+  id               String            @id @default(uuid())
+  tenant_id        String
+  location_id      String
+  cash_register_id String
+  opened_by        String
+  closed_by        String?
+  opened_at        DateTime          @default(now())
+  closed_at        DateTime?
+
+  opening_amount       Decimal  @default(0) @db.Decimal(10, 2)
+  expected_cash_amount Decimal  @default(0) @db.Decimal(10, 2)
+  declared_cash_amount Decimal? @db.Decimal(10, 2)
+  difference_amount    Decimal? @db.Decimal(10, 2)
+
+  status CashSessionStatus @default(OPEN)
+  notes  String?
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  cash_register  CashRegister @relation(fields: [cash_register_id], references: [id])
+  opened_by_user User         @relation("CashSessionOpenedBy", fields: [opened_by], references: [id])
+  closed_by_user User?        @relation("CashSessionClosedBy", fields: [closed_by], references: [id])
+
+  @@index([tenant_id, location_id, status])
+  @@index([cash_register_id])
+  @@index([opened_by])
+  @@index([closed_by])
+  @@map("cash_sessions")
 }
