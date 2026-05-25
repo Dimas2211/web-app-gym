@@ -48,6 +48,10 @@ export async function deliverDteToExternalDb(
 ): Promise<DeliverDteToExternalDbResult> {
   const { dteDocumentId, userId, tenantId, locationId } = params;
 
+  // Config leída antes del try para que esté disponible en todos los paths de retorno,
+  // incluidas las excepciones de negocio que ocurren antes de la llamada al adapter.
+  const config = getExternalDteMariaDbConfig();
+
   try {
     // 1. Cargar documento con scope tenant/location
     //    Seleccionamos campos sensibles solo aquí — no se exponen al frontend.
@@ -102,7 +106,6 @@ export async function deliverDteToExternalDb(
     }
 
     // 3. Insertar en MariaDB externa
-    const config  = getExternalDteMariaDbConfig();
     const adapter = new ExternalDteMariaDbAdapter();
     const deliveryResult = await adapter.insert(config, buildResult.payload);
 
@@ -116,17 +119,19 @@ export async function deliverDteToExternalDb(
           dte_document_id: dteDocumentId,
           attempt_number:  attemptNumber,
           operation_type:  "EXTERNAL_DELIVERY",
-          request_url:     `mariadb://${config.host}:${config.port}/${config.database}/${config.table}`,
+          request_url:     `mariadb://${config.host}:${config.port}/${deliveryResult.targetDatabase}/${deliveryResult.targetTable}`,
           http_status:     null,
           error_message:   null,
           response_body:   {
-            ok:               true,
-            insertId:         deliveryResult.insertId?.toString() ?? null,
-            affectedRows:     deliveryResult.affectedRows,
-            tipoDte:          dteDoc.dte_type_code,
-            numeroControl:    dteDoc.control_number,
+            ok:             true,
+            insertId:       deliveryResult.insertId?.toString() ?? null,
+            affectedRows:   deliveryResult.affectedRows,
+            targetTable:    deliveryResult.targetTable,
+            targetDatabase: deliveryResult.targetDatabase,
+            tipoDte:        dteDoc.dte_type_code,
+            numeroControl:  dteDoc.control_number,
             codigoGeneracion: dteDoc.generation_code,
-            deliveredBy:      userId,
+            deliveredBy:    userId,
           },
         },
       });
@@ -135,10 +140,11 @@ export async function deliverDteToExternalDb(
         ok:           true,
         insertId:     deliveryResult.insertId,
         affectedRows: deliveryResult.affectedRows,
+        targetTable:  deliveryResult.targetTable,
       };
     }
 
-    // Delivery fallido — registrar error sanitizado
+    // Delivery fallido — registrar error sanitizado.
     await prisma.dteTransmissionLog.create({
       data: {
         dte_document_id: dteDocumentId,
@@ -148,20 +154,31 @@ export async function deliverDteToExternalDb(
         http_status:     null,
         error_message:   deliveryResult.error,
         response_body:   {
-          ok:               false,
-          errorCode:        deliveryResult.errorCode ?? null,
-          tipoDte:          dteDoc.dte_type_code,
-          numeroControl:    dteDoc.control_number,
+          ok:             false,
+          errorCode:      deliveryResult.errorCode ?? null,
+          targetTable:    config.table || null,
+          targetDatabase: config.database || null,
+          tipoDte:        dteDoc.dte_type_code,
+          numeroControl:  dteDoc.control_number,
           codigoGeneracion: dteDoc.generation_code,
         },
       },
     });
 
-    return { ok: false, error: deliveryResult.error };
+    return {
+      ok:          false,
+      error:       deliveryResult.error,
+      targetTable: config.table || null,
+      errorCode:   deliveryResult.errorCode,
+    };
 
   } catch (error) {
     if (error instanceof DeliverDteBusinessError) {
-      return { ok: false, error: error.message };
+      return {
+        ok:          false,
+        error:       error.message,
+        targetTable: config.table || null,
+      };
     }
     throw error;
   }

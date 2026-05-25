@@ -1848,6 +1848,10 @@ export function SalesClient({ initialItems, initialTotal }: SalesClientProps) {
             {externalDeliveryResult?.ok && (
               <div className="mb-4 text-xs text-cyan-300 bg-cyan-900/30 border border-cyan-700/40 rounded px-3 py-2 space-y-1">
                 <p className="font-semibold">DTE enviado al sistema externo correctamente.</p>
+                <p className="text-zinc-400">
+                  Tabla externa:{" "}
+                  <span className="text-zinc-200 font-mono">{externalDeliveryResult.targetTable}</span>
+                </p>
                 {externalDeliveryResult.insertId !== null && (
                   <p className="text-zinc-400">
                     ID externo:{" "}
@@ -1859,9 +1863,12 @@ export function SalesClient({ initialItems, initialTotal }: SalesClientProps) {
 
             {/* Resultado: error */}
             {externalDeliveryResult && !externalDeliveryResult.ok && (
-              <div className="mb-4 text-xs text-red-400 bg-red-900/30 border border-red-700/40 rounded px-3 py-2">
-                {externalDeliveryResult.error}
-                <p className="text-zinc-500 mt-1">Puedes reintentar.</p>
+              <div className="mb-4 text-xs text-red-400 bg-red-900/30 border border-red-700/40 rounded px-3 py-2 space-y-1">
+                <p>{externalDeliveryResult.error}</p>
+                {externalDeliveryResult.errorCode && (
+                  <p className="text-zinc-500">Código: {externalDeliveryResult.errorCode}</p>
+                )}
+                <p className="text-zinc-500">Puedes reintentar.</p>
               </div>
             )}
 

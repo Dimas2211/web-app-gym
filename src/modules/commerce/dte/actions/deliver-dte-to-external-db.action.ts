@@ -29,9 +29,9 @@ export async function deliverDteToExternalDbAction(
   const tenant_id   = sessionUser.tenant_id;
   const location_id = await getEffectiveLocationId(sessionUser);
 
-  if (!tenant_id)     return { ok: false, error: "La sesión no tiene un tenant activo." };
-  if (!location_id)   return { ok: false, error: "La sesión no tiene una location activa." };
-  if (!dteDocumentId) return { ok: false, error: "El ID del documento DTE es requerido." };
+  if (!tenant_id)     return { ok: false, error: "La sesión no tiene un tenant activo.",    targetTable: null };
+  if (!location_id)   return { ok: false, error: "La sesión no tiene una location activa.", targetTable: null };
+  if (!dteDocumentId) return { ok: false, error: "El ID del documento DTE es requerido.",   targetTable: null };
 
   const params: DeliverDteToExternalDbParams = {
     dteDocumentId,
@@ -44,16 +44,24 @@ export async function deliverDteToExternalDbAction(
 
   if (result.ok) {
     revalidatePath("/dashboard/sales");
+    revalidatePath("/dashboard/dte/outgoing");
   }
 
-  // Devolver solo metadatos seguros — nunca payload externo completo
+  // Devolver solo metadatos seguros — nunca payload externo completo.
+  // ok: true confirma INSERT + affectedRows >= 1 + commit. No se requiere SELECT.
   if (result.ok) {
     return {
       ok:           true,
       insertId:     result.insertId,
       affectedRows: result.affectedRows,
+      targetTable:  result.targetTable,
     };
   }
 
-  return { ok: false, error: result.error };
+  return {
+    ok:          false,
+    error:       result.error,
+    targetTable: result.targetTable,
+    errorCode:   result.errorCode,
+  };
 }

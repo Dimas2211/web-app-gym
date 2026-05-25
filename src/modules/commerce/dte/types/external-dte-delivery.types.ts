@@ -44,30 +44,39 @@ export interface ExternalDtePayload {
 }
 
 // ── Resultados del adapter ────────────────────────────────────────
+// ok: true solo si INSERT ejecutado sin error, affectedRows >= 1 y commit exitoso.
+// No se requiere permiso SELECT — el usuario externo es INSERT-only.
 
 export type ExternalDteDeliveryResult =
   | {
-      ok:           true;
-      insertId:     number | bigint | null;
-      affectedRows: number;
+      ok:             true;
+      insertId:       number | bigint | null;
+      affectedRows:   number;
+      targetTable:    string;
+      targetDatabase: string;
     }
   | {
-      ok:           false;
-      error:        string;
-      errorCode?:   string;
+      ok:         false;
+      error:      string;
+      errorCode?: string;
     };
 
 // ── Resultado del service (DTE) ───────────────────────────────────
+// ok: true confirma INSERT + affectedRows >= 1 + commit. No se usa SELECT.
+// La UI muestra éxito si ok === true.
 
 export type DeliverDteToExternalDbResult =
   | {
       ok:           true;
       insertId:     number | bigint | null;
       affectedRows: number;
+      targetTable:  string;
     }
   | {
-      ok:    false;
-      error: string;
+      ok:          false;
+      error:       string;
+      targetTable: string | null;
+      errorCode?:  string;
     };
 
 // ── Payload externo de invalidación ──────────────────────────────

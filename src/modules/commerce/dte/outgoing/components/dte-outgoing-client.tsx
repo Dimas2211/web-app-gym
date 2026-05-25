@@ -110,9 +110,10 @@ export function DteOutgoingClient({
 
   // ── Estado de delivery externo — DTE (Fase 5B) ───────────────
 
-  const [isDelivering, setIsDelivering]       = useState(false);
-  const [deliveryError, setDeliveryError]     = useState<string | null>(null);
-  const [deliverySuccess, setDeliverySuccess] = useState(false);
+  const [isDelivering, setIsDelivering]             = useState(false);
+  const [deliveryError, setDeliveryError]           = useState<string | null>(null);
+  const [deliverySuccess, setDeliverySuccess]       = useState(false);
+  const [deliveryTargetTable, setDeliveryTargetTable] = useState<string | null>(null);
 
   // ── Estado de delivery externo — Invalidación (Fase 5C) ──────
 
@@ -181,6 +182,7 @@ export function DteOutgoingClient({
   useEffect(() => {
     setDeliveryError(null);
     setDeliverySuccess(false);
+    setDeliveryTargetTable(null);
     setInvalidationDeliveryError(null);
     setInvalidationDeliverySuccess(false);
     setCreditNoteError(null);
@@ -198,6 +200,7 @@ export function DteOutgoingClient({
     setDetailError(null);
     setDeliveryError(null);
     setDeliverySuccess(false);
+    setDeliveryTargetTable(null);
     setInvalidationDeliveryError(null);
     setInvalidationDeliverySuccess(false);
     setCreditNoteError(null);
@@ -217,18 +220,22 @@ export function DteOutgoingClient({
     setIsDelivering(true);
     setDeliveryError(null);
     setDeliverySuccess(false);
+    setDeliveryTargetTable(null);
 
     try {
       const result = await deliverDteToExternalDbAction(selectedId);
 
+      // Éxito si ok === true (INSERT + affectedRows >= 1 + commit). No se requiere SELECT.
       if (result.ok) {
         setDeliverySuccess(true);
+        setDeliveryTargetTable(result.targetTable);
         setDetailRefreshToken((t) => t + 1);
         startTransition(() => {
           router.refresh();
         });
       } else {
-        setDeliveryError(result.error ?? "Error al enviar el DTE al sistema externo.");
+        const code = result.errorCode ? ` [${result.errorCode}]` : "";
+        setDeliveryError((result.error ?? "Error al enviar el DTE al sistema externo.") + code);
       }
     } catch {
       setDeliveryError("Error inesperado al enviar el DTE externo. Intente nuevamente.");
@@ -519,7 +526,12 @@ export function DteOutgoingClient({
             {deliverySuccess ? (
               <>
                 <CheckCircle2 className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-                DTE enviado al sistema externo correctamente
+                <span>
+                  DTE enviado al sistema externo correctamente
+                  {deliveryTargetTable && (
+                    <> — tabla: <span className="font-mono">{deliveryTargetTable}</span></>
+                  )}
+                </span>
               </>
             ) : (
               <>
