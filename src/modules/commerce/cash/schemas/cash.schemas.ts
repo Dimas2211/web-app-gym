@@ -67,3 +67,24 @@ export const listCashRegistersActionSchema = z.object({
 });
 
 export type ListCashRegistersActionInput = z.infer<typeof listCashRegistersActionSchema>;
+
+// ── Input para apertura de sesión de caja ────────────────────────
+// tenant_id, location_id, opened_by y status se derivan en servidor.
+// No se aceptan del cliente.
+
+export const openCashSessionInputSchema = z.object({
+  cash_register_id: z
+    .string()
+    .uuid("cash_register_id debe ser un UUID válido"),
+  opening_amount: z
+    .number({ invalid_type_error: "opening_amount debe ser un número." })
+    .finite("opening_amount debe ser un número finito.")
+    .min(0, "opening_amount debe ser mayor o igual a 0."),
+  notes: z
+    .string()
+    .max(500, "notes no puede superar los 500 caracteres.")
+    .nullable()
+    .optional(),
+});
+
+export type OpenCashSessionInput = z.infer<typeof openCashSessionInputSchema>;
