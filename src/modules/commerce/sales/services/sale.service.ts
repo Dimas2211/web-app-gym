@@ -33,6 +33,7 @@ import {
   getNextSaleSequence,
   buildSaleCode,
 } from "../utils/sale-correlative";
+import { getAnyOpenCashSessionForLocation } from "../../cash/queries/get-any-open-cash-session-for-location";
 
 // ── Recalcular totales de la cabecera ─────────────────────────────
 
@@ -639,7 +640,18 @@ export async function confirmSale(
     }
   }
 
-  // 5. Transacción atómica: reclamar venta + SALE_OUT por cada producto stockable
+  // 5. Buscar sesión de caja OPEN para el mismo tenant/location.
+  //    Si existe, se asocia a la venta. Si no, cash_session_id queda null.
+  //    No bloquea ni lanza error si no hay caja abierta.
+  //    Solo aplica en la primera confirmación (isDraft); el path de recuperación
+  //    (CONFIRMED + !inventory_moved) no sobrescribe cash_session_id.
+  let openCashSessionId: string | null = null;
+  if (isDraft) {
+    const openSession = await getAnyOpenCashSessionForLocation({ tenant_id, location_id });
+    openCashSessionId = openSession?.id ?? null;
+  }
+
+  // 6. Transacción atómica: reclamar venta + SALE_OUT por cada producto stockable
   //
   //    Garantías de concurrencia:
   //    a) La venta se reclama con updateMany condicional al inicio de la tx.
@@ -665,6 +677,7 @@ export async function confirmSale(
               confirmed_at:    new Date(),
               confirmed_by:    user_id,
               inventory_moved: true,
+              cash_session_id: openCashSessionId,
               updated_by:      user_id,
             }
           : {
