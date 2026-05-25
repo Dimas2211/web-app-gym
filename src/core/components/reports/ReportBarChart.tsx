@@ -197,7 +197,7 @@ export function HorizontalBarChart({
   const padTop = title ? 34 : 14;
   const padBot = 22;
   const padLeft = 130;
-  const padRight = 16;
+  const padRight = 90; // reserve space for value labels (up to ~12 chars at 9px)
   const H = padTop + data.length * ROW_H + padBot;
   const cW = W - padLeft - padRight;
 
