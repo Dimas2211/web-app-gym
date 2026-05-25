@@ -116,6 +116,7 @@ model User {
   dte_invalidation_events_requested DteInvalidationEvent[] @relation("DteInvalidationEventRequestedBy")
   cash_sessions_opened              CashSession[]          @relation("CashSessionOpenedBy")
   cash_sessions_closed              CashSession[]          @relation("CashSessionClosedBy")
+  cash_movements_performed          CashMovement[]         @relation("CashMovementPerformedBy")
 
   @@unique([gym_id, operational_code])
   @@index([gym_id])
@@ -1440,6 +1441,21 @@ enum CashSessionStatus {
   CANCELLED
 }
 
+enum CashMovementType {
+  MANUAL_IN         // Ingreso manual genérico (fondos adicionales)
+  MANUAL_OUT        // Egreso manual genérico
+  CASH_WITHDRAWAL   // Retiro de efectivo por supervisor
+  PETTY_EXPENSE     // Gasto menor (petty cash)
+  ADJUSTMENT_UP     // Ajuste positivo de arqueo
+  ADJUSTMENT_DOWN   // Ajuste negativo de arqueo
+  REFUND_OUT        // Devolución en efectivo al cliente
+}
+
+enum CashMovementDirection {
+  IN   // Suma al expected_cash_amount
+  OUT  // Resta del expected_cash_amount
+}
+
 // ═════════════════════════════════════════════════════════════════
 // COMMERCE — Maestro de clientes/receptores fiscales (commerce/customers)
 //
@@ -1575,6 +1591,7 @@ model Sale {
   cancelled_by_user        User?               @relation("SaleCancelledBy", fields: [cancelled_by], references: [id])
   created_by_user          User?               @relation("SaleCreatedBy",   fields: [created_by],   references: [id])
   updated_by_user          User?               @relation("SaleUpdatedBy",   fields: [updated_by],   references: [id])
+  cash_session             CashSession?        @relation(fields: [cash_session_id], references: [id])
   items                    SaleItem[]
   payments                 SalePayment[]
   dte_documents            DteOutgoingDocument[]
@@ -1584,8 +1601,10 @@ model Sale {
   @@unique([tenant_id, location_id, sale_year, sale_month, sale_sequence])
   @@index([tenant_id, location_id, status])
   @@index([tenant_id, location_id, sale_date])
+  @@index([tenant_id, location_id, cash_session_id])
   @@index([customer_id])
   @@index([created_by])
+  @@index([cash_session_id])
   @@map("sales")
 }
 
@@ -1640,17 +1659,21 @@ model SalePayment {
   paid_at              DateTime?
   reference            String?
   notes                String?
+  cash_session_id      String?
   created_at           DateTime  @default(now())
   updated_at           DateTime  @updatedAt
   created_by           String?
 
   // Relaciones
-  sale             Sale  @relation(fields: [sale_id], references: [id])
-  created_by_user  User? @relation("SalePaymentCreatedBy", fields: [created_by], references: [id])
+  sale             Sale         @relation(fields: [sale_id], references: [id])
+  created_by_user  User?        @relation("SalePaymentCreatedBy", fields: [created_by], references: [id])
+  cash_session     CashSession? @relation(fields: [cash_session_id], references: [id])
 
   @@index([sale_id])
   @@index([payment_method_code])
+  @@index([mh_payment_form_code])
   @@index([paid_at])
+  @@index([cash_session_id])
   @@map("sale_payments")
 }
 
@@ -2057,7 +2080,8 @@ model CashRegister {
   created_by  String?
   updated_by  String?
 
-  sessions CashSession[]
+  sessions       CashSession[]
+  cash_movements CashMovement[]
 
   @@unique([tenant_id, location_id, code])
   @@index([tenant_id, location_id])
@@ -2085,13 +2109,45 @@ model CashSession {
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
 
-  cash_register  CashRegister @relation(fields: [cash_register_id], references: [id])
-  opened_by_user User         @relation("CashSessionOpenedBy", fields: [opened_by], references: [id])
-  closed_by_user User?        @relation("CashSessionClosedBy", fields: [closed_by], references: [id])
+  cash_register  CashRegister   @relation(fields: [cash_register_id], references: [id])
+  opened_by_user User           @relation("CashSessionOpenedBy", fields: [opened_by], references: [id])
+  closed_by_user User?          @relation("CashSessionClosedBy", fields: [closed_by], references: [id])
+  sales          Sale[]
+  sale_payments  SalePayment[]
+  cash_movements CashMovement[]
 
   @@index([tenant_id, location_id, status])
   @@index([cash_register_id])
   @@index([opened_by])
   @@index([closed_by])
   @@map("cash_sessions")
+}
+
+model CashMovement {
+  id               String                @id @default(uuid())
+  tenant_id        String
+  location_id      String
+  cash_session_id  String
+  cash_register_id String
+  movement_type    CashMovementType
+  direction        CashMovementDirection
+  amount           Decimal               @db.Decimal(10, 2)
+  reason           String?
+  reference        String?
+  notes            String?
+  performed_by     String
+  performed_at     DateTime              @default(now())
+  created_at       DateTime              @default(now())
+  updated_at       DateTime              @updatedAt
+
+  cash_session      CashSession  @relation(fields: [cash_session_id], references: [id])
+  cash_register     CashRegister @relation(fields: [cash_register_id], references: [id])
+  performed_by_user User         @relation("CashMovementPerformedBy", fields: [performed_by], references: [id])
+
+  @@index([tenant_id, location_id, cash_session_id])
+  @@index([tenant_id, location_id, performed_at])
+  @@index([cash_register_id])
+  @@index([performed_by])
+  @@index([movement_type])
+  @@map("cash_movements")
 }
