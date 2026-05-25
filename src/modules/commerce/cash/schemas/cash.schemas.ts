@@ -110,3 +110,58 @@ export const closeCashSessionInputSchema = z.object({
 });
 
 export type CloseCashSessionInput = z.infer<typeof closeCashSessionInputSchema>;
+
+// ── Input para crear un movimiento manual de caja ────────────────
+// tenant_id, location_id, cash_register_id, direction, performed_by,
+// performed_at y expected_cash_amount se derivan en servidor.
+// No se aceptan del cliente.
+
+const CASH_MOVEMENT_TYPES = [
+  "MANUAL_IN",
+  "MANUAL_OUT",
+  "CASH_WITHDRAWAL",
+  "PETTY_EXPENSE",
+  "ADJUSTMENT_UP",
+  "ADJUSTMENT_DOWN",
+  "REFUND_OUT",
+] as const;
+
+export const createCashMovementInputSchema = z.object({
+  cash_session_id: z
+    .string()
+    .uuid("cash_session_id debe ser un UUID válido"),
+  movement_type: z.enum(CASH_MOVEMENT_TYPES, {
+    errorMap: () => ({ message: "Tipo de movimiento no válido." }),
+  }),
+  amount: z
+    .number({ invalid_type_error: "amount debe ser un número." })
+    .finite("amount debe ser un número finito.")
+    .positive("amount debe ser mayor a 0."),
+  reason: z
+    .string()
+    .max(120, "reason no puede superar los 120 caracteres.")
+    .nullable()
+    .optional(),
+  reference: z
+    .string()
+    .max(120, "reference no puede superar los 120 caracteres.")
+    .nullable()
+    .optional(),
+  notes: z
+    .string()
+    .max(500, "notes no puede superar los 500 caracteres.")
+    .nullable()
+    .optional(),
+});
+
+export type CreateCashMovementInput = z.infer<typeof createCashMovementInputSchema>;
+
+// ── Input para listar movimientos de una sesión (action) ─────────
+
+export const listCashMovementsInputSchema = z.object({
+  cash_session_id: z
+    .string()
+    .uuid("cash_session_id debe ser un UUID válido"),
+});
+
+export type ListCashMovementsInput = z.infer<typeof listCashMovementsInputSchema>;

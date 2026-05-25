@@ -2,13 +2,53 @@
 // commerce/cash — cash.types.ts
 //
 // Tipos de dominio para el módulo de caja.
-// Solo tipos de lectura y proyección; los tipos de escritura
-// se derivarán de schemas Zod en fases posteriores.
 // ─────────────────────────────────────────────────────────────────
 
 // ── Estado del ciclo de vida ──────────────────────────────────────
 
 export type CashSessionStatus = "OPEN" | "CLOSED" | "CANCELLED";
+
+// ── Tipos de movimiento de caja ───────────────────────────────────
+
+export type CashMovementType =
+  | "MANUAL_IN"
+  | "MANUAL_OUT"
+  | "CASH_WITHDRAWAL"
+  | "PETTY_EXPENSE"
+  | "ADJUSTMENT_UP"
+  | "ADJUSTMENT_DOWN"
+  | "REFUND_OUT";
+
+export type CashMovementDirection = "IN" | "OUT";
+
+// ── Proyección de un movimiento de caja ──────────────────────────
+
+export interface CashMovementItem {
+  id:               string;
+  tenant_id:        string;
+  location_id:      string;
+  cash_session_id:  string;
+  cash_register_id: string;
+  movement_type:       CashMovementType;
+  movement_type_label: string;
+  direction:           CashMovementDirection;
+  amount:           number;
+  reason:           string | null;
+  reference:        string | null;
+  notes:            string | null;
+  performed_by:      string;
+  performed_by_name: string | null;
+  performed_at:     Date;
+  created_at:       Date;
+  updated_at:       Date;
+}
+
+// ── Resultado de registrar un movimiento ─────────────────────────
+
+export interface CashMovementCreateResult {
+  movement:             CashMovementItem;
+  expected_cash_amount: number;
+}
 
 // ── Sesión abierta de una caja ────────────────────────────────────
 

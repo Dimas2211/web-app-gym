@@ -1,0 +1,49 @@
+"use server";
+
+// ─────────────────────────────────────────────────────────────────
+// commerce/cash — list-cash-movements.action.ts
+//
+// Lista los movimientos manuales de una CashSession dentro del
+// tenant/location efectivos del usuario autenticado.
+//
+// Permiso: requireAdmin (super_admin | branch_admin).
+// tenant_id y location_id se inyectan desde sesión — nunca del input.
+// ─────────────────────────────────────────────────────────────────
+
+import { requireAdmin }           from "@/lib/permissions/guards";
+import { getEffectiveLocationId } from "@/lib/location/active-location";
+import { listCashMovementsInputSchema } from "../schemas/cash.schemas";
+import { listCashMovementsBySession }  from "../queries/list-cash-movements-by-session";
+import type { ListCashMovementsInput } from "../schemas/cash.schemas";
+import type { CashMovementItem }       from "../types/cash.types";
+
+export type ListCashMovementsActionResult =
+  | { ok: true;  data: CashMovementItem[] }
+  | { ok: false; error: string };
+
+export async function listCashMovementsAction(
+  input: ListCashMovementsInput,
+): Promise<ListCashMovementsActionResult> {
+  const sessionUser = await requireAdmin();
+  const tenant_id   = sessionUser.tenant_id;
+  const location_id = await getEffectiveLocationId(sessionUser);
+
+  if (!tenant_id)   return { ok: false, error: "La sesión no tiene un tenant activo." };
+  if (!location_id) return { ok: false, error: "La sesión no tiene una location activa." };
+
+  const parsed = listCashMovementsInputSchema.safeParse(input);
+  if (!parsed.success) {
+    return { ok: false, error: "Parámetros de consulta no válidos." };
+  }
+
+  try {
+    const data = await listCashMovementsBySession({
+      tenant_id,
+      location_id,
+      cash_session_id: parsed.data.cash_session_id,
+    });
+    return { ok: true, data };
+  } catch {
+    return { ok: false, error: "No se pudieron cargar los movimientos de caja." };
+  }
+}
