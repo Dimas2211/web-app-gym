@@ -47,3 +47,23 @@ export const getOpenCashSessionInputSchema = z.object({
 });
 
 export type GetOpenCashSessionInput = z.infer<typeof getOpenCashSessionInputSchema>;
+
+// ── Input para obtener el workspace de caja (action) ─────────────
+
+export const getCashWorkspaceStateInputSchema = z.object({
+  selected_cash_register_id: z
+    .string()
+    .uuid("selected_cash_register_id debe ser un UUID válido")
+    .optional(),
+});
+
+export type GetCashWorkspaceStateInput = z.infer<typeof getCashWorkspaceStateInputSchema>;
+
+// ── Input para listar cajas (action) — sin tenant/location ───────
+// tenant_id y location_id vienen de la sesión, nunca del cliente.
+
+export const listCashRegistersActionSchema = z.object({
+  include_inactive: z.boolean().default(false),
+});
+
+export type ListCashRegistersActionInput = z.infer<typeof listCashRegistersActionSchema>;
