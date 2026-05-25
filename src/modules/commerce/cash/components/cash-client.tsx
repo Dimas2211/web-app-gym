@@ -5,18 +5,28 @@
 //
 // Orquestador visual del módulo de caja.
 // Permite seleccionar una caja, ver su estado, abrir y cerrar sesión,
-// y registrar/consultar movimientos manuales de la sesión activa.
+// registrar/consultar movimientos manuales y ver historial de sesiones.
 // No integra ventas, pagos, DTE ni inventario.
 // ─────────────────────────────────────────────────────────────────
 
-import { useState, useEffect } from "react";
-import type { CashWorkspaceState, CashMovementItem } from "../types/cash.types";
-import { getCashWorkspaceStateAction } from "../actions/get-cash-workspace-state.action";
-import { openCashSessionAction }       from "../actions/open-cash-session.action";
-import { closeCashSessionAction }      from "../actions/close-cash-session.action";
-import { listCashMovementsAction }     from "../actions/list-cash-movements.action";
-import { CashMovementForm }            from "./cash-movement-form";
-import { CashMovementsTable }          from "./cash-movements-table";
+import { useState, useEffect, useCallback } from "react";
+import type {
+  CashWorkspaceState,
+  CashMovementItem,
+  CashSessionHistoryItem,
+  CashSessionCutReport,
+} from "../types/cash.types";
+import { getCashWorkspaceStateAction }     from "../actions/get-cash-workspace-state.action";
+import { openCashSessionAction }           from "../actions/open-cash-session.action";
+import { closeCashSessionAction }          from "../actions/close-cash-session.action";
+import { listCashMovementsAction }         from "../actions/list-cash-movements.action";
+import { listCashSessionsAction }          from "../actions/list-cash-sessions.action";
+import { getCashSessionCutReportAction }   from "../actions/get-cash-session-cut-report.action";
+import { CashMovementForm }                from "./cash-movement-form";
+import { CashMovementsTable }              from "./cash-movements-table";
+import { CashSessionsHistory }             from "./cash-sessions-history";
+import { CashSessionCutPanel }             from "./cash-session-cut-panel";
+import { CashSessionCutPrintView }         from "./cash-session-cut-print-view";
 
 // ── Helper ────────────────────────────────────────────────────────
 
@@ -72,6 +82,21 @@ export function CashClient({ initialState }: CashClientProps) {
   // Token para forzar recarga de movimientos sin cambio de sesión
   const [movementsToken, setMovementsToken]   = useState(0);
 
+  // Historial de sesiones
+  const [sessions, setSessions]               = useState<CashSessionHistoryItem[]>([]);
+  const [sessionsLoading, setSessionsLoading] = useState(false);
+  const [sessionsError, setSessionsError]     = useState<string | null>(null);
+  type HistoryFilters = { status: "ALL" | "OPEN" | "CLOSED" | "CANCELLED"; only_differences: boolean };
+  const [historyFilters, setHistoryFilters]   = useState<HistoryFilters>({
+    status: "ALL", only_differences: false,
+  });
+
+  // Panel de corte
+  const [selectedSessionId, setSelectedSessionId]   = useState<string | null>(null);
+  const [cutReport, setCutReport]                   = useState<CashSessionCutReport | null>(null);
+  const [cutLoading, setCutLoading]                 = useState(false);
+  const [cutError, setCutError]                     = useState<string | null>(null);
+
   // ── Computed ────────────────────────────────────────────────────
 
   const selectedRegister = workspace.registers.find((r) => r.id === selectedId) ?? null;
@@ -116,6 +141,59 @@ export function CashClient({ initialState }: CashClientProps) {
       });
   }, [openSession?.id, movementsToken]);
 
+  // ── Carga de historial ───────────────────────────────────────────
+  // Se dispara al montar y cuando cambian los filtros.
+
+  const loadHistory = useCallback(
+    async (filters: HistoryFilters) => {
+      setSessionsLoading(true);
+      setSessionsError(null);
+      const result = await listCashSessionsAction({
+        status:           filters.status,
+        only_differences: filters.only_differences,
+        limit:            50,
+      });
+      if (result.ok) {
+        setSessions(result.data);
+      } else {
+        setSessionsError(result.error ?? "Error al cargar historial.");
+      }
+      setSessionsLoading(false);
+    },
+    [],
+  );
+
+  useEffect(() => {
+    loadHistory(historyFilters);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // ── Carga de corte cuando se selecciona una sesión ───────────────
+
+  useEffect(() => {
+    if (!selectedSessionId) {
+      setCutReport(null);
+      setCutError(null);
+      return;
+    }
+    setCutLoading(true);
+    setCutError(null);
+    getCashSessionCutReportAction({ cash_session_id: selectedSessionId })
+      .then((result) => {
+        if (result.ok) {
+          setCutReport(result.data);
+        } else {
+          setCutError(result.error ?? "Error al cargar el corte.");
+        }
+      })
+      .catch(() => {
+        setCutError("Error inesperado al cargar el corte.");
+      })
+      .finally(() => {
+        setCutLoading(false);
+      });
+  }, [selectedSessionId]);
+
   // ── Helpers de estado ───────────────────────────────────────────
 
   function clearMessages() {
@@ -134,6 +212,29 @@ export function CashClient({ initialState }: CashClientProps) {
     if (result.ok) {
       setWorkspace(result.data);
     }
+    // Refrescar historial y corte seleccionado tras cualquier cambio de estado
+    await loadHistory(historyFilters);
+    if (selectedSessionId) {
+      const cutResult = await getCashSessionCutReportAction({
+        cash_session_id: selectedSessionId,
+      });
+      if (cutResult.ok) setCutReport(cutResult.data);
+    }
+  }
+
+  function handleHistoryReload(filters: HistoryFilters) {
+    setHistoryFilters(filters);
+    loadHistory(filters);
+  }
+
+  function handleSelectSession(id: string) {
+    setSelectedSessionId((prev) => (prev === id ? null : id));
+  }
+
+  function handleCloseCutPanel() {
+    setSelectedSessionId(null);
+    setCutReport(null);
+    setCutError(null);
   }
 
   async function handleSelectRegister(id: string) {
@@ -209,11 +310,12 @@ export function CashClient({ initialState }: CashClientProps) {
     await refreshWorkspace(selectedId ?? undefined);
   }
 
-  // Callback del formulario de movimientos: recarga movimientos y workspace
+  // Callback del formulario de movimientos: recarga movimientos, workspace e historial
   async function handleMovementCreated() {
     setMovementsToken((t) => t + 1);
     await refreshWorkspace(selectedId ?? undefined);
   }
+  // refreshWorkspace ya llama a loadHistory y recarga el corte si hay sesión seleccionada.
 
   // ── Computed para el resumen de movimientos ──────────────────────
 
@@ -222,7 +324,16 @@ export function CashClient({ initialState }: CashClientProps) {
   // ── Render ──────────────────────────────────────────────────────
 
   return (
-    <div className="space-y-6 p-6">
+    <>
+    {/* Vista imprimible: oculta en pantalla, visible solo al imprimir */}
+    {cutReport && (
+      <div className="hidden print:block">
+        <CashSessionCutPrintView report={cutReport} />
+      </div>
+    )}
+
+    {/* Contenido operativo: visible en pantalla, oculto al imprimir */}
+    <div className="space-y-6 p-6 print:hidden">
 
       {/* Encabezado */}
       <div>
@@ -604,6 +715,40 @@ export function CashClient({ initialState }: CashClientProps) {
           )}
         </div>
       </div>
+
+      {/* ── Historial de sesiones ──────────────────────────────────────── */}
+      <CashSessionsHistory
+        sessions={sessions}
+        loading={sessionsLoading}
+        error={sessionsError}
+        selectedSessionId={selectedSessionId}
+        onSelectSession={handleSelectSession}
+        onReload={handleHistoryReload}
+      />
+
+      {/* ── Panel de corte de sesión seleccionada ─────────────────────── */}
+      {(cutReport || cutLoading || cutError) && (
+        <div>
+          {cutError && !cutLoading && (
+            <div className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+              {cutError}
+            </div>
+          )}
+          {cutLoading && !cutReport && (
+            <div className="rounded-lg border border-zinc-200 bg-white px-4 py-6 text-center text-sm text-zinc-400">
+              Cargando corte...
+            </div>
+          )}
+          {cutReport && (
+            <CashSessionCutPanel
+              report={cutReport}
+              loading={cutLoading}
+              onClose={handleCloseCutPanel}
+            />
+          )}
+        </div>
+      )}
     </div>
+    </>
   );
 }

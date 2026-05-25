@@ -165,3 +165,49 @@ export const listCashMovementsInputSchema = z.object({
 });
 
 export type ListCashMovementsInput = z.infer<typeof listCashMovementsInputSchema>;
+
+// ── Input para listar sesiones de caja (historial) ───────────────
+// tenant_id y location_id vienen de la sesión, nunca del cliente.
+
+const CASH_SESSION_STATUS_FILTER = ["OPEN", "CLOSED", "CANCELLED", "ALL"] as const;
+
+export const listCashSessionsInputSchema = z.object({
+  cash_register_id: z
+    .string()
+    .uuid("cash_register_id debe ser un UUID válido")
+    .nullable()
+    .optional(),
+  status: z
+    .enum(CASH_SESSION_STATUS_FILTER)
+    .default("ALL"),
+  date_from: z
+    .string()
+    .nullable()
+    .optional(),
+  date_to: z
+    .string()
+    .nullable()
+    .optional(),
+  only_differences: z
+    .boolean()
+    .default(false),
+  limit: z
+    .number()
+    .int()
+    .min(1, "limit debe ser al menos 1.")
+    .max(100, "limit no puede superar 100.")
+    .default(30),
+});
+
+// z.input<> para que los campos con .default() sean opcionales en el parámetro de la action
+export type ListCashSessionsInput = z.input<typeof listCashSessionsInputSchema>;
+
+// ── Input para obtener el reporte de corte de una sesión ─────────
+
+export const getCashSessionCutReportInputSchema = z.object({
+  cash_session_id: z
+    .string()
+    .uuid("cash_session_id debe ser un UUID válido"),
+});
+
+export type GetCashSessionCutReportInput = z.infer<typeof getCashSessionCutReportInputSchema>;
