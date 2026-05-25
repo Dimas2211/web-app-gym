@@ -10,6 +10,8 @@
 // ─────────────────────────────────────────────────────────────────
 
 import type { CashSessionCutReport, CashCutStatus } from "../types/cash.types";
+import { exportCashCutPdf }   from "../utils/export-cash-cut-pdf";
+import { exportCashCutExcel } from "../utils/export-cash-cut-excel";
 
 // ── Labels de estado derivado ─────────────────────────────────────
 
@@ -102,6 +104,22 @@ export function CashSessionCutPanel({
             className="rounded-md border border-zinc-300 px-3 py-1 text-xs font-medium text-zinc-600 hover:border-zinc-400 hover:text-zinc-800 disabled:opacity-40"
           >
             Imprimir corte
+          </button>
+          <button
+            type="button"
+            onClick={() => exportCashCutPdf(report)}
+            disabled={loading}
+            className="rounded-md border border-blue-300 bg-blue-50 px-3 py-1 text-xs font-medium text-blue-700 hover:border-blue-400 hover:bg-blue-100 disabled:opacity-40"
+          >
+            Exportar PDF
+          </button>
+          <button
+            type="button"
+            onClick={() => exportCashCutExcel(report)}
+            disabled={loading}
+            className="rounded-md border border-green-300 bg-green-50 px-3 py-1 text-xs font-medium text-green-700 hover:border-green-400 hover:bg-green-100 disabled:opacity-40"
+          >
+            Exportar Excel
           </button>
           <button
             type="button"
