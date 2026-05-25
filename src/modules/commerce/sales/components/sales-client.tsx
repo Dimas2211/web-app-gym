@@ -63,6 +63,7 @@ import {
   type DeliverInvalidationToExternalDbResult,
 } from "@/modules/commerce/dte/actions/deliver-invalidation-to-external-db.action";
 import { SaleDteFiscalPanel } from "./sale-dte-fiscal-panel";
+import { SalesCashSessionWarning } from "./sales-cash-session-warning";
 import type { SaleDteRelatedNc, SaleDteInvalidationSummary } from "../types/sale.types";
 
 // ── Props ─────────────────────────────────────────────────────────
@@ -70,6 +71,7 @@ import type { SaleDteRelatedNc, SaleDteInvalidationSummary } from "../types/sale
 export interface SalesClientProps {
   initialItems: SaleListItem[];
   initialTotal: number;
+  hasOpenCashSession?: boolean;
 }
 
 // ── Normalización de fechas desde API (JSON → Date) ───────────────
@@ -89,7 +91,7 @@ function normalizeListItem(item: ApiSaleListItem): SaleListItem {
 
 // ── Componente ────────────────────────────────────────────────────
 
-export function SalesClient({ initialItems, initialTotal }: SalesClientProps) {
+export function SalesClient({ initialItems, initialTotal, hasOpenCashSession = false }: SalesClientProps) {
   const router = useRouter();
 
   const [items,   setItems]   = useState<SaleListItem[]>(initialItems);
@@ -606,6 +608,9 @@ export function SalesClient({ initialItems, initialTotal }: SalesClientProps) {
         onApply={handleFilterApply}
         onClear={handleFilterClear}
       />
+
+      {/* ── Banner estado de caja ─────────────────────────────────── */}
+      <SalesCashSessionWarning hasOpenCashSession={hasOpenCashSession} />
 
       {/* ── Acción contextual: Editar / Eliminar (solo DRAFT) ─────── */}
       {selectedItem?.status === "DRAFT" && (

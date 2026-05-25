@@ -11,6 +11,7 @@
 import { requireAdmin } from "@/lib/permissions/guards";
 import { getEffectiveLocationId } from "@/lib/location/active-location";
 import { listSales } from "@/modules/commerce/sales/queries/list-sales";
+import { listCashRegisters } from "@/modules/commerce/cash/queries/list-cash-registers";
 import { SalesClient } from "@/modules/commerce/sales/components/sales-client";
 
 export const metadata = {
@@ -30,19 +31,25 @@ export default async function SalesPage() {
     );
   }
 
-  const { items, total } = await listSales({
-    tenant_id,
-    location_id,
-    sort_field:     "sale_date",
-    sort_direction: "desc",
-    page:      1,
-    page_size: 100,
-  });
+  const [{ items, total }, cashRegisters] = await Promise.all([
+    listSales({
+      tenant_id,
+      location_id,
+      sort_field:     "sale_date",
+      sort_direction: "desc",
+      page:      1,
+      page_size: 100,
+    }),
+    listCashRegisters(tenant_id, location_id).catch(() => []),
+  ]);
+
+  const hasOpenCashSession = cashRegisters.some((r) => r.open_session !== null);
 
   return (
     <SalesClient
       initialItems={items}
       initialTotal={total}
+      hasOpenCashSession={hasOpenCashSession}
     />
   );
 }
