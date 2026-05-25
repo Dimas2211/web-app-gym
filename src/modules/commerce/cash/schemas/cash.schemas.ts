@@ -88,3 +88,25 @@ export const openCashSessionInputSchema = z.object({
 });
 
 export type OpenCashSessionInput = z.infer<typeof openCashSessionInputSchema>;
+
+// ── Input para cierre de sesión de caja ──────────────────────────
+// tenant_id, location_id, closed_by, closed_at, status,
+// expected_cash_amount y difference_amount se derivan en servidor.
+// No se aceptan del cliente.
+
+export const closeCashSessionInputSchema = z.object({
+  cash_session_id: z
+    .string()
+    .uuid("cash_session_id debe ser un UUID válido"),
+  declared_cash_amount: z
+    .number({ invalid_type_error: "declared_cash_amount debe ser un número." })
+    .finite("declared_cash_amount debe ser un número finito.")
+    .min(0, "declared_cash_amount debe ser mayor o igual a 0."),
+  notes: z
+    .string()
+    .max(500, "notes no puede superar los 500 caracteres.")
+    .nullable()
+    .optional(),
+});
+
+export type CloseCashSessionInput = z.infer<typeof closeCashSessionInputSchema>;
