@@ -152,7 +152,9 @@ export async function getCashSessionCutReport(
   //    SalePayment no tiene tenant_id/location_id propios.
   //    La validación del scope se garantiza porque la sesión ya fue
   //    validada arriba por tenant_id + location_id.
+  //    total_paid_from_payments se reutiliza en sales_summary (paso 6).
   let payments_summary: CashPaymentMethodSummary[] = [];
+  let total_paid_from_payments = 0;
   try {
     const rawPayments = await prisma.salePayment.findMany({
       where: { cash_session_id: session.id },
@@ -179,12 +181,18 @@ export async function getCashSessionCutReport(
       byKey[key].count        += 1;
     }
     payments_summary = Object.values(byKey);
+    // Suma real de pagos: fuente de verdad para paid_amount en sales_summary.
+    total_paid_from_payments = rawPayments.reduce((sum, p) => sum + Number(p.amount), 0);
   } catch {
     // Si el modelo aún no tiene datos de pagos asociados, retornar vacío.
     payments_summary = [];
+    total_paid_from_payments = 0;
   }
 
   // 6. sales_summary — Sale filtrada por tenant + location + cash_session_id.
+  //    paid_amount: suma real desde SalePayment (no desde Sale.payment_status,
+  //    que permanece UNPAID hasta que se implemente la actualización de estado).
+  //    unpaid_amount: max(total - paid, 0) — nunca negativo por redondeo.
   let sales_summary: CashSalesSummary = {
     sales_count:   0,
     total_amount:  0,
@@ -200,20 +208,18 @@ export async function getCashSessionCutReport(
         status:          "CONFIRMED",
       },
       select: {
-        total_amount:   true,
-        payment_status: true,
+        total_amount: true,
       },
     });
 
-    let paid   = 0;
-    let unpaid = 0;
-    let total  = 0;
+    let total = 0;
     for (const s of rawSales) {
-      const amt = Number(s.total_amount);
-      total += amt;
-      if (s.payment_status === "PAID")    paid   += amt;
-      else                                unpaid += amt;
+      total += Number(s.total_amount);
     }
+
+    const paid   = total_paid_from_payments;
+    const unpaid = Math.max(total - paid, 0);
+
     sales_summary = {
       sales_count:   rawSales.length,
       total_amount:  total,

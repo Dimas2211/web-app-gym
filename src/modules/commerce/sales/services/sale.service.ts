@@ -34,6 +34,7 @@ import {
   buildSaleCode,
 } from "../utils/sale-correlative";
 import { getAnyOpenCashSessionForLocation } from "../../cash/queries/get-any-open-cash-session-for-location";
+import { isCashPayment, applyCashPaymentToSession } from "../../cash/services/cash-session-payment.service";
 
 // ── Recalcular totales de la cabecera ─────────────────────────────
 
@@ -512,6 +513,7 @@ export async function confirmSale(
       status:                true,
       sale_code:             true,
       total_amount:          true,
+      payment_method_code:   true,
       primary_dte_type_code: true,
       customer_id:           true,
       inventory_moved:       true,
@@ -651,6 +653,16 @@ export async function confirmSale(
     openCashSessionId = openSession?.id ?? null;
   }
 
+  // 5b. Preparar creación de SalePayment (solo en primera confirmación).
+  //     payment_method_code en Sale usa códigos CAT-017, equivale a mh_payment_form_code.
+  //     No se crea SalePayment si no hay método de pago o el total es 0.
+  const pmCode    = sale.payment_method_code;
+  const saleTotal = Number(sale.total_amount);
+  const shouldCreatePayment = isDraft && !!pmCode && saleTotal > 0;
+  const paymentIsCash       = shouldCreatePayment
+    ? isCashPayment({ mh_payment_form_code: pmCode, payment_method_code: pmCode })
+    : false;
+
   // 6. Transacción atómica: reclamar venta + SALE_OUT por cada producto stockable
   //
   //    Garantías de concurrencia:
@@ -690,7 +702,33 @@ export async function confirmSale(
         throw new Error("La venta ya fue confirmada o el inventario ya fue aplicado.");
       }
 
-      // Paso B: Por cada producto stockable agrupado, decrementar stock y crear SALE_OUT.
+      // Paso B: Crear SalePayment y actualizar expected_cash_amount si aplica.
+      //         Solo en primera confirmación (isDraft). El path de recuperación
+      //         (CONFIRMED + !inventory_moved) no crea pagos duplicados.
+      if (shouldCreatePayment) {
+        await tx.salePayment.create({
+          data: {
+            sale_id,
+            payment_method_code:  pmCode!,
+            mh_payment_form_code: pmCode,
+            amount:          new Prisma.Decimal(saleTotal),
+            paid_at:         new Date(),
+            cash_session_id: openCashSessionId,
+            created_by:      user_id,
+          },
+        });
+
+        // Solo efectivo (mh_payment_form_code "01") incrementa expected_cash_amount.
+        // Si la sesión cerró concurrentemente, applyCashPaymentToSession lo ignora.
+        if (paymentIsCash && openCashSessionId) {
+          await applyCashPaymentToSession(tx, {
+            cash_session_id: openCashSessionId,
+            amount:          saleTotal,
+          });
+        }
+      }
+
+      // Paso C: Por cada producto stockable agrupado, decrementar stock y crear SALE_OUT.
       for (const [productId, totalQty] of totalQtyByProduct) {
         const plEntry  = plByProductId.get(productId)!;
         const itemName = stockableItems.find((i) => i.product_id === productId)?.product_name_snapshot ?? productId;

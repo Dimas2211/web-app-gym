@@ -178,7 +178,9 @@ export function CashSessionCutPanel({
             <div>
               <p className="text-xs text-zinc-400">Salidas manuales</p>
               <p className="font-medium text-red-600">
-                -{formatCurrency(report.manual_out_total)}
+                {report.manual_out_total > 0.005
+                  ? `-${formatCurrency(report.manual_out_total)}`
+                  : formatCurrency(0)}
               </p>
             </div>
             <div>

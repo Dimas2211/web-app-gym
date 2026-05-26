@@ -187,7 +187,7 @@ export function exportCashCutPdf(report: CashSessionCutReport): void {
   y = kvBlock(doc, [
     ["Monto inicial",      fMoney(report.opening_amount)],
     ["Entradas manuales",  "+" + fMoney(report.manual_in_total)],
-    ["Salidas manuales",   "-"  + fMoney(report.manual_out_total)],
+    ["Salidas manuales",   report.manual_out_total > 0.005 ? "-" + fMoney(report.manual_out_total) : fMoney(0)],
     ["Efectivo esperado",  fMoney(report.expected_cash_amount)],
     ["Efectivo declarado", report.declared_cash_amount != null
       ? fMoney(report.declared_cash_amount)
