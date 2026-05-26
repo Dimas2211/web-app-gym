@@ -9,6 +9,7 @@
 
 import * as XLSX from "xlsx";
 import type { CashSessionCutReport, CashCutStatus } from "../types/cash.types";
+import { getMhPaymentFormLabel } from "./cash-payment-method-labels";
 
 // ── Formatos numéricos ────────────────────────────────────────────
 
@@ -175,7 +176,7 @@ function buildMovimientosSheet(report: CashSessionCutReport): XLSX.WorkSheet {
   return ws;
 }
 
-// ── Hoja 3: Pagos ─────────────────────────────────────────────────
+// ── Hoja 3: Pagos (resumen) ───────────────────────────────────────
 
 function buildPagosSheet(report: CashSessionCutReport): XLSX.WorkSheet {
   if (report.payments_summary.length === 0) {
@@ -186,14 +187,13 @@ function buildPagosSheet(report: CashSessionCutReport): XLSX.WorkSheet {
     return ws;
   }
 
-  const headers = ["Método", "Código MH", "Cantidad", "Total"];
+  const headers = ["Código forma pago", "Descripción forma pago", "Transacciones", "Total"];
 
-  const rows = report.payments_summary.map((p) => [
-    p.label,
-    p.mh_payment_form_code ?? "",
-    p.count,
-    p.total_amount,
-  ]);
+  const rows = report.payments_summary.map((p) => {
+    const code  = p.mh_payment_form_code ?? p.payment_method_code;
+    const label = getMhPaymentFormLabel(p.mh_payment_form_code ?? p.payment_method_code);
+    return [code, label, p.count, p.total_amount];
+  });
 
   const aoa = [headers, ...rows];
   const ws  = XLSX.utils.aoa_to_sheet(aoa);
@@ -201,7 +201,51 @@ function buildPagosSheet(report: CashSessionCutReport): XLSX.WorkSheet {
   // Formato moneda en columna Total (índice 3), filas 1..n
   applyFmt(ws, 1, rows.length, 3, CURRENCY_FMT);
 
-  setColWidths(ws, [24, 14, 12, 14]);
+  setColWidths(ws, [18, 36, 14, 14]);
+  return ws;
+}
+
+// ── Hoja 3b: DetallePagos ─────────────────────────────────────────
+
+function buildDetallePagosSheet(report: CashSessionCutReport): XLSX.WorkSheet {
+  if (report.payment_details.length === 0) {
+    const ws = XLSX.utils.aoa_to_sheet([
+      ["No hay transacciones de pago asociadas a esta sesión."],
+    ]);
+    setColWidths(ws, [52]);
+    return ws;
+  }
+
+  const headers = [
+    "Fecha/hora", "Hora", "Venta",
+    "Código forma pago", "Descripción forma pago",
+    "Referencia", "Monto",
+  ];
+
+  const rows = report.payment_details.map((d) => {
+    const code  = d.mh_payment_form_code ?? d.payment_method_code ?? "";
+    const label = getMhPaymentFormLabel(d.mh_payment_form_code ?? d.payment_method_code ?? "");
+    const ref   = d.reference
+      ? d.reference
+      : code === "01" ? "—" : "Sin referencia";
+    return [
+      d.paid_at_label,
+      d.paid_time_label,
+      d.sale_code ?? "—",
+      code,
+      label,
+      ref,
+      d.amount,
+    ];
+  });
+
+  const aoa = [headers, ...rows];
+  const ws  = XLSX.utils.aoa_to_sheet(aoa);
+
+  // Formato moneda en columna Monto (índice 6), filas 1..n
+  applyFmt(ws, 1, rows.length, 6, CURRENCY_FMT);
+
+  setColWidths(ws, [20, 12, 18, 18, 36, 22, 14]);
   return ws;
 }
 
@@ -243,10 +287,11 @@ function buildVentasSheet(report: CashSessionCutReport): XLSX.WorkSheet {
 export function exportCashCutExcel(report: CashSessionCutReport): void {
   const wb = XLSX.utils.book_new();
 
-  XLSX.utils.book_append_sheet(wb, buildResumenSheet(report),     "Resumen");
-  XLSX.utils.book_append_sheet(wb, buildMovimientosSheet(report), "Movimientos");
-  XLSX.utils.book_append_sheet(wb, buildPagosSheet(report),       "Pagos");
-  XLSX.utils.book_append_sheet(wb, buildVentasSheet(report),      "Ventas");
+  XLSX.utils.book_append_sheet(wb, buildResumenSheet(report),        "Resumen");
+  XLSX.utils.book_append_sheet(wb, buildMovimientosSheet(report),    "Movimientos");
+  XLSX.utils.book_append_sheet(wb, buildPagosSheet(report),          "Pagos");
+  XLSX.utils.book_append_sheet(wb, buildDetallePagosSheet(report),   "DetallePagos");
+  XLSX.utils.book_append_sheet(wb, buildVentasSheet(report),         "Ventas");
 
   const code = sanitizeFilename(report.cash_register_code);
   XLSX.writeFile(wb, `corte-caja-${code}-${nowStr()}.xlsx`);

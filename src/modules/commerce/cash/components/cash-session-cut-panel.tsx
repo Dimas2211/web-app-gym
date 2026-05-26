@@ -10,6 +10,7 @@
 // ─────────────────────────────────────────────────────────────────
 
 import type { CashSessionCutReport, CashCutStatus } from "../types/cash.types";
+import { formatMhPaymentForm } from "../utils/cash-payment-method-labels";
 import { exportCashCutPdf }   from "../utils/export-cash-cut-pdf";
 import { exportCashCutExcel } from "../utils/export-cash-cut-excel";
 
@@ -315,18 +316,19 @@ export function CashSessionCutPanel({
           )}
         </div>
 
-        {/* Formas de pago */}
-        {report.payments_summary.length > 0 && (
-          <div>
-            <p className="mb-2 text-xs font-medium uppercase tracking-wide text-zinc-400">
-              Formas de pago
-            </p>
+        {/* Formas de pago — resumen */}
+        <div>
+          <p className="mb-2 text-xs font-medium uppercase tracking-wide text-zinc-400">
+            Formas de pago
+          </p>
+          {report.payments_summary.length === 0 ? (
+            <p className="text-sm text-zinc-400">Sin pagos asociados a esta sesión.</p>
+          ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-xs">
                 <thead>
                   <tr className="border-b border-zinc-100 text-left text-zinc-400">
-                    <th className="py-1.5 font-medium">Método</th>
-                    <th className="py-1.5 font-medium">Forma MH</th>
+                    <th className="py-1.5 font-medium">Forma de pago</th>
                     <th className="py-1.5 text-right font-medium">Transacciones</th>
                     <th className="py-1.5 text-right font-medium">Total</th>
                   </tr>
@@ -335,10 +337,7 @@ export function CashSessionCutPanel({
                   {report.payments_summary.map((p, idx) => (
                     <tr key={idx}>
                       <td className="py-1.5 font-medium text-zinc-700">
-                        {p.label}
-                      </td>
-                      <td className="py-1.5 text-zinc-600">
-                        {p.mh_payment_form_code ?? "—"}
+                        {p.label || formatMhPaymentForm(p.mh_payment_form_code ?? p.payment_method_code)}
                       </td>
                       <td className="py-1.5 text-right text-zinc-600">{p.count}</td>
                       <td className="py-1.5 text-right font-medium text-zinc-800">
@@ -349,8 +348,61 @@ export function CashSessionCutPanel({
                 </tbody>
               </table>
             </div>
-          </div>
-        )}
+          )}
+        </div>
+
+        {/* Detalle de transacciones */}
+        <div>
+          <p className="mb-2 text-xs font-medium uppercase tracking-wide text-zinc-400">
+            Detalle de transacciones
+          </p>
+          {report.payment_details.length === 0 ? (
+            <p className="text-sm text-zinc-400">
+              No hay transacciones de pago asociadas a esta sesión.
+            </p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="border-b border-zinc-100 text-left text-zinc-400">
+                    <th className="py-1.5 font-medium">Hora</th>
+                    <th className="py-1.5 font-medium">Venta</th>
+                    <th className="py-1.5 font-medium">Forma de pago</th>
+                    <th className="py-1.5 font-medium">Referencia</th>
+                    <th className="py-1.5 text-right font-medium">Monto</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-zinc-50">
+                  {report.payment_details.map((d) => (
+                    <tr key={d.id}>
+                      <td className="py-1.5 text-zinc-600 whitespace-nowrap">
+                        {d.paid_time_label}
+                      </td>
+                      <td className="py-1.5 font-medium text-zinc-700 whitespace-nowrap">
+                        {d.sale_code ?? "—"}
+                      </td>
+                      <td className="py-1.5 text-zinc-600">
+                        {d.mh_payment_form_code
+                          ? formatMhPaymentForm(d.mh_payment_form_code)
+                          : formatMhPaymentForm(d.payment_method_code)}
+                      </td>
+                      <td className="py-1.5 text-zinc-500">
+                        {d.reference
+                          ? d.reference
+                          : d.mh_payment_form_code === "01"
+                            ? "—"
+                            : "Sin referencia"}
+                      </td>
+                      <td className="py-1.5 text-right font-medium text-zinc-800">
+                        {formatCurrency(d.amount)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
 
       </div>
     </div>

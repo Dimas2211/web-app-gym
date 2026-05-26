@@ -23,9 +23,11 @@
 
 import { prisma } from "@/lib/db/prisma";
 import { deriveCashCutStatus } from "../utils/derive-cash-cut-status";
+import { formatMhPaymentForm, getMhPaymentFormLabel } from "../utils/cash-payment-method-labels";
 import type {
   CashSessionCutReport,
   CashPaymentMethodSummary,
+  CashPaymentDetail,
   CashSalesSummary,
   CashMovementItem,
 } from "../types/cash.types";
@@ -148,31 +150,51 @@ export async function getCashSessionCutReport(
     diff,
   );
 
-  // 5. payments_summary — SalePayment agrupado por método/forma de pago.
+  // 5. payments_summary + payment_details — SalePayment por sesión.
   //    SalePayment no tiene tenant_id/location_id propios.
-  //    La validación del scope se garantiza porque la sesión ya fue
-  //    validada arriba por tenant_id + location_id.
+  //    Scope garantizado porque la sesión ya fue validada arriba.
   //    total_paid_from_payments se reutiliza en sales_summary (paso 6).
   let payments_summary: CashPaymentMethodSummary[] = [];
+  let payment_details:  CashPaymentDetail[]        = [];
   let total_paid_from_payments = 0;
   try {
     const rawPayments = await prisma.salePayment.findMany({
       where: { cash_session_id: session.id },
+      orderBy: [{ paid_at: "asc" }, { created_at: "asc" }],
       select: {
+        id:                   true,
+        sale_id:              true,
         payment_method_code:  true,
         mh_payment_form_code: true,
         amount:               true,
+        reference:            true,
+        paid_at:              true,
+        created_at:           true,
+        sale: {
+          select: {
+            sale_code:   true,
+            tenant_id:   true,
+            location_id: true,
+          },
+        },
       },
     });
 
+    // Filtrar pagos cuya venta pertenezca al mismo tenant/location
+    const scopedPayments = rawPayments.filter((p) =>
+      p.sale.tenant_id   === tenant_id &&
+      p.sale.location_id === location_id,
+    );
+
+    // payments_summary — agrupado por código MH de forma de pago
     const byKey: Record<string, CashPaymentMethodSummary> = {};
-    for (const p of rawPayments) {
+    for (const p of scopedPayments) {
       const key = `${p.payment_method_code}:${p.mh_payment_form_code ?? ""}`;
       if (!byKey[key]) {
         byKey[key] = {
           payment_method_code:  p.payment_method_code,
           mh_payment_form_code: p.mh_payment_form_code,
-          label:                p.payment_method_code,
+          label:                formatMhPaymentForm(p.mh_payment_form_code ?? p.payment_method_code),
           total_amount:         0,
           count:                0,
         };
@@ -181,11 +203,41 @@ export async function getCashSessionCutReport(
       byKey[key].count        += 1;
     }
     payments_summary = Object.values(byKey);
+
+    // payment_details — fila individual por pago
+    payment_details = scopedPayments.map((p) => {
+      const ts     = p.paid_at ?? p.created_at;
+      const locale = "es-SV";
+      const paid_at_label    = ts.toLocaleString(locale, {
+        day: "2-digit", month: "2-digit", year: "numeric",
+        hour: "2-digit", minute: "2-digit",
+      });
+      const paid_time_label  = ts.toLocaleString(locale, {
+        hour: "2-digit", minute: "2-digit",
+      });
+
+      return {
+        id:                    p.id,
+        sale_id:               p.sale_id,
+        sale_code:             p.sale.sale_code ?? null,
+        payment_method_code:   p.payment_method_code,
+        payment_method_label:  getMhPaymentFormLabel(p.payment_method_code),
+        mh_payment_form_code:  p.mh_payment_form_code,
+        mh_payment_form_label: getMhPaymentFormLabel(p.mh_payment_form_code),
+        reference:             p.reference ?? null,
+        amount:                Number(p.amount),
+        paid_at:               ts.toISOString(),
+        paid_at_label,
+        paid_time_label,
+      } satisfies CashPaymentDetail;
+    });
+
     // Suma real de pagos: fuente de verdad para paid_amount en sales_summary.
-    total_paid_from_payments = rawPayments.reduce((sum, p) => sum + Number(p.amount), 0);
+    total_paid_from_payments = scopedPayments.reduce((sum, p) => sum + Number(p.amount), 0);
   } catch {
     // Si el modelo aún no tiene datos de pagos asociados, retornar vacío.
-    payments_summary = [];
+    payments_summary    = [];
+    payment_details     = [];
     total_paid_from_payments = 0;
   }
 
@@ -257,6 +309,7 @@ export async function getCashSessionCutReport(
     difference_amount:    diff,
     movements_count:      movements.length,
     payments_summary,
+    payment_details,
     sales_summary,
     movements,
   };

@@ -10,6 +10,7 @@
 import jsPDF from "jspdf";
 import { autoTable } from "jspdf-autotable";
 import type { CashSessionCutReport, CashCutStatus } from "../types/cash.types";
+import { formatMhPaymentForm } from "./cash-payment-method-labels";
 
 // ── Constantes de layout ──────────────────────────────────────────
 
@@ -224,18 +225,51 @@ export function exportCashCutPdf(report: CashSessionCutReport): void {
   } else {
     autoTable(doc, {
       startY: y,
-      head: [["Método", "Código MH", "Cantidad", "Total"]],
+      head: [["Forma de pago", "Transacciones", "Total"]],
       body: report.payments_summary.map((p) => [
-        p.label,
-        p.mh_payment_form_code ?? "—",
+        p.label || formatMhPaymentForm(p.mh_payment_form_code ?? p.payment_method_code),
         String(p.count),
         fMoney(p.total_amount),
       ]),
       headStyles:         { fillColor: HEAD_COLOR, textColor: HEAD_TEXT, fontSize: 7.5, fontStyle: "bold" },
       bodyStyles:         { fontSize: 7.5, textColor: [40, 40, 40] },
       alternateRowStyles: { fillColor: ALT_ROW },
-      columnStyles:       { 2: { halign: "right" }, 3: { halign: "right" } },
+      columnStyles:       { 1: { halign: "right" }, 2: { halign: "right" } },
       styles:             { cellPadding: 2, overflow: "linebreak" },
+      margin:             { left: MX, right: MX },
+    });
+    y = lastTableY(doc) + 6;
+  }
+
+  // ── E2. Detalle de transacciones ──────────────────────────────
+
+  y = sectionHeader(doc, "Detalle de transacciones", y);
+  if (report.payment_details.length === 0) {
+    y = italicNote(doc, "No hay transacciones de pago asociadas a esta sesión.", y);
+  } else {
+    autoTable(doc, {
+      startY: y,
+      head: [["Hora", "Venta", "Forma de pago", "Referencia", "Monto"]],
+      body: report.payment_details.map((d) => {
+        const formLabel = d.mh_payment_form_code
+          ? formatMhPaymentForm(d.mh_payment_form_code)
+          : formatMhPaymentForm(d.payment_method_code);
+        const ref = d.reference
+          ? d.reference
+          : d.mh_payment_form_code === "01" ? "—" : "Sin referencia";
+        return [
+          d.paid_time_label,
+          d.sale_code ?? "—",
+          formLabel,
+          ref,
+          fMoney(d.amount),
+        ];
+      }),
+      headStyles:         { fillColor: HEAD_COLOR, textColor: HEAD_TEXT, fontSize: 7, fontStyle: "bold" },
+      bodyStyles:         { fontSize: 7, textColor: [40, 40, 40] },
+      alternateRowStyles: { fillColor: ALT_ROW },
+      columnStyles:       { 4: { halign: "right" } },
+      styles:             { cellPadding: 1.5, overflow: "linebreak" },
       margin:             { left: MX, right: MX },
     });
     y = lastTableY(doc) + 6;

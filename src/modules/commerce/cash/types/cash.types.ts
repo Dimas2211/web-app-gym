@@ -151,6 +151,23 @@ export interface CashPaymentMethodSummary {
   count:                number;
 }
 
+// ── Detalle individual de pago en corte ──────────────────────────
+
+export type CashPaymentDetail = {
+  id:                    string;
+  sale_id:               string;
+  sale_code:             string | null;
+  payment_method_code:   string | null;
+  payment_method_label:  string;
+  mh_payment_form_code:  string | null;
+  mh_payment_form_label: string;
+  reference:             string | null;
+  amount:                number;
+  paid_at:               string | null;
+  paid_at_label:         string;
+  paid_time_label:       string;
+};
+
 // ── Resumen de ventas en corte ────────────────────────────────────
 
 export interface CashSalesSummary {
@@ -187,6 +204,7 @@ export interface CashSessionCutReport {
   difference_amount:    number | null;
   movements_count:      number;
   payments_summary:     CashPaymentMethodSummary[];
+  payment_details:      CashPaymentDetail[];
   sales_summary:        CashSalesSummary;
   movements:            CashMovementItem[];
 }
