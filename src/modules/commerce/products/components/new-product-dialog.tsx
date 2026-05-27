@@ -107,8 +107,8 @@ export function NewProductDialog({
   }
 
   const ivaDisplay = (() => {
-    const num = parseFloat(precioSinIva);
-    return !isNaN(num) && num >= 0 ? "$" + (num * 0.13).toFixed(2) : "—";
+    const num = parseFloat(precioConIva);
+    return !isNaN(num) && num > 0 ? "$" + (num - num / 1.13).toFixed(2) : "—";
   })();
 
   // Default de is_stockable según tipo
@@ -401,8 +401,10 @@ export function NewProductDialog({
 
               <div>
                 <label className={labelCls}>Precio venta con IVA</label>
+                {/* sale_price guarda el precio CON IVA — fuente de verdad para ventas */}
                 <input
                   type="number"
+                  name="sale_price"
                   step="0.01"
                   min="0"
                   value={precioConIva}
@@ -410,13 +412,13 @@ export function NewProductDialog({
                   className={inputCls}
                   placeholder="0.00"
                 />
+                <FieldError errors={state?.errors?.sale_price} />
               </div>
 
               <div>
                 <label className={labelCls}>Precio venta sin IVA</label>
                 <input
                   type="number"
-                  name="sale_price"
                   step="0.01"
                   min="0"
                   value={precioSinIva}
@@ -424,7 +426,6 @@ export function NewProductDialog({
                   className={inputCls}
                   placeholder="0.00"
                 />
-                <FieldError errors={state?.errors?.sale_price} />
               </div>
 
               <div>

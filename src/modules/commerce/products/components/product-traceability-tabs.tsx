@@ -4,9 +4,9 @@
 // commerce/products — product-traceability-tabs.tsx
 //
 // Pestañas de trazabilidad del producto seleccionado.
-// - Ventas y movimientos mantienen stub NOT_IMPLEMENTED.
-// - Compras / Entradas muestra historial real vía
-//   GET /api/products/[id]/purchase-history
+// - Ventas: historial real vía GET /api/products/[id]/sales-history
+// - Compras / Entradas: historial real vía GET /api/products/[id]/purchase-history
+// - Movimientos: historial real vía GET /api/inventory/movements
 // - Grupos muestra la jerarquía del catálogo del producto.
 // ─────────────────────────────────────────────────────────────────
 
@@ -14,6 +14,7 @@ import { useState, useEffect } from "react";
 import { ShoppingCart, ShoppingBag, BarChart2, Layers, FileText } from "lucide-react";
 import type { ProductSummary } from "../types/product-summary.types";
 import type { ProductPurchaseHistoryRow } from "../queries/get-product-purchase-history";
+import type { ProductSalesHistoryRow } from "../queries/get-product-sales-history";
 import type { InventoryMovementItem } from "../../inventory/types/inventory-movement.types";
 
 type TabId = "resumen" | "ventas" | "compras" | "movimientos" | "grupos";
@@ -22,29 +23,6 @@ interface ProductTraceabilityTabsProps {
   summary: ProductSummary | null;
 }
 
-// ── Componente de stub honesto ────────────────────────────────────
-
-function TraceabilityStub({
-  icon: Icon,
-  moduleName,
-  availableInStage,
-}: {
-  icon: React.ElementType;
-  moduleName: string;
-  availableInStage: string;
-}) {
-  return (
-    <div className="flex flex-col items-center justify-center h-full py-8 text-center text-zinc-400">
-      <Icon size={28} className="mb-2 opacity-25" />
-      <p className="text-sm">
-        El historial de{" "}
-        <span className="font-medium text-zinc-500">{moduleName}</span>{" "}
-        estará disponible cuando se implemente este módulo.
-      </p>
-      <p className="text-xs mt-1 text-zinc-300">{availableInStage}</p>
-    </div>
-  );
-}
 
 // ── Helpers ───────────────────────────────────────────────────────
 
@@ -135,6 +113,105 @@ function ComprasTab({ productId }: { productId: string }) {
                 <td className="px-3 py-1.5 text-right text-zinc-700">{fmtAmount(r.quantity)}</td>
                 <td className="px-3 py-1.5 text-right text-zinc-600">{fmtAmount(r.unit_cost)}</td>
                 <td className="px-3 py-1.5 text-right text-zinc-600">{fmtAmount(r.line_subtotal)}</td>
+                <td className="px-3 py-1.5 text-right text-zinc-600">{fmtAmount(r.tax_amount)}</td>
+                <td className="px-3 py-1.5 text-right font-medium text-zinc-800">{fmtAmount(r.line_total)}</td>
+                <td className="px-3 py-1.5">
+                  <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${stCls}`}>
+                    {STATUS_LABEL[r.status] ?? r.status}
+                  </span>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+// ── Pestaña Ventas ────────────────────────────────────────────────
+
+const DTE_TYPE_LABELS: Record<string, string> = {
+  "01": "FE",
+  "03": "CCFE",
+  "05": "NC",
+  "11": "FEX",
+  "14": "FSE",
+};
+
+function VentasTab({ productId }: { productId: string }) {
+  const [rows, setRows]       = useState<ProductSalesHistoryRow[] | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setRows(null);
+
+    fetch(`/api/products/${productId}/sales-history`)
+      .then((r) => (r.ok ? r.json() : []))
+      .then((data: ProductSalesHistoryRow[]) => {
+        if (!cancelled) setRows(data);
+      })
+      .catch(() => { if (!cancelled) setRows([]); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+
+    return () => { cancelled = true; };
+  }, [productId]);
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-8 text-xs text-zinc-300">
+        Cargando historial de ventas…
+      </div>
+    );
+  }
+
+  if (!rows || rows.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center py-8 text-center text-zinc-400">
+        <ShoppingCart size={28} className="mb-2 opacity-25" />
+        <p className="text-sm">Este producto todavía no tiene ventas registradas.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-xs">
+        <thead>
+          <tr className="border-b border-zinc-100 text-zinc-400 font-medium">
+            <th className="text-left px-3 py-2 whitespace-nowrap">Fecha</th>
+            <th className="text-left px-3 py-2 whitespace-nowrap">Código</th>
+            <th className="text-left px-3 py-2 whitespace-nowrap">DTE</th>
+            <th className="text-left px-3 py-2 whitespace-nowrap">Cliente</th>
+            <th className="text-right px-3 py-2 whitespace-nowrap">Cantidad</th>
+            <th className="text-right px-3 py-2 whitespace-nowrap">Precio unit.</th>
+            <th className="text-right px-3 py-2 whitespace-nowrap">Base gravada</th>
+            <th className="text-right px-3 py-2 whitespace-nowrap">IVA</th>
+            <th className="text-right px-3 py-2 whitespace-nowrap">Total línea</th>
+            <th className="text-left px-3 py-2 whitespace-nowrap">Estado</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r) => {
+            const isCancelled = r.status === "CANCELLED";
+            const stCls = STATUS_CLS[r.status] ?? "bg-zinc-100 text-zinc-500";
+            const dteLabel = r.primary_dte_type_code
+              ? (DTE_TYPE_LABELS[r.primary_dte_type_code] ?? r.primary_dte_type_code)
+              : "—";
+            return (
+              <tr
+                key={r.sale_item_id}
+                className={`border-b border-zinc-50 hover:bg-zinc-50 ${isCancelled ? "opacity-50" : ""}`}
+              >
+                <td className="px-3 py-1.5 whitespace-nowrap text-zinc-600">{fmtDate(r.sale_date)}</td>
+                <td className="px-3 py-1.5 whitespace-nowrap font-mono text-zinc-600">{r.sale_code}</td>
+                <td className="px-3 py-1.5 whitespace-nowrap text-zinc-500">{dteLabel}</td>
+                <td className="px-3 py-1.5 whitespace-nowrap text-zinc-700">{r.customer_name ?? "—"}</td>
+                <td className="px-3 py-1.5 text-right text-zinc-700">{fmtAmount(r.quantity)}</td>
+                <td className="px-3 py-1.5 text-right text-zinc-600">{fmtAmount(r.unit_price)}</td>
+                <td className="px-3 py-1.5 text-right text-zinc-600">{fmtAmount(r.taxable_amount)}</td>
                 <td className="px-3 py-1.5 text-right text-zinc-600">{fmtAmount(r.tax_amount)}</td>
                 <td className="px-3 py-1.5 text-right font-medium text-zinc-800">{fmtAmount(r.line_total)}</td>
                 <td className="px-3 py-1.5">
@@ -393,11 +470,7 @@ export function ProductTraceabilityTabs({ summary }: ProductTraceabilityTabsProp
         {activeTab === "resumen" && <ResumenTab summary={summary} />}
 
         {activeTab === "ventas" && (
-          <TraceabilityStub
-            icon={ShoppingCart}
-            moduleName="ventas"
-            availableInStage={summary.traceability.sales.availableInStage + " — " + summary.traceability.sales.moduleName}
-          />
+          <VentasTab productId={summary.id} />
         )}
 
         {activeTab === "compras" && (

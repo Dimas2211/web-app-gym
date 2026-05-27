@@ -102,12 +102,14 @@ export function EditProductDialog({
   );
   const [isStockable, setIsStockable] = useState(summary.is_stockable);
 
-  // Estado para precios bidireccionales (valor canónico = sin IVA, inicializado desde summary)
-  const [precioSinIva, setPrecioSinIva] = useState(() =>
+  // Estado para precios bidireccionales (valor canónico = CON IVA — sale_price guarda con IVA).
+  // precioConIva se inicializa directamente desde sale_price (ya es con IVA).
+  // precioSinIva se deriva para visualización únicamente.
+  const [precioConIva, setPrecioConIva] = useState(() =>
     summary.sale_price != null ? summary.sale_price.toFixed(2) : ""
   );
-  const [precioConIva, setPrecioConIva] = useState(() =>
-    summary.sale_price != null ? (summary.sale_price * 1.13).toFixed(2) : ""
+  const [precioSinIva, setPrecioSinIva] = useState(() =>
+    summary.sale_price != null ? (summary.sale_price / 1.13).toFixed(2) : ""
   );
 
   // IVA 13% fijo — buscamos el tax_rate con rate === 13 para asignarlo automáticamente
@@ -136,8 +138,8 @@ export function EditProductDialog({
   }
 
   const ivaDisplay = (() => {
-    const num = parseFloat(precioSinIva);
-    return !isNaN(num) && num >= 0 ? "$" + (num * 0.13).toFixed(2) : "—";
+    const num = parseFloat(precioConIva);
+    return !isNaN(num) && num > 0 ? "$" + (num - num / 1.13).toFixed(2) : "—";
   })();
 
   // Filtros en cascada client-side
@@ -521,8 +523,10 @@ export function EditProductDialog({
 
               <div>
                 <label className={labelCls}>Precio venta con IVA</label>
+                {/* sale_price guarda el precio CON IVA — fuente de verdad para ventas */}
                 <input
                   type="number"
+                  name="sale_price"
                   step="0.01"
                   min="0"
                   value={precioConIva}
@@ -530,13 +534,13 @@ export function EditProductDialog({
                   className={inputCls}
                   placeholder="0.00"
                 />
+                <FieldError errors={state?.errors?.sale_price} />
               </div>
 
               <div>
                 <label className={labelCls}>Precio venta sin IVA</label>
                 <input
                   type="number"
-                  name="sale_price"
                   step="0.01"
                   min="0"
                   value={precioSinIva}
@@ -544,7 +548,6 @@ export function EditProductDialog({
                   className={inputCls}
                   placeholder="0.00"
                 />
-                <FieldError errors={state?.errors?.sale_price} />
               </div>
 
               <div>

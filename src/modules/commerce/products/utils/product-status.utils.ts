@@ -12,7 +12,7 @@ import type { ProductStatus } from "../types/product.types";
 export const VALID_TRANSITIONS: Record<ProductStatus, ProductStatus[]> = {
   ACTIVE:           ["INACTIVE", "DISCONTINUED", "BLOCKED_PURCHASE", "BLOCKED_SALE"],
   INACTIVE:         ["ACTIVE", "DISCONTINUED", "BLOCKED_PURCHASE", "BLOCKED_SALE"],
-  DISCONTINUED:     [],
+  DISCONTINUED:     ["ACTIVE"],
   BLOCKED_PURCHASE: ["ACTIVE", "INACTIVE", "BLOCKED_SALE"],
   BLOCKED_SALE:     ["ACTIVE", "INACTIVE", "BLOCKED_PURCHASE"],
 };

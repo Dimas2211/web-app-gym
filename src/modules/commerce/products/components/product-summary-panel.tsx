@@ -178,16 +178,14 @@ function IdentityBlock({
       {/* Acciones */}
       {canManage && (
         <div className="flex gap-2 mt-2">
-          {summary.status !== "DISCONTINUED" && (
-            <button
-              type="button"
-              onClick={onRequestStatusChange}
-              className="flex-1 text-xs border border-zinc-200 rounded-lg py-1.5 text-zinc-600
-                         hover:border-zinc-400 hover:bg-zinc-50 transition-colors"
-            >
-              Cambiar estado
-            </button>
-          )}
+          <button
+            type="button"
+            onClick={onRequestStatusChange}
+            className="flex-1 text-xs border border-zinc-200 rounded-lg py-1.5 text-zinc-600
+                       hover:border-zinc-400 hover:bg-zinc-50 transition-colors"
+          >
+            Cambiar estado
+          </button>
           <button
             type="button"
             onClick={onRequestEdit}
@@ -317,19 +315,18 @@ export function ProductCostsPricesStrip({
     );
   }
 
-  const ivaRateStrip = summary.tax_rate ? summary.tax_rate.rate / 100 : 0.13;
+  // sale_price = precio CON IVA (fuente de verdad). Sin IVA e IVA se derivan.
+  const taxRateStrip   = summary.tax_rate ? summary.tax_rate.rate : 13;
+  const taxFactorStrip = 1 + taxRateStrip / 100;
+  const priceWithIva   = summary.sale_price ?? null;
+  const priceSinIva    = priceWithIva !== null
+    ? Math.round(priceWithIva / taxFactorStrip * 100) / 100
+    : null;
+  const ivaAmount      = priceWithIva !== null && priceSinIva !== null
+    ? Math.round((priceWithIva - priceSinIva) * 100) / 100
+    : null;
 
-  const ivaAmount =
-    summary.sale_price !== null
-      ? summary.sale_price * ivaRateStrip
-      : null;
-
-  const priceWithIva =
-    summary.sale_price !== null && ivaAmount !== null
-      ? summary.sale_price + ivaAmount
-      : null;
-
-  const taxLabel = `IVA (${summary.tax_rate ? summary.tax_rate.rate : 13}%)`;
+  const taxLabel = `IVA (${taxRateStrip}%)`;
 
   return (
     <div className="flex items-center flex-wrap gap-x-5 gap-y-2 px-4 py-2.5 min-h-[52px]">
@@ -344,7 +341,7 @@ export function ProductCostsPricesStrip({
       <div className="hidden sm:block h-5 w-px bg-zinc-200 shrink-0" />
 
       <PricePill label="Precio unitario" value={formatMoney(summary.cost_price)} />
-      <PricePill label="Precio sin IVA"  value={formatMoney(summary.sale_price)} />
+      <PricePill label="Precio sin IVA"  value={formatMoney(priceSinIva)} />
       <PricePill label={taxLabel}         value={formatMoney(ivaAmount)} />
 
       <div className="hidden sm:block h-5 w-px bg-zinc-200 shrink-0" />
@@ -389,17 +386,16 @@ export function ProductSummaryPanel({
   }
 
   // ── Modo full (por defecto): grid 3 columnas ──────────────────────
-  const ivaRateFull = summary.tax_rate ? summary.tax_rate.rate / 100 : 0.13;
-
-  const ivaAmountFull =
-    summary.sale_price !== null
-      ? summary.sale_price * ivaRateFull
-      : null;
-
-  const priceWithIvaFull =
-    summary.sale_price !== null && ivaAmountFull !== null
-      ? summary.sale_price + ivaAmountFull
-      : null;
+  // sale_price = precio CON IVA (fuente de verdad). Sin IVA e IVA se derivan.
+  const taxRateFull    = summary.tax_rate ? summary.tax_rate.rate : 13;
+  const taxFactorFull  = 1 + taxRateFull / 100;
+  const priceWithIvaFull = summary.sale_price ?? null;
+  const priceSinIvaFull  = priceWithIvaFull !== null
+    ? Math.round(priceWithIvaFull / taxFactorFull * 100) / 100
+    : null;
+  const ivaAmountFull    = priceWithIvaFull !== null && priceSinIvaFull !== null
+    ? Math.round((priceWithIvaFull - priceSinIvaFull) * 100) / 100
+    : null;
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 h-full divide-y lg:divide-y-0 lg:divide-x divide-zinc-100">
@@ -437,8 +433,8 @@ export function ProductSummaryPanel({
         <FieldRow
           label="Precio sin IVA"
           value={
-            summary.sale_price !== null
-              ? <span className="font-mono font-semibold">{formatMoney(summary.sale_price)}</span>
+            priceSinIvaFull !== null
+              ? <span className="font-mono font-semibold">{formatMoney(priceSinIvaFull)}</span>
               : null
           }
         />

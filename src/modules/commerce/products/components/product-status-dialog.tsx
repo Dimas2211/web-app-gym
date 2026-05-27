@@ -87,12 +87,11 @@ export function ProductStatusDialog({
           </span>
         </div>
 
-        {/* Estado terminal — sin transiciones */}
+        {/* Estado sin transiciones posibles */}
         {availableTransitions.length === 0 && (
           <div className="bg-zinc-50 border border-zinc-200 rounded-lg p-4 text-sm text-zinc-500 text-center">
-            <p>Este producto está <strong className="text-zinc-700">descontinuado</strong>.</p>
             <p className="text-xs mt-1 text-zinc-400">
-              No puede cambiar de estado. Para volver a utilizarlo, crea un nuevo producto.
+              Este estado no permite transiciones configuradas.
             </p>
           </div>
         )}

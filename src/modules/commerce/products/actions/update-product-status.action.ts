@@ -78,13 +78,6 @@ export async function updateProductStatusAction(
   }
 
   if (!isValidTransition(currentStatus, nextStatus)) {
-    if (currentStatus === "DISCONTINUED") {
-      return {
-        error:
-          "No se puede cambiar el estado de un producto discontinuado. " +
-          "Si el producto debe volver a estar disponible, crea un nuevo registro.",
-      };
-    }
     return {
       error: `La transición de ${currentStatus} a ${nextStatus} no está permitida.`,
     };

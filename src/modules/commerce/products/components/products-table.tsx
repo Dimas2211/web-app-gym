@@ -89,11 +89,7 @@ function SortIndicator({ field, sort }: { field: string; sort: ProductSort }) {
 
 function formatPrice(value: number | null): string {
   if (value === null) return "—";
-  return new Intl.NumberFormat("es-CL", {
-    style: "decimal",
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 2,
-  }).format(value);
+  return "$" + value.toFixed(2);
 }
 
 // ── Tipo de celda activa ──────────────────────────────────────────
@@ -317,10 +313,14 @@ export function ProductsTable({
             items.map((product, rowIndex) => {
               const sel = product.id === selectedId;
 
-              const priceWithTax =
-                product.sale_price !== null && product.tax_rate
-                  ? product.sale_price * (1 + product.tax_rate.rate / 100)
-                  : null;
+              // sale_price es el precio comercial CON IVA (fuente de verdad).
+              // priceWithTax = sale_price directamente.
+              // priceSinIva se deriva para mostrar en la columna "P. sin IVA".
+              const priceWithTax = product.sale_price ?? null;
+              const priceSinIva =
+                product.sale_price !== null && product.tax_rate && product.tax_rate.rate > 0
+                  ? Math.round(product.sale_price / (1 + product.tax_rate.rate / 100) * 100) / 100
+                  : product.sale_price;
 
               return (
                 <tr
@@ -428,13 +428,13 @@ export function ProductsTable({
                     </span>
                   </td>
 
-                  {/* 9 — P. sin IVA */}
+                  {/* 9 — P. sin IVA (derivado de sale_price con IVA) */}
                   <td
                     ref={cellRef(rowIndex, 9)}
                     onClick={() => handleCellClick(rowIndex, 9, product)}
                     className={`px-3 py-2.5 text-right whitespace-nowrap font-mono text-xs${activeCellCls(rowIndex, 9)}`}
                   >
-                    {formatPrice(product.sale_price)}
+                    {formatPrice(priceSinIva)}
                   </td>
 
                   {/* 10 — P. con IVA */}
