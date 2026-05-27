@@ -19,9 +19,8 @@ const stubValCls = "block text-xs text-zinc-500 truncate";
 // ── Props ─────────────────────────────────────────────────────────
 
 interface SaleSummaryPanelProps {
-  item:    SaleListItem | null;
-  detail:  SaleDetail   | null;
-  loading: boolean;
+  item:   SaleListItem | null;
+  detail: SaleDetail   | null;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────
@@ -68,32 +67,6 @@ function dteTypeLabel(code: string | null | undefined): string {
   return getDteShortCode(code);
 }
 
-function dteStatusLabel(status: string): string {
-  const map: Record<string, string> = {
-    NOT_REQUIRED:         "No requerido",
-    PENDING_GENERATION:   "Pendiente",
-    GENERATED:            "Generado",
-    SCHEMA_VALIDATED:     "Validado",
-    SIGNED:               "Firmado",
-    SENT:                 "Enviado",
-    ACCEPTED:             "Aceptado",
-    REJECTED:             "Rechazado",
-    OBSERVED:             "Observado",
-    CONTINGENCY_PENDING:  "Contingencia",
-    INVALIDATION_PENDING: "Inv. pendiente",
-    INVALIDATED:          "Invalidado",
-  };
-  return map[status] ?? status;
-}
-
-function dteStatusCls(status: string): string {
-  if (status === "ACCEPTED")  return "text-emerald-400";
-  if (status === "REJECTED" || status === "INVALIDATED") return "text-red-400";
-  if (status === "SIGNED" || status === "SENT")          return "text-amber-300";
-  if (status === "OBSERVED" || status === "CONTINGENCY_PENDING") return "text-orange-400";
-  return "text-zinc-400";
-}
-
 // ── Badges de estado ──────────────────────────────────────────────
 
 function StatusBadge({ status }: { status: string }) {
@@ -127,15 +100,7 @@ function PayStatusBadge({ status }: { status: string }) {
 
 // ── Componente ────────────────────────────────────────────────────
 
-export function SaleSummaryPanel({ item, detail, loading }: SaleSummaryPanelProps) {
-  if (loading) {
-    return (
-      <div className="flex-none border-b border-zinc-800 bg-zinc-900 px-3 py-3 flex items-center justify-center h-16">
-        <span className="text-xs text-zinc-500">Cargando resumen…</span>
-      </div>
-    );
-  }
-
+export function SaleSummaryPanel({ item, detail }: SaleSummaryPanelProps) {
   if (!item && !detail) {
     return (
       <div className="flex-none border-b border-zinc-800 bg-zinc-900 px-3 py-3 flex items-center justify-center h-16">
@@ -144,10 +109,13 @@ export function SaleSummaryPanel({ item, detail, loading }: SaleSummaryPanelProp
     );
   }
 
-  const src = detail ?? item;
+  // Use item (always current) as primary for list-level fields.
+  // Only use detail for detail-only fields when it belongs to the currently selected sale.
+  const currentDetail = (detail && item && detail.id === item.id) ? detail : null;
+  const src = item ?? detail!;
 
-  const itemCount = detail
-    ? String(detail.items.length)
+  const itemCount = currentDetail
+    ? String(currentDetail.items.length)
     : item?.item_count != null
       ? String(item.item_count)
       : "—";
@@ -190,8 +158,8 @@ export function SaleSummaryPanel({ item, detail, loading }: SaleSummaryPanelProp
         {/* 5 — Inventario — slot siempre presente; contenido según estado */}
         <div className="min-w-0">
           <span className={labelCls}>Inventario</span>
-          {detail?.status === "CONFIRMED"
-            ? detail.inventory_moved
+          {currentDetail?.status === "CONFIRMED"
+            ? currentDetail.inventory_moved
               ? <span className="block text-[10px] text-emerald-400 font-medium truncate">Aplicado</span>
               : <span className="block text-[10px] text-amber-400 font-medium truncate">Pendiente</span>
             : <span className={stubValCls}>—</span>
@@ -211,10 +179,10 @@ export function SaleSummaryPanel({ item, detail, loading }: SaleSummaryPanelProp
         <div className="min-w-0">
           <span className={labelCls}>Cond. operación</span>
           <span
-            className={detail?.condition_operation_code ? realValCls : stubValCls}
-            title={conditionLabel(detail?.condition_operation_code)}
+            className={currentDetail?.condition_operation_code ? realValCls : stubValCls}
+            title={conditionLabel(currentDetail?.condition_operation_code)}
           >
-            {conditionLabel(detail?.condition_operation_code)}
+            {conditionLabel(currentDetail?.condition_operation_code)}
           </span>
         </div>
 
@@ -222,10 +190,10 @@ export function SaleSummaryPanel({ item, detail, loading }: SaleSummaryPanelProp
         <div className="min-w-0">
           <span className={labelCls}>Forma de pago</span>
           <span
-            className={detail?.payment_method_code ? realValCls : stubValCls}
-            title={paymentMethodLabel(detail?.payment_method_code)}
+            className={currentDetail?.payment_method_code ? realValCls : stubValCls}
+            title={paymentMethodLabel(currentDetail?.payment_method_code)}
           >
-            {paymentMethodLabel(detail?.payment_method_code)}
+            {paymentMethodLabel(currentDetail?.payment_method_code)}
           </span>
         </div>
 
@@ -236,59 +204,6 @@ export function SaleSummaryPanel({ item, detail, loading }: SaleSummaryPanelProp
         </div>
 
       </div>
-
-      {/* Bloque DTE — visible cuando hay documento fiscal generado */}
-      {detail?.dte_document && (
-        <div className="border-t border-zinc-800 pt-1.5">
-          <div className="grid grid-cols-5 gap-x-3">
-
-            <div className="min-w-0">
-              <span className={labelCls}>Estado DTE</span>
-              <span className={`block text-xs font-medium truncate ${dteStatusCls(detail.dte_document.dte_status)}`}>
-                {dteStatusLabel(detail.dte_document.dte_status)}
-              </span>
-            </div>
-
-            <div className="min-w-0">
-              <span className={labelCls}>Tipo DTE doc.</span>
-              <span className="block text-xs text-zinc-300 font-mono truncate">
-                {dteTypeLabel(detail.dte_document.dte_type_code)}
-              </span>
-            </div>
-
-            <div className="min-w-0">
-              <span className={labelCls}>Cód. generación</span>
-              <span
-                className="block text-xs text-amber-400 font-mono truncate"
-                title={detail.dte_document.generation_code ?? ""}
-              >
-                {detail.dte_document.generation_code ?? "—"}
-              </span>
-            </div>
-
-            <div className="min-w-0">
-              <span className={labelCls}>Nº control</span>
-              <span
-                className="block text-xs text-zinc-300 font-mono truncate"
-                title={detail.dte_document.control_number ?? ""}
-              >
-                {detail.dte_document.control_number ?? "—"}
-              </span>
-            </div>
-
-            <div className="min-w-0">
-              <span className={labelCls}>Sello recepción</span>
-              <span
-                className="block text-xs text-zinc-400 font-mono truncate"
-                title={detail.dte_document.reception_stamp ?? ""}
-              >
-                {detail.dte_document.reception_stamp ?? "—"}
-              </span>
-            </div>
-
-          </div>
-        </div>
-      )}
 
       {/* Fila 2: totales + documental + auditoría — 9 slots fijos */}
       <div className="grid grid-cols-9 gap-x-3">
@@ -332,8 +247,8 @@ export function SaleSummaryPanel({ item, detail, loading }: SaleSummaryPanelProp
         {/* 6 — Creado por */}
         <div className="min-w-0">
           <span className={labelCls}>Creado por</span>
-          <span className={detail?.created_by_name ? realValCls : stubValCls}>
-            {detail?.created_by_name ?? "—"}
+          <span className={currentDetail?.created_by_name ? realValCls : stubValCls}>
+            {currentDetail?.created_by_name ?? "—"}
           </span>
         </div>
 
@@ -348,16 +263,16 @@ export function SaleSummaryPanel({ item, detail, loading }: SaleSummaryPanelProp
         {/* 8 — Confirmado */}
         <div className="min-w-0">
           <span className={labelCls}>Confirmado</span>
-          <span className={detail?.confirmed_at_label ? realValCls : stubValCls}>
-            {detail?.confirmed_at_label ?? "—"}
+          <span className={currentDetail?.confirmed_at_label ? realValCls : stubValCls}>
+            {currentDetail?.confirmed_at_label ?? "—"}
           </span>
         </div>
 
         {/* 9 — Notas */}
         <div className="min-w-0">
           <span className={labelCls}>Notas</span>
-          <span className={detail?.notes ? realValCls : stubValCls} title={detail?.notes ?? ""}>
-            {detail?.notes ?? "—"}
+          <span className={currentDetail?.notes ? realValCls : stubValCls} title={currentDetail?.notes ?? ""}>
+            {currentDetail?.notes ?? "—"}
           </span>
         </div>
 

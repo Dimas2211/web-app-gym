@@ -304,12 +304,20 @@ export async function generateCcfeJsonForDte(
     }
 
     const cuerpoDocumento: CuerpoItem[] = sale.items.map((item) => {
-      const qty       = Number(item.quantity);
-      const unitPrice = r2(Number(item.unit_price));
-      const descu     = r2(Number(item.discount_amount));
-      const subtotal  = r2(Number(item.line_subtotal));
-      const ivaAmount = r2(Number(item.tax_amount));
-      const hasIva    = Number(item.tax_rate_snapshot) > 0 && ivaAmount > 0;
+      const qty              = Number(item.quantity);
+      const taxRate          = Number(item.tax_rate_snapshot ?? 0);
+      const hasIva           = taxRate > 0;
+      const taxFactor        = hasIva ? 1 + taxRate / 100 : 1;
+
+      // CCFE-03: precioUni y montoDescu deben ir SIN IVA (base gravada).
+      // unit_price y discount_amount están CON IVA — se dividen por taxFactor para extraer la base.
+      const unitPriceWithIva = Number(item.unit_price);
+      const descuWithIva     = Number(item.discount_amount);
+      const unitPrice        = hasIva ? r2(unitPriceWithIva / taxFactor) : r2(unitPriceWithIva);
+      const descu            = hasIva ? r2(descuWithIva / taxFactor)     : r2(descuWithIva);
+
+      // line_subtotal es la base gravada persistida (sin IVA) — fuente autorizada para ventaGravada.
+      const subtotal = r2(Number(item.line_subtotal));
 
       return {
         numItem:         item.line_number,

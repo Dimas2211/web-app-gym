@@ -311,7 +311,7 @@ export function CashSessionCutPanel({
             </div>
           ) : (
             <p className="text-sm text-zinc-400">
-              Ventas y pagos se integrarán en una fase posterior.
+              No hay ventas ni pagos asociados a esta sesión.
             </p>
           )}
         </div>

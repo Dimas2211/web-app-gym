@@ -274,25 +274,24 @@ export async function generateFeJsonForDte(
     }
 
     const cuerpoDocumento: CuerpoItem[] = sale.items.map((item) => {
-      const qty           = Number(item.quantity);
-      const unitPriceBase = Number(item.unit_price);      // BASE sin IVA (cómo se almacena)
-      const descuBase     = Number(item.discount_amount); // descuento BASE sin IVA
-      const taxRate       = Number(item.tax_rate_snapshot ?? 0);
-      const hasIva        = taxRate > 0;
-      const taxFactor     = 1 + taxRate / 100;           // 1.13 para IVA 13 %
+      const qty              = Number(item.quantity);
+      const unitPriceWithIva = Number(item.unit_price);      // CON IVA — fuente de verdad
+      const descuWithIva     = Number(item.discount_amount); // CON IVA
+      const taxRate          = Number(item.tax_rate_snapshot ?? 0);
+      const hasIva           = taxRate > 0;
 
-      // FE-01: precioUni y montoDescu van CON IVA incluido para líneas gravadas.
-      // Hacienda verifica exactamente: ventaGravada == cantidad * precioUni - montoDescu.
-      const precioUniLine = hasIva ? r2(unitPriceBase * taxFactor) : r2(unitPriceBase);
-      const descuLine     = hasIva ? r2(descuBase * taxFactor)     : r2(descuBase);
+      // FE-01: precioUni y montoDescu van CON IVA para líneas gravadas.
+      // unit_price ya es CON IVA — sin multiplicación adicional por taxFactor.
+      const precioUniLine = r2(unitPriceWithIva);
+      const descuLine     = r2(descuWithIva);
 
       // ventaGravada/ventaExenta: total neto por línea CON IVA incluido.
-      const lineNetWithIva    = r2(qty * precioUniLine - descuLine);
-      const ventaGravadaLine  = hasIva ? lineNetWithIva : 0;
-      const ventaExentaLine   = hasIva ? 0 : lineNetWithIva;
+      const lineNetWithIva   = r2(qty * precioUniLine - descuLine);
+      const ventaGravadaLine = hasIva ? lineNetWithIva : 0;
+      const ventaExentaLine  = hasIva ? 0 : lineNetWithIva;
 
-      // ivaItem: IVA extraído del precio final — informativo, no se suma a montoTotalOperacion.
-      const ivaItemLine = hasIva ? r2(ventaGravadaLine - ventaGravadaLine / taxFactor) : null;
+      // ivaItem: IVA extraído del precio final — informativo, usa valor persistido.
+      const ivaItemLine = hasIva ? r2(Number(item.tax_amount)) : null;
 
       return {
         numItem:         item.line_number,

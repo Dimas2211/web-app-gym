@@ -150,8 +150,13 @@ export async function searchProductsForSale({
       }
     }
 
-    const salePrice    = p.sale_price  != null ? Number(p.sale_price)       : null;
-    const taxRateValue = p.tax_rate?.rate != null ? Number(p.tax_rate.rate) : null;
+    // sale_price en DB es el precio comercial CON IVA (fuente de verdad).
+    // sale_price (sin IVA) se deriva únicamente para visualización.
+    const salePriceWithTax = p.sale_price  != null ? Number(p.sale_price)       : null;
+    const taxRateValue     = p.tax_rate?.rate != null ? Number(p.tax_rate.rate) : null;
+    const salePriceSinIva  = (salePriceWithTax != null && taxRateValue != null && taxRateValue > 0)
+      ? Math.round(salePriceWithTax / (1 + taxRateValue / 100) * 100) / 100
+      : salePriceWithTax;
 
     return {
       id:                  p.id,
@@ -169,10 +174,8 @@ export async function searchProductsForSale({
       subline_name:        p.subline?.name   ?? null,
       brand:               p.brand           ?? null,
       supplier_name:       p.supplier?.name  ?? null,
-      sale_price:          salePrice,
-      sale_price_with_tax: (salePrice != null && taxRateValue != null)
-        ? parseFloat((salePrice * (1 + taxRateValue / 100)).toFixed(2))
-        : null,
+      sale_price:          salePriceSinIva,       // solo para display (sin IVA derivado)
+      sale_price_with_tax: salePriceWithTax,      // fuente principal — precio que paga el cliente
       tax_rate_id:         p.tax_rate_id ?? null,
       tax_rate:            taxRateValue,
       tax_name:            p.tax_rate?.name ?? null,

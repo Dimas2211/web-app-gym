@@ -32,7 +32,7 @@ export function ConfirmSaleDialog({ open, isBusy, saleCode, onBack, onConfirm }:
             <span className="font-medium text-zinc-800">ya no podrá editarse</span> como borrador.
           </p>
           <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1.5">
-            En esta fase no se generará DTE ni se descontará inventario.
+            Al confirmar la venta se registrará la salida de inventario, se asociará a la caja abierta si existe y se preparará la información operativa correspondiente. Esta acción no debe repetirse.
           </p>
         </div>
 

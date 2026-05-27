@@ -18,7 +18,8 @@
 
 import { useState, useEffect, useRef, useCallback, useActionState } from "react";
 import { useRouter } from "next/navigation";
-import { Loader2, Package, FileText } from "lucide-react";
+import Link from "next/link";
+import { Loader2, Package, FileText, ChevronDown, ChevronUp, CheckCircle2, AlertTriangle } from "lucide-react";
 import type { SaleListItem, SaleDetail } from "../types/sale.types";
 import { SalesTable } from "./sales-table";
 import { SaleItemsPanel } from "./sale-items-panel";
@@ -63,7 +64,6 @@ import {
   type DeliverInvalidationToExternalDbResult,
 } from "@/modules/commerce/dte/actions/deliver-invalidation-to-external-db.action";
 import { SaleDteFiscalPanel } from "./sale-dte-fiscal-panel";
-import { SalesCashSessionWarning } from "./sales-cash-session-warning";
 import type { SaleDteRelatedNc, SaleDteInvalidationSummary } from "../types/sale.types";
 
 // ── Props ─────────────────────────────────────────────────────────
@@ -182,10 +182,11 @@ export function SalesClient({ initialItems, initialTotal, hasOpenCashSession = f
   const [isExternalInvDelivering,       setIsExternalInvDelivering]       = useState(false);
   const [externalInvDeliveryResult,     setExternalInvDeliveryResult]     = useState<DeliverInvalidationToExternalDbResult | null>(null);
 
-  const filtersRef   = useRef<SaleFilterState>(EMPTY_SALE_FILTERS);
-  filtersRef.current = filters;
-  const listAbortRef = useRef<AbortController | null>(null);
-  const filtersMount = useRef(true);
+  const filtersRef         = useRef<SaleFilterState>(EMPTY_SALE_FILTERS);
+  filtersRef.current       = filters;
+  const listAbortRef       = useRef<AbortController | null>(null);
+  const filtersMount       = useRef(true);
+  const detailRequestIdRef = useRef(0);
 
   // ── Cuando autorización es exitosa → navegar a edición ─────────
   useEffect(() => {
@@ -256,9 +257,9 @@ export function SalesClient({ initialItems, initialTotal, hasOpenCashSession = f
       return;
     }
 
-    setSelectedDetail(null);
     setDetailLoading(true);
-    const ctrl = new AbortController();
+    const reqId = ++detailRequestIdRef.current;
+    const ctrl  = new AbortController();
 
     fetch(`/api/sales/${selectedId}`, {
       signal:      ctrl.signal,
@@ -266,10 +267,14 @@ export function SalesClient({ initialItems, initialTotal, hasOpenCashSession = f
     })
       .then((r) => (r.ok ? r.json() : Promise.reject()))
       .then((envelope) => {
+        if (reqId !== detailRequestIdRef.current) return;
         setSelectedDetail(envelope.data as SaleDetail);
       })
       .catch(() => {})
-      .finally(() => setDetailLoading(false));
+      .finally(() => {
+        if (reqId !== detailRequestIdRef.current) return;
+        setDetailLoading(false);
+      });
 
     return () => ctrl.abort();
   }, [selectedId]);
@@ -304,14 +309,7 @@ export function SalesClient({ initialItems, initialTotal, hasOpenCashSession = f
       if (result.ok) {
         setApplyInventoryOpen(false);
         fetchList();
-        // Re-fetch detalle para reflejar inventory_moved = true
-        setSelectedDetail(null);
-        setDetailLoading(true);
-        fetch(`/api/sales/${selectedId}`, { credentials: "same-origin" })
-          .then((r) => (r.ok ? r.json() : Promise.reject()))
-          .then((env) => setSelectedDetail(env.data as SaleDetail))
-          .catch(() => {})
-          .finally(() => setDetailLoading(false));
+        refreshDetail();
       } else {
         setApplyInventoryError(result.error);
       }
@@ -330,13 +328,7 @@ export function SalesClient({ initialItems, initialTotal, hasOpenCashSession = f
       if (result.ok) {
         setDteDialogOpen(false);
         fetchList();
-        setSelectedDetail(null);
-        setDetailLoading(true);
-        fetch(`/api/sales/${selectedId}`, { credentials: "same-origin" })
-          .then((r) => (r.ok ? r.json() : Promise.reject()))
-          .then((env) => setSelectedDetail(env.data as SaleDetail))
-          .catch(() => {})
-          .finally(() => setDetailLoading(false));
+        refreshDetail();
       } else {
         setDteError(result.error);
       }
@@ -356,13 +348,7 @@ export function SalesClient({ initialItems, initialTotal, hasOpenCashSession = f
       if (result.ok) {
         setFeJsonDialogOpen(false);
         fetchList();
-        setSelectedDetail(null);
-        setDetailLoading(true);
-        fetch(`/api/sales/${selectedId}`, { credentials: "same-origin" })
-          .then((r) => (r.ok ? r.json() : Promise.reject()))
-          .then((env) => setSelectedDetail(env.data as SaleDetail))
-          .catch(() => {})
-          .finally(() => setDetailLoading(false));
+        refreshDetail();
       } else {
         setFeJsonError(result.error);
       }
@@ -382,13 +368,7 @@ export function SalesClient({ initialItems, initialTotal, hasOpenCashSession = f
       if (result.ok) {
         setCcfeJsonDialogOpen(false);
         fetchList();
-        setSelectedDetail(null);
-        setDetailLoading(true);
-        fetch(`/api/sales/${selectedId}`, { credentials: "same-origin" })
-          .then((r) => (r.ok ? r.json() : Promise.reject()))
-          .then((env) => setSelectedDetail(env.data as SaleDetail))
-          .catch(() => {})
-          .finally(() => setDetailLoading(false));
+        refreshDetail();
       } else {
         setCcfeJsonError(result.error);
       }
@@ -408,13 +388,7 @@ export function SalesClient({ initialItems, initialTotal, hasOpenCashSession = f
       setSchemaValidateResult(result);
       if (result.ok) {
         fetchList();
-        setSelectedDetail(null);
-        setDetailLoading(true);
-        fetch(`/api/sales/${selectedId}`, { credentials: "same-origin" })
-          .then((r) => (r.ok ? r.json() : Promise.reject()))
-          .then((env) => setSelectedDetail(env.data as SaleDetail))
-          .catch(() => {})
-          .finally(() => setDetailLoading(false));
+        refreshDetail();
       }
     } finally {
       setIsSchemaValidating(false);
@@ -433,13 +407,7 @@ export function SalesClient({ initialItems, initialTotal, hasOpenCashSession = f
       if (result.ok) {
         setSignDteSuccess("DTE firmado correctamente.");
         fetchList();
-        setSelectedDetail(null);
-        setDetailLoading(true);
-        fetch(`/api/sales/${selectedId}`, { credentials: "same-origin" })
-          .then((r) => (r.ok ? r.json() : Promise.reject()))
-          .then((env) => setSelectedDetail(env.data as SaleDetail))
-          .catch(() => {})
-          .finally(() => setDetailLoading(false));
+        refreshDetail();
       } else {
         setSignDteError(result.error);
       }
@@ -460,13 +428,7 @@ export function SalesClient({ initialItems, initialTotal, hasOpenCashSession = f
       setTransmitDteResult(result);
       if (result.ok) {
         fetchList();
-        setSelectedDetail(null);
-        setDetailLoading(true);
-        fetch(`/api/sales/${selectedId}`, { credentials: "same-origin" })
-          .then((r) => (r.ok ? r.json() : Promise.reject()))
-          .then((env) => setSelectedDetail(env.data as SaleDetail))
-          .catch(() => {})
-          .finally(() => setDetailLoading(false));
+        refreshDetail();
       } else {
         setTransmitDteError(result.error);
       }
@@ -495,13 +457,19 @@ export function SalesClient({ initialItems, initialTotal, hasOpenCashSession = f
 
   function refreshDetail() {
     if (!selectedId) return;
-    setSelectedDetail(null);
     setDetailLoading(true);
+    const reqId = ++detailRequestIdRef.current;
     fetch(`/api/sales/${selectedId}`, { credentials: "same-origin" })
       .then((r) => (r.ok ? r.json() : Promise.reject()))
-      .then((env) => setSelectedDetail(env.data as (typeof selectedDetail)))
+      .then((env) => {
+        if (reqId !== detailRequestIdRef.current) return;
+        setSelectedDetail(env.data as SaleDetail);
+      })
       .catch(() => {})
-      .finally(() => setDetailLoading(false));
+      .finally(() => {
+        if (reqId !== detailRequestIdRef.current) return;
+        setDetailLoading(false);
+      });
   }
 
   // ── Handler: Crear + transmitir NC 05 desde CCFE 03 ACCEPTED ───────
@@ -597,6 +565,8 @@ export function SalesClient({ initialItems, initialTotal, hasOpenCashSession = f
 
   const selectedItem = items.find((i) => i.id === selectedId) ?? null;
 
+  const [showDteDetail, setShowDteDetail] = useState(false);
+
   return (
     <div className="-mx-4 sm:-mx-6 -my-8 flex flex-col bg-zinc-950 h-[calc(100vh-3.5rem)] overflow-hidden">
 
@@ -609,49 +579,65 @@ export function SalesClient({ initialItems, initialTotal, hasOpenCashSession = f
         onClear={handleFilterClear}
       />
 
-      {/* ── Banner estado de caja ─────────────────────────────────── */}
-      <SalesCashSessionWarning hasOpenCashSession={hasOpenCashSession} />
+      {/* ── Franja compacta: caja + acciones contextuales ────────── */}
+      <div className="flex-none border-b border-zinc-800 bg-zinc-900/60 px-3 py-1 flex items-center gap-2 flex-wrap min-h-[1.75rem]">
 
-      {/* ── Acción contextual: Editar / Eliminar (solo DRAFT) ─────── */}
-      {selectedItem?.status === "DRAFT" && (
-        <div className="flex-none border-b border-zinc-800 bg-zinc-900/60 px-3 py-1 flex items-center gap-2">
-          <button
-            onClick={() => { setAuthEmail(""); setAuthPassword(""); setEditAuthOpen(true); }}
-            className="h-6 px-2 text-xs text-amber-400 hover:text-amber-200 border border-amber-800/50 hover:border-amber-600 rounded transition-colors"
-          >
-            Editar
-          </button>
-          <button
-            onClick={() => { setDeleteAuthEmail(""); setDeleteAuthPassword(""); setDeleteAuthOpen(true); }}
-            className="h-6 px-2 text-xs text-red-400 hover:text-red-200 border border-red-800/50 hover:border-red-600 rounded transition-colors"
-          >
-            Eliminar borrador
-          </button>
-          <span className="text-xs text-zinc-600">Solo ventas en borrador pueden editarse o eliminarse.</span>
-        </div>
-      )}
+        {/* Indicador de caja — compacto */}
+        {hasOpenCashSession ? (
+          <span className="flex items-center gap-1 text-[10px] text-emerald-600 flex-none">
+            <CheckCircle2 className="h-3 w-3 flex-none" />
+            Caja abierta
+          </span>
+        ) : (
+          <span className="flex items-center gap-1.5 text-[10px] text-amber-500 flex-none">
+            <AlertTriangle className="h-3 w-3 flex-none" />
+            Sin caja abierta
+            <Link
+              href="/dashboard/cash"
+              className="text-amber-300 hover:text-amber-100 underline underline-offset-2 transition-colors"
+            >
+              Ir a Caja
+            </Link>
+          </span>
+        )}
 
-      {/* ── Acción contextual: Aplicar inventario pendiente (CONFIRMED + !inventory_moved) */}
-      {selectedDetail?.status === "CONFIRMED" && !selectedDetail.inventory_moved && !detailLoading && (
-        <div className="flex-none border-b border-zinc-800 bg-zinc-900/60 px-3 py-1 flex items-center gap-2">
+        <span className="text-zinc-700 text-xs select-none flex-none">|</span>
+
+        {/* Acciones DRAFT */}
+        {selectedItem?.status === "DRAFT" && !detailLoading && (
+          <>
+            <button
+              onClick={() => { setAuthEmail(""); setAuthPassword(""); setEditAuthOpen(true); }}
+              className="h-6 px-2 text-xs text-amber-400 hover:text-amber-200 border border-amber-800/50 hover:border-amber-600 rounded transition-colors"
+            >
+              Editar
+            </button>
+            <button
+              onClick={() => { setDeleteAuthEmail(""); setDeleteAuthPassword(""); setDeleteAuthOpen(true); }}
+              className="h-6 px-2 text-xs text-red-400 hover:text-red-200 border border-red-800/50 hover:border-red-600 rounded transition-colors"
+            >
+              Eliminar borrador
+            </button>
+          </>
+        )}
+
+        {/* Aplicar inventario */}
+        {selectedDetail?.status === "CONFIRMED" && !selectedDetail.inventory_moved && !detailLoading && (
           <button
             onClick={() => { setApplyInventoryError(null); setApplyInventoryOpen(true); }}
             className="h-6 px-2 text-xs text-amber-400 hover:text-amber-200 border border-amber-800/50 hover:border-amber-600 rounded flex items-center gap-1 transition-colors"
           >
             <Package className="h-3 w-3" />
-            Aplicar inventario pendiente
+            Aplicar inventario
           </button>
-          <span className="text-xs text-zinc-600">Esta venta confirmada aún no ha descontado inventario.</span>
-        </div>
-      )}
+        )}
 
-      {/* ── Acción contextual: Generar DTE (CONFIRMED + inventory_moved + tipo MVP + sin DTE) */}
-      {selectedDetail?.status === "CONFIRMED"
-        && selectedDetail.inventory_moved
-        && (selectedDetail.primary_dte_type_code === "01" || selectedDetail.primary_dte_type_code === "03")
-        && !selectedDetail.dte_document
-        && !detailLoading && (
-        <div className="flex-none border-b border-zinc-800 bg-zinc-900/60 px-3 py-1 flex items-center gap-2">
+        {/* Generar DTE */}
+        {selectedDetail?.status === "CONFIRMED"
+          && selectedDetail.inventory_moved
+          && (selectedDetail.primary_dte_type_code === "01" || selectedDetail.primary_dte_type_code === "03")
+          && !selectedDetail.dte_document
+          && !detailLoading && (
           <button
             onClick={() => { setDteError(null); setDteDialogOpen(true); }}
             className="h-6 px-2 text-xs text-emerald-400 hover:text-emerald-200 border border-emerald-800/50 hover:border-emerald-600 rounded flex items-center gap-1 transition-colors"
@@ -659,18 +645,12 @@ export function SalesClient({ initialItems, initialTotal, hasOpenCashSession = f
             <FileText className="h-3 w-3" />
             Generar DTE
           </button>
-          <span className="text-xs text-zinc-600">Crea el registro fiscal electrónico pendiente para esta venta.</span>
-        </div>
-      )}
+        )}
 
-      {/* ── Acción contextual: Generar JSON FE 01 (DTE PENDING_GENERATION tipo 01) */}
-      {selectedDetail?.status === "CONFIRMED"
-        && selectedDetail.inventory_moved
-        && selectedDetail.dte_document
-        && selectedDetail.dte_document.dte_status === "PENDING_GENERATION"
-        && selectedDetail.dte_document.dte_type_code === "01"
-        && !detailLoading && (
-        <div className="flex-none border-b border-zinc-800 bg-zinc-900/60 px-3 py-1 flex items-center gap-2">
+        {/* Generar JSON FE 01 */}
+        {selectedDetail?.dte_document?.dte_status === "PENDING_GENERATION"
+          && selectedDetail.dte_document.dte_type_code === "01"
+          && !detailLoading && (
           <button
             onClick={() => { setFeJsonError(null); setFeJsonDialogOpen(true); }}
             className="h-6 px-2 text-xs text-sky-400 hover:text-sky-200 border border-sky-800/50 hover:border-sky-600 rounded flex items-center gap-1 transition-colors"
@@ -678,20 +658,12 @@ export function SalesClient({ initialItems, initialTotal, hasOpenCashSession = f
             <FileText className="h-3 w-3" />
             Generar JSON FE
           </button>
-          <span className="text-xs text-zinc-600">
-            Construye el JSON preliminar FE 01 · No firma · No transmite.
-          </span>
-        </div>
-      )}
+        )}
 
-      {/* ── Acción contextual: Generar JSON CCFE 03 (DTE PENDING_GENERATION tipo 03) */}
-      {selectedDetail?.status === "CONFIRMED"
-        && selectedDetail.inventory_moved
-        && selectedDetail.dte_document
-        && selectedDetail.dte_document.dte_status === "PENDING_GENERATION"
-        && selectedDetail.dte_document.dte_type_code === "03"
-        && !detailLoading && (
-        <div className="flex-none border-b border-zinc-800 bg-zinc-900/60 px-3 py-1 flex items-center gap-2">
+        {/* Generar JSON CCFE 03 */}
+        {selectedDetail?.dte_document?.dte_status === "PENDING_GENERATION"
+          && selectedDetail.dte_document.dte_type_code === "03"
+          && !detailLoading && (
           <button
             onClick={() => { setCcfeJsonError(null); setCcfeJsonDialogOpen(true); }}
             className="h-6 px-2 text-xs text-violet-400 hover:text-violet-200 border border-violet-800/50 hover:border-violet-600 rounded flex items-center gap-1 transition-colors"
@@ -699,20 +671,12 @@ export function SalesClient({ initialItems, initialTotal, hasOpenCashSession = f
             <FileText className="h-3 w-3" />
             Generar JSON CCFE
           </button>
-          <span className="text-xs text-zinc-600">
-            Construye el JSON preliminar CCFE 03 · No firma · No transmite.
-          </span>
-        </div>
-      )}
+        )}
 
-      {/* ── Acción contextual: Validar JSON Schema MH (DTE GENERATED, tipo 01 o 03) */}
-      {selectedDetail?.status === "CONFIRMED"
-        && selectedDetail.inventory_moved
-        && selectedDetail.dte_document
-        && selectedDetail.dte_document.dte_status === "GENERATED"
-        && (selectedDetail.dte_document.dte_type_code === "01" || selectedDetail.dte_document.dte_type_code === "03")
-        && !detailLoading && (
-        <div className="flex-none border-b border-zinc-800 bg-zinc-900/60 px-3 py-1 flex items-center gap-2">
+        {/* Validar JSON Schema */}
+        {selectedDetail?.dte_document?.dte_status === "GENERATED"
+          && (selectedDetail.dte_document.dte_type_code === "01" || selectedDetail.dte_document.dte_type_code === "03")
+          && !detailLoading && (
           <button
             onClick={() => { setSchemaValidateResult(null); setSchemaValidateDialogOpen(true); }}
             className="h-6 px-2 text-xs text-teal-400 hover:text-teal-200 border border-teal-800/50 hover:border-teal-600 rounded flex items-center gap-1 transition-colors"
@@ -720,20 +684,12 @@ export function SalesClient({ initialItems, initialTotal, hasOpenCashSession = f
             <FileText className="h-3 w-3" />
             Validar JSON
           </button>
-          <span className="text-xs text-zinc-600">
-            Valida el JSON generado contra el schema oficial MH · No firma · No transmite.
-          </span>
-        </div>
-      )}
+        )}
 
-      {/* ── Acción contextual: Firmar DTE (SCHEMA_VALIDATED, tipo 01 o 03) */}
-      {selectedDetail?.status === "CONFIRMED"
-        && selectedDetail.inventory_moved
-        && selectedDetail.dte_document
-        && selectedDetail.dte_document.dte_status === "SCHEMA_VALIDATED"
-        && (selectedDetail.dte_document.dte_type_code === "01" || selectedDetail.dte_document.dte_type_code === "03")
-        && !detailLoading && (
-        <div className="flex-none border-b border-zinc-800 bg-zinc-900/60 px-3 py-1 flex items-center gap-2">
+        {/* Firmar DTE */}
+        {selectedDetail?.dte_document?.dte_status === "SCHEMA_VALIDATED"
+          && (selectedDetail.dte_document.dte_type_code === "01" || selectedDetail.dte_document.dte_type_code === "03")
+          && !detailLoading && (
           <button
             onClick={() => { setSignDteError(null); setSignDteSuccess(null); setSignDteDialogOpen(true); }}
             className="h-6 px-2 text-xs text-orange-400 hover:text-orange-200 border border-orange-800/50 hover:border-orange-600 rounded flex items-center gap-1 transition-colors"
@@ -741,20 +697,12 @@ export function SalesClient({ initialItems, initialTotal, hasOpenCashSession = f
             <FileText className="h-3 w-3" />
             Firmar DTE
           </button>
-          <span className="text-xs text-zinc-600">
-            Firma el JSON validado con el certificado del emisor · No transmite a Hacienda.
-          </span>
-        </div>
-      )}
+        )}
 
-      {/* ── Acción contextual: Transmitir DTE a Hacienda (SIGNED, tipo 01 o 03) */}
-      {selectedDetail?.status === "CONFIRMED"
-        && selectedDetail.inventory_moved
-        && selectedDetail.dte_document
-        && selectedDetail.dte_document.dte_status === "SIGNED"
-        && (selectedDetail.dte_document.dte_type_code === "01" || selectedDetail.dte_document.dte_type_code === "03")
-        && !detailLoading && (
-        <div className="flex-none border-b border-zinc-800 bg-zinc-900/60 px-3 py-1 flex items-center gap-2">
+        {/* Transmitir a Hacienda */}
+        {selectedDetail?.dte_document?.dte_status === "SIGNED"
+          && (selectedDetail.dte_document.dte_type_code === "01" || selectedDetail.dte_document.dte_type_code === "03")
+          && !detailLoading && (
           <button
             onClick={() => { setTransmitDteResult(null); setTransmitDteError(null); setTransmitDteDialogOpen(true); }}
             className="h-6 px-2 text-xs text-indigo-400 hover:text-indigo-200 border border-indigo-800/50 hover:border-indigo-600 rounded flex items-center gap-1 transition-colors"
@@ -762,21 +710,14 @@ export function SalesClient({ initialItems, initialTotal, hasOpenCashSession = f
             <FileText className="h-3 w-3" />
             Transmitir a Hacienda
           </button>
-          <span className="text-xs text-zinc-600">
-            Envía el DTE firmado al Ministerio de Hacienda
-            {selectedDetail.dte_document.environment === "TEST" ? " · Ambiente TEST" : " · Ambiente PRODUCCIÓN"}.
-          </span>
-        </div>
-      )}
+        )}
 
-      {/* ── Acción contextual: Crear Nota de Crédito (CCFE 03 ACCEPTED sin NC activa ni inv. activa) */}
-      {selectedDetail?.dte_document
-        && selectedDetail.dte_document.dte_status === "ACCEPTED"
-        && selectedDetail.dte_document.dte_type_code === "03"
-        && !hasActiveNc(selectedDetail.dte_related_nc)
-        && !hasActiveInvalidation(selectedDetail.dte_invalidation_events ?? [])
-        && !detailLoading && (
-        <div className="flex-none border-b border-zinc-800 bg-zinc-900/60 px-3 py-1 flex items-center gap-2">
+        {/* Crear Nota de Crédito */}
+        {selectedDetail?.dte_document?.dte_status === "ACCEPTED"
+          && selectedDetail.dte_document.dte_type_code === "03"
+          && !hasActiveNc(selectedDetail.dte_related_nc)
+          && !hasActiveInvalidation(selectedDetail.dte_invalidation_events ?? [])
+          && !detailLoading && (
           <button
             onClick={() => { setNcResult(null); setNcReason(""); setNcDialogOpen(true); }}
             className="h-6 px-2 text-xs text-purple-400 hover:text-purple-200 border border-purple-800/50 hover:border-purple-600 rounded flex items-center gap-1 transition-colors"
@@ -784,19 +725,13 @@ export function SalesClient({ initialItems, initialTotal, hasOpenCashSession = f
             <FileText className="h-3 w-3" />
             Crear Nota de Crédito
           </button>
-          <span className="text-xs text-zinc-600">
-            Genera y transmite NC 05 total sobre este CCFE 03 ACCEPTED.
-          </span>
-        </div>
-      )}
+        )}
 
-      {/* ── Acción contextual: Invalidar DTE (cualquier ACCEPTED sin inv. activa ni NC ACCEPTED) */}
-      {selectedDetail?.dte_document
-        && selectedDetail.dte_document.dte_status === "ACCEPTED"
-        && !hasActiveInvalidation(selectedDetail.dte_invalidation_events ?? [])
-        && selectedDetail.dte_related_nc?.dte_status !== "ACCEPTED"
-        && !detailLoading && (
-        <div className="flex-none border-b border-zinc-800 bg-zinc-900/60 px-3 py-1 flex items-center gap-2">
+        {/* Invalidar DTE */}
+        {selectedDetail?.dte_document?.dte_status === "ACCEPTED"
+          && !hasActiveInvalidation(selectedDetail.dte_invalidation_events ?? [])
+          && selectedDetail.dte_related_nc?.dte_status !== "ACCEPTED"
+          && !detailLoading && (
           <button
             onClick={() => {
               setInvalidationResult(null);
@@ -810,33 +745,48 @@ export function SalesClient({ initialItems, initialTotal, hasOpenCashSession = f
             <FileText className="h-3 w-3" />
             Invalidar DTE
           </button>
-          <span className="text-xs text-zinc-600">
-            Rescinde la operación ante Hacienda (Tipo 2).
-          </span>
-        </div>
-      )}
+        )}
+
+      </div>
 
       {/* ── B: Resumen documental ─────────────────────────────────── */}
       <SaleSummaryPanel
         item={selectedItem}
         detail={selectedDetail}
-        loading={detailLoading && !selectedDetail}
       />
 
-      {/* ── B2: Panel Fiscal DTE (visible cuando hay DTE document) ── */}
-      {selectedDetail?.dte_document && !detailLoading && (
-        <SaleDteFiscalPanel
-          detail={selectedDetail}
-          onDeliverExternal={() => {
-            setExternalDeliveryResult(null);
-            setExternalDeliveryDialogOpen(true);
-          }}
-          onDeliverExternalInvalidation={() => {
-            setExternalInvDeliveryResult(null);
-            setExternalInvDeliveryDialogOpen(true);
-          }}
-        />
-      )}
+      {/* ── B2: Panel Fiscal DTE — siempre visible ───────────────── */}
+      <SaleDteFiscalPanel
+        detail={selectedDetail}
+        showTabs={showDteDetail}
+        onDeliverExternal={() => {
+          setExternalDeliveryResult(null);
+          setExternalDeliveryDialogOpen(true);
+        }}
+        onDeliverExternalInvalidation={() => {
+          setExternalInvDeliveryResult(null);
+          setExternalInvDeliveryDialogOpen(true);
+        }}
+      />
+
+      {/* ── Toggle: detalle complementario ───────────────────────── */}
+      <div className="flex-none border-b border-zinc-800 bg-zinc-950 px-3 py-0.5 flex items-center gap-2">
+        <button
+          onClick={() => setShowDteDetail((v) => !v)}
+          className="flex items-center gap-1 text-[10px] font-medium text-zinc-500 hover:text-zinc-300 transition-colors py-0.5"
+        >
+          {showDteDetail
+            ? <ChevronUp className="h-3 w-3" />
+            : <ChevronDown className="h-3 w-3" />
+          }
+          {showDteDetail ? "Ocultar detalle complementario" : "Ver detalle complementario"}
+        </button>
+        {!showDteDetail && selectedDetail?.dte_document && (
+          <span className="text-[10px] text-zinc-700 ml-1">
+            Fiscal · Entrega DTE · Invalidación
+          </span>
+        )}
+      </div>
 
       {/* ── Modal de autorización para edición ────────────────────── */}
       {editAuthOpen && (
@@ -1815,19 +1765,19 @@ export function SalesClient({ initialItems, initialTotal, hasOpenCashSession = f
         </div>
       )}
 
-      {/* ── Modal: Enviar DTE a sistema externo ─────────────────── */}
+      {/* ── Modal: Entregar DTE ──────────────────────────────────── */}
       {externalDeliveryDialogOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
           <div className="bg-zinc-900 border border-cyan-900/50 rounded-lg p-6 w-[28rem] shadow-xl">
             <h2 className="text-sm font-semibold text-cyan-300 mb-1 flex items-center gap-2">
               <FileText className="h-4 w-4" />
-              Enviar DTE al sistema externo
+              Entregar DTE
             </h2>
 
             {!externalDeliveryResult && (
               <p className="text-xs text-zinc-400 mb-3 leading-relaxed">
-                Se insertará el documento fiscal aceptado en la base externa para generación
-                de PDF, envío y archivo documental. Esta acción no retransmite el DTE a Hacienda.
+                Se procesará la entrega del documento fiscal aceptado para generación de PDF,
+                envío y archivo documental. Esta acción no retransmite el DTE a Hacienda.
               </p>
             )}
 
@@ -1852,17 +1802,7 @@ export function SalesClient({ initialItems, initialTotal, hasOpenCashSession = f
             {/* Resultado: éxito */}
             {externalDeliveryResult?.ok && (
               <div className="mb-4 text-xs text-cyan-300 bg-cyan-900/30 border border-cyan-700/40 rounded px-3 py-2 space-y-1">
-                <p className="font-semibold">DTE enviado al sistema externo correctamente.</p>
-                <p className="text-zinc-400">
-                  Tabla externa:{" "}
-                  <span className="text-zinc-200 font-mono">{externalDeliveryResult.targetTable}</span>
-                </p>
-                {externalDeliveryResult.insertId !== null && (
-                  <p className="text-zinc-400">
-                    ID externo:{" "}
-                    <span className="text-zinc-200 font-mono">{String(externalDeliveryResult.insertId)}</span>
-                  </p>
-                )}
+                <p className="font-semibold">DTE entregado correctamente.</p>
               </div>
             )}
 
@@ -1904,19 +1844,19 @@ export function SalesClient({ initialItems, initialTotal, hasOpenCashSession = f
         </div>
       )}
 
-      {/* ── Modal: Enviar invalidación a sistema externo ─────────── */}
+      {/* ── Modal: Entregar invalidación DTE ────────────────────── */}
       {externalInvDeliveryDialogOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
           <div className="bg-zinc-900 border border-violet-900/50 rounded-lg p-6 w-[28rem] shadow-xl">
             <h2 className="text-sm font-semibold text-violet-300 mb-1 flex items-center gap-2">
               <FileText className="h-4 w-4" />
-              Enviar invalidación al sistema externo
+              Entregar invalidación DTE
             </h2>
 
             {!externalInvDeliveryResult && (
               <p className="text-xs text-zinc-400 mb-3 leading-relaxed">
-                Se insertará el evento de invalidación aceptado en la base externa configurada
-                para invalidaciones. Esta acción no retransmite la invalidación a Hacienda.
+                Se procesará la entrega del evento de invalidación aceptado para archivo documental.
+                Esta acción no retransmite la invalidación a Hacienda.
               </p>
             )}
 
@@ -1941,13 +1881,7 @@ export function SalesClient({ initialItems, initialTotal, hasOpenCashSession = f
             {/* Resultado: éxito */}
             {externalInvDeliveryResult?.ok && (
               <div className="mb-4 text-xs text-violet-300 bg-violet-900/30 border border-violet-700/40 rounded px-3 py-2 space-y-1">
-                <p className="font-semibold">Invalidación enviada al sistema externo correctamente.</p>
-                {externalInvDeliveryResult.insertId !== null && (
-                  <p className="text-zinc-400">
-                    ID externo:{" "}
-                    <span className="text-zinc-200 font-mono">{String(externalInvDeliveryResult.insertId)}</span>
-                  </p>
-                )}
+                <p className="font-semibold">Invalidación entregada correctamente.</p>
               </div>
             )}
 

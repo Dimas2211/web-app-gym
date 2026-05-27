@@ -192,6 +192,8 @@ export function SaleNewClient({
   function resetAll() {
     setSaleId(null);
     setSaleCode(null);
+    setSaleStatus("DRAFT");
+    setInventoryMoved(false);
     setSaleItems([]);
     setSaleTotals(null);
     setSaleDate(initialDate);
@@ -203,6 +205,11 @@ export function SaleNewClient({
     setPaymentTermValue(null);
     setNotes("");
     clearMessages();
+  }
+
+  function handleNewSale() {
+    resetAll();
+    setTimeout(() => productSearchRef.current?.focus(), 60);
   }
 
   // ── Refrescar detalle de venta ────────────────────────────────────
@@ -634,6 +641,7 @@ export function SaleNewClient({
               inventoryMoved={inventoryMoved}
               isApplyingInventory={isApplyingInventory}
               onApplyInventoryPending={handleApplyInventoryPending}
+              onNewSale={handleNewSale}
             />
           </div>
         </div>

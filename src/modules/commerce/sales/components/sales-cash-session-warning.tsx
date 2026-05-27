@@ -26,7 +26,7 @@ export function SalesCashSessionWarning({
       <div className="flex-none border-b border-emerald-900/40 bg-emerald-950/30 px-3 py-1.5 flex items-center gap-2">
         <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500 flex-none" />
         <span className="text-xs text-emerald-600">
-          Caja abierta detectada para esta sucursal. Las ventas podrán asociarse a una sesión de caja en la siguiente fase.
+          Caja abierta detectada para esta sucursal. Las ventas confirmadas se asociarán automáticamente a la sesión de caja activa.
         </span>
       </div>
     );

@@ -1,6 +1,6 @@
 "use client";
 
-import { Loader2, Save, RotateCcw, X, CheckCircle, Package } from "lucide-react";
+import { Loader2, Save, RotateCcw, X, CheckCircle, Package, PlusCircle } from "lucide-react";
 
 interface SaleTotalsData {
   subtotal:        number;
@@ -26,6 +26,8 @@ interface Props {
   inventoryMoved?:          boolean;
   isApplyingInventory?:     boolean;
   onApplyInventoryPending?: () => void;
+  // Nueva venta post-confirmación
+  onNewSale?: () => void;
 }
 
 const rowCls   = "flex justify-between items-baseline py-0.5";
@@ -50,6 +52,7 @@ export function SaleTotalsPanel({
   inventoryMoved          = true,
   isApplyingInventory     = false,
   onApplyInventoryPending,
+  onNewSale,
 }: Props) {
   const subtotal  = totals?.subtotal        ?? 0;
   const discounts = totals?.discount_amount ?? 0;
@@ -178,6 +181,19 @@ export function SaleTotalsPanel({
               </button>
             )}
           </>
+        )}
+
+        {/* Botón Nueva venta — solo cuando la venta está confirmada */}
+        {isReadOnly && (
+          <button
+            type="button"
+            onClick={onNewSale}
+            className="w-full h-8 text-xs font-medium rounded flex items-center justify-center gap-1 transition-colors
+              bg-blue-700 hover:bg-blue-600 text-white"
+          >
+            <PlusCircle className="h-3.5 w-3.5" />
+            Nueva venta
+          </button>
         )}
 
         <button

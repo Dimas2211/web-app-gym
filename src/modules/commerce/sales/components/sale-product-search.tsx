@@ -208,7 +208,10 @@ function SaleProductSearch({ onAdd, isAdding, disabled }, ref) {
   function handleSelectProduct(p: ProductForSaleResult) {
     setSelected(p);
     setActiveCell(null);
-    setUnitPrice(p.sale_price != null ? String(p.sale_price) : "");
+    // sale_price_with_tax es el precio comercial CON IVA — fuente principal para la venta.
+    // Fallback a sale_price (sin IVA derivado) solo si con_iva no está disponible.
+    const priceToUse = p.sale_price_with_tax ?? p.sale_price;
+    setUnitPrice(priceToUse != null ? String(priceToUse) : "");
     setDiscount("0");
     setQuantity("1");
     setAddError(null);

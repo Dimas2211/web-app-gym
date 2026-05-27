@@ -3,34 +3,43 @@
 //
 // Funciones puras para cálculo de totales de venta.
 // No tienen side effects ni dependen de Prisma.
+//
+// Política activa de precios (ver pricing/money.ts):
+//   unit_price = precio comercial CON IVA (fuente principal).
+//   line_total    = round2(unit_price × qty − discount)
+//   line_subtotal = round2(line_total / (1 + rate/100))   ← base gravada sin IVA
+//   tax_amount    = round2(line_total − line_subtotal)    ← IVA extraído
 // ─────────────────────────────────────────────────────────────────
 
 import { Prisma } from "@prisma/client";
 import type { SaleItemTotals, SaleTotals } from "../types/sale.types";
+import { calculateVatIncludedLine } from "../../pricing/money";
 
 // ── Calcular totales de una línea ─────────────────────────────────
+//
+// unit_price y discount_amount son precios CON IVA.
 
 export interface SaleItemCalcInput {
   quantity:        number;
-  unit_price:      number;
-  discount_amount: number;
+  unit_price:      number;  // CON IVA — precio comercial que paga el cliente
+  discount_amount: number;  // CON IVA — descuento sobre el precio final
   tax_rate:        number | null;
 }
 
 export function calculateSaleItemTotals(input: SaleItemCalcInput): SaleItemTotals {
   const { quantity, unit_price, discount_amount, tax_rate } = input;
 
-  const gross      = round2(quantity * unit_price);
-  const discounted = round2(gross - discount_amount);
-  const tax_amount = tax_rate != null
-    ? round2(discounted * (tax_rate / 100))
-    : 0;
-  const line_total = round2(discounted + tax_amount);
+  const result = calculateVatIncludedLine({
+    quantity,
+    unitPriceWithVat: unit_price,
+    discountWithVat:  discount_amount,
+    taxRate:          tax_rate,
+  });
 
   return {
-    line_subtotal: discounted,
-    tax_amount,
-    line_total,
+    line_subtotal: result.line_subtotal,
+    tax_amount:    result.tax_amount,
+    line_total:    result.line_total,
   };
 }
 
