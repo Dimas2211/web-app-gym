@@ -144,3 +144,33 @@ export interface TabularFilters {
   product_type?: string;
   limit?:        number;
 }
+
+// ── Listado (una fila por documento) ─────────────────────────────
+
+export interface SalesListRow {
+  sale_id:        string;
+  sale_code:      string;
+  sale_date:      string;        // YYYY-MM-DD
+  customer_name:  string | null;
+  status:         string;        // CONFIRMED
+  payment_status: string;        // PAID | UNPAID | PARTIAL
+  item_count:     number;
+  subtotal:       number;
+  tax_amount:     number;
+  total_amount:   number;
+  location_id:    string;
+}
+
+export interface PurchasesListRow {
+  purchase_id:   string;
+  purchase_code: string;
+  purchase_date: string;         // YYYY-MM-DD
+  supplier_name: string;
+  status:        string;
+  source_type:   string;         // MANUAL | DTE_IMPORT
+  item_count:    number;
+  subtotal:      number;
+  tax_amount:    number;
+  total_amount:  number;
+  location_id:   string;
+}

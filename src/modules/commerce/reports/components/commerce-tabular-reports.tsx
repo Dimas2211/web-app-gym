@@ -3,14 +3,22 @@
 // ─────────────────────────────────────────────────────────────────
 // commerce/reports — commerce-tabular-reports.tsx
 //
-// Zona de reportes tabulares debajo de las gráficas del dashboard.
-// Cinco pestañas cargadas bajo demanda.
+// Siete pestañas de reportes tabulares bajo demanda:
+//   1. Ventas listado    (una fila por venta)
+//   2. Ventas detalle    (ítems agrupados por venta)
+//   3. Compras listado   (una fila por compra)
+//   4. Compras detalle   (ítems agrupados por compra)
+//   5. Productos
+//   6. Clientes
+//   7. Proveedores
 // ─────────────────────────────────────────────────────────────────
 
-import { useState, useCallback, useRef } from "react";
+import { Fragment, useState, useCallback, useRef } from "react";
 import { Loader2, FileSpreadsheet, FileText } from "lucide-react";
 import type {
+  SalesListRow,
   SalesLineReportRow,
+  PurchasesListRow,
   PurchasesLineReportRow,
   ProductSummaryRow,
   CustomerSummaryRow,
@@ -18,14 +26,18 @@ import type {
 } from "../types/commerce-report.types";
 import { formatCurrency } from "../utils/report-number-format";
 import {
+  exportSalesListExcel,
   exportSalesExcel,
+  exportPurchasesListExcel,
   exportPurchasesExcel,
   exportProductsExcel,
   exportCustomersExcel,
   exportSuppliersExcel,
 } from "../utils/export-report-excel";
 import {
+  exportSalesListPdf,
   exportSalesPdf,
+  exportPurchasesListPdf,
   exportPurchasesPdf,
   exportProductsPdf,
   exportCustomersPdf,
@@ -37,19 +49,29 @@ import {
 import type { TabularFilters } from "../types/commerce-report.types";
 export type { TabularFilters };
 
-type TabId = "sales" | "purchases" | "products" | "customers" | "suppliers";
+type TabId =
+  | "sales-list"
+  | "sales"
+  | "purchases-list"
+  | "purchases"
+  | "products"
+  | "customers"
+  | "suppliers";
 
 interface TabMeta {
   id:    TabId;
   label: string;
+  hint:  string;
 }
 
 const TABS: TabMeta[] = [
-  { id: "sales",     label: "Ventas detalle" },
-  { id: "purchases", label: "Compras detalle" },
-  { id: "products",  label: "Productos" },
-  { id: "customers", label: "Clientes" },
-  { id: "suppliers", label: "Proveedores" },
+  { id: "sales-list",     label: "Ventas listado",  hint: "1 fila por venta" },
+  { id: "sales",          label: "Ventas detalle",  hint: "ítems por venta" },
+  { id: "purchases-list", label: "Compras listado", hint: "1 fila por compra" },
+  { id: "purchases",      label: "Compras detalle", hint: "ítems por compra" },
+  { id: "products",       label: "Productos",       hint: "" },
+  { id: "customers",      label: "Clientes",        hint: "" },
+  { id: "suppliers",      label: "Proveedores",     hint: "" },
 ];
 
 // ── shared primitives ─────────────────────────────────────────────
@@ -79,10 +101,10 @@ function ErrorRow({ message }: { message: string }) {
   );
 }
 
-function RowCount({ count }: { count: number }) {
+function RowCount({ count, label = "registro" }: { count: number; label?: string }) {
   return (
     <p className="text-xs text-zinc-500 mb-2">
-      {count} {count === 1 ? "registro" : "registros"}
+      {count} {count === 1 ? label : `${label}s`}
     </p>
   );
 }
@@ -109,7 +131,12 @@ function Th({ children, right }: { children: React.ReactNode; right?: boolean })
   );
 }
 
-function Td({ children, right, mono, dim }: { children: React.ReactNode; right?: boolean; mono?: boolean; dim?: boolean }) {
+function Td({ children, right, mono, dim }: {
+  children: React.ReactNode;
+  right?: boolean;
+  mono?:  boolean;
+  dim?:   boolean;
+}) {
   return (
     <td
       className={`border-b border-zinc-800/60 px-3 py-1.5 whitespace-nowrap ${right ? "text-right" : ""} ${mono ? "font-mono" : ""} ${dim ? "text-zinc-500" : "text-zinc-200"}`}
@@ -121,31 +148,60 @@ function Td({ children, right, mono, dim }: { children: React.ReactNode; right?:
 
 function TotalRow({ children }: { children: React.ReactNode }) {
   return (
-    <tr className="bg-zinc-800/40 font-semibold text-zinc-200 sticky bottom-0">
+    <tr className="bg-zinc-800/40 font-semibold text-zinc-200">
       {children}
     </tr>
   );
+}
+
+// Label cell for the TOTAL row — no colSpan, explicit column per column
+function TotalLabelTd({ children }: { children: React.ReactNode }) {
+  return (
+    <td className="px-3 py-2 text-zinc-400 text-xs whitespace-nowrap">
+      {children}
+    </td>
+  );
+}
+
+// Blank spacer cell in the TOTAL row — keeps column widths aligned
+function TotalBlankTd() {
+  return <td className="px-3 py-2" />;
 }
 
 // ── format helpers ────────────────────────────────────────────────
 
 const c = (v: number | null | undefined) =>
   v != null ? formatCurrency(v) : "—";
+
 const n = (v: number | null | undefined, d = 2) =>
   v != null ? v.toFixed(d) : "—";
 
-// ── Sales lines ───────────────────────────────────────────────────
+function paymentStatusLabel(status: string): string {
+  switch (status) {
+    case "PAID":    return "Pagado";
+    case "PARTIAL": return "Parcial";
+    case "UNPAID":  return "Pendiente";
+    default:        return status;
+  }
+}
 
-function SalesLinesTable({ rows }: { rows: SalesLineReportRow[] }) {
-  if (!rows.length) return <EmptyState message="Sin líneas de venta en el período." />;
+function sourceTypeLabel(source: string): string {
+  switch (source) {
+    case "DTE_IMPORT": return "DTE";
+    case "MANUAL":     return "Manual";
+    default:           return source;
+  }
+}
 
-  const totQty      = rows.reduce((s, r) => s + r.quantity, 0);
-  const totSubtotal = rows.reduce((s, r) => s + r.line_subtotal, 0);
+// ── Ventas listado (1 fila por venta) ────────────────────────────
+
+function SalesListTable({ rows }: { rows: SalesListRow[] }) {
+  if (!rows.length) return <EmptyState message="Sin ventas en el período." />;
+
+  const totSubtotal = rows.reduce((s, r) => s + r.subtotal, 0);
   const totTax      = rows.reduce((s, r) => s + r.tax_amount, 0);
-  const totTotal    = rows.reduce((s, r) => s + r.line_total, 0);
-  const totCost     = rows.reduce((s, r) => s + (r.cost_estimate ?? 0), 0);
-  const totMargin   = rows.reduce((s, r) => s + (r.margin_estimate ?? 0), 0);
-  const hasCost     = rows.some((r) => r.cost_estimate !== null);
+  const totTotal    = rows.reduce((s, r) => s + r.total_amount, 0);
+  const totItems    = rows.reduce((s, r) => s + r.item_count, 0);
 
   return (
     <TableShell>
@@ -154,6 +210,84 @@ function SalesLinesTable({ rows }: { rows: SalesLineReportRow[] }) {
           <Th>Fecha</Th>
           <Th>N° Venta</Th>
           <Th>Cliente</Th>
+          <Th>Estado pago</Th>
+          <Th right>Ítems</Th>
+          <Th right>Subtotal</Th>
+          <Th right>IVA</Th>
+          <Th right>Total</Th>
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map((r) => (
+          <tr key={r.sale_id} className="hover:bg-zinc-800/30">
+            <Td dim>{r.sale_date}</Td>
+            <Td mono>{r.sale_code}</Td>
+            <Td>{r.customer_name ?? <span className="text-zinc-600">—</span>}</Td>
+            <Td dim>{paymentStatusLabel(r.payment_status)}</Td>
+            <Td right mono>{r.item_count}</Td>
+            <Td right mono>{c(r.subtotal)}</Td>
+            <Td right mono>{c(r.tax_amount)}</Td>
+            <Td right mono>{c(r.total_amount)}</Td>
+          </tr>
+        ))}
+      </tbody>
+      <tfoot>
+        <TotalRow>
+          <TotalLabelTd>TOTAL — {rows.length} {rows.length === 1 ? "venta" : "ventas"}</TotalLabelTd>
+          <TotalBlankTd />{/* N° Venta */}
+          <TotalBlankTd />{/* Cliente */}
+          <TotalBlankTd />{/* Estado pago */}
+          <Td right mono>{totItems}</Td>
+          <Td right mono>{c(totSubtotal)}</Td>
+          <Td right mono>{c(totTax)}</Td>
+          <Td right mono>{c(totTotal)}</Td>
+        </TotalRow>
+      </tfoot>
+    </TableShell>
+  );
+}
+
+// ── Ventas detalle (ítems agrupados por venta) ────────────────────
+
+function SalesLinesDetailTable({ rows }: { rows: SalesLineReportRow[] }) {
+  if (!rows.length) return <EmptyState message="Sin líneas de venta en el período." />;
+
+  const hasCost  = rows.some((r) => r.cost_estimate !== null);
+  const colCount = 10 + (hasCost ? 2 : 0);
+
+  // Group consecutive rows by sale_code (query already orders by date, code, line_number)
+  type Group = {
+    saleCode:     string;
+    saleDate:     string;
+    customerName: string | null;
+    items:        SalesLineReportRow[];
+  };
+  const groups: Group[] = [];
+  for (const row of rows) {
+    const last = groups[groups.length - 1];
+    if (last && last.saleCode === row.sale_code) {
+      last.items.push(row);
+    } else {
+      groups.push({
+        saleCode:     row.sale_code,
+        saleDate:     row.sale_date,
+        customerName: row.customer_name,
+        items:        [row],
+      });
+    }
+  }
+
+  const totQty      = rows.reduce((s, r) => s + r.quantity, 0);
+  const totSubtotal = rows.reduce((s, r) => s + r.line_subtotal, 0);
+  const totTax      = rows.reduce((s, r) => s + r.tax_amount, 0);
+  const totTotal    = rows.reduce((s, r) => s + r.line_total, 0);
+  const totCost     = rows.reduce((s, r) => s + (r.cost_estimate ?? 0), 0);
+  const totMargin   = rows.reduce((s, r) => s + (r.margin_estimate ?? 0), 0);
+
+  return (
+    <TableShell>
+      <thead>
+        <tr>
           <Th>Tipo</Th>
           <Th>Código</Th>
           <Th>Producto / Servicio</Th>
@@ -169,37 +303,61 @@ function SalesLinesTable({ rows }: { rows: SalesLineReportRow[] }) {
         </tr>
       </thead>
       <tbody>
-        {rows.map((r) => (
-          <tr key={r.id} className="hover:bg-zinc-800/30">
-            <Td dim>{r.sale_date}</Td>
-            <Td mono>{r.sale_code}</Td>
-            <Td>{r.customer_name ?? <span className="text-zinc-600">—</span>}</Td>
-            <Td dim>{r.product_type === "SERVICE" ? "Serv." : "Prod."}</Td>
-            <Td mono dim>{r.product_code}</Td>
-            <Td>{r.product_name}</Td>
-            <Td dim>{r.category_name ?? "—"}</Td>
-            <Td dim>{r.line_name ?? "—"}</Td>
-            <Td right mono>{n(r.quantity, r.quantity % 1 === 0 ? 0 : 2)}</Td>
-            <Td right mono>{c(r.unit_price)}</Td>
-            <Td right mono>{c(r.line_subtotal)}</Td>
-            <Td right mono>{c(r.tax_amount)}</Td>
-            <Td right mono>{c(r.line_total)}</Td>
-            {hasCost && <Td right mono dim>{c(r.cost_estimate)}</Td>}
-            {hasCost && (
-              <Td right mono>
-                <span className={r.margin_estimate != null && r.margin_estimate < 0 ? "text-rose-400" : "text-emerald-400"}>
-                  {c(r.margin_estimate)}
-                </span>
-              </Td>
-            )}
-          </tr>
-        ))}
+        {groups.map((group) => {
+          const groupTotal = group.items.reduce((s, r) => s + r.line_total, 0);
+          return (
+            <Fragment key={`grp-${group.saleCode}`}>
+              {/* Group header row */}
+              <tr className="bg-zinc-800/70 border-t-2 border-zinc-600">
+                <td colSpan={colCount} className="px-3 py-1.5 text-xs font-semibold">
+                  <span className="text-zinc-400">{group.saleDate}</span>
+                  <span className="text-zinc-600 mx-1.5">·</span>
+                  <span className="font-mono text-blue-400">{group.saleCode}</span>
+                  <span className="text-zinc-600 mx-1.5">·</span>
+                  <span className="text-zinc-200">{group.customerName ?? "Sin cliente"}</span>
+                  <span className="ml-4 text-zinc-500">
+                    {group.items.length} {group.items.length === 1 ? "ítem" : "ítems"}
+                    <span className="mx-1">·</span>
+                    Total: <span className="text-zinc-300">{c(groupTotal)}</span>
+                  </span>
+                </td>
+              </tr>
+              {/* Item rows */}
+              {group.items.map((r) => (
+                <tr key={r.id} className="hover:bg-zinc-800/30">
+                  <Td dim>{r.product_type === "SERVICE" ? "Serv." : "Prod."}</Td>
+                  <Td mono dim>{r.product_code}</Td>
+                  <Td>{r.product_name}</Td>
+                  <Td dim>{r.category_name ?? "—"}</Td>
+                  <Td dim>{r.line_name ?? "—"}</Td>
+                  <Td right mono>{n(r.quantity, r.quantity % 1 === 0 ? 0 : 2)}</Td>
+                  <Td right mono>{c(r.unit_price)}</Td>
+                  <Td right mono>{c(r.line_subtotal)}</Td>
+                  <Td right mono>{c(r.tax_amount)}</Td>
+                  <Td right mono>{c(r.line_total)}</Td>
+                  {hasCost && <Td right mono dim>{c(r.cost_estimate)}</Td>}
+                  {hasCost && (
+                    <Td right mono>
+                      <span className={r.margin_estimate != null && r.margin_estimate < 0 ? "text-rose-400" : "text-emerald-400"}>
+                        {c(r.margin_estimate)}
+                      </span>
+                    </Td>
+                  )}
+                </tr>
+              ))}
+            </Fragment>
+          );
+        })}
       </tbody>
       <tfoot>
         <TotalRow>
-          <td colSpan={hasCost ? 8 : 8} className="px-3 py-2 text-zinc-400 text-xs">TOTAL</td>
+          <TotalLabelTd>TOTAL — {groups.length} {groups.length === 1 ? "venta" : "ventas"}</TotalLabelTd>
+          <TotalBlankTd />{/* Código */}
+          <TotalBlankTd />{/* Producto / Servicio */}
+          <TotalBlankTd />{/* Categoría */}
+          <TotalBlankTd />{/* Línea */}
           <Td right mono>{n(totQty, 0)}</Td>
-          <Td right>—</Td>
+          <TotalBlankTd />{/* P. Unit. */}
           <Td right mono>{c(totSubtotal)}</Td>
           <Td right mono>{c(totTax)}</Td>
           <Td right mono>{c(totTotal)}</Td>
@@ -217,10 +375,88 @@ function SalesLinesTable({ rows }: { rows: SalesLineReportRow[] }) {
   );
 }
 
-// ── Purchase lines ────────────────────────────────────────────────
+// ── Compras listado (1 fila por compra) ──────────────────────────
 
-function PurchaseLinesTable({ rows }: { rows: PurchasesLineReportRow[] }) {
+function PurchasesListTable({ rows }: { rows: PurchasesListRow[] }) {
+  if (!rows.length) return <EmptyState message="Sin compras en el período." />;
+
+  const totSubtotal = rows.reduce((s, r) => s + r.subtotal, 0);
+  const totTax      = rows.reduce((s, r) => s + r.tax_amount, 0);
+  const totTotal    = rows.reduce((s, r) => s + r.total_amount, 0);
+  const totItems    = rows.reduce((s, r) => s + r.item_count, 0);
+
+  return (
+    <TableShell>
+      <thead>
+        <tr>
+          <Th>Fecha</Th>
+          <Th>N° Compra</Th>
+          <Th>Proveedor</Th>
+          <Th>Origen</Th>
+          <Th right>Ítems</Th>
+          <Th right>Subtotal</Th>
+          <Th right>IVA</Th>
+          <Th right>Total</Th>
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map((r) => (
+          <tr key={r.purchase_id} className="hover:bg-zinc-800/30">
+            <Td dim>{r.purchase_date}</Td>
+            <Td mono>{r.purchase_code}</Td>
+            <Td>{r.supplier_name}</Td>
+            <Td dim>{sourceTypeLabel(r.source_type)}</Td>
+            <Td right mono>{r.item_count}</Td>
+            <Td right mono>{c(r.subtotal)}</Td>
+            <Td right mono>{c(r.tax_amount)}</Td>
+            <Td right mono>{c(r.total_amount)}</Td>
+          </tr>
+        ))}
+      </tbody>
+      <tfoot>
+        <TotalRow>
+          <TotalLabelTd>TOTAL — {rows.length} {rows.length === 1 ? "compra" : "compras"}</TotalLabelTd>
+          <TotalBlankTd />{/* N° Compra */}
+          <TotalBlankTd />{/* Proveedor */}
+          <TotalBlankTd />{/* Origen */}
+          <Td right mono>{totItems}</Td>
+          <Td right mono>{c(totSubtotal)}</Td>
+          <Td right mono>{c(totTax)}</Td>
+          <Td right mono>{c(totTotal)}</Td>
+        </TotalRow>
+      </tfoot>
+    </TableShell>
+  );
+}
+
+// ── Compras detalle (ítems agrupados por compra) ──────────────────
+
+function PurchaseLinesDetailTable({ rows }: { rows: PurchasesLineReportRow[] }) {
   if (!rows.length) return <EmptyState message="Sin líneas de compra en el período." />;
+
+  const colCount = 9;
+
+  // Group consecutive rows by purchase_code
+  type Group = {
+    purchaseCode: string;
+    purchaseDate: string;
+    supplierName: string;
+    items:        PurchasesLineReportRow[];
+  };
+  const groups: Group[] = [];
+  for (const row of rows) {
+    const last = groups[groups.length - 1];
+    if (last && last.purchaseCode === row.purchase_code) {
+      last.items.push(row);
+    } else {
+      groups.push({
+        purchaseCode: row.purchase_code,
+        purchaseDate: row.purchase_date,
+        supplierName: row.supplier_name,
+        items:        [row],
+      });
+    }
+  }
 
   const totQty      = rows.reduce((s, r) => s + r.quantity, 0);
   const totSubtotal = rows.reduce((s, r) => s + r.line_subtotal, 0);
@@ -231,9 +467,6 @@ function PurchaseLinesTable({ rows }: { rows: PurchasesLineReportRow[] }) {
     <TableShell>
       <thead>
         <tr>
-          <Th>Fecha</Th>
-          <Th>N° Compra</Th>
-          <Th>Proveedor</Th>
           <Th>Código</Th>
           <Th>Producto</Th>
           <Th>Categoría</Th>
@@ -246,28 +479,51 @@ function PurchaseLinesTable({ rows }: { rows: PurchasesLineReportRow[] }) {
         </tr>
       </thead>
       <tbody>
-        {rows.map((r) => (
-          <tr key={r.id} className="hover:bg-zinc-800/30">
-            <Td dim>{r.purchase_date}</Td>
-            <Td mono>{r.purchase_code}</Td>
-            <Td>{r.supplier_name}</Td>
-            <Td mono dim>{r.product_code}</Td>
-            <Td>{r.product_name}</Td>
-            <Td dim>{r.category_name ?? "—"}</Td>
-            <Td dim>{r.line_name ?? "—"}</Td>
-            <Td right mono>{n(r.quantity, r.quantity % 1 === 0 ? 0 : 2)}</Td>
-            <Td right mono>{c(r.unit_cost)}</Td>
-            <Td right mono>{c(r.line_subtotal)}</Td>
-            <Td right mono>{c(r.tax_amount)}</Td>
-            <Td right mono>{c(r.line_total)}</Td>
-          </tr>
-        ))}
+        {groups.map((group) => {
+          const groupTotal = group.items.reduce((s, r) => s + r.line_total, 0);
+          return (
+            <Fragment key={`grp-${group.purchaseCode}`}>
+              {/* Group header row */}
+              <tr className="bg-zinc-800/70 border-t-2 border-zinc-600">
+                <td colSpan={colCount} className="px-3 py-1.5 text-xs font-semibold">
+                  <span className="text-zinc-400">{group.purchaseDate}</span>
+                  <span className="text-zinc-600 mx-1.5">·</span>
+                  <span className="font-mono text-blue-400">{group.purchaseCode}</span>
+                  <span className="text-zinc-600 mx-1.5">·</span>
+                  <span className="text-zinc-200">{group.supplierName}</span>
+                  <span className="ml-4 text-zinc-500">
+                    {group.items.length} {group.items.length === 1 ? "ítem" : "ítems"}
+                    <span className="mx-1">·</span>
+                    Total: <span className="text-zinc-300">{c(groupTotal)}</span>
+                  </span>
+                </td>
+              </tr>
+              {/* Item rows */}
+              {group.items.map((r) => (
+                <tr key={r.id} className="hover:bg-zinc-800/30">
+                  <Td mono dim>{r.product_code}</Td>
+                  <Td>{r.product_name}</Td>
+                  <Td dim>{r.category_name ?? "—"}</Td>
+                  <Td dim>{r.line_name ?? "—"}</Td>
+                  <Td right mono>{n(r.quantity, r.quantity % 1 === 0 ? 0 : 2)}</Td>
+                  <Td right mono>{c(r.unit_cost)}</Td>
+                  <Td right mono>{c(r.line_subtotal)}</Td>
+                  <Td right mono>{c(r.tax_amount)}</Td>
+                  <Td right mono>{c(r.line_total)}</Td>
+                </tr>
+              ))}
+            </Fragment>
+          );
+        })}
       </tbody>
       <tfoot>
         <TotalRow>
-          <td colSpan={7} className="px-3 py-2 text-zinc-400 text-xs">TOTAL</td>
+          <TotalLabelTd>TOTAL — {groups.length} {groups.length === 1 ? "compra" : "compras"}</TotalLabelTd>
+          <TotalBlankTd />{/* Producto */}
+          <TotalBlankTd />{/* Categoría */}
+          <TotalBlankTd />{/* Línea */}
           <Td right mono>{n(totQty, 0)}</Td>
-          <Td right>—</Td>
+          <TotalBlankTd />{/* C. Unit. */}
           <Td right mono>{c(totSubtotal)}</Td>
           <Td right mono>{c(totTax)}</Td>
           <Td right mono>{c(totTotal)}</Td>
@@ -334,12 +590,16 @@ function ProductSummaryTable({ rows }: { rows: ProductSummaryRow[] }) {
       </tbody>
       <tfoot>
         <TotalRow>
-          <td colSpan={5} className="px-3 py-2 text-zinc-400 text-xs">TOTAL</td>
-          <Td right>—</Td>
+          <TotalLabelTd>TOTAL</TotalLabelTd>
+          <TotalBlankTd />{/* Producto */}
+          <TotalBlankTd />{/* Tipo */}
+          <TotalBlankTd />{/* Categoría */}
+          <TotalBlankTd />{/* Línea */}
+          <TotalBlankTd />{/* Cant. vendida */}
           <Td right mono>{c(totSold)}</Td>
-          <Td right>—</Td>
+          <TotalBlankTd />{/* Cant. comprada */}
           <Td right mono>{c(totPurch)}</Td>
-          {hasCost   && <Td right>—</Td>}
+          {hasCost   && <TotalBlankTd />}{/* Costo prom. */}
           {hasMargin && (
             <Td right mono>
               <span className={totMargin < 0 ? "text-rose-400" : "text-emerald-400"}>
@@ -347,7 +607,8 @@ function ProductSummaryTable({ rows }: { rows: ProductSummaryRow[] }) {
               </span>
             </Td>
           )}
-          <td colSpan={2} />
+          <TotalBlankTd />{/* Últ. venta */}
+          <TotalBlankTd />{/* Últ. compra */}
         </TotalRow>
       </tfoot>
     </TableShell>
@@ -388,11 +649,12 @@ function CustomerSummaryTable({ rows }: { rows: CustomerSummaryRow[] }) {
       </tbody>
       <tfoot>
         <TotalRow>
-          <td className="px-3 py-2 text-zinc-400 text-xs">TOTAL</td>
+          <TotalLabelTd>TOTAL</TotalLabelTd>
           <Td right mono>{totCount}</Td>
           <Td right mono>{c(totAmount)}</Td>
           <Td right mono>{totCount > 0 ? c(totAmount / totCount) : "—"}</Td>
-          <td colSpan={2} />
+          <TotalBlankTd />{/* Última venta */}
+          <TotalBlankTd />{/* Prod./Serv. más comprado */}
         </TotalRow>
       </tfoot>
     </TableShell>
@@ -431,10 +693,11 @@ function SupplierSummaryTable({ rows }: { rows: SupplierSummaryRow[] }) {
       </tbody>
       <tfoot>
         <TotalRow>
-          <td className="px-3 py-2 text-zinc-400 text-xs">TOTAL</td>
+          <TotalLabelTd>TOTAL</TotalLabelTd>
           <Td right mono>{totCount}</Td>
           <Td right mono>{c(totAmount)}</Td>
-          <td colSpan={2} />
+          <TotalBlankTd />{/* Producto más comprado */}
+          <TotalBlankTd />{/* Última compra */}
         </TotalRow>
       </tfoot>
     </TableShell>
@@ -472,27 +735,25 @@ interface Props {
 }
 
 export function CommerceTabularReports({ filters }: Props) {
-  const [activeTab, setActiveTab] = useState<TabId>("sales");
+  const [activeTab, setActiveTab] = useState<TabId>("sales-list");
 
-  const [salesState,     setSalesState]     = useState<TabState<SalesLineReportRow>>(initTab());
-  const [purchasesState, setPurchasesState] = useState<TabState<PurchasesLineReportRow>>(initTab());
-  const [productsState,  setProductsState]  = useState<TabState<ProductSummaryRow>>(initTab());
-  const [customersState, setCustomersState] = useState<TabState<CustomerSummaryRow>>(initTab());
-  const [suppliersState, setSuppliersState] = useState<TabState<SupplierSummaryRow>>(initTab());
+  const [salesListState,     setSalesListState]     = useState<TabState<SalesListRow>>(initTab());
+  const [salesState,         setSalesState]         = useState<TabState<SalesLineReportRow>>(initTab());
+  const [purchasesListState, setPurchasesListState] = useState<TabState<PurchasesListRow>>(initTab());
+  const [purchasesState,     setPurchasesState]     = useState<TabState<PurchasesLineReportRow>>(initTab());
+  const [productsState,      setProductsState]      = useState<TabState<ProductSummaryRow>>(initTab());
+  const [customersState,     setCustomersState]     = useState<TabState<CustomerSummaryRow>>(initTab());
+  const [suppliersState,     setSuppliersState]     = useState<TabState<SupplierSummaryRow>>(initTab());
 
-  const [exporting,    setExporting]    = useState<"xlsx" | "pdf" | null>(null);
-  const [exportError,  setExportError]  = useState<string | null>(null);
+  const [exporting,   setExporting]   = useState<"xlsx" | "pdf" | null>(null);
+  const [exportError, setExportError] = useState<string | null>(null);
 
-  // Track which filters were used for the data currently shown
   const appliedKeyRef = useRef<string>("");
   const currentKey    = serializeFilters(filters);
   const hasPending    = appliedKeyRef.current !== "" && appliedKeyRef.current !== currentKey;
 
   const buildParams = useCallback((f: TabularFilters) => {
-    const p = new URLSearchParams({
-      date_from: f.date_from,
-      date_to:   f.date_to,
-    });
+    const p = new URLSearchParams({ date_from: f.date_from, date_to: f.date_to });
     if (f.customer_id)  p.set("customer_id",  f.customer_id);
     if (f.supplier_id)  p.set("supplier_id",  f.supplier_id);
     if (f.product_id)   p.set("product_id",   f.product_id);
@@ -502,7 +763,9 @@ export function CommerceTabularReports({ filters }: Props) {
   }, []);
 
   function clearAllCaches() {
+    setSalesListState(initTab());
     setSalesState(initTab());
+    setPurchasesListState(initTab());
     setPurchasesState(initTab());
     setProductsState(initTab());
     setCustomersState(initTab());
@@ -518,7 +781,7 @@ export function CommerceTabularReports({ filters }: Props) {
       getter: TabState<T>,
       setter: React.Dispatch<React.SetStateAction<TabState<T>>>,
     ) {
-      if (!forceReload && getter.data !== null) return; // use cached data
+      if (!forceReload && getter.data !== null) return;
       setter((s) => ({ ...s, loading: true, error: null }));
       try {
         const res  = await fetch(`${url}?${params}`);
@@ -542,20 +805,26 @@ export function CommerceTabularReports({ filters }: Props) {
     }
 
     switch (tabId) {
+      case "sales-list":
+        await fetchTab("/api/reports/commerce/sales-list",       salesListState,     setSalesListState);
+        break;
       case "sales":
-        await fetchTab("/api/reports/commerce/sales-lines", salesState, setSalesState);
+        await fetchTab("/api/reports/commerce/sales-lines",      salesState,         setSalesState);
+        break;
+      case "purchases-list":
+        await fetchTab("/api/reports/commerce/purchases-list",   purchasesListState, setPurchasesListState);
         break;
       case "purchases":
-        await fetchTab("/api/reports/commerce/purchase-lines", purchasesState, setPurchasesState);
+        await fetchTab("/api/reports/commerce/purchase-lines",   purchasesState,     setPurchasesState);
         break;
       case "products":
-        await fetchTab("/api/reports/commerce/product-summary", productsState, setProductsState);
+        await fetchTab("/api/reports/commerce/product-summary",  productsState,      setProductsState);
         break;
       case "customers":
-        await fetchTab("/api/reports/commerce/customer-summary", customersState, setCustomersState);
+        await fetchTab("/api/reports/commerce/customer-summary", customersState,     setCustomersState);
         break;
       case "suppliers":
-        await fetchTab("/api/reports/commerce/supplier-summary", suppliersState, setSuppliersState);
+        await fetchTab("/api/reports/commerce/supplier-summary", suppliersState,     setSuppliersState);
         break;
     }
   }
@@ -570,38 +839,42 @@ export function CommerceTabularReports({ filters }: Props) {
     void loadTab(activeTab, true);
   }
 
-  // Returns true if the active tab has data loaded
   function activeTabHasData(): boolean {
     switch (activeTab) {
-      case "sales":     return (salesState.data?.length     ?? 0) > 0;
-      case "purchases": return (purchasesState.data?.length ?? 0) > 0;
-      case "products":  return (productsState.data?.length  ?? 0) > 0;
-      case "customers": return (customersState.data?.length ?? 0) > 0;
-      case "suppliers": return (suppliersState.data?.length ?? 0) > 0;
+      case "sales-list":     return (salesListState.data?.length     ?? 0) > 0;
+      case "sales":          return (salesState.data?.length         ?? 0) > 0;
+      case "purchases-list": return (purchasesListState.data?.length ?? 0) > 0;
+      case "purchases":      return (purchasesState.data?.length     ?? 0) > 0;
+      case "products":       return (productsState.data?.length      ?? 0) > 0;
+      case "customers":      return (customersState.data?.length     ?? 0) > 0;
+      case "suppliers":      return (suppliersState.data?.length     ?? 0) > 0;
     }
   }
 
   function handleExport(format: "xlsx" | "pdf") {
     setExportError(null);
     setExporting(format);
-    // setTimeout lets React render the loading state before the synchronous export blocks
     setTimeout(() => {
       try {
         if (format === "xlsx") {
           switch (activeTab) {
-            case "sales":     exportSalesExcel(salesState.data!,         filters); break;
-            case "purchases": exportPurchasesExcel(purchasesState.data!, filters); break;
-            case "products":  exportProductsExcel(productsState.data!,   filters); break;
-            case "customers": exportCustomersExcel(customersState.data!, filters); break;
-            case "suppliers": exportSuppliersExcel(suppliersState.data!, filters); break;
+            case "sales-list":     exportSalesListExcel(salesListState.data!,         filters); break;
+            case "sales":          exportSalesExcel(salesState.data!,                 filters); break;
+            case "purchases-list": exportPurchasesListExcel(purchasesListState.data!, filters); break;
+            case "purchases":      exportPurchasesExcel(purchasesState.data!,         filters); break;
+            case "products":       exportProductsExcel(productsState.data!,           filters); break;
+            case "customers":      exportCustomersExcel(customersState.data!,         filters); break;
+            case "suppliers":      exportSuppliersExcel(suppliersState.data!,         filters); break;
           }
         } else {
           switch (activeTab) {
-            case "sales":     exportSalesPdf(salesState.data!,         filters); break;
-            case "purchases": exportPurchasesPdf(purchasesState.data!, filters); break;
-            case "products":  exportProductsPdf(productsState.data!,   filters); break;
-            case "customers": exportCustomersPdf(customersState.data!, filters); break;
-            case "suppliers": exportSuppliersPdf(suppliersState.data!, filters); break;
+            case "sales-list":     exportSalesListPdf(salesListState.data!,         filters); break;
+            case "sales":          exportSalesPdf(salesState.data!,                 filters); break;
+            case "purchases-list": exportPurchasesListPdf(purchasesListState.data!, filters); break;
+            case "purchases":      exportPurchasesPdf(purchasesState.data!,         filters); break;
+            case "products":       exportProductsPdf(productsState.data!,           filters); break;
+            case "customers":      exportCustomersPdf(customersState.data!,         filters); break;
+            case "suppliers":      exportSuppliersPdf(suppliersState.data!,         filters); break;
           }
         }
       } catch (e) {
@@ -613,16 +886,44 @@ export function CommerceTabularReports({ filters }: Props) {
   }
 
   function renderTabContent() {
+    const empty = (
+      <EmptyState message="Haz clic en Actualizar listados para cargar los datos." />
+    );
+
     switch (activeTab) {
+      case "sales-list": {
+        const { data, loading, error } = salesListState;
+        if (loading) return <LoadingRow />;
+        if (error)   return <ErrorRow message={error} />;
+        if (!data)   return empty;
+        return (
+          <>
+            <RowCount count={data.length} label="venta" />
+            <SalesListTable rows={data} />
+          </>
+        );
+      }
       case "sales": {
         const { data, loading, error } = salesState;
         if (loading) return <LoadingRow />;
         if (error)   return <ErrorRow message={error} />;
-        if (!data)   return <EmptyState message="Haz clic en Aplicar listados para cargar los datos." />;
+        if (!data)   return empty;
         return (
           <>
-            <RowCount count={data.length} />
-            <SalesLinesTable rows={data} />
+            <RowCount count={data.length} label="línea" />
+            <SalesLinesDetailTable rows={data} />
+          </>
+        );
+      }
+      case "purchases-list": {
+        const { data, loading, error } = purchasesListState;
+        if (loading) return <LoadingRow />;
+        if (error)   return <ErrorRow message={error} />;
+        if (!data)   return empty;
+        return (
+          <>
+            <RowCount count={data.length} label="compra" />
+            <PurchasesListTable rows={data} />
           </>
         );
       }
@@ -630,11 +931,11 @@ export function CommerceTabularReports({ filters }: Props) {
         const { data, loading, error } = purchasesState;
         if (loading) return <LoadingRow />;
         if (error)   return <ErrorRow message={error} />;
-        if (!data)   return <EmptyState message="Haz clic en Aplicar listados para cargar los datos." />;
+        if (!data)   return empty;
         return (
           <>
-            <RowCount count={data.length} />
-            <PurchaseLinesTable rows={data} />
+            <RowCount count={data.length} label="línea" />
+            <PurchaseLinesDetailTable rows={data} />
           </>
         );
       }
@@ -642,7 +943,7 @@ export function CommerceTabularReports({ filters }: Props) {
         const { data, loading, error } = productsState;
         if (loading) return <LoadingRow />;
         if (error)   return <ErrorRow message={error} />;
-        if (!data)   return <EmptyState message="Haz clic en Aplicar listados para cargar los datos." />;
+        if (!data)   return empty;
         return (
           <>
             <RowCount count={data.length} />
@@ -654,7 +955,7 @@ export function CommerceTabularReports({ filters }: Props) {
         const { data, loading, error } = customersState;
         if (loading) return <LoadingRow />;
         if (error)   return <ErrorRow message={error} />;
-        if (!data)   return <EmptyState message="Haz clic en Aplicar listados para cargar los datos." />;
+        if (!data)   return empty;
         return (
           <>
             <RowCount count={data.length} />
@@ -666,7 +967,7 @@ export function CommerceTabularReports({ filters }: Props) {
         const { data, loading, error } = suppliersState;
         if (loading) return <LoadingRow />;
         if (error)   return <ErrorRow message={error} />;
-        if (!data)   return <EmptyState message="Haz clic en Aplicar listados para cargar los datos." />;
+        if (!data)   return empty;
         return (
           <>
             <RowCount count={data.length} />
@@ -679,7 +980,7 @@ export function CommerceTabularReports({ filters }: Props) {
 
   return (
     <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-4">
-      {/* Header with title + action buttons */}
+      {/* Header */}
       <div className="flex items-center justify-between mb-4">
         <h3 className="text-xs font-semibold text-zinc-500 uppercase tracking-wider">
           Listados detallados
@@ -693,7 +994,6 @@ export function CommerceTabularReports({ filters }: Props) {
           {exportError && (
             <span className="text-[11px] text-rose-400">{exportError}</span>
           )}
-          {/* Export buttons */}
           <button
             type="button"
             disabled={!activeTabHasData() || exporting !== null}
@@ -727,7 +1027,7 @@ export function CommerceTabularReports({ filters }: Props) {
                 : "bg-zinc-700 text-zinc-300 hover:bg-zinc-600"
             }`}
           >
-            Aplicar listados
+            Actualizar listados
           </button>
         </div>
       </div>
@@ -739,6 +1039,7 @@ export function CommerceTabularReports({ filters }: Props) {
             key={tab.id}
             type="button"
             onClick={() => handleTabClick(tab.id)}
+            title={tab.hint || undefined}
             className={`px-4 py-2 text-xs font-medium whitespace-nowrap border-b-2 transition-colors ${
               activeTab === tab.id
                 ? "border-blue-500 text-blue-400"
@@ -746,6 +1047,11 @@ export function CommerceTabularReports({ filters }: Props) {
             }`}
           >
             {tab.label}
+            {tab.hint && (
+              <span className="ml-1.5 text-[10px] text-zinc-600">
+                ({tab.hint})
+              </span>
+            )}
           </button>
         ))}
       </div>

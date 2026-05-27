@@ -62,7 +62,8 @@ export async function getPurchasesLineReport(
       },
     },
     orderBy: [
-      { purchase: { purchase_date: "desc" } },
+      { purchase: { purchase_date: "asc" } },
+      { purchase: { purchase_code: "asc" } },
     ],
     take: limit,
   });

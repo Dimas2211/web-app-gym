@@ -9,10 +9,12 @@
 // de la carga inicial del SSR (que solo provee la shell).
 // ─────────────────────────────────────────────────────────────────
 
-import { useState, useEffect, useCallback } from "react";
-import { Loader2 } from "lucide-react";
+import { useState, useEffect, useCallback, useRef } from "react";
+import { Loader2, FileText } from "lucide-react";
 
 import type { CommerceDashboardData } from "../types/commerce-report.types";
+import type { KpiReportPalette } from "../utils/kpi-report-palettes";
+import { getRandomKpiReportPalette, getDefaultKpiReportPalette } from "../utils/kpi-report-palettes";
 import { getDefaultDateRange } from "../utils/report-date-range";
 
 import { CommerceReportFilters, type ReportFilterState } from "./commerce-report-filters";
@@ -26,6 +28,7 @@ import { ProductVsServiceChart }      from "./product-vs-service-chart";
 import { PurchasesBySupplierChart }   from "./purchases-by-supplier-chart";
 import { CommerceReportDetailTable }  from "./commerce-report-detail-table";
 import { CommerceTabularReports }     from "./commerce-tabular-reports";
+import { exportExecutiveKpiPdf }      from "../utils/export-kpi-report-pdf";
 
 // ── Section wrapper ───────────────────────────────────────────────
 
@@ -47,9 +50,19 @@ export function CommerceReportsClient() {
     date_from: defaultRange.date_from,
     date_to:   defaultRange.date_to,
   });
-  const [data,    setData]    = useState<CommerceDashboardData | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error,   setError]   = useState<string | null>(null);
+  const [data,          setData]          = useState<CommerceDashboardData | null>(null);
+  const [loading,       setLoading]       = useState(false);
+  const [error,         setError]         = useState<string | null>(null);
+  const [exportingKpi,  setExportingKpi]  = useState(false);
+  const [exportKpiErr,  setExportKpiErr]  = useState<string | null>(null);
+
+  // Paleta elegida una sola vez al montar el componente (client-side).
+  // useRef evita re-renders; useEffect garantiza que Math.random solo corre
+  // en cliente y no durante SSR, previniendo hydration mismatch.
+  const paletteRef = useRef<KpiReportPalette>(getDefaultKpiReportPalette());
+  useEffect(() => {
+    paletteRef.current = getRandomKpiReportPalette();
+  }, []);
 
   const fetchData = useCallback(async (f: ReportFilterState) => {
     if (!f.date_from || !f.date_to) return;
@@ -78,6 +91,25 @@ export function CommerceReportsClient() {
 
   function handleApply() {
     fetchData(filters);
+  }
+
+  function handleExportKpi() {
+    if (!data) return;
+    setExportKpiErr(null);
+    setExportingKpi(true);
+    setTimeout(() => {
+      try {
+        exportExecutiveKpiPdf(
+          data,
+          { date_from: filters.date_from, date_to: filters.date_to },
+          paletteRef.current,
+        );
+      } catch (e) {
+        setExportKpiErr(e instanceof Error ? e.message : "Error al exportar");
+      } finally {
+        setExportingKpi(false);
+      }
+    }, 50);
   }
 
   return (
@@ -117,6 +149,25 @@ export function CommerceReportsClient() {
       {/* Dashboard */}
       {!loading && data && (
         <div className="space-y-6">
+
+          {/* Barra de acciones del dashboard */}
+          <div className="flex items-center justify-end gap-2">
+            {exportKpiErr && (
+              <span className="text-[11px] text-rose-400">{exportKpiErr}</span>
+            )}
+            <button
+              type="button"
+              disabled={exportingKpi}
+              onClick={handleExportKpi}
+              title="Exportar reporte ejecutivo con KPIs y gráficas"
+              className="h-7 px-3 text-xs font-medium rounded transition-colors flex items-center gap-1.5 bg-rose-900/60 text-rose-300 hover:bg-rose-800/60 disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              {exportingKpi
+                ? <><Loader2 className="w-3 h-3 animate-spin" />Exportando…</>
+                : <><FileText className="w-3 h-3" />PDF Ejecutivo</>
+              }
+            </button>
+          </div>
 
           {/* KPIs */}
           <CommerceKpiCards summary={data.summary} />

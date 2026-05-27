@@ -64,7 +64,8 @@ export async function getSalesLineReport(
       },
     },
     orderBy: [
-      { sale: { sale_date: "desc" } },
+      { sale: { sale_date: "asc" } },
+      { sale: { sale_code: "asc" } },
       { line_number: "asc" },
     ],
     take: limit,

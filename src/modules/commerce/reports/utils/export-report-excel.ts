@@ -2,12 +2,16 @@
 // commerce/reports — export-report-excel.ts
 //
 // Client-side Excel export using xlsx (SheetJS) 0.18.x.
-// All data is already loaded in the client; no re-fetch needed.
+//
+// Reportes listado: una fila por documento (venta/compra).
+// Reportes detalle: filas de grupo intercaladas con ítems.
 // ─────────────────────────────────────────────────────────────────
 
 import * as XLSX from "xlsx";
 import type {
+  SalesListRow,
   SalesLineReportRow,
+  PurchasesListRow,
   PurchasesLineReportRow,
   ProductSummaryRow,
   CustomerSummaryRow,
@@ -34,6 +38,23 @@ function filterDescription(f: TabularFilters): string {
   return parts.length > 0 ? parts.join(" | ") : "Sin filtros adicionales";
 }
 
+function paymentStatusLabel(status: string): string {
+  switch (status) {
+    case "PAID":    return "Pagado";
+    case "PARTIAL": return "Parcial";
+    case "UNPAID":  return "Pendiente";
+    default:        return status;
+  }
+}
+
+function sourceTypeLabel(source: string): string {
+  switch (source) {
+    case "DTE_IMPORT": return "DTE";
+    case "MANUAL":     return "Manual";
+    default:           return source;
+  }
+}
+
 // Rows 0-4: title, period, filters, generated, empty
 function metaBlock(reportName: string, f: TabularFilters): (string | null)[][] {
   return [
@@ -45,7 +66,6 @@ function metaBlock(reportName: string, f: TabularFilters): (string | null)[][] {
   ];
 }
 
-// Apply an xlsx number format to all numeric cells in a column between startRow..endRow (0-based)
 function applyFmt(ws: XLSX.WorkSheet, startRow: number, endRow: number, col: number, fmt: string): void {
   for (let r = startRow; r <= endRow; r++) {
     const addr = XLSX.utils.encode_cell({ r, c: col });
@@ -66,15 +86,60 @@ function finalizeAndDownload(
   XLSX.writeFile(wb, filename);
 }
 
-// ── Sales lines ───────────────────────────────────────────────────
+// ── Ventas listado (1 fila por venta) ────────────────────────────
+
+export function exportSalesListExcel(rows: SalesListRow[], filters: TabularFilters): void {
+  const meta = metaBlock("Ventas Listado", filters);
+
+  const headers = ["Fecha", "N° Venta", "Cliente", "Estado pago", "Ítems", "Subtotal", "IVA", "Total"];
+
+  const totSubtotal = rows.reduce((s, r) => s + r.subtotal, 0);
+  const totTax      = rows.reduce((s, r) => s + r.tax_amount, 0);
+  const totTotal    = rows.reduce((s, r) => s + r.total_amount, 0);
+  const totItems    = rows.reduce((s, r) => s + r.item_count, 0);
+
+  const dataRows = rows.map((r) => [
+    r.sale_date,
+    r.sale_code,
+    r.customer_name ?? "",
+    paymentStatusLabel(r.payment_status),
+    r.item_count,
+    r.subtotal,
+    r.tax_amount,
+    r.total_amount,
+  ]);
+
+  const totalRow = [
+    `TOTAL — ${rows.length} ${rows.length === 1 ? "venta" : "ventas"}`,
+    "", "", "",
+    totItems, totSubtotal, totTax, totTotal,
+  ];
+
+  const aoa = [...meta, headers, ...dataRows, totalRow];
+  const ws  = XLSX.utils.aoa_to_sheet(aoa);
+
+  const dataStart   = meta.length + 1;
+  const dataEnd     = dataStart + rows.length - 1;
+  const totalRowIdx = dataEnd + 1;
+
+  applyFmt(ws, dataStart, totalRowIdx, 4, NUMBER_FMT);
+  applyFmt(ws, dataStart, totalRowIdx, 5, CURRENCY_FMT);
+  applyFmt(ws, dataStart, totalRowIdx, 6, CURRENCY_FMT);
+  applyFmt(ws, dataStart, totalRowIdx, 7, CURRENCY_FMT);
+
+  finalizeAndDownload(ws, "Ventas Listado",
+    [12, 12, 24, 14, 8, 12, 12, 12],
+    `commerce-ventas-listado-${todayStr()}.xlsx`);
+}
+
+// ── Ventas detalle (ítems agrupados por venta) ────────────────────
 
 export function exportSalesExcel(rows: SalesLineReportRow[], filters: TabularFilters): void {
   const hasCost = rows.some((r) => r.cost_estimate !== null);
   const meta    = metaBlock("Ventas Detalle", filters);
 
   const headers = [
-    "Fecha", "N° Venta", "Cliente", "Tipo", "Código",
-    "Producto / Servicio", "Categoría", "Línea",
+    "Tipo", "Código", "Producto / Servicio", "Categoría", "Línea",
     "Cant.", "P. Unit.", "Subtotal", "IVA", "Total",
     ...(hasCost ? ["Costo est.", "Margen est."] : []),
   ];
@@ -86,20 +151,115 @@ export function exportSalesExcel(rows: SalesLineReportRow[], filters: TabularFil
   const totCost     = rows.reduce((s, r) => s + (r.cost_estimate ?? 0), 0);
   const totMargin   = rows.reduce((s, r) => s + (r.margin_estimate ?? 0), 0);
 
+  // Group consecutive rows by sale_code
+  type Group = { saleCode: string; saleDate: string; customer: string | null; items: SalesLineReportRow[] };
+  const groups: Group[] = [];
+  for (const row of rows) {
+    const last = groups[groups.length - 1];
+    if (last && last.saleCode === row.sale_code) {
+      last.items.push(row);
+    } else {
+      groups.push({ saleCode: row.sale_code, saleDate: row.sale_date, customer: row.customer_name, items: [row] });
+    }
+  }
+
+  // Build aoa with group header rows
+  const bodyRows: (string | number | null)[][] = [];
+  for (const group of groups) {
+    const groupTotal = group.items.reduce((s, r) => s + r.line_total, 0);
+    const hdrText    = `${group.saleDate}  ·  ${group.saleCode}  ·  ${group.customer ?? "Sin cliente"}  ·  Total: $${groupTotal.toFixed(2)}`;
+    // Group header — all string, no numeric formatting
+    bodyRows.push([hdrText, ...Array(headers.length - 1).fill(null)]);
+
+    for (const r of group.items) {
+      bodyRows.push([
+        r.product_type === "SERVICE" ? "Servicio" : "Producto",
+        r.product_code,
+        r.product_name,
+        r.category_name ?? "",
+        r.line_name ?? "",
+        r.quantity,
+        r.unit_price,
+        r.line_subtotal,
+        r.tax_amount,
+        r.line_total,
+        ...(hasCost ? [r.cost_estimate ?? 0, r.margin_estimate ?? 0] : []),
+      ]);
+    }
+  }
+
+  const totalRow: (string | number | null)[] = [
+    `TOTAL — ${groups.length} ${groups.length === 1 ? "venta" : "ventas"}`,
+    "", "", "", "",
+    totQty, null, totSubtotal, totTax, totTotal,
+    ...(hasCost ? [totCost, totMargin] : []),
+  ];
+
+  const aoa = [...meta, headers, ...bodyRows, totalRow];
+  const ws  = XLSX.utils.aoa_to_sheet(aoa);
+
+  // Apply numeric formats to item + total rows only (skip group header rows)
+  const headerRowIdx = meta.length; // 0-based index of the headers row
+  let   currentRow   = headerRowIdx + 1;
+
+  for (const group of groups) {
+    currentRow++; // skip group header row
+    const itemStart = currentRow;
+    const itemEnd   = currentRow + group.items.length - 1;
+    applyFmt(ws, itemStart, itemEnd, 5, NUMBER_FMT);
+    applyFmt(ws, itemStart, itemEnd, 6, CURRENCY_FMT);
+    applyFmt(ws, itemStart, itemEnd, 7, CURRENCY_FMT);
+    applyFmt(ws, itemStart, itemEnd, 8, CURRENCY_FMT);
+    applyFmt(ws, itemStart, itemEnd, 9, CURRENCY_FMT);
+    if (hasCost) {
+      applyFmt(ws, itemStart, itemEnd, 10, CURRENCY_FMT);
+      applyFmt(ws, itemStart, itemEnd, 11, CURRENCY_FMT);
+    }
+    currentRow += group.items.length;
+  }
+
+  // Total row numeric formats
+  applyFmt(ws, currentRow, currentRow, 5, NUMBER_FMT);
+  applyFmt(ws, currentRow, currentRow, 7, CURRENCY_FMT);
+  applyFmt(ws, currentRow, currentRow, 8, CURRENCY_FMT);
+  applyFmt(ws, currentRow, currentRow, 9, CURRENCY_FMT);
+  if (hasCost) {
+    applyFmt(ws, currentRow, currentRow, 10, CURRENCY_FMT);
+    applyFmt(ws, currentRow, currentRow, 11, CURRENCY_FMT);
+  }
+
+  const colW = [10, 12, 30, 15, 15, 8, 12, 12, 12, 12];
+  if (hasCost) colW.push(12, 12);
+  finalizeAndDownload(ws, "Ventas Detalle", colW, `commerce-ventas-detalle-${todayStr()}.xlsx`);
+}
+
+// ── Compras listado (1 fila por compra) ──────────────────────────
+
+export function exportPurchasesListExcel(rows: PurchasesListRow[], filters: TabularFilters): void {
+  const meta = metaBlock("Compras Listado", filters);
+
+  const headers = ["Fecha", "N° Compra", "Proveedor", "Origen", "Ítems", "Subtotal", "IVA", "Total"];
+
+  const totSubtotal = rows.reduce((s, r) => s + r.subtotal, 0);
+  const totTax      = rows.reduce((s, r) => s + r.tax_amount, 0);
+  const totTotal    = rows.reduce((s, r) => s + r.total_amount, 0);
+  const totItems    = rows.reduce((s, r) => s + r.item_count, 0);
+
   const dataRows = rows.map((r) => [
-    r.sale_date, r.sale_code,
-    r.customer_name ?? "",
-    r.product_type === "SERVICE" ? "Servicio" : "Producto",
-    r.product_code, r.product_name,
-    r.category_name ?? "", r.line_name ?? "",
-    r.quantity, r.unit_price, r.line_subtotal, r.tax_amount, r.line_total,
-    ...(hasCost ? [r.cost_estimate ?? 0, r.margin_estimate ?? 0] : []),
+    r.purchase_date,
+    r.purchase_code,
+    r.supplier_name,
+    sourceTypeLabel(r.source_type),
+    r.item_count,
+    r.subtotal,
+    r.tax_amount,
+    r.total_amount,
   ]);
 
   const totalRow = [
-    "TOTAL", "", "", "", "", "", "", "",
-    totQty, null, totSubtotal, totTax, totTotal,
-    ...(hasCost ? [totCost, totMargin] : []),
+    `TOTAL — ${rows.length} ${rows.length === 1 ? "compra" : "compras"}`,
+    "", "", "",
+    totItems, totSubtotal, totTax, totTotal,
   ];
 
   const aoa = [...meta, headers, ...dataRows, totalRow];
@@ -109,29 +269,24 @@ export function exportSalesExcel(rows: SalesLineReportRow[], filters: TabularFil
   const dataEnd     = dataStart + rows.length - 1;
   const totalRowIdx = dataEnd + 1;
 
-  applyFmt(ws, dataStart, totalRowIdx, 8,  NUMBER_FMT);
-  applyFmt(ws, dataStart, dataEnd,     9,  CURRENCY_FMT);
-  applyFmt(ws, dataStart, totalRowIdx, 10, CURRENCY_FMT);
-  applyFmt(ws, dataStart, totalRowIdx, 11, CURRENCY_FMT);
-  applyFmt(ws, dataStart, totalRowIdx, 12, CURRENCY_FMT);
-  if (hasCost) {
-    applyFmt(ws, dataStart, totalRowIdx, 13, CURRENCY_FMT);
-    applyFmt(ws, dataStart, totalRowIdx, 14, CURRENCY_FMT);
-  }
+  applyFmt(ws, dataStart, totalRowIdx, 4, NUMBER_FMT);
+  applyFmt(ws, dataStart, totalRowIdx, 5, CURRENCY_FMT);
+  applyFmt(ws, dataStart, totalRowIdx, 6, CURRENCY_FMT);
+  applyFmt(ws, dataStart, totalRowIdx, 7, CURRENCY_FMT);
 
-  const colW = [12, 12, 22, 10, 12, 30, 15, 15, 8, 12, 12, 12, 12];
-  if (hasCost) colW.push(12, 12);
-  finalizeAndDownload(ws, "Ventas Detalle", colW, `commerce-reporte-ventas-${todayStr()}.xlsx`);
+  finalizeAndDownload(ws, "Compras Listado",
+    [12, 12, 24, 10, 8, 12, 12, 12],
+    `commerce-compras-listado-${todayStr()}.xlsx`);
 }
 
-// ── Purchase lines ────────────────────────────────────────────────
+// ── Compras detalle (ítems agrupados por compra) ──────────────────
 
 export function exportPurchasesExcel(rows: PurchasesLineReportRow[], filters: TabularFilters): void {
   const meta = metaBlock("Compras Detalle", filters);
 
   const headers = [
-    "Fecha", "N° Compra", "Proveedor", "Código", "Producto",
-    "Categoría", "Línea", "Cant.", "C. Unit.", "Subtotal", "IVA", "Total",
+    "Código", "Producto", "Categoría", "Línea",
+    "Cant.", "C. Unit.", "Subtotal", "IVA", "Total",
   ];
 
   const totQty      = rows.reduce((s, r) => s + r.quantity, 0);
@@ -139,31 +294,73 @@ export function exportPurchasesExcel(rows: PurchasesLineReportRow[], filters: Ta
   const totTax      = rows.reduce((s, r) => s + r.tax_amount, 0);
   const totTotal    = rows.reduce((s, r) => s + r.line_total, 0);
 
-  const dataRows = rows.map((r) => [
-    r.purchase_date, r.purchase_code, r.supplier_name,
-    r.product_code, r.product_name,
-    r.category_name ?? "", r.line_name ?? "",
-    r.quantity, r.unit_cost, r.line_subtotal, r.tax_amount, r.line_total,
-  ]);
+  // Group consecutive rows by purchase_code
+  type Group = { purchaseCode: string; purchaseDate: string; supplier: string; items: PurchasesLineReportRow[] };
+  const groups: Group[] = [];
+  for (const row of rows) {
+    const last = groups[groups.length - 1];
+    if (last && last.purchaseCode === row.purchase_code) {
+      last.items.push(row);
+    } else {
+      groups.push({ purchaseCode: row.purchase_code, purchaseDate: row.purchase_date, supplier: row.supplier_name, items: [row] });
+    }
+  }
 
-  const totalRow = ["TOTAL", "", "", "", "", "", "", totQty, null, totSubtotal, totTax, totTotal];
+  const bodyRows: (string | number | null)[][] = [];
+  for (const group of groups) {
+    const groupTotal = group.items.reduce((s, r) => s + r.line_total, 0);
+    const hdrText    = `${group.purchaseDate}  ·  ${group.purchaseCode}  ·  ${group.supplier}  ·  Total: $${groupTotal.toFixed(2)}`;
+    bodyRows.push([hdrText, ...Array(headers.length - 1).fill(null)]);
 
-  const aoa = [...meta, headers, ...dataRows, totalRow];
+    for (const r of group.items) {
+      bodyRows.push([
+        r.product_code,
+        r.product_name,
+        r.category_name ?? "",
+        r.line_name ?? "",
+        r.quantity,
+        r.unit_cost,
+        r.line_subtotal,
+        r.tax_amount,
+        r.line_total,
+      ]);
+    }
+  }
+
+  const totalRow: (string | number | null)[] = [
+    `TOTAL — ${groups.length} ${groups.length === 1 ? "compra" : "compras"}`,
+    "", "", "",
+    totQty, null, totSubtotal, totTax, totTotal,
+  ];
+
+  const aoa = [...meta, headers, ...bodyRows, totalRow];
   const ws  = XLSX.utils.aoa_to_sheet(aoa);
 
-  const dataStart   = meta.length + 1;
-  const dataEnd     = dataStart + rows.length - 1;
-  const totalRowIdx = dataEnd + 1;
+  // Apply formats to item rows only
+  const headerRowIdx = meta.length;
+  let   currentRow   = headerRowIdx + 1;
 
-  applyFmt(ws, dataStart, totalRowIdx, 7,  NUMBER_FMT);
-  applyFmt(ws, dataStart, dataEnd,     8,  CURRENCY_FMT);
-  applyFmt(ws, dataStart, totalRowIdx, 9,  CURRENCY_FMT);
-  applyFmt(ws, dataStart, totalRowIdx, 10, CURRENCY_FMT);
-  applyFmt(ws, dataStart, totalRowIdx, 11, CURRENCY_FMT);
+  for (const group of groups) {
+    currentRow++; // skip group header row
+    const itemStart = currentRow;
+    const itemEnd   = currentRow + group.items.length - 1;
+    applyFmt(ws, itemStart, itemEnd, 4, NUMBER_FMT);
+    applyFmt(ws, itemStart, itemEnd, 5, CURRENCY_FMT);
+    applyFmt(ws, itemStart, itemEnd, 6, CURRENCY_FMT);
+    applyFmt(ws, itemStart, itemEnd, 7, CURRENCY_FMT);
+    applyFmt(ws, itemStart, itemEnd, 8, CURRENCY_FMT);
+    currentRow += group.items.length;
+  }
+
+  // Total row
+  applyFmt(ws, currentRow, currentRow, 4, NUMBER_FMT);
+  applyFmt(ws, currentRow, currentRow, 6, CURRENCY_FMT);
+  applyFmt(ws, currentRow, currentRow, 7, CURRENCY_FMT);
+  applyFmt(ws, currentRow, currentRow, 8, CURRENCY_FMT);
 
   finalizeAndDownload(ws, "Compras Detalle",
-    [12, 12, 22, 12, 28, 15, 15, 8, 12, 12, 12, 12],
-    `commerce-reporte-compras-${todayStr()}.xlsx`);
+    [12, 30, 15, 15, 8, 12, 12, 12, 12],
+    `commerce-compras-detalle-${todayStr()}.xlsx`);
 }
 
 // ── Product summary ───────────────────────────────────────────────
