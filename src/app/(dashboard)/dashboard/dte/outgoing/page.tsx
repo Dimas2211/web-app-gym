@@ -66,9 +66,11 @@ export default async function DteOutgoingPage({ searchParams }: PageProps) {
   });
 
   return (
-    <DteOutgoingClient
-      initialResult={initialResult}
-      initialFilters={filters}
-    />
+    <div className="-mx-4 sm:-mx-6 -mt-8 -mb-8 h-[calc(100vh-3.5rem)] overflow-hidden flex flex-col">
+      <DteOutgoingClient
+        initialResult={initialResult}
+        initialFilters={filters}
+      />
+    </div>
   );
 }
