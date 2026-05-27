@@ -84,7 +84,7 @@ export async function getMyMemberships(clientId: string) {
 /** Clases próximas programadas en la sucursal del cliente (hoy en adelante). */
 export async function getAvailableClasses(branchId: string) {
   const today = new Date();
-  today.setHours(0, 0, 0, 0);
+  today.setUTCHours(0, 0, 0, 0);
   return prisma.scheduledClass.findMany({
     where: {
       branch_id: branchId,
