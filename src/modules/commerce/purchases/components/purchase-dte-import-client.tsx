@@ -463,7 +463,7 @@ function ItemRow({
               <>
                 <span className="text-xs text-zinc-400">Sugerido: <span className="text-zinc-200">{suggestion.product_name}</span></span>
                 <button
-                  onClick={() => onSelect({ id: suggestion.product_id!, product_code: suggestion.product_code ?? "", name: suggestion.product_name!, product_type: "", is_stockable: true, unit_symbol: "", cost_price: null, tax_rate: null })}
+                  onClick={() => onSelect({ id: suggestion.product_id!, product_code: suggestion.product_code ?? "", name: suggestion.product_name!, product_type: "", is_stockable: true, unit_symbol: "", cost_price: null, tax_rate: null, current_stock: null })}
                   className="h-5 px-2 text-[10px] font-medium text-emerald-300 border border-emerald-700/50 hover:border-emerald-500 rounded transition-colors"
                 >
                   Aceptar
@@ -965,6 +965,7 @@ export function PurchaseDteImportClient() {
           unit_symbol:  "",
           cost_price:   null,
           tax_rate:     null,
+          current_stock: null,
         },
         ...(prev[lineNumber] ?? []),
       ],

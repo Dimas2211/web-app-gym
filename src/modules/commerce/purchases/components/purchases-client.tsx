@@ -218,6 +218,7 @@ export function PurchasesClient({ initialItems, initialTotal }: PurchasesClientP
     () => initialItems[0]?.id ?? null,
   );
   const [selectedDetail, setSelectedDetail] = useState<PurchaseDetail | null>(null);
+  const [detailLoading,  setDetailLoading]  = useState(false);
   const [editAuthOpen, setEditAuthOpen]     = useState(false);
   const [authEmail,    setAuthEmail]        = useState("");
   const [authPassword, setAuthPassword]     = useState("");
@@ -241,10 +242,11 @@ export function PurchasesClient({ initialItems, initialTotal }: PurchasesClientP
   }, [authState, selectedId, router]);
 
   // filtersRef siempre apunta al estado de filtros actual (evita stale closure en fetchList)
-  const filtersRef    = useRef<FilterState>(EMPTY_FILTERS);
-  filtersRef.current  = filters;
-  const listAbortRef  = useRef<AbortController | null>(null);
-  const filtersMount  = useRef(true);
+  const filtersRef         = useRef<FilterState>(EMPTY_FILTERS);
+  filtersRef.current       = filters;
+  const listAbortRef       = useRef<AbortController | null>(null);
+  const filtersMount       = useRef(true);
+  const detailRequestIdRef = useRef(0);
 
   // ── Fetch de lista ────────────────────────────────────────────
   const fetchList = useCallback((nextFilters?: FilterState) => {
@@ -299,21 +301,32 @@ export function PurchasesClient({ initialItems, initialTotal }: PurchasesClientP
     }
   }, [cancelState, fetchList]);
 
-  // Campos instantáneos — estado y fechas
   // ── Fetch de detalle al seleccionar fila ──────────────────────
   useEffect(() => {
-    if (!selectedId) { setSelectedDetail(null); return; }
+    if (!selectedId) {
+      setSelectedDetail(null);
+      setDetailLoading(false);
+      return;
+    }
 
-    setSelectedDetail(null);
-    const ctrl = new AbortController();
+    setDetailLoading(true);
+    const reqId = ++detailRequestIdRef.current;
+    const ctrl  = new AbortController();
 
     fetch(`/api/purchases/${selectedId}`, {
-      signal: ctrl.signal,
+      signal:      ctrl.signal,
       credentials: "same-origin",
     })
       .then((r) => (r.ok ? r.json() : Promise.reject()))
-      .then((data) => setSelectedDetail(data as PurchaseDetail))
-      .catch(() => {});
+      .then((data) => {
+        if (reqId !== detailRequestIdRef.current) return;
+        setSelectedDetail(data as PurchaseDetail);
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (reqId !== detailRequestIdRef.current) return;
+        setDetailLoading(false);
+      });
 
     return () => ctrl.abort();
   }, [selectedId]);
@@ -605,7 +618,7 @@ export function PurchasesClient({ initialItems, initialTotal }: PurchasesClientP
 
       {/* ── D: Grilla de líneas del documento seleccionado ───────── */}
       <div className="flex-none h-44 border-t border-zinc-800 bg-zinc-950 overflow-hidden">
-        <PurchasesItemsTable selectedId={selectedId} detail={selectedDetail} />
+        <PurchasesItemsTable selectedId={selectedId} detail={selectedDetail} isLoading={detailLoading} />
       </div>
 
     </div>

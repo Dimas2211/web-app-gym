@@ -51,18 +51,18 @@ interface ColDef {
 }
 
 const COLUMNS: ColDef[] = [
-  { key: "payment_condition", label: "Forma pago",  widthCls: "w-24"       },
-  { key: "cancellation_type", label: "Tipo pago",   widthCls: "w-28"       },
-  { key: "purchase_code",     label: "Correlativo", widthCls: "w-36",      sortKey: "purchase_code" },
-  { key: "purchase_date",     label: "Fecha",       widthCls: "w-24",      sortKey: "purchase_date" },
-  { key: "supplier",          label: "Proveedor",   widthCls: "w-[200px]", sortKey: "supplier_name" },
-  { key: "supplier_nrc",      label: "NRC",         widthCls: "w-28"       },
-  { key: "series",            label: "Serie",       widthCls: "w-20"       },
-  { key: "doc_number",        label: "No.Doc",      widthCls: "w-28"       },
-  { key: "subtotal",          label: "Gravada",     widthCls: "w-28",      align: "right" },
-  { key: "tax_amount",        label: "IVA",         widthCls: "w-20",      align: "right" },
-  { key: "total_amount",      label: "Total",       widthCls: "w-28",      sortKey: "total_amount", align: "right" },
-  { key: "status",            label: "Estado",      widthCls: "w-24",      sortKey: "status" },
+  { key: "payment_condition", label: "Forma pago",  widthCls: "w-[110px]"  },
+  { key: "cancellation_type", label: "Tipo pago",   widthCls: "w-[130px]"  },
+  { key: "purchase_code",     label: "Correlativo", widthCls: "w-[90px]",  sortKey: "purchase_code" },
+  { key: "purchase_date",     label: "Fecha",       widthCls: "w-[110px]", sortKey: "purchase_date" },
+  { key: "supplier",          label: "Proveedor",   widthCls: "w-[260px]", sortKey: "supplier_name" },
+  { key: "supplier_nrc",      label: "NRC",         widthCls: "w-[110px]"  },
+  { key: "series",            label: "Serie",       widthCls: "w-[140px]"  },
+  { key: "doc_number",        label: "No.Doc",      widthCls: "w-[120px]"  },
+  { key: "subtotal",          label: "Gravada",     widthCls: "w-[110px]", align: "right" },
+  { key: "tax_amount",        label: "IVA",         widthCls: "w-[100px]", align: "right" },
+  { key: "total_amount",      label: "Total",       widthCls: "w-[110px]", sortKey: "total_amount", align: "right" },
+  { key: "status",            label: "Estado",      widthCls: "w-[100px]", sortKey: "status" },
 ];
 
 const COL_COUNT = COLUMNS.length;
@@ -251,7 +251,7 @@ export function PurchasesTable({ items, selectedId, onSelect }: PurchasesTablePr
           Sin documentos de compra en esta location
         </div>
       ) : (
-        <table className="w-full min-w-[1360px] text-xs border-collapse">
+        <table className="w-full min-w-[1490px] table-fixed text-xs border-collapse">
 
           {/* ── Encabezado sticky ───────────────────────── */}
           <thead className="sticky top-0 z-10">
@@ -343,7 +343,7 @@ export function PurchasesTable({ items, selectedId, onSelect }: PurchasesTablePr
                   <td
                     ref={cellRef(rowIndex, 4)}
                     onClick={() => handleCellClick(rowIndex, 4, item)}
-                    className={`px-3 py-1.5 whitespace-nowrap max-w-[200px] truncate${activeCellCls(rowIndex, 4)}`}
+                    className={`px-3 py-1.5 max-w-0 truncate${activeCellCls(rowIndex, 4)}`}
                   >
                     {item.supplier_name}
                   </td>

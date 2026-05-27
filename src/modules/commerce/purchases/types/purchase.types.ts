@@ -121,6 +121,7 @@ export interface ProductForPurchaseLookup {
   unit_symbol:  string;
   cost_price:   number | null;   // sugerencia de precio de costo del catálogo
   tax_rate:     number | null;   // tasa de impuesto del catálogo (%)
+  current_stock: number | null;  // null = sin registro en product_locations para la location activa
 }
 
 // Re-export del tipo canónico que vive en el maestro de proveedores.

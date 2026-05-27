@@ -26,11 +26,12 @@ interface ColDef {
 }
 
 const COLUMNS: ColDef[] = [
-  { key: "product_code", label: "Código",     widthCls: "w-24"                   },
-  { key: "name",         label: "Producto",   widthCls: "w-56"                   },
-  { key: "unit_symbol",  label: "Unidad",     widthCls: "w-20", align: "center"  },
-  { key: "cost_price",   label: "Costo ref.", widthCls: "w-28", align: "right"   },
-  { key: "tax_rate",     label: "IVA %",      widthCls: "w-16", align: "right"   },
+  { key: "product_code",  label: "Código",     widthCls: "w-24"                   },
+  { key: "name",          label: "Producto",   widthCls: "w-56"                   },
+  { key: "unit_symbol",   label: "Unidad",     widthCls: "w-20", align: "center"  },
+  { key: "current_stock", label: "Stock",      widthCls: "w-20", align: "right"   },
+  { key: "cost_price",    label: "Costo ref.", widthCls: "w-28", align: "right"   },
+  { key: "tax_rate",      label: "IVA %",      widthCls: "w-16", align: "right"   },
 ];
 
 export function PurchaseFormProductSearch({ onSelect }: Props) {
@@ -112,6 +113,24 @@ export function PurchaseFormProductSearch({ onSelect }: Props) {
                 case "unit_symbol":
                   content = <span className="text-zinc-400">{p.unit_symbol}</span>;
                   break;
+                case "current_stock": {
+                  if (!p.is_stockable) {
+                    content = <span className="text-zinc-600">—</span>;
+                  } else if (p.current_stock === null) {
+                    content = <span className="text-zinc-600">Sin reg.</span>;
+                  } else if (p.current_stock === 0) {
+                    content = <span className="text-zinc-500 font-mono">0</span>;
+                  } else {
+                    content = (
+                      <span className="font-mono text-zinc-300">
+                        {Number.isInteger(p.current_stock)
+                          ? p.current_stock
+                          : p.current_stock.toFixed(2)}
+                      </span>
+                    );
+                  }
+                  break;
+                }
                 case "cost_price":
                   content = (
                     <span className="font-mono text-zinc-400">

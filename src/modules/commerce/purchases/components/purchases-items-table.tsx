@@ -8,11 +8,11 @@
 // Columnas: Código · Producto · Cant. · C. Unitario · Gravada ·
 //           IVA · Salida (stub) · Entrada (stub)
 //
-// 4 estados explícitos:
-//   !selectedId                       → sin selección
-//   selectedId && !detail             → cargando
-//   detail && items.length === 0      → sin líneas
-//   detail && items.length > 0        → grilla real
+// Estados:
+//   !selectedId               → sin selección
+//   selectedId && isLoading   → muestra detalle anterior + indicador discreto
+//   detail con items          → grilla real
+//   detail sin items          → sin líneas
 // ─────────────────────────────────────────────────────────────────
 
 import type { PurchaseDetail } from "../types/purchase.types";
@@ -28,14 +28,14 @@ interface ColDef {
 }
 
 const COLUMNS: ColDef[] = [
-  { key: "product_code", label: "Código",      widthCls: "w-28"          },
-  { key: "product_name", label: "Producto",    widthCls: "min-w-[200px]" },
-  { key: "quantity",     label: "Cant.",       widthCls: "w-24",  align: "right" },
-  { key: "unit_cost",    label: "C. Unitario", widthCls: "w-28",  align: "right" },
-  { key: "line_subtotal",label: "Gravada",     widthCls: "w-28",  align: "right" },
-  { key: "tax_amount",   label: "IVA",         widthCls: "w-24",  align: "right" },
-  { key: "salida",       label: "Salida",      widthCls: "w-20",  align: "right", stub: true },
-  { key: "entrada",      label: "Entrada",     widthCls: "w-20",  align: "right", stub: true },
+  { key: "product_code",  label: "Código",      widthCls: "w-[110px]"  },
+  { key: "product_name",  label: "Producto",    widthCls: "w-[320px]"  },
+  { key: "quantity",      label: "Cant.",       widthCls: "w-[90px]",  align: "right" },
+  { key: "unit_cost",     label: "C. Unitario", widthCls: "w-[110px]", align: "right" },
+  { key: "line_subtotal", label: "Gravada",     widthCls: "w-[120px]", align: "right" },
+  { key: "tax_amount",    label: "IVA",         widthCls: "w-[100px]", align: "right" },
+  { key: "salida",        label: "Salida",      widthCls: "w-[100px]", align: "right", stub: true },
+  { key: "entrada",       label: "Entrada",     widthCls: "w-[100px]", align: "right", stub: true },
 ];
 
 // ── Helpers ───────────────────────────────────────────────────────
@@ -49,12 +49,13 @@ function formatMoney(n: number): string {
 interface PurchasesItemsTableProps {
   selectedId: string | null;
   detail:     PurchaseDetail | null;
+  isLoading?: boolean;
 }
 
 // ── Componente ────────────────────────────────────────────────────
 
-export function PurchasesItemsTable({ selectedId, detail }: PurchasesItemsTableProps) {
-  // ── Estado 1: sin selección ───────────────────────────────────
+export function PurchasesItemsTable({ selectedId, detail, isLoading }: PurchasesItemsTableProps) {
+  // ── Sin selección: mensaje centrado ──────────────────────────
   if (!selectedId) {
     return (
       <div className="flex h-full items-center justify-center text-xs text-zinc-600">
@@ -63,31 +64,62 @@ export function PurchasesItemsTable({ selectedId, detail }: PurchasesItemsTableP
     );
   }
 
-  // ── Estado 2: cargando ────────────────────────────────────────
-  if (!detail) {
+  // ── Cargando primera vez (sin detalle previo): placeholder ────
+  // No se desmonta la estructura; se muestra solo mientras no hay
+  // ningún detalle anterior que mantener visible.
+  if (!detail && isLoading) {
     return (
-      <div className="flex h-full items-center justify-center text-xs text-zinc-600">
-        Cargando líneas…
+      <div className="flex flex-col h-full">
+        <div className="flex-1 overflow-auto min-h-0">
+          <div className="min-w-[1050px]">
+            {/* Encabezado idéntico para no cambiar el layout */}
+            <div className="sticky top-0 z-10 flex items-center h-7 border-b border-zinc-800 bg-zinc-900 px-3">
+              {COLUMNS.map((col) => (
+                <div
+                  key={col.key}
+                  className={[
+                    "shrink-0 pr-3 select-none text-[10px] font-semibold uppercase tracking-wide",
+                    col.widthCls,
+                    col.align === "right" ? "text-right" : "",
+                    col.stub ? "text-zinc-600" : "text-zinc-500",
+                  ].join(" ")}
+                >
+                  {col.label}
+                </div>
+              ))}
+            </div>
+            {/* Filas skeleton */}
+            {[0, 1, 2].map((i) => (
+              <div key={i} className="flex items-center h-7 px-3 border-b border-zinc-800/40">
+                {COLUMNS.map((col) => (
+                  <div key={col.key} className={`shrink-0 pr-3 ${col.widthCls}`}>
+                    <div className="h-2.5 rounded bg-zinc-800 animate-pulse" />
+                  </div>
+                ))}
+              </div>
+            ))}
+          </div>
+        </div>
       </div>
     );
   }
 
-  // ── Estado 3: sin líneas ──────────────────────────────────────
-  if (detail.items.length === 0) {
+  // ── Sin líneas confirmado (detalle ya llegó y está vacío) ─────
+  if (!detail || detail.items.length === 0) {
     return (
       <div className="flex h-full items-center justify-center text-xs text-zinc-600">
-        Este documento no tiene líneas
+        {!detail ? "Selecciona un documento para ver sus líneas" : "Este documento no tiene líneas"}
       </div>
     );
   }
 
-  // ── Estado 4: grilla real ─────────────────────────────────────
+  // ── Grilla real — con indicador discreto si está recargando ──
   return (
     <div className="flex flex-col h-full">
       <div className="flex-1 overflow-auto min-h-0">
         <div className="min-w-[800px]">
 
-          {/* Encabezado sticky */}
+          {/* Encabezado sticky — incluye indicador discreto de carga */}
           <div className="sticky top-0 z-10 flex items-center h-7 border-b border-zinc-800 bg-zinc-900 px-3">
             {COLUMNS.map((col) => (
               <div
@@ -102,54 +134,61 @@ export function PurchasesItemsTable({ selectedId, detail }: PurchasesItemsTableP
                 {col.label}
               </div>
             ))}
+            {isLoading && (
+              <span className="ml-auto shrink-0 text-[10px] text-zinc-600 animate-pulse pr-1">
+                Actualizando…
+              </span>
+            )}
           </div>
 
-          {/* Filas */}
-          {detail.items.map((item) => (
-            <div
-              key={item.id}
-              className="flex items-center h-7 px-3 border-b border-zinc-800/40 text-xs text-zinc-300"
-            >
-              {COLUMNS.map((col) => {
-                function cell(content: React.ReactNode, extraCls = "") {
-                  return (
-                    <div
-                      key={col.key}
-                      className={[
-                        "shrink-0 pr-3 truncate",
-                        col.widthCls,
-                        col.align === "right" ? "text-right" : "",
-                        extraCls,
-                      ].join(" ")}
-                    >
-                      {content}
-                    </div>
-                  );
-                }
+          {/* Filas — opacidad reducida mientras recarga */}
+          <div className={isLoading ? "opacity-50 transition-opacity duration-150" : "transition-opacity duration-150"}>
+            {detail.items.map((item) => (
+              <div
+                key={item.id}
+                className="flex items-center h-7 px-3 border-b border-zinc-800/40 text-xs text-zinc-300"
+              >
+                {COLUMNS.map((col) => {
+                  function cell(content: React.ReactNode, extraCls = "") {
+                    return (
+                      <div
+                        key={col.key}
+                        className={[
+                          "shrink-0 pr-3 truncate",
+                          col.widthCls,
+                          col.align === "right" ? "text-right" : "",
+                          extraCls,
+                        ].join(" ")}
+                      >
+                        {content}
+                      </div>
+                    );
+                  }
 
-                switch (col.key) {
-                  case "product_code":
-                    return cell(<span className="font-mono">{item.product_code}</span>);
-                  case "product_name":
-                    return cell(item.product_name);
-                  case "quantity":
-                    return cell(`${Number(item.quantity).toFixed(2)} ${item.unit_symbol}`);
-                  case "unit_cost":
-                    return cell(formatMoney(item.unit_cost));
-                  case "line_subtotal":
-                    return cell(formatMoney(item.line_subtotal));
-                  case "tax_amount":
-                    return cell(formatMoney(item.tax_amount));
-                  case "salida":
-                    return cell(<span className="text-zinc-600">—</span>);
-                  case "entrada":
-                    return cell(<span className="text-zinc-600">—</span>);
-                  default:
-                    return cell("—");
-                }
-              })}
-            </div>
-          ))}
+                  switch (col.key) {
+                    case "product_code":
+                      return cell(<span className="font-mono">{item.product_code}</span>);
+                    case "product_name":
+                      return cell(item.product_name);
+                    case "quantity":
+                      return cell(`${Number(item.quantity).toFixed(2)} ${item.unit_symbol}`);
+                    case "unit_cost":
+                      return cell(formatMoney(item.unit_cost));
+                    case "line_subtotal":
+                      return cell(formatMoney(item.line_subtotal));
+                    case "tax_amount":
+                      return cell(formatMoney(item.tax_amount));
+                    case "salida":
+                      return cell(<span className="text-zinc-600">—</span>);
+                    case "entrada":
+                      return cell(<span className="text-zinc-600">—</span>);
+                    default:
+                      return cell("—");
+                  }
+                })}
+              </div>
+            ))}
+          </div>
 
         </div>
       </div>

@@ -12,16 +12,17 @@
 //     allow_purchase es política del catálogo al momento de crear el producto;
 //     status es el estado operativo actual que puede overridear esa política.
 //
-// No consulta stock ni movimientos — es catálogo puro.
-// Scope: tenant_id sin location_id (products son catálogo tenant-level).
+// Incluye stock actual por location (left join con product_locations).
+// Scope: tenant_id + location_id para stock; products son catálogo tenant-level.
 // ─────────────────────────────────────────────────────────────────
 
 import { prisma } from "@/lib/db/prisma";
 import type { ProductForPurchaseLookup } from "../types/purchase.types";
 
 export async function getProductsForPurchase(
-  tenant_id: string,
-  search?:   string,
+  tenant_id:   string,
+  location_id: string,
+  search?:     string,
 ): Promise<ProductForPurchaseLookup[]> {
   const rows = await prisma.product.findMany({
     where: {
@@ -48,17 +49,26 @@ export async function getProductsForPurchase(
       cost_price:   true,
       tax_rate:     { select: { rate: true } },
       unit:         { select: { symbol: true } },
+      product_locations: {
+        where:  { tenant_id, location_id },
+        select: { current_stock: true },
+        take:   1,
+      },
     },
   });
 
-  return rows.map((r) => ({
-    id:           r.id,
-    product_code: r.product_code,
-    name:         r.name,
-    product_type: r.product_type,
-    is_stockable: r.is_stockable,
-    unit_symbol:  r.unit.symbol,
-    cost_price:   r.cost_price !== null ? Number(r.cost_price) : null,
-    tax_rate:     r.tax_rate   !== null ? Number(r.tax_rate.rate) : null,
-  }));
+  return rows.map((r) => {
+    const loc = r.product_locations[0];
+    return {
+      id:           r.id,
+      product_code: r.product_code,
+      name:         r.name,
+      product_type: r.product_type,
+      is_stockable: r.is_stockable,
+      unit_symbol:  r.unit.symbol,
+      cost_price:   r.cost_price !== null ? Number(r.cost_price) : null,
+      tax_rate:     r.tax_rate   !== null ? Number(r.tax_rate.rate) : null,
+      current_stock: loc !== undefined ? Number(loc.current_stock) : null,
+    };
+  });
 }
