@@ -88,8 +88,13 @@ export async function getScheduledClasses(
 
   if (filters.trainer_id) where.trainer_id = filters.trainer_id;
 
-  if (filters.status) {
+  if (filters.status === "all") {
+    // sin filtro: mostrar todos los estados
+  } else if (filters.status) {
     where.status = filters.status;
+  } else {
+    // por defecto: ocultar canceladas
+    where.status = { not: "cancelled" };
   }
 
   if (filters.date) {
@@ -105,6 +110,7 @@ export async function getScheduledClasses(
       _count: {
         select: {
           bookings: { where: { booking_status: "confirmed" } },
+          attendance: true,
         },
       },
     },
@@ -213,6 +219,54 @@ export async function getAvailableClientsForBooking(
     select: { id: true, first_name: true, last_name: true, email: true },
     orderBy: [{ last_name: "asc" }, { first_name: "asc" }],
     take: 200,
+  });
+}
+
+// ── Clases próximas (vista rango — portal/admin upcoming) ─────
+
+export interface UpcomingClassFilters {
+  status?: string;
+  trainer_id?: string;
+}
+
+export async function getUpcomingClasses(
+  user: SessionUser,
+  filters: UpcomingClassFilters = {}
+) {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const where: Record<string, unknown> = {
+    tenant_id: user.tenant_id,
+    class_date: { gte: today },
+    ...branchScope(user),
+  };
+
+  if (filters.trainer_id) where.trainer_id = filters.trainer_id;
+
+  if (filters.status === "all") {
+    // sin filtro: mostrar todos los estados
+  } else if (filters.status) {
+    where.status = filters.status;
+  } else {
+    where.status = { not: "cancelled" };
+  }
+
+  return prisma.scheduledClass.findMany({
+    where,
+    include: {
+      branch: { select: { id: true, name: true } },
+      class_type: { select: { id: true, name: true } },
+      trainer: { select: { id: true, first_name: true, last_name: true } },
+      _count: {
+        select: {
+          bookings: { where: { booking_status: "confirmed" } },
+          attendance: true,
+        },
+      },
+    },
+    orderBy: [{ class_date: "asc" }, { start_time: "asc" }],
+    take: 60,
   });
 }
 

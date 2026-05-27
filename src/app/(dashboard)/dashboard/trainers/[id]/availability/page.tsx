@@ -7,6 +7,7 @@ import {
   removeAvailabilitySlotAction,
 } from "@/modules/trainers/actions";
 import { AvailabilitySlotForm } from "@/components/forms/availability-slot-form";
+import { RemoveAvailabilitySlotButton } from "@/components/forms/remove-availability-slot-button";
 import { DAY_OF_WEEK_LABELS, WEEK_DAYS_ORDER } from "@/lib/utils/labels";
 
 type Props = { params: Promise<{ id: string }> };
@@ -82,16 +83,11 @@ export default async function TrainerAvailabilityPage({ params }: Props) {
                       <span className="text-sm font-medium text-zinc-700">
                         {slot.start_time} – {slot.end_time}
                       </span>
-                      <form action={removeAvailabilitySlotAction}>
-                        <input type="hidden" name="slot_id" value={slot.id} />
-                        <input type="hidden" name="trainer_id" value={id} />
-                        <button
-                          type="submit"
-                          className="text-xs text-red-600 hover:text-red-800 px-2.5 py-1 rounded border border-red-200 hover:bg-red-50 transition-colors"
-                        >
-                          Eliminar
-                        </button>
-                      </form>
+                      <RemoveAvailabilitySlotButton
+                        slotId={slot.id}
+                        trainerId={id}
+                        action={removeAvailabilitySlotAction}
+                      />
                     </div>
                   ))}
                 </div>
@@ -121,9 +117,9 @@ export default async function TrainerAvailabilityPage({ params }: Props) {
       {/* Nota informativa */}
       <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3">
         <p className="text-xs text-amber-700">
-          <strong>Nota:</strong> La validación de solapamiento con clases agendadas se habilitará
-          en la etapa 9 (Agenda y clases). Por ahora se valida que los bloques del mismo día no
-          se solapen entre sí.
+          <strong>Nota:</strong> El sistema valida que los bloques de disponibilidad no se crucen
+          entre sí y que las clases programadas queden cubiertas por la disponibilidad del
+          entrenador.
         </p>
       </div>
 

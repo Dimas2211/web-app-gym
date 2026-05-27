@@ -18,6 +18,7 @@ import {
   updateTrainerSchema,
   availabilitySlotSchema,
 } from "./schemas";
+import { checkAvailabilitySlotCanBeRemoved } from "./availability-validator";
 
 export type TrainerActionState =
   | { errors?: Record<string, string[]>; error?: string }
@@ -309,19 +310,31 @@ export async function addAvailabilitySlotAction(
 // Eliminar bloque de disponibilidad (soft delete)
 // ──────────────────────────────────────────────
 export async function removeAvailabilitySlotAction(
-  formData: FormData
-): Promise<void> {
+  _prev: TrainerActionState,
+  formData: FormData,
+): Promise<TrainerActionState> {
   const sessionUser = await requireAdmin();
   const slot_id = formData.get("slot_id") as string;
   const trainer_id = formData.get("trainer_id") as string;
-  if (!slot_id || !trainer_id) return;
+  if (!slot_id || !trainer_id) return { error: "Datos inválidos." };
 
   const slot = await prisma.trainerAvailability.findUnique({
     where: { id: slot_id },
     include: { trainer: true },
   });
-  if (!slot) return;
-  if (!canManageTrainer(sessionUser, slot.trainer)) return;
+  if (!slot) return { error: "Bloque no encontrado." };
+  if (!canManageTrainer(sessionUser, slot.trainer))
+    return { error: "Sin permiso para gestionar este entrenador." };
+
+  // Verificar que no haya clases programadas que queden sin cobertura
+  const check = await checkAvailabilitySlotCanBeRemoved(
+    slot_id,
+    slot.trainer_id,
+    slot.day_of_week,
+  );
+  if (!check.canRemove) {
+    return { error: check.message };
+  }
 
   await prisma.trainerAvailability.update({
     where: { id: slot_id },

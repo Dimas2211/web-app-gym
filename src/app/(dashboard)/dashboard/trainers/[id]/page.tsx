@@ -5,9 +5,10 @@ import {
   getTrainerById,
   getAssignedClients,
 } from "@/modules/trainers/queries";
+import { getTrainerUpcomingClasses } from "@/modules/classes/queries";
 import { toggleTrainerStatusAction } from "@/modules/trainers/actions";
 import { StatusBadge } from "@/components/ui/status-badge";
-import { DAY_OF_WEEK_LABELS, WEEK_DAYS_ORDER } from "@/lib/utils/labels";
+import { DAY_OF_WEEK_LABELS, WEEK_DAYS_ORDER, CLASS_STATUS_LABELS, CLASS_STATUS_COLORS } from "@/lib/utils/labels";
 
 type Props = { params: Promise<{ id: string }> };
 
@@ -38,7 +39,10 @@ export default async function TrainerDetailPage({ params }: Props) {
   const trainer = await getTrainerById(id, sessionUser);
   if (!trainer || !canManageTrainer(sessionUser, trainer)) notFound();
 
-  const assignedClients = await getAssignedClients(trainer, sessionUser);
+  const [assignedClients, upcomingClasses] = await Promise.all([
+    getAssignedClients(trainer, sessionUser),
+    getTrainerUpcomingClasses(id, sessionUser),
+  ]);
 
   // Disponibilidad agrupada por día
   const availabilityByDay: Record<number, typeof trainer.availability> = {};
@@ -257,19 +261,85 @@ export default async function TrainerDetailPage({ params }: Props) {
         )}
       </div>
 
-      {/* Agenda — preparada para etapa 9 */}
+      {/* Agenda de clases */}
       <div className="bg-white rounded-xl border border-zinc-200 shadow-sm p-5">
-        <h2 className="text-xs font-semibold text-zinc-400 uppercase tracking-wide mb-3">
-          Agenda de clases
-        </h2>
-        <div className="rounded-lg border border-dashed border-zinc-200 bg-zinc-50 p-6 text-center">
-          <p className="text-sm text-zinc-400">
-            La agenda de clases se habilitará en la etapa 9 del sistema.
-          </p>
-          <p className="text-xs text-zinc-300 mt-1">
-            Módulo: Agenda y clases · Próximamente
-          </p>
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h2 className="text-xs font-semibold text-zinc-400 uppercase tracking-wide">
+              Agenda de clases
+            </h2>
+            <p className="text-xs text-zinc-400 mt-0.5">Próximas clases asignadas a este entrenador.</p>
+          </div>
+          <Link
+            href={`/dashboard/classes?trainer_id=${id}`}
+            className="text-xs text-zinc-600 hover:text-zinc-900 px-2.5 py-1 rounded border border-zinc-200 hover:border-zinc-400 transition-colors"
+          >
+            Ver agenda completa
+          </Link>
         </div>
+
+        {upcomingClasses.length === 0 ? (
+          <p className="text-sm text-zinc-400">Este entrenador no tiene clases programadas.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-xs text-zinc-400 border-b border-zinc-100">
+                  <th className="text-left font-medium pb-2 pr-4">Fecha</th>
+                  <th className="text-left font-medium pb-2 pr-4">Horario</th>
+                  <th className="text-left font-medium pb-2 pr-4">Clase</th>
+                  <th className="text-left font-medium pb-2 pr-4">Tipo</th>
+                  <th className="text-left font-medium pb-2 pr-4">Sucursal</th>
+                  <th className="text-left font-medium pb-2 pr-4">Estado</th>
+                  <th className="text-left font-medium pb-2">Cupos</th>
+                </tr>
+              </thead>
+              <tbody>
+                {upcomingClasses.map((cls) => {
+                  const statusKey = cls.status as keyof typeof CLASS_STATUS_LABELS;
+                  const confirmedCount = cls._count.bookings;
+                  return (
+                    <tr key={cls.id} className="border-b border-zinc-50 last:border-0 hover:bg-zinc-50 transition-colors">
+                      <td className="py-2 pr-4 text-zinc-600 whitespace-nowrap">
+                        {new Date(cls.class_date).toLocaleDateString("es-MX", {
+                          weekday: "short",
+                          day: "numeric",
+                          month: "short",
+                          timeZone: "UTC",
+                        })}
+                      </td>
+                      <td className="py-2 pr-4 text-zinc-600 whitespace-nowrap">
+                        {cls.start_time} – {cls.end_time}
+                      </td>
+                      <td className="py-2 pr-4">
+                        <Link
+                          href={`/dashboard/classes/${cls.id}`}
+                          className="text-zinc-800 font-medium hover:text-zinc-600 transition-colors"
+                        >
+                          {cls.title}
+                        </Link>
+                      </td>
+                      <td className="py-2 pr-4 text-zinc-500">{cls.class_type.name}</td>
+                      <td className="py-2 pr-4">
+                        <span className="text-xs bg-zinc-100 text-zinc-600 px-2 py-0.5 rounded-full">
+                          {cls.branch.name}
+                        </span>
+                      </td>
+                      <td className="py-2 pr-4">
+                        <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${CLASS_STATUS_COLORS[statusKey]}`}>
+                          {CLASS_STATUS_LABELS[statusKey]}
+                        </span>
+                      </td>
+                      <td className="py-2 text-zinc-500 whitespace-nowrap">
+                        {confirmedCount}/{cls.capacity}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
 
       {/* Auditoría */}

@@ -16,6 +16,7 @@ import {
   createBookingSchema,
   recordAttendanceSchema,
 } from "./schemas";
+import { validateClassWithinTrainerAvailability } from "@/modules/trainers/availability-validator";
 
 export type ClassActionState =
   | { errors?: Record<string, string[]>; error?: string }
@@ -179,7 +180,26 @@ export async function createScheduledClassAction(
     return { error: "El entrenador no pertenece a tu sucursal." };
   }
 
-  // Validar solapamiento
+  // Validar disponibilidad del entrenador (debe ir antes del overlap check)
+  const availCheck = await validateClassWithinTrainerAvailability(
+    trainer_id,
+    class_date,
+    start_time,
+    end_time,
+  );
+  if (!availCheck.valid) {
+    return {
+      errors: {
+        start_time: [
+          availCheck.reason === "no_availability"
+            ? "El entrenador no tiene disponibilidad registrada para ese día."
+            : "La clase queda fuera de los bloques de disponibilidad del entrenador.",
+        ],
+      },
+    };
+  }
+
+  // Validar solapamiento con otras clases
   const overlap = await validateTrainerOverlap(
     trainer_id,
     class_date,
@@ -190,7 +210,7 @@ export async function createScheduledClassAction(
     return {
       errors: {
         start_time: [
-          `El entrenador ya tiene "${overlap.title}" de ${overlap.start_time} a ${overlap.end_time} en esa fecha.`,
+          `El entrenador ya tiene una clase programada de ${overlap.start_time} a ${overlap.end_time} en esa fecha.`,
         ],
       },
     };
@@ -242,6 +262,26 @@ export async function updateScheduledClassAction(
   });
   if (!trainer) return { error: "Entrenador no encontrado." };
 
+  // Validar disponibilidad del entrenador (debe ir antes del overlap check)
+  const availCheckUpdate = await validateClassWithinTrainerAvailability(
+    trainer_id,
+    class_date,
+    start_time,
+    end_time,
+  );
+  if (!availCheckUpdate.valid) {
+    return {
+      errors: {
+        start_time: [
+          availCheckUpdate.reason === "no_availability"
+            ? "El entrenador no tiene disponibilidad registrada para ese día."
+            : "La clase queda fuera de los bloques de disponibilidad del entrenador.",
+        ],
+      },
+    };
+  }
+
+  // Validar solapamiento con otras clases
   const overlap = await validateTrainerOverlap(
     trainer_id,
     class_date,
@@ -253,7 +293,7 @@ export async function updateScheduledClassAction(
     return {
       errors: {
         start_time: [
-          `El entrenador ya tiene "${overlap.title}" de ${overlap.start_time} a ${overlap.end_time} en esa fecha.`,
+          `El entrenador ya tiene una clase programada de ${overlap.start_time} a ${overlap.end_time} en esa fecha.`,
         ],
       },
     };
@@ -295,6 +335,53 @@ export async function toggleScheduledClassStatusAction(
 
   revalidatePath("/dashboard/classes");
   revalidatePath(`/dashboard/classes/${id}`);
+}
+
+export async function deleteScheduledClassAction(
+  formData: FormData
+): Promise<void> {
+  const sessionUser = await requireAdmin();
+  const id = formData.get("id") as string;
+  const date = (formData.get("date") as string) || "";
+  const view = (formData.get("view") as string) || "";
+  if (!id) return;
+
+  const baseReturn =
+    view === "upcoming"
+      ? "/dashboard/classes?view=upcoming"
+      : `/dashboard/classes?date=${date}`;
+
+  const target = await prisma.scheduledClass.findUnique({
+    where: { id },
+    include: {
+      _count: {
+        select: {
+          bookings: true,
+          attendance: true,
+        },
+      },
+    },
+  });
+
+  if (!target || !canManageClass(sessionUser, target)) return;
+
+  if (target._count.bookings > 0) {
+    const msg = encodeURIComponent(
+      "La clase tiene reservas registradas. Cancélala en lugar de eliminarla."
+    );
+    redirect(`${baseReturn}&error=${msg}`);
+  }
+
+  if (target._count.attendance > 0) {
+    const msg = encodeURIComponent(
+      "La clase tiene asistencia registrada. Cancélala en lugar de eliminarla."
+    );
+    redirect(`${baseReturn}&error=${msg}`);
+  }
+
+  await prisma.scheduledClass.delete({ where: { id } });
+  revalidatePath("/dashboard/classes");
+  redirect(baseReturn);
 }
 
 // ══════════════════════════════════════════════
