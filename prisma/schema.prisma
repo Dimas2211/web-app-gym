@@ -1566,7 +1566,7 @@ model Sale {
   // Control de flujo de inventario
   inventory_moved          Boolean   @default(false)
 
-  // Referencia opcional a sesión de caja — sin FK formal (cash pendiente)
+  // Referencia opcional a sesión de caja — FK en cash_sessions (nullable)
   cash_session_id          String?
 
   notes                    String?

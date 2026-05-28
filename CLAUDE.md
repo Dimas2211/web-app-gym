@@ -91,7 +91,7 @@ El proyecto ya cerró formalmente su transición base de reorganización.
 - `commerce/purchases` está cerrado y operativo, incluyendo importación DTE, alias proveedor-producto, líneas repetidas e historial en suppliers.
 - `commerce/sales` está cerrado y operativo — ciclo interno DRAFT/CONFIRMED/CANCELLED + Panel Fiscal DTE en /dashboard/sales.
 - `commerce/dte` V1 cerrado — FE 01, CCFE 03, NC 05, Invalidación y delivery externo MariaDB operativos. Ver docs/modules/dte-v1-operational-close.md.
-- `commerce/cash` está pendiente.
+- `commerce/cash` está cerrado y operativo — apertura/cierre de sesión, movimientos manuales, corte, historial, exportación PDF/Excel, asociación automática venta → sesión. Ver docs/modules/cash-summary.md.
 
 ### Regla de interpretación
 
@@ -422,11 +422,11 @@ Reglas:
 - no modificar consulta de compras si el bug está en captura
 - toda corrección debe ser puntual y auditable
 
-### Sales y cash
+### Cash
 
-`sales` y `cash` están pendientes.
+`cash` está cerrado y operativo. Ver docs/modules/cash-summary.md.
 
-No tocarlos salvo instrucción explícita.
+No tocar salvo instrucción explícita.
 
 ---
 

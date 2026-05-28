@@ -10,7 +10,7 @@
 - commerce/sales ciclo interno cerrado (Fase 4H-Z) — DRAFT, CONFIRMED, inventario, UI operativa.
 - commerce/customers cerrado y operativo — módulo completo con catálogos fiscales (Fase 4I-3B-1 + ajustes).
 - commerce/dte outgoing — V1 cerrado operativamente. FE 01, CCFE 03, NC 05 e Invalidación generados, validados, firmados, transmitidos a MH TEST con respuesta ACCEPTED y entregados a sistema externo MariaDB. Panel Fiscal DTE operativo en /dashboard/sales. Ver docs/modules/dte-v1-operational-close.md.
-- cash pendiente.
+- commerce/cash cerrado y operativo — apertura/cierre de sesión, movimientos manuales, corte de caja, historial, exportación PDF/Excel, asociación automática venta → sesión. Ver docs/modules/cash-summary.md.
 
 ## Identidad activa
 - La identidad transversal oficial es tenant_id / location_id.
@@ -74,7 +74,7 @@
 - inventory
 - purchases (cerrado)
 - suppliers (cerrado)
-- cash
+- cash (cerrado)
 - correlativo de purchases
 - consulta de compras
 - grillas ya funcionales
@@ -99,8 +99,8 @@
 - QR URL pública, PDF, entrega por email.
 - Reintentos automáticos de delivery externo.
 - Estrategia del firmador fuera de localhost para producción/Vercel.
-- Cash/Caja (pagos, cortes, cuentas por cobrar).
-- Anulación de ventas confirmadas.
+- Anulación de ventas confirmadas (con reversión en caja y opción de nota de crédito).
+- Acceso rol reception a operaciones de caja (si requerido operativamente).
 
 ## Deuda técnica
 - tests automatizados
