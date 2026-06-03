@@ -2151,3 +2151,335 @@ model CashMovement {
   @@index([movement_type])
   @@map("cash_movements")
 }
+
+// ═════════════════════════════════════════════════════════════════
+// PLATFORM — Administración multiindustria (Etapa 16)
+//
+// Platform administra organizaciones, licencias y módulos.
+// ERP opera en runtime usando su propia configuración (ACTIVE_MODULES).
+//
+// REGLA CRÍTICA: ERP runtime NO consulta Platform en cada request.
+// Platform sirve para provisioning, activación y licenciamiento.
+// La separación es arquitectónica: Platform administra, ERP ejecuta.
+// ═════════════════════════════════════════════════════════════════
+
+// ── Enums platform ────────────────────────────────────────────────
+
+enum PlatformOrganizationStatus {
+  PENDING
+  ACTIVE
+  SUSPENDED
+  CANCELLED
+}
+
+enum PlatformLicenseStatus {
+  TRIAL
+  ACTIVE
+  SUSPENDED
+  EXPIRED
+  CANCELLED
+}
+
+enum PlatformBillingCycle {
+  MONTHLY
+  ANNUAL
+  LIFETIME
+  NONE
+}
+
+enum PlatformModuleCategory {
+  CORE
+  COMMERCE
+  VERTICAL
+  INTEGRATION
+}
+
+enum PlatformModuleStatus {
+  AVAILABLE
+  COMING_SOON
+  DEPRECATED
+}
+
+enum PlatformDeploymentStatus {
+  SUCCESS
+  FAILED
+  ROLLBACK
+}
+
+enum PlatformProvisioningStatus {
+  NOT_READY
+  READY
+  PROVISIONED
+  DEPLOYED
+  FAILED
+}
+
+// ── PlatformVertical — verticales de industria ────────────────────
+
+model PlatformVertical {
+  id          String   @id @default(uuid())
+  code        String   @unique  // "GYM", "RETAIL", "CLINIC", "VETERINARY", "GENERAL"
+  name        String
+  description String?
+  is_active   Boolean  @default(true)
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+
+  organizations PlatformOrganization[]
+  modules       PlatformModule[]
+
+  @@map("platform_verticals")
+}
+
+// ── PlatformPlan — planes de licencia disponibles ─────────────────
+
+model PlatformPlan {
+  id            String               @id @default(uuid())
+  code          String               @unique  // "starter", "professional", "enterprise"
+  name          String
+  description   String?
+  billing_cycle PlatformBillingCycle @default(MONTHLY)
+  price_monthly Decimal?             @db.Decimal(10, 2)
+  price_annual  Decimal?             @db.Decimal(10, 2)
+  max_locations Int?                 // null = sin límite
+  max_users     Int?                 // null = sin límite
+  is_active     Boolean              @default(true)
+  created_at    DateTime             @default(now())
+  updated_at    DateTime             @updatedAt
+
+  organizations PlatformOrganization[]
+
+  @@map("platform_plans")
+}
+
+// ── PlatformOrganization — instancia cliente ──────────────────────
+
+model PlatformOrganization {
+  id         String @id @default(uuid())
+  code       String @unique  // identificador único de la organización (slug/código)
+  name       String          // nombre comercial
+  legal_name String?         // razón social formal
+  nit        String?         // identificación fiscal
+
+  // Referencia al tenant runtime — string sin FK formal.
+  // El ERP opera independiente; este campo es solo para administración Platform.
+  tenant_id String? @unique
+
+  // Vertical e industria
+  vertical_id String?
+
+  // Plan activo
+  plan_id String?
+
+  // Estados
+  status               PlatformOrganizationStatus  @default(PENDING)
+  license_status       PlatformLicenseStatus        @default(TRIAL)
+  billing_cycle        PlatformBillingCycle         @default(MONTHLY)
+  provisioning_status  PlatformProvisioningStatus   @default(NOT_READY)
+
+  // Licencia y fechas
+  trial_ends_at      DateTime?
+  license_expires_at DateTime?
+
+  // Configuración regional
+  country_code String?  // ISO alpha-2
+  timezone     String?  // ej: "America/El_Salvador"
+
+  // Presencia web
+  domain   String?
+  logo_url String?
+
+  // Despliegue e instancia
+  deployment_url      String?  // URL del ERP desplegado para esta org
+  instance_identifier String?  // identificador técnico de la instancia
+
+  // Suspensión
+  suspended_at       DateTime?
+  suspension_reason  String?
+
+  // Auditoría
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+  created_by String?  // ID del admin Platform que creó el registro
+
+  // Relaciones
+  vertical          PlatformVertical?                @relation(fields: [vertical_id], references: [id])
+  plan              PlatformPlan?                    @relation(fields: [plan_id], references: [id])
+  modules           PlatformOrganizationModule[]
+  branding          PlatformBranding?
+  deployments       PlatformDeploymentLog[]
+  provisioning_logs PlatformProvisioningLog[]
+  export_logs       PlatformDeploymentExportLog[]
+
+  @@index([tenant_id])
+  @@index([status])
+  @@index([license_status])
+  @@index([provisioning_status])
+  @@index([vertical_id])
+  @@index([plan_id])
+  @@map("platform_organizations")
+}
+
+// ── PlatformModule — catálogo global de módulos disponibles ───────
+
+model PlatformModule {
+  id          String                 @id @default(uuid())
+  code        String                 @unique  // "core.users", "commerce.sales", "gym.memberships", etc.
+  name        String
+  description String?
+  category    PlatformModuleCategory
+  status      PlatformModuleStatus   @default(AVAILABLE)
+  version     String                 @default("1.0")
+  is_core     Boolean                @default(false)  // módulos base no desactivables
+
+  // Vertical asociada (null = módulo transversal/core)
+  vertical_id String?
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  // Relaciones
+  vertical             PlatformVertical?            @relation(fields: [vertical_id], references: [id])
+  organization_modules PlatformOrganizationModule[]
+
+  @@index([category])
+  @@index([status])
+  @@index([vertical_id])
+  @@map("platform_modules")
+}
+
+// ── PlatformOrganizationModule — módulos activos por organización ─
+
+model PlatformOrganizationModule {
+  id              String    @id @default(uuid())
+  organization_id String
+  module_id       String
+
+  is_active      Boolean   @default(true)
+  activated_at   DateTime  @default(now())
+  deactivated_at DateTime?
+
+  // Auditoría
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+  created_by String?
+  updated_by String?
+
+  // Relaciones
+  organization PlatformOrganization @relation(fields: [organization_id], references: [id])
+  module       PlatformModule       @relation(fields: [module_id], references: [id])
+
+  @@unique([organization_id, module_id])
+  @@index([organization_id])
+  @@index([module_id])
+  @@index([is_active])
+  @@map("platform_organization_modules")
+}
+
+// ── PlatformBranding — identidad visual por organización ──────────
+
+model PlatformBranding {
+  id              String  @id @default(uuid())
+  organization_id String  @unique  // 1:1 con PlatformOrganization
+
+  primary_color   String?   // hex válido: "#RRGGBB"
+  secondary_color String?   // hex válido: "#RRGGBB"
+  logo_url        String?
+  favicon_url     String?
+  custom_domain   String?   // dominio personalizado verificado
+
+  // Auditoría
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+  created_by String?
+  updated_by String?
+
+  // Relaciones
+  organization PlatformOrganization @relation(fields: [organization_id], references: [id])
+
+  @@map("platform_branding")
+}
+
+// ── PlatformDeploymentLog — log inmutable de provisioning ─────────
+
+model PlatformDeploymentLog {
+  id              String                   @id @default(uuid())
+  organization_id String
+
+  action       String                   // "CREATE_ORG", "ACTIVATE_MODULE", "CHANGE_STATUS", etc.
+  status       PlatformDeploymentStatus
+  notes        String?
+  metadata     Json?                    // payload estructurado adicional
+
+  triggered_by String?                  // ID admin Platform que disparó la acción
+  started_at   DateTime                 @default(now())
+  ended_at     DateTime?
+
+  // Sin updated_at — registro inmutable
+  created_at DateTime @default(now())
+
+  // Relaciones
+  organization PlatformOrganization @relation(fields: [organization_id], references: [id])
+
+  @@index([organization_id])
+  @@index([status])
+  @@index([created_at])
+  @@map("platform_deployment_logs")
+}
+
+// ── PlatformProvisioningLog — log de intentos de provisioning ─────
+// Separado de PlatformDeploymentLog. Registra validaciones y
+// cambios de estado de provisioning (no despliegues reales).
+
+model PlatformProvisioningLog {
+  id              String @id @default(uuid())
+  organization_id String
+
+  // Resultado de la validación
+  result          PlatformProvisioningStatus  // READY, NOT_READY, FAILED, etc.
+  triggered_by    String?                     // ID super_admin que disparó la acción
+
+  // Detalle
+  validation_errors Json?   // lista de errores de validación si NOT_READY
+  notes             String?
+
+  // Registro inmutable
+  created_at DateTime @default(now())
+
+  // Relaciones
+  organization PlatformOrganization @relation(fields: [organization_id], references: [id])
+
+  @@index([organization_id])
+  @@index([result])
+  @@index([created_at])
+  @@map("platform_provisioning_logs")
+}
+
+// ── PlatformDeploymentExportLog — historial de exportaciones de bundles ──
+// Separado de PlatformDeploymentLog y PlatformProvisioningLog.
+// Registra cada exportación de Deployment Bundle o Configuration Package.
+
+model PlatformDeploymentExportLog {
+  id              String @id @default(uuid())
+  organization_id String
+
+  export_type    String  // "DEPLOYMENT_BUNDLE" | "CONFIGURATION_PACKAGE"
+  bundle_version String  // "v1", "v2", "v3", …
+  exported_by    String? // ID del super_admin que exportó
+  result         String  // "SUCCESS" | "FAILED"
+  error_message  String?
+
+  // Snapshot inmutable del bundle exportado
+  bundle_snapshot Json?
+
+  // Registro inmutable
+  created_at DateTime @default(now())
+
+  // Relaciones
+  organization PlatformOrganization @relation(fields: [organization_id], references: [id])
+
+  @@index([organization_id])
+  @@index([export_type])
+  @@index([created_at])
+  @@map("platform_deployment_export_logs")
+}

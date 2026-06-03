@@ -54,4 +54,19 @@ export const MODULE_GROUPS: ModuleGroup[] = [
       { label: "Configuración", href: "/dashboard/settings", roles: ["super_admin"] },
     ],
   },
+  {
+    id: "platform",
+    label: "Platform Admin",
+    abbr: "PLT",
+    items: [
+      { label: "Panel Platform",         href: "/dashboard/platform",                              roles: ["super_admin"] },
+      { label: "Organizaciones",         href: "/dashboard/platform/organizations",                  roles: ["super_admin"] },
+      { label: "Planes",                 href: "/dashboard/platform/plans",                          roles: ["super_admin"] },
+      { label: "Módulos",                href: "/dashboard/platform/modules",                        roles: ["super_admin"] },
+      { label: "Verticales",             href: "/dashboard/platform/verticals",                      roles: ["super_admin"] },
+      { label: "Provisioning",           href: "/dashboard/platform/provisioning",                   roles: ["super_admin"] },
+      { label: "Deployment Preparation", href: "/dashboard/platform/deployment-preparation",         roles: ["super_admin"] },
+      { label: "Deployment Exports",     href: "/dashboard/platform/deployment-exports",             roles: ["super_admin"] },
+    ],
+  },
 ];

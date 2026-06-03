@@ -29,6 +29,7 @@ import { seedCommerceCatalogs } from "./seeds/seed.commerce-catalogs";
 import { seedBase } from "./seeds/seed.base";
 import { seedDemo } from "./seeds/seed.demo";
 import { seedCashRegisters } from "./seeds/seed.cash-registers";
+import { seedPlatform } from "./seeds/seed.platform";
 
 const prisma = new PrismaClient();
 
@@ -131,6 +132,7 @@ async function main() {
   if (mode === "catalogs") {
     await seedCatalogs(prisma);
     await seedCommerceCatalogs(prisma);
+    await seedPlatform(prisma);
 
     console.log("\n──────────────────────────────────────────────");
     console.log("✅ Modo CATALOGS completado.");
@@ -153,6 +155,7 @@ async function main() {
   if (mode === "base") {
     await seedCatalogs(prisma);
     await seedCommerceCatalogs(prisma);
+    await seedPlatform(prisma);
     const ctx = await seedBase(prisma);
     await seedCashRegisters(prisma);
 
@@ -185,6 +188,7 @@ async function main() {
   // ============================================================
   await seedCatalogs(prisma);
   await seedCommerceCatalogs(prisma);
+  await seedPlatform(prisma);
   await seedDemo(prisma);
   await seedCashRegisters(prisma);
 

@@ -1,0 +1,97 @@
+// ─────────────────────────────────────────────────────────────────
+// platform — /dashboard/platform/organizations/[id]/page.tsx
+//
+// Detalle completo de una organización Platform Admin.
+// Solo accesible por super_admin.
+// ─────────────────────────────────────────────────────────────────
+
+import { notFound }             from "next/navigation";
+import { requireSuperAdmin }    from "@/lib/permissions/guards";
+
+import { getPlatformOrganizationByIdQuery } from "@/modules/platform/queries/get-platform-organization-by-id";
+import { listOrganizationModulesQuery }     from "@/modules/platform/queries/list-organization-modules";
+import { listPlatformModulesQuery }         from "@/modules/platform/queries/list-platform-modules";
+import { listPlatformVerticalsQuery }       from "@/modules/platform/queries/list-platform-verticals";
+import { listPlatformPlansQuery }           from "@/modules/platform/queries/list-platform-plans";
+import { getPlatformBrandingQuery }         from "@/modules/platform/queries/get-platform-branding";
+import { listDeploymentLogsQuery }          from "@/modules/platform/queries/list-deployment-logs";
+
+import { PlatformOrganizationDetail }         from "@/modules/platform/components/platform-organization-detail";
+import { PlatformOrganizationModulesPanel }   from "@/modules/platform/components/platform-organization-modules-panel";
+import { PlatformLicensePanel }               from "@/modules/platform/components/platform-license-panel";
+import { PlatformOrganizationSettingsPanel }  from "@/modules/platform/components/platform-organization-settings-panel";
+import { PlatformDeploymentSummary }          from "@/modules/platform/components/platform-deployment-summary";
+import { PlatformBrandingPanel }              from "@/modules/platform/components/platform-branding-panel";
+import { PlatformDeploymentLogsPanel }        from "@/modules/platform/components/platform-deployment-logs-panel";
+
+interface Props {
+  params: Promise<{ id: string }>;
+}
+
+export async function generateMetadata({ params }: Props) {
+  const { id } = await params;
+  const org = await getPlatformOrganizationByIdQuery(id);
+  return {
+    title: org ? `${org.name} — Platform Admin` : "Organización no encontrada",
+  };
+}
+
+export default async function PlatformOrganizationDetailPage({ params }: Props) {
+  await requireSuperAdmin();
+
+  const { id } = await params;
+
+  const [org, orgModules, allModules, verticals, plans, branding, logs] = await Promise.all([
+    getPlatformOrganizationByIdQuery(id),
+    listOrganizationModulesQuery(id),
+    listPlatformModulesQuery(),
+    listPlatformVerticalsQuery(false),
+    listPlatformPlansQuery(false),
+    getPlatformBrandingQuery(id),
+    listDeploymentLogsQuery(id, 30),
+  ]);
+
+  if (!org) notFound();
+
+  return (
+    <div className="space-y-5">
+
+      {/* Header, info general y edición completa */}
+      <PlatformOrganizationDetail org={org} verticals={verticals} plans={plans} />
+
+      {/* Gestión de licencia */}
+      <PlatformLicensePanel org={org} />
+
+      {/* Módulos activos por organización */}
+      <PlatformOrganizationModulesPanel
+        organizationId={org.id}
+        orgModules={orgModules}
+        allModules={allModules}
+      />
+
+      {/* Configuración operativa */}
+      <PlatformOrganizationSettingsPanel
+        org={org}
+        orgModules={orgModules}
+        branding={branding}
+      />
+
+      {/* Deployment summary */}
+      <PlatformDeploymentSummary
+        org={org}
+        orgModules={orgModules}
+        branding={branding}
+      />
+
+      {/* Branding */}
+      <PlatformBrandingPanel
+        organizationId={org.id}
+        branding={branding}
+      />
+
+      {/* Deployment logs */}
+      <PlatformDeploymentLogsPanel logs={logs} />
+
+    </div>
+  );
+}
