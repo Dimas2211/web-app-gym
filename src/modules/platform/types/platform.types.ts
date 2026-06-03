@@ -366,3 +366,109 @@ export interface DeploymentPreparationItem {
   last_export_at:      Date | null;
   created_at:          Date;
 }
+
+// ── Deployment Automation (16H) ───────────────────────────────────
+
+export type PlatformDeploymentJobStatus =
+  | "PENDING"
+  | "RUNNING"
+  | "SUCCESS"
+  | "FAILED"
+  | "CANCELLED"
+  | "SIMULATED";
+
+export type PlatformDeploymentJobEnvironment =
+  | "LOCAL"
+  | "STAGING"
+  | "PRODUCTION";
+
+export type PlatformDeploymentJobMode =
+  | "SIMULATION"
+  | "MANUAL"
+  | "AUTOMATED";
+
+export type PlatformDeploymentStepStatus =
+  | "PENDING"
+  | "RUNNING"
+  | "SUCCESS"
+  | "FAILED"
+  | "SKIPPED";
+
+export interface PlatformDeploymentJobItem {
+  id:                  string;
+  organization_id:     string;
+  organization:        { code: string; name: string };
+  bundle_export_id:    string | null;
+  job_status:          PlatformDeploymentJobStatus;
+  target_environment:  PlatformDeploymentJobEnvironment;
+  deployment_mode:     PlatformDeploymentJobMode;
+  started_at:          Date | null;
+  finished_at:         Date | null;
+  created_by:          string | null;
+  notes:               string | null;
+  error_message:       string | null;
+  created_at:          Date;
+  updated_at:          Date;
+}
+
+export interface PlatformDeploymentJobDetail extends PlatformDeploymentJobItem {
+  steps: PlatformDeploymentStepItem[];
+}
+
+export interface PlatformDeploymentStepItem {
+  id:          string;
+  job_id:      string;
+  step_key:    string;
+  step_name:   string;
+  step_order:  number;
+  status:      PlatformDeploymentStepStatus;
+  started_at:  Date | null;
+  finished_at: Date | null;
+  message:     string | null;
+  metadata:    Record<string, unknown> | null;
+  created_at:  Date;
+  updated_at:  Date;
+}
+
+export interface PlatformDeploymentJobFilters {
+  organization_id?: string;
+  job_status?:      PlatformDeploymentJobStatus;
+  environment?:     PlatformDeploymentJobEnvironment;
+  deployment_mode?: PlatformDeploymentJobMode;
+  page_size?:       number;
+}
+
+// ── Manual Deployment (16I) ───────────────────────────────────────
+
+export interface ManualDeploymentOrgDetails {
+  code:                string;
+  name:                string;
+  legal_name:          string | null;
+  nit:                 string | null;
+  tenant_id:           string | null;
+  country_code:        string | null;
+  timezone:            string | null;
+  domain:              string | null;
+  deployment_url:      string | null;
+  instance_identifier: string | null;
+  vertical: { code: string; name: string } | null;
+  plan:     { code: string; name: string } | null;
+  branding: {
+    primary_color:   string | null;
+    secondary_color: string | null;
+    logo_url:        string | null;
+    custom_domain:   string | null;
+  } | null;
+  active_modules: { code: string; name: string; category: PlatformModuleCategory }[];
+}
+
+export interface ManualDeploymentJobDetail extends PlatformDeploymentJobItem {
+  steps:       PlatformDeploymentStepItem[];
+  org_details: ManualDeploymentOrgDetails;
+}
+
+export type ManualStepStatusUpdate =
+  | "RUNNING"
+  | "SUCCESS"
+  | "FAILED"
+  | "SKIPPED";

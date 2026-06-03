@@ -2310,6 +2310,7 @@ model PlatformOrganization {
   deployments       PlatformDeploymentLog[]
   provisioning_logs PlatformProvisioningLog[]
   export_logs       PlatformDeploymentExportLog[]
+  deployment_jobs   PlatformDeploymentJob[]
 
   @@index([tenant_id])
   @@index([status])
@@ -2482,4 +2483,102 @@ model PlatformDeploymentExportLog {
   @@index([export_type])
   @@index([created_at])
   @@map("platform_deployment_export_logs")
+}
+
+// ── Enums Deployment Automation (16H) ────────────────────────────
+
+enum PlatformDeploymentJobStatus {
+  PENDING
+  RUNNING
+  SUCCESS
+  FAILED
+  CANCELLED
+  SIMULATED
+}
+
+enum PlatformDeploymentJobEnvironment {
+  LOCAL
+  STAGING
+  PRODUCTION
+}
+
+enum PlatformDeploymentJobMode {
+  SIMULATION
+  MANUAL
+  AUTOMATED
+}
+
+enum PlatformDeploymentStepStatus {
+  PENDING
+  RUNNING
+  SUCCESS
+  FAILED
+  SKIPPED
+}
+
+// ── PlatformDeploymentJob — intento planificado/ejecutado de deployment ──
+// Representa un Deployment Job creado desde un Deployment Bundle.
+// En 16H solo se ejecuta en modo SIMULATION.
+
+model PlatformDeploymentJob {
+  id              String @id @default(uuid())
+  organization_id String
+
+  // Bundle de referencia (snapshot ID del export que se usa como base)
+  bundle_export_id String?
+
+  // Estado y configuración
+  job_status         PlatformDeploymentJobStatus       @default(PENDING)
+  target_environment PlatformDeploymentJobEnvironment  @default(LOCAL)
+  deployment_mode    PlatformDeploymentJobMode         @default(SIMULATION)
+
+  // Tiempos de ejecución
+  started_at  DateTime?
+  finished_at DateTime?
+
+  // Auditoría
+  created_by    String?
+  notes         String?
+  error_message String?
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  // Relaciones
+  organization PlatformOrganization     @relation(fields: [organization_id], references: [id])
+  steps        PlatformDeploymentStep[]
+
+  @@index([organization_id])
+  @@index([job_status])
+  @@index([target_environment])
+  @@index([created_at])
+  @@map("platform_deployment_jobs")
+}
+
+// ── PlatformDeploymentStep — pasos individuales de un Deployment Job ──
+// Cada job tiene pasos ordenados que se ejecutan en secuencia.
+
+model PlatformDeploymentStep {
+  id     String @id @default(uuid())
+  job_id String
+
+  step_key   String  // "VALIDATE_BUNDLE", "GENERATE_ENV_CONFIG", etc.
+  step_name  String  // Nombre legible
+  step_order Int     // Orden de ejecución
+
+  status      PlatformDeploymentStepStatus @default(PENDING)
+  started_at  DateTime?
+  finished_at DateTime?
+  message     String?
+  metadata    Json?
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  // Relaciones
+  job PlatformDeploymentJob @relation(fields: [job_id], references: [id], onDelete: Cascade)
+
+  @@index([job_id])
+  @@index([step_order])
+  @@map("platform_deployment_steps")
 }

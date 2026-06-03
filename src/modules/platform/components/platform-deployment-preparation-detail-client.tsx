@@ -12,6 +12,7 @@ import { PlatformProvisioningSummary }       from "./platform-provisioning-summa
 import { PlatformProvisioningStatusBadge }   from "./platform-provisioning-status-badge";
 import { PlatformDeploymentDownloadManager } from "./platform-deployment-download-manager";
 import { PlatformDeploymentExportHistory }   from "./platform-deployment-export-history";
+import { PlatformCreateDeploymentJobButton } from "./platform-create-deployment-job-button";
 
 import type {
   ProvisioningPackage,
@@ -26,6 +27,7 @@ interface Props {
   provisioningStatus:  PlatformProvisioningStatus;
   pkg:                 ProvisioningPackage;
   exportLogs:          DeploymentExportLogItem[];
+  hasExport:           boolean;
 }
 
 export function PlatformDeploymentPreparationDetailClient({
@@ -35,11 +37,14 @@ export function PlatformDeploymentPreparationDetailClient({
   provisioningStatus,
   pkg,
   exportLogs,
+  hasExport,
 }: Props) {
   const canExport =
     provisioningStatus === "READY" ||
     provisioningStatus === "PROVISIONED" ||
     provisioningStatus === "DEPLOYED";
+
+  const canCreateJob = canExport && hasExport;
 
   return (
     <div className="space-y-6">
@@ -69,7 +74,7 @@ export function PlatformDeploymentPreparationDetailClient({
           </div>
         </div>
 
-        {/* Columna derecha: Export */}
+        {/* Columna derecha: Export + Deployment Job */}
         <div className="space-y-4">
           <div className="bg-white border border-zinc-200 rounded-xl p-4">
             <h3 className="text-sm font-semibold text-zinc-700 mb-4">Exportación de Bundle</h3>
@@ -79,6 +84,16 @@ export function PlatformDeploymentPreparationDetailClient({
               canExport={canExport}
             />
           </div>
+
+          {canCreateJob && (
+            <div className="bg-white border border-zinc-200 rounded-xl p-4">
+              <h3 className="text-sm font-semibold text-zinc-700 mb-1">Deployment Job</h3>
+              <p className="text-xs text-zinc-500 mb-3">
+                Crea un job de deployment en modo simulación para validar el proceso antes del despliegue real.
+              </p>
+              <PlatformCreateDeploymentJobButton organizationId={organizationId} />
+            </div>
+          )}
         </div>
 
       </div>

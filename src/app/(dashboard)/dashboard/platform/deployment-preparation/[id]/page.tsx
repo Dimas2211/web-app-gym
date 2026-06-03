@@ -13,6 +13,7 @@ import { ArrowLeft } from "lucide-react";
 import { requireSuperAdmin }           from "@/lib/permissions/guards";
 import { getProvisioningPackageQuery } from "@/modules/platform/queries/get-provisioning-package";
 import { listDeploymentExportLogsQuery } from "@/modules/platform/queries/list-deployment-export-logs";
+import { getLatestDeploymentExportForOrgQuery } from "@/modules/platform/queries/get-latest-deployment-export-for-org";
 import { PlatformDeploymentPreparationDetailClient } from "@/modules/platform/components/platform-deployment-preparation-detail-client";
 
 interface Props {
@@ -34,9 +35,10 @@ export default async function PlatformDeploymentPreparationDetailPage({ params }
 
   const { id } = await params;
 
-  const [pkg, exportLogs] = await Promise.all([
+  const [pkg, exportLogs, latestExport] = await Promise.all([
     getProvisioningPackageQuery(id),
     listDeploymentExportLogsQuery(id, 50),
+    getLatestDeploymentExportForOrgQuery(id),
   ]);
 
   if (!pkg) notFound();
@@ -67,6 +69,7 @@ export default async function PlatformDeploymentPreparationDetailPage({ params }
         provisioningStatus={pkg.provisioning_status}
         pkg={pkg}
         exportLogs={exportLogs}
+        hasExport={!!latestExport}
       />
 
     </div>

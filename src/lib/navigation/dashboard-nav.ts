@@ -67,6 +67,8 @@ export const MODULE_GROUPS: ModuleGroup[] = [
       { label: "Provisioning",           href: "/dashboard/platform/provisioning",                   roles: ["super_admin"] },
       { label: "Deployment Preparation", href: "/dashboard/platform/deployment-preparation",         roles: ["super_admin"] },
       { label: "Deployment Exports",     href: "/dashboard/platform/deployment-exports",             roles: ["super_admin"] },
+      { label: "Deployments",            href: "/dashboard/platform/deployments",                    roles: ["super_admin"] },
+      { label: "Manual Deployment",      href: "/dashboard/platform/manual-deployment",              roles: ["super_admin"] },
     ],
   },
 ];
