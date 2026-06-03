@@ -270,7 +270,7 @@ export async function generateFeJsonForDte(
       tributos:       LineaTributo | null;
       psv:            number;
       noGravado:      number;
-      ivaItem:        number | null;
+      ivaItem:        number;
     }
 
     const cuerpoDocumento: CuerpoItem[] = sale.items.map((item) => {
@@ -291,7 +291,8 @@ export async function generateFeJsonForDte(
       const ventaExentaLine  = hasIva ? 0 : lineNetWithIva;
 
       // ivaItem: IVA extraído del precio final — informativo, usa valor persistido.
-      const ivaItemLine = hasIva ? r2(Number(item.tax_amount)) : null;
+      // MH schema exige number (no null); ítems sin IVA envían 0.
+      const ivaItemLine = hasIva ? r2(Number(item.tax_amount)) : 0;
 
       return {
         numItem:         item.line_number,
