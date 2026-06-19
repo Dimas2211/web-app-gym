@@ -194,6 +194,17 @@ export type PreflightCheckStatus    = "PASS" | "FAIL" | "WARN";
 export type PreflightCheckScope     = "GLOBAL" | "TENANT" | "LOCATION" | "MODULE";
 export type DatabasePreflightStatus = "READY" | "PARTIAL" | "NOT_READY";
 
+// Tipo de base evaluada — determina la severidad de checks platform
+// CONTROL_PLANE: base que aloja Platform Admin (platform_modules, verticals, plans → BLOCKER)
+// CLIENT_RUNTIME: base operativa de un cliente (platform checks → WARNING o ignorados)
+// DEMO:          base mixta demo (misma semántica que UNKNOWN para checks platform)
+// UNKNOWN:       no definido — modo conservador, platform checks como WARNING
+export type DatabasePreflightTargetType =
+  | "CONTROL_PLANE"
+  | "CLIENT_RUNTIME"
+  | "DEMO"
+  | "UNKNOWN";
+
 export interface PreflightCheckItem {
   code:        string;
   label:       string;
@@ -212,9 +223,10 @@ export interface PreflightSummary {
 }
 
 export interface DatabasePreflightResult {
-  status:  DatabasePreflightStatus;
-  summary: PreflightSummary;
-  checks:  PreflightCheckItem[];
+  status:     DatabasePreflightStatus;
+  targetType: DatabasePreflightTargetType;
+  summary:    PreflightSummary;
+  checks:     PreflightCheckItem[];
 }
 
 export interface DatabasePreflightInput {
@@ -222,6 +234,7 @@ export interface DatabasePreflightInput {
   locationId?:        string;
   activeModuleCodes?: string[];
   verticalCode?:      string;
+  targetType?:        DatabasePreflightTargetType;
 }
 
 // Configuración de provisioning generada

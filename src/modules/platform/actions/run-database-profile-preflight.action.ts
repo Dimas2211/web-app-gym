@@ -85,8 +85,12 @@ export async function runDatabaseProfilePreflightAction(
     return { error: "Perfil de base de datos no encontrado." };
   }
 
-  // Resolver input de preflight desde el control plane (organización asociada)
-  const input: DatabasePreflightInput = {};
+  // Resolver input de preflight desde el control plane (organización asociada).
+  // Los perfiles de base de datos son bases cliente/runtime — no control plane.
+  // Los checks platform (módulos, verticales, planes) no son BLOCKER aquí.
+  const input: DatabasePreflightInput = {
+    targetType: "CLIENT_RUNTIME",
+  };
   const tenantIdUsed = profile.organization.tenant_id ?? null;
 
   if (tenantIdUsed) {

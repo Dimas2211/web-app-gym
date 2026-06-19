@@ -28,6 +28,7 @@ import { runDatabaseProfilePreflightAction } from "../actions/run-database-profi
 import type {
   DatabasePreflightResult,
   DatabasePreflightStatus,
+  DatabasePreflightTargetType,
   PreflightCheckItem,
 } from "../types/platform.types";
 
@@ -71,6 +72,13 @@ const OVERALL_CONFIG: Record<
   READY:     { label: "Base operativa lista",           bg: "bg-green-50 border-green-100", textColor: "text-green-700",  Icon: CheckCircle2 },
   PARTIAL:   { label: "Lista con advertencias",         bg: "bg-amber-50 border-amber-100", textColor: "text-amber-700",  Icon: AlertTriangle },
   NOT_READY: { label: "Base NO está lista para operar", bg: "bg-red-50   border-red-100",   textColor: "text-red-700",    Icon: XCircle },
+};
+
+const TARGET_TYPE_LABEL: Record<DatabasePreflightTargetType, string> = {
+  CONTROL_PLANE: "Control plane",
+  CLIENT_RUNTIME: "Base cliente / runtime",
+  DEMO:          "Demo",
+  UNKNOWN:       "No definido",
 };
 
 // ── Componente ────────────────────────────────────────────────────
@@ -147,9 +155,18 @@ export function PlatformDatabaseProfilePreflightModal({
             <p className="text-xs text-zinc-500">
               Verifica catálogos, seeds y datos mínimos en la base objetivo. Solo lectura — no modifica datos.
             </p>
-            {tenantIdUsed && (
+            {result && (
               <p className="text-xs text-zinc-400 mt-1">
-                Tenant ID usado: <span className="font-mono text-zinc-600">{tenantIdUsed}</span>
+                Modo:{" "}
+                <span className="font-medium text-zinc-600">
+                  {TARGET_TYPE_LABEL[result.targetType]}
+                </span>
+                {tenantIdUsed && (
+                  <>
+                    {" · "}Tenant:{" "}
+                    <span className="font-mono text-zinc-600">{tenantIdUsed}</span>
+                  </>
+                )}
               </p>
             )}
           </div>

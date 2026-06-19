@@ -18,6 +18,7 @@ import type {
   DatabasePreflightInput,
   DatabasePreflightResult,
   DatabasePreflightStatus,
+  DatabasePreflightTargetType,
   PreflightCheckItem,
   PreflightCheckScope,
   PreflightCheckSeverity,
@@ -93,7 +94,10 @@ function warn(
 
 // ── Checks globales ───────────────────────────────────────────────
 
-async function runGlobalChecks(db: PrismaClient): Promise<PreflightCheckItem[]> {
+async function runGlobalChecks(
+  db: PrismaClient,
+  targetType: DatabasePreflightTargetType,
+): Promise<PreflightCheckItem[]> {
   const checks: PreflightCheckItem[] = [];
 
   let unitsCount         = 0;
@@ -258,46 +262,78 @@ async function runGlobalChecks(db: PrismaClient): Promise<PreflightCheckItem[]> 
     ));
   }
 
+  // 8–10. Checks platform — BLOCKER solo en CONTROL_PLANE; WARNING en bases cliente/runtime
+  // En CLIENT_RUNTIME / DEMO / UNKNOWN los módulos, verticales y planes de plataforma
+  // no viven en esta base sino en la base control plane — no deben bloquear.
+  const isControlPlane = targetType === "CONTROL_PLANE";
+  const platformClientRemediation =
+    "Esta base está evaluada como base cliente/runtime. " +
+    "Los módulos, verticales y planes de plataforma viven en la base control plane, no aquí.";
+
   // 8. Módulos de plataforma
   checks.push(
     platformModuleCount >= 1
-      ? pass("GLOBAL_PLATFORM_MODULES", "Módulos de plataforma", "BLOCKER", "GLOBAL")
-      : fail(
-          "GLOBAL_PLATFORM_MODULES",
-          "Módulos de plataforma",
-          "BLOCKER",
-          "GLOBAL",
-          "No hay módulos de plataforma registrados.",
-          "Ejecutar seed de plataforma con modo 'base' o 'demo'.",
-        ),
+      ? pass("GLOBAL_PLATFORM_MODULES", "Módulos de plataforma", isControlPlane ? "BLOCKER" : "WARNING", "GLOBAL")
+      : isControlPlane
+        ? fail(
+            "GLOBAL_PLATFORM_MODULES",
+            "Módulos de plataforma",
+            "BLOCKER",
+            "GLOBAL",
+            "No hay módulos de plataforma registrados.",
+            "Ejecutar seed de plataforma con modo 'base' o 'demo'.",
+          )
+        : warn(
+            "GLOBAL_PLATFORM_MODULES",
+            "Módulos de plataforma",
+            "GLOBAL",
+            "No hay módulos de plataforma registrados en esta base cliente.",
+            platformClientRemediation,
+          ),
   );
 
   // 9. Verticales de plataforma
   checks.push(
     platformVerticalCount >= 1
-      ? pass("GLOBAL_PLATFORM_VERTICALS", "Verticales de plataforma", "BLOCKER", "GLOBAL")
-      : fail(
-          "GLOBAL_PLATFORM_VERTICALS",
-          "Verticales de plataforma",
-          "BLOCKER",
-          "GLOBAL",
-          "No hay verticales de plataforma activas.",
-          "Ejecutar seed de plataforma con modo 'base' o 'demo'.",
-        ),
+      ? pass("GLOBAL_PLATFORM_VERTICALS", "Verticales de plataforma", isControlPlane ? "BLOCKER" : "WARNING", "GLOBAL")
+      : isControlPlane
+        ? fail(
+            "GLOBAL_PLATFORM_VERTICALS",
+            "Verticales de plataforma",
+            "BLOCKER",
+            "GLOBAL",
+            "No hay verticales de plataforma activas.",
+            "Ejecutar seed de plataforma con modo 'base' o 'demo'.",
+          )
+        : warn(
+            "GLOBAL_PLATFORM_VERTICALS",
+            "Verticales de plataforma",
+            "GLOBAL",
+            "No hay verticales de plataforma activas en esta base cliente.",
+            platformClientRemediation,
+          ),
   );
 
   // 10. Planes de plataforma
   checks.push(
     platformPlanCount >= 1
-      ? pass("GLOBAL_PLATFORM_PLANS", "Planes de plataforma", "BLOCKER", "GLOBAL")
-      : fail(
-          "GLOBAL_PLATFORM_PLANS",
-          "Planes de plataforma",
-          "BLOCKER",
-          "GLOBAL",
-          "No hay planes de plataforma activos.",
-          "Ejecutar seed de plataforma con modo 'base' o 'demo'.",
-        ),
+      ? pass("GLOBAL_PLATFORM_PLANS", "Planes de plataforma", isControlPlane ? "BLOCKER" : "WARNING", "GLOBAL")
+      : isControlPlane
+        ? fail(
+            "GLOBAL_PLATFORM_PLANS",
+            "Planes de plataforma",
+            "BLOCKER",
+            "GLOBAL",
+            "No hay planes de plataforma activos.",
+            "Ejecutar seed de plataforma con modo 'base' o 'demo'.",
+          )
+        : warn(
+            "GLOBAL_PLATFORM_PLANS",
+            "Planes de plataforma",
+            "GLOBAL",
+            "No hay planes de plataforma activos en esta base cliente.",
+            platformClientRemediation,
+          ),
   );
 
   // 11 & 12. Goals y Sports — solo si la vertical GYM está activa en plataforma
@@ -639,12 +675,14 @@ export async function runDatabasePreflight(
   input: DatabasePreflightInput = {},
   options?: { prismaClient?: PrismaClient },
 ): Promise<DatabasePreflightResult> {
-  const db = (options?.prismaClient ?? prisma) as PrismaClient;
+  const db         = (options?.prismaClient ?? prisma) as PrismaClient;
+  // Default CONTROL_PLANE para preservar comportamiento previo sin targetType
+  const targetType: DatabasePreflightTargetType = input.targetType ?? "CONTROL_PLANE";
 
   const checks: PreflightCheckItem[] = [];
 
   // Siempre: checks globales
-  const globalChecks = await runGlobalChecks(db);
+  const globalChecks = await runGlobalChecks(db, targetType);
   checks.push(...globalChecks);
 
   // Si hay tenant: checks de tenant + módulos
@@ -683,6 +721,7 @@ export async function runDatabasePreflight(
 
   return {
     status,
+    targetType,
     summary: {
       totalChecks: checks.length,
       passed:      passed.length,
