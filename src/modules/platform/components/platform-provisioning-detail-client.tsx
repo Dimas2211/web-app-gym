@@ -13,6 +13,7 @@ import { Settings2 }  from "lucide-react";
 
 import { PlatformProvisioningStatusBadge }   from "./platform-provisioning-status-badge";
 import { PlatformProvisioningValidator }     from "./platform-provisioning-validator";
+import { PlatformDatabasePreflightPanel }    from "./platform-database-preflight-panel";
 import { PlatformProvisioningChecklist }     from "./platform-provisioning-checklist";
 import { PlatformProvisioningSummary }       from "./platform-provisioning-summary";
 import { PlatformProvisioningPackageViewer } from "./platform-provisioning-package-viewer";
@@ -71,12 +72,15 @@ export function PlatformProvisioningDetailClient({
         </div>
       </div>
 
-      {/* Validador */}
+      {/* Validador de configuración Platform */}
       <PlatformProvisioningValidator
         organizationId={organizationId}
         organizationName={organizationName}
         onValidated={handleValidated}
       />
+
+      {/* Preflight de base de datos operativa */}
+      <PlatformDatabasePreflightPanel organizationId={organizationId} />
 
       {/* Checklist */}
       <PlatformProvisioningChecklist checks={pkg.validation.checks} />

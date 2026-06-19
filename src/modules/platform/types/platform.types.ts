@@ -187,6 +187,43 @@ export interface ProvisioningValidationResult {
   checks: ProvisioningCheckItem[];
 }
 
+// ── Database Preflight ─────────────────────────────────────────────
+
+export type PreflightCheckSeverity  = "BLOCKER" | "WARNING" | "INFO";
+export type PreflightCheckStatus    = "PASS" | "FAIL" | "WARN";
+export type PreflightCheckScope     = "GLOBAL" | "TENANT" | "LOCATION" | "MODULE";
+export type DatabasePreflightStatus = "READY" | "PARTIAL" | "NOT_READY";
+
+export interface PreflightCheckItem {
+  code:        string;
+  label:       string;
+  severity:    PreflightCheckSeverity;
+  status:      PreflightCheckStatus;
+  scope:       PreflightCheckScope;
+  message:     string;
+  remediation: string;
+}
+
+export interface PreflightSummary {
+  totalChecks: number;
+  passed:      number;
+  failed:      number;
+  warnings:    number;
+}
+
+export interface DatabasePreflightResult {
+  status:  DatabasePreflightStatus;
+  summary: PreflightSummary;
+  checks:  PreflightCheckItem[];
+}
+
+export interface DatabasePreflightInput {
+  tenantId?:          string;
+  locationId?:        string;
+  activeModuleCodes?: string[];
+  verticalCode?:      string;
+}
+
 // Configuración de provisioning generada
 export interface ProvisioningConfiguration {
   organization_code:   string;
