@@ -26,6 +26,8 @@ import "dotenv/config";
 import { PrismaClient } from "@prisma/client";
 import { seedCatalogs } from "./seeds/seed.catalogs";
 import { seedCommerceCatalogs } from "./seeds/seed.commerce-catalogs";
+import { seedDteCatalogItems } from "./seeds/seed.dte-catalog-items";
+import { seedUnitsOfMeasure } from "./seeds/seed.units-of-measure";
 import { seedBase } from "./seeds/seed.base";
 import { seedDemo } from "./seeds/seed.demo";
 import { seedCashRegisters } from "./seeds/seed.cash-registers";
@@ -114,9 +116,9 @@ async function main() {
 
   // --- Describir qué se va a ejecutar ---
   const PLAN: Record<SeedMode, string> = {
-    demo:     "seedCatalogs  →  seedCommerceCatalogs  →  seedDemo",
-    base:     "seedCatalogs  →  seedCommerceCatalogs  →  seedBase",
-    catalogs: "seedCatalogs  →  seedCommerceCatalogs  (sin gym ni usuarios)",
+    demo:     "seedCatalogs  →  seedCommerceCatalogs  →  seedDteCatalogItems  →  seedUnitsOfMeasure  →  seedDemo",
+    base:     "seedCatalogs  →  seedCommerceCatalogs  →  seedDteCatalogItems  →  seedUnitsOfMeasure  →  seedBase",
+    catalogs: "seedCatalogs  →  seedCommerceCatalogs  →  seedDteCatalogItems  →  seedUnitsOfMeasure  (sin gym ni usuarios)",
   };
   console.log(`  Ejecutando          : ${PLAN[mode]}`);
 
@@ -132,6 +134,8 @@ async function main() {
   if (mode === "catalogs") {
     await seedCatalogs(prisma);
     await seedCommerceCatalogs(prisma);
+    await seedDteCatalogItems(prisma);
+    await seedUnitsOfMeasure(prisma);
     await seedPlatform(prisma);
 
     console.log("\n──────────────────────────────────────────────");
@@ -143,6 +147,8 @@ async function main() {
     console.log("     • EconomicActivity   (~110 actividades CAT-019)");
     console.log("     • Municipality       (262 municipios CAT-013)");
     console.log("     • Country            (~33 países)");
+    console.log("     • DteCatalogItem     (catálogos oficiales MH: CAT-001/002/003/004/016/017/018/022/024)");
+    console.log("     • UnitOfMeasure      (40 unidades CAT-014 Hacienda)");
     console.log("\n   NO se creó: gym, sucursal, usuarios, planes, clases.");
     return;
   }
@@ -155,6 +161,8 @@ async function main() {
   if (mode === "base") {
     await seedCatalogs(prisma);
     await seedCommerceCatalogs(prisma);
+    await seedDteCatalogItems(prisma);
+    await seedUnitsOfMeasure(prisma);
     await seedPlatform(prisma);
     const ctx = await seedBase(prisma);
     await seedCashRegisters(prisma);
@@ -164,9 +172,13 @@ async function main() {
     console.log("\n   Creado / actualizado:");
     console.log("     • Sport (15 deportes)");
     console.log("     • Goal  (7 metas de entrenamiento)");
+    console.log("     • DteCatalogItem     (catálogos oficiales MH)");
+    console.log("     • UnitOfMeasure      (40 unidades CAT-014 Hacienda)");
     console.log(`     • Gym   → "${ctx.gym.name}"  (slug: ${ctx.gym.slug})`);
     console.log(`     • Branch → "${ctx.branch.name}"`);
     console.log(`     • User  → ${ctx.adminUser.email}  [super_admin]`);
+    console.log("     • ProductCategory    (1 categoría: General)");
+    console.log("     • TenantFiscalConfig (configuración fiscal por defecto)");
     console.log("\n   NO se creó: usuarios demo, clientes, membresías, clases, planes semanales.");
     console.log("\n   Credenciales del super admin:");
     console.log(`     Email:      ${ctx.adminUser.email}`);
@@ -188,6 +200,8 @@ async function main() {
   // ============================================================
   await seedCatalogs(prisma);
   await seedCommerceCatalogs(prisma);
+  await seedDteCatalogItems(prisma);
+  await seedUnitsOfMeasure(prisma);
   await seedPlatform(prisma);
   await seedDemo(prisma);
   await seedCashRegisters(prisma);
@@ -196,8 +210,12 @@ async function main() {
   console.log("✅ Modo DEMO completado.");
   console.log("\n   Creado / actualizado:");
   console.log("     • Sport (15) + Goal (7)");
+  console.log("     • DteCatalogItem     (catálogos oficiales MH)");
+  console.log("     • UnitOfMeasure      (40 unidades CAT-014 Hacienda)");
   console.log("     • Gym: Power Gym  (slug: power-gym-demo)");
   console.log("     • Branch: Sucursal Central");
+  console.log("     • ProductCategory    (4 categorías demo)");
+  console.log("     • TenantFiscalConfig (configuración fiscal por defecto)");
   console.log("     • Usuarios demo (5 roles) + 2 clientes con acceso a portal");
   console.log("     • 8 clientes adicionales solo admin");
   console.log("     • 7 planes de membresía");

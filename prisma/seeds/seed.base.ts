@@ -129,6 +129,34 @@ export async function seedBase(prisma: PrismaClient): Promise<BaseContext> {
     console.log("  ✅ TaxRate: IVA 13% ya existe");
   }
 
+  // ----------------------------------------------------------
+  // 5. CATEGORÍAS DE PRODUCTO — mínimo operativo
+  // tenant_id = gym.id. Idempotente por @@unique([tenant_id, code]).
+  // ----------------------------------------------------------
+  const baseCategories = [
+    { code: "GENERAL", name: "General", description: "Categoría general de productos" },
+  ];
+  for (const cat of baseCategories) {
+    await prisma.productCategory.upsert({
+      where:  { tenant_id_code: { tenant_id: gym.id, code: cat.code } },
+      update: { name: cat.name },
+      create: { tenant_id: gym.id, code: cat.code, name: cat.name, description: cat.description, status: "active" },
+    });
+  }
+  console.log(`  ✅ ProductCategory: ${baseCategories.length} categoría(s) base`);
+
+  // ----------------------------------------------------------
+  // 6. CONFIGURACIÓN FISCAL DEL TENANT — valores seguros por defecto
+  // @@unique(tenant_id): idempotente con upsert.
+  // No incluye credenciales DTE ni datos fiscales reales.
+  // ----------------------------------------------------------
+  await prisma.tenantFiscalConfig.upsert({
+    where:  { tenant_id: gym.id },
+    update: {},
+    create: { tenant_id: gym.id, is_retention_agent: false },
+  });
+  console.log("  ✅ TenantFiscalConfig: configuración fiscal por defecto creada");
+
   return {
     gym: { id: gym.id, name: gym.name, slug: gym.slug },
     branch: { id: branch.id, name: branch.name },

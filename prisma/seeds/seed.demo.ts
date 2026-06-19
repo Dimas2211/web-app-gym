@@ -127,6 +127,36 @@ export async function seedDemo(prisma: PrismaClient): Promise<void> {
   }
 
   // ----------------------------------------------------------
+  // 1c. CATEGORÍAS DE PRODUCTO — demo
+  // tenant_id = gym.id. Idempotente por @@unique([tenant_id, code]).
+  // ----------------------------------------------------------
+  const demoCategories = [
+    { code: "SUPLEMENTOS", name: "Suplementos",  description: "Suplementos deportivos y nutricionales" },
+    { code: "BEBIDAS",     name: "Bebidas",       description: "Bebidas hidratantes y energizantes" },
+    { code: "ACCESORIOS",  name: "Accesorios",    description: "Accesorios deportivos y de gym" },
+    { code: "SERVICIOS",   name: "Servicios",     description: "Servicios prestados por el gimnasio" },
+  ];
+  for (const cat of demoCategories) {
+    await prisma.productCategory.upsert({
+      where:  { tenant_id_code: { tenant_id: gym.id, code: cat.code } },
+      update: { name: cat.name },
+      create: { tenant_id: gym.id, code: cat.code, name: cat.name, description: cat.description, status: "active" },
+    });
+  }
+  console.log(`  ✅ ProductCategory: ${demoCategories.length} categorías demo`);
+
+  // ----------------------------------------------------------
+  // 1d. CONFIGURACIÓN FISCAL DEL TENANT — valores seguros por defecto
+  // @@unique(tenant_id): idempotente con upsert.
+  // ----------------------------------------------------------
+  await prisma.tenantFiscalConfig.upsert({
+    where:  { tenant_id: gym.id },
+    update: {},
+    create: { tenant_id: gym.id, is_retention_agent: false },
+  });
+  console.log("  ✅ TenantFiscalConfig: configuración fiscal por defecto");
+
+  // ----------------------------------------------------------
   // 2. BRANCH DEMO
   // ----------------------------------------------------------
   let branch = await prisma.branch.findFirst({
