@@ -69,6 +69,7 @@ export const MODULE_GROUPS: ModuleGroup[] = [
       { label: "Deployment Exports",     href: "/dashboard/platform/deployment-exports",             roles: ["super_admin"] },
       { label: "Deployments",            href: "/dashboard/platform/deployments",                    roles: ["super_admin"] },
       { label: "Manual Deployment",      href: "/dashboard/platform/manual-deployment",              roles: ["super_admin"] },
+      { label: "Perfiles de BD",          href: "/dashboard/platform/database-profiles",               roles: ["super_admin"] },
     ],
   },
 ];
