@@ -2311,6 +2311,7 @@ model PlatformOrganization {
   provisioning_logs PlatformProvisioningLog[]
   export_logs       PlatformDeploymentExportLog[]
   deployment_jobs   PlatformDeploymentJob[]
+  database_profiles PlatformDatabaseProfile[]
 
   @@index([tenant_id])
   @@index([status])
@@ -2581,4 +2582,84 @@ model PlatformDeploymentStep {
   @@index([job_id])
   @@index([step_order])
   @@map("platform_deployment_steps")
+}
+
+// ── Enums PlatformDatabaseProfile (B2) ───────────────────────────
+
+enum PlatformDatabaseProfileEnvironment {
+  LOCAL
+  SANDBOX
+  TEST
+  STAGING
+  PRODUCTION
+}
+
+enum PlatformDatabaseProvider {
+  POSTGRESQL
+  SUPABASE
+  NEON
+  RENDER
+  LOCAL_POSTGRES
+  OTHER
+}
+
+enum PlatformDatabaseSslMode {
+  DISABLE
+  PREFER
+  REQUIRE
+}
+
+enum PlatformDatabaseConnectionTestStatus {
+  UNTESTED
+  SUCCESS
+  FAILED
+}
+
+// ── PlatformDatabaseProfile — perfiles de conexión por organización ──
+// Almacena metadatos de conexión a la BD del cliente.
+// El password se cifra con AES-256-GCM antes de persistir (B1 encryption).
+// NUNCA devolver encrypted_password al browser ni incluirlo en logs.
+
+model PlatformDatabaseProfile {
+  id              String @id @default(uuid())
+  organization_id String
+
+  // Identificación del perfil
+  label       String                             // ej: "TrustMe PROD", "Demo Local"
+  environment PlatformDatabaseProfileEnvironment @default(LOCAL)
+  provider    PlatformDatabaseProvider           @default(POSTGRESQL)
+
+  // Componentes de conexión — sin password en texto plano
+  db_host            String
+  db_port            Int?    // ej: 5432; null = puerto por defecto del provider
+  db_name            String
+  db_user            String
+  encrypted_password String  // resultado de encryptText(password) — AES-256-GCM
+
+  // SSL y opciones adicionales
+  ssl_mode           PlatformDatabaseSslMode @default(PREFER)
+  connection_options Json?   // opciones extra, ej: { "schema": "public" }
+
+  // Estado de la última prueba de conexión (Microfase C en adelante)
+  last_tested_at    DateTime?
+  last_test_status  PlatformDatabaseConnectionTestStatus @default(UNTESTED)
+  last_test_message String?
+
+  // Control
+  is_active Boolean @default(true)
+
+  // Auditoría
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+  created_by String?
+  updated_by String?
+
+  // Relación
+  organization PlatformOrganization @relation(fields: [organization_id], references: [id])
+
+  @@unique([organization_id, label])
+  @@index([organization_id])
+  @@index([environment])
+  @@index([is_active])
+  @@map("platform_database_profiles")
 }

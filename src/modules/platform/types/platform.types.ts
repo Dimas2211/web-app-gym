@@ -509,3 +509,60 @@ export type ManualStepStatusUpdate =
   | "SUCCESS"
   | "FAILED"
   | "SKIPPED";
+
+// ── Database Profiles (B2) ────────────────────────────────────────
+
+export type PlatformDatabaseProfileEnvironment =
+  | "LOCAL"
+  | "SANDBOX"
+  | "TEST"
+  | "STAGING"
+  | "PRODUCTION";
+
+export type PlatformDatabaseProvider =
+  | "POSTGRESQL"
+  | "SUPABASE"
+  | "NEON"
+  | "RENDER"
+  | "LOCAL_POSTGRES"
+  | "OTHER";
+
+export type PlatformDatabaseSslMode =
+  | "DISABLE"
+  | "PREFER"
+  | "REQUIRE";
+
+export type PlatformDatabaseConnectionTestStatus =
+  | "UNTESTED"
+  | "SUCCESS"
+  | "FAILED";
+
+// Metadatos seguros del perfil — sin encrypted_password ni credenciales
+export interface PlatformDatabaseProfileItem {
+  id:               string;
+  organization_id:  string;
+  organization:     { code: string; name: string };
+  label:            string;
+  environment:      PlatformDatabaseProfileEnvironment;
+  provider:         PlatformDatabaseProvider;
+  db_host:          string;
+  db_port:          number | null;
+  db_name:          string;
+  db_user:          string;
+  ssl_mode:         PlatformDatabaseSslMode;
+  connection_options: Record<string, unknown> | null;
+  last_tested_at:   Date | null;
+  last_test_status: PlatformDatabaseConnectionTestStatus;
+  last_test_message: string | null;
+  is_active:        boolean;
+  created_at:       Date;
+  updated_at:       Date;
+  created_by:       string | null;
+  updated_by:       string | null;
+}
+
+export interface PlatformDatabaseProfileFilters {
+  organization_id?: string;
+  environment?:     PlatformDatabaseProfileEnvironment;
+  is_active?:       boolean;
+}
