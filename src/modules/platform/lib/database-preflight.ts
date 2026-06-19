@@ -5,8 +5,13 @@
 // Verifica que catálogos, seeds y datos mínimos estén presentes.
 // Función async server-side — NUNCA escribe datos.
 // Solo usa: count, findUnique, findFirst.
+//
+// Acepta un PrismaClient externo via options.prismaClient para
+// ejecutar checks contra bases de datos dinámicas (C3).
+// Si no se pasa, usa el singleton normal de la app.
 // ─────────────────────────────────────────────────────────────────
 
+import type { PrismaClient } from "@prisma/client";
 import { prisma } from "@/lib/db/prisma";
 import { PLATFORM_MODULE_CODES } from "../constants/platform-modules.constants";
 import type {
@@ -17,6 +22,30 @@ import type {
   PreflightCheckScope,
   PreflightCheckSeverity,
 } from "../types/platform.types";
+
+// ── Helper de errores de schema para bases dinámicas ─────────────
+// Solo se usa cuando se ejecuta contra un PrismaClient externo.
+// Evita filtrar connection strings en mensajes de error.
+
+function extractSafeCheckError(err: unknown): string {
+  const code = typeof err === "object" && err !== null
+    ? (err as { code?: string }).code
+    : undefined;
+
+  if (code === "P2021" || code === "P2022") {
+    return `Tabla o columna no encontrada en esta base de datos (Prisma ${code}). El schema puede estar incompleto o desactualizado.`;
+  }
+  if (code === "P2010") {
+    return `Error de query en la base de datos objetivo (Prisma ${code}).`;
+  }
+
+  const raw = err instanceof Error ? err.message : String(err);
+  return raw
+    .replace(/postgresql:\/\/[^\s"']*/gi, "[redacted]")
+    .replace(/postgres:\/\/[^\s"']*/gi,   "[redacted]")
+    .replace(/:[^@\s]{1,256}@/g, ":[redacted]@")
+    .substring(0, 300);
+}
 
 // ── Catálogos DTE requeridos (mínimo un ítem activo de cada uno) ──
 
@@ -64,30 +93,52 @@ function warn(
 
 // ── Checks globales ───────────────────────────────────────────────
 
-async function runGlobalChecks(): Promise<PreflightCheckItem[]> {
+async function runGlobalChecks(db: PrismaClient): Promise<PreflightCheckItem[]> {
   const checks: PreflightCheckItem[] = [];
 
-  const [
-    unitsCount,
-    idTypesCount,
-    econActCount,
-    municipalityCount,
-    countryCount,
-    platformModuleCount,
-    platformVerticalCount,
-    platformPlanCount,
-    gymVerticalCount,
-  ] = await Promise.all([
-    prisma.unitOfMeasure.count({ where: { status: "active" } }),
-    prisma.identificationType.count({ where: { status: "active" } }),
-    prisma.economicActivity.count({ where: { status: "active" } }),
-    prisma.municipality.count({ where: { status: "active" } }),
-    prisma.country.count({ where: { status: "active" } }),
-    prisma.platformModule.count(),
-    prisma.platformVertical.count({ where: { is_active: true } }),
-    prisma.platformPlan.count({ where: { is_active: true } }),
-    prisma.platformVertical.count({ where: { code: "GYM", is_active: true } }),
-  ]);
+  let unitsCount         = 0;
+  let idTypesCount       = 0;
+  let econActCount       = 0;
+  let municipalityCount  = 0;
+  let countryCount       = 0;
+  let platformModuleCount   = 0;
+  let platformVerticalCount = 0;
+  let platformPlanCount     = 0;
+  let gymVerticalCount      = 0;
+
+  try {
+    ([
+      unitsCount,
+      idTypesCount,
+      econActCount,
+      municipalityCount,
+      countryCount,
+      platformModuleCount,
+      platformVerticalCount,
+      platformPlanCount,
+      gymVerticalCount,
+    ] = await Promise.all([
+      db.unitOfMeasure.count({ where: { status: "active" } }),
+      db.identificationType.count({ where: { status: "active" } }),
+      db.economicActivity.count({ where: { status: "active" } }),
+      db.municipality.count({ where: { status: "active" } }),
+      db.country.count({ where: { status: "active" } }),
+      db.platformModule.count(),
+      db.platformVertical.count({ where: { is_active: true } }),
+      db.platformPlan.count({ where: { is_active: true } }),
+      db.platformVertical.count({ where: { code: "GYM", is_active: true } }),
+    ]));
+  } catch (err) {
+    checks.push(fail(
+      "GLOBAL_SCHEMA_ERROR",
+      "Error al leer catálogos globales del schema",
+      "BLOCKER",
+      "GLOBAL",
+      extractSafeCheckError(err),
+      "Verificar que el schema de la base de datos objetivo esté actualizado con las migraciones más recientes.",
+    ));
+    return checks;
+  }
 
   // 1. Unidades de medida
   checks.push(
@@ -171,30 +222,41 @@ async function runGlobalChecks(): Promise<PreflightCheckItem[]> {
   );
 
   // 7. Catálogos DTE requeridos (por cada código)
-  const dteCatalogCounts = await Promise.all(
-    REQUIRED_DTE_CATALOGS.map((cat) =>
-      prisma.dteCatalogItem
-        .count({ where: { catalog_code: cat, is_active: true } })
-        .then((count) => ({ cat, count })),
-    ),
-  );
+  try {
+    const dteCatalogCounts = await Promise.all(
+      REQUIRED_DTE_CATALOGS.map((cat) =>
+        db.dteCatalogItem
+          .count({ where: { catalog_code: cat, is_active: true } })
+          .then((count) => ({ cat, count })),
+      ),
+    );
 
-  const missingCatalogs = dteCatalogCounts
-    .filter(({ count }) => count === 0)
-    .map(({ cat }) => cat);
+    const missingCatalogs = dteCatalogCounts
+      .filter(({ count }) => count === 0)
+      .map(({ cat }) => cat);
 
-  checks.push(
-    missingCatalogs.length === 0
-      ? pass("GLOBAL_DTE_CATALOG_ITEMS", "Catálogos DTE requeridos", "BLOCKER", "GLOBAL")
-      : fail(
-          "GLOBAL_DTE_CATALOG_ITEMS",
-          "Catálogos DTE requeridos",
-          "BLOCKER",
-          "GLOBAL",
-          `Faltan ítems activos en: ${missingCatalogs.join(", ")}.`,
-          "Ejecutar seedDteCatalogItems con modo 'catalogs', 'base' o 'demo'.",
-        ),
-  );
+    checks.push(
+      missingCatalogs.length === 0
+        ? pass("GLOBAL_DTE_CATALOG_ITEMS", "Catálogos DTE requeridos", "BLOCKER", "GLOBAL")
+        : fail(
+            "GLOBAL_DTE_CATALOG_ITEMS",
+            "Catálogos DTE requeridos",
+            "BLOCKER",
+            "GLOBAL",
+            `Faltan ítems activos en: ${missingCatalogs.join(", ")}.`,
+            "Ejecutar seedDteCatalogItems con modo 'catalogs', 'base' o 'demo'.",
+          ),
+    );
+  } catch (err) {
+    checks.push(fail(
+      "GLOBAL_DTE_CATALOG_ITEMS",
+      "Catálogos DTE requeridos",
+      "BLOCKER",
+      "GLOBAL",
+      `Error al verificar catálogos DTE: ${extractSafeCheckError(err)}`,
+      "Verificar que la tabla DteCatalogItem exista y esté actualizada en la base objetivo.",
+    ));
+  }
 
   // 8. Módulos de plataforma
   checks.push(
@@ -240,36 +302,47 @@ async function runGlobalChecks(): Promise<PreflightCheckItem[]> {
 
   // 11 & 12. Goals y Sports — solo si la vertical GYM está activa en plataforma
   if (gymVerticalCount > 0) {
-    const [goalsCount, sportsCount] = await Promise.all([
-      prisma.goal.count({ where: { status: "active" } }),
-      prisma.sport.count({ where: { status: "active" } }),
-    ]);
+    try {
+      const [goalsCount, sportsCount] = await Promise.all([
+        db.goal.count({ where: { status: "active" } }),
+        db.sport.count({ where: { status: "active" } }),
+      ]);
 
-    checks.push(
-      goalsCount >= 1
-        ? pass("GLOBAL_GYM_GOALS", "Objetivos (Goals) — vertical GYM", "BLOCKER", "GLOBAL")
-        : fail(
-            "GLOBAL_GYM_GOALS",
-            "Objetivos (Goals) — vertical GYM",
-            "BLOCKER",
-            "GLOBAL",
-            "Vertical GYM activa pero no hay goals activos.",
-            "Ejecutar seed con modo 'base' o 'demo' (seedGoals).",
-          ),
-    );
+      checks.push(
+        goalsCount >= 1
+          ? pass("GLOBAL_GYM_GOALS", "Objetivos (Goals) — vertical GYM", "BLOCKER", "GLOBAL")
+          : fail(
+              "GLOBAL_GYM_GOALS",
+              "Objetivos (Goals) — vertical GYM",
+              "BLOCKER",
+              "GLOBAL",
+              "Vertical GYM activa pero no hay goals activos.",
+              "Ejecutar seed con modo 'base' o 'demo' (seedGoals).",
+            ),
+      );
 
-    checks.push(
-      sportsCount >= 1
-        ? pass("GLOBAL_GYM_SPORTS", "Deportes (Sports) — vertical GYM", "BLOCKER", "GLOBAL")
-        : fail(
-            "GLOBAL_GYM_SPORTS",
-            "Deportes (Sports) — vertical GYM",
-            "BLOCKER",
-            "GLOBAL",
-            "Vertical GYM activa pero no hay sports activos.",
-            "Ejecutar seed con modo 'base' o 'demo' (seedSports).",
-          ),
-    );
+      checks.push(
+        sportsCount >= 1
+          ? pass("GLOBAL_GYM_SPORTS", "Deportes (Sports) — vertical GYM", "BLOCKER", "GLOBAL")
+          : fail(
+              "GLOBAL_GYM_SPORTS",
+              "Deportes (Sports) — vertical GYM",
+              "BLOCKER",
+              "GLOBAL",
+              "Vertical GYM activa pero no hay sports activos.",
+              "Ejecutar seed con modo 'base' o 'demo' (seedSports).",
+            ),
+      );
+    } catch (err) {
+      checks.push(fail(
+        "GLOBAL_GYM_GOALS",
+        "Goals/Sports — vertical GYM",
+        "BLOCKER",
+        "GLOBAL",
+        `Error al verificar Goals/Sports GYM: ${extractSafeCheckError(err)}`,
+        "Verificar que las tablas Goal y Sport existan en la base objetivo.",
+      ));
+    }
   }
 
   return checks;
@@ -280,29 +353,57 @@ async function runGlobalChecks(): Promise<PreflightCheckItem[]> {
 async function runTenantChecks(
   tenantId: string,
   activeModuleCodes: string[],
+  db: PrismaClient,
 ): Promise<PreflightCheckItem[]> {
   const checks: PreflightCheckItem[] = [];
 
   // Cargar datos de tenant en paralelo
-  const [gym, branchCount, adminUserCount, taxRateCount, productCategoryCount, tenantFiscalConfig, cashRegisterCount] =
-    await Promise.all([
-      prisma.gym.findUnique({
+  let gym:                 { id: string; name: string; status: string } | null = null;
+  let branchCount          = 0;
+  let adminUserCount       = 0;
+  let taxRateCount         = 0;
+  let productCategoryCount = 0;
+  let tenantFiscalConfig:  { tenant_id: string } | null = null;
+  let cashRegisterCount    = 0;
+
+  try {
+    ([
+      gym,
+      branchCount,
+      adminUserCount,
+      taxRateCount,
+      productCategoryCount,
+      tenantFiscalConfig,
+      cashRegisterCount,
+    ] = await Promise.all([
+      db.gym.findUnique({
         where:  { id: tenantId },
         select: { id: true, name: true, status: true },
       }),
-      prisma.branch.count({ where: { gym_id: tenantId, status: "active" } }),
-      prisma.user.count({
+      db.branch.count({ where: { gym_id: tenantId, status: "active" } }),
+      db.user.count({
         where: {
           gym_id: tenantId,
           role:   { in: ["super_admin", "branch_admin"] },
           status: "active",
         },
       }),
-      prisma.taxRate.count({ where: { tenant_id: tenantId, status: "active" } }),
-      prisma.productCategory.count({ where: { tenant_id: tenantId, status: "active" } }),
-      prisma.tenantFiscalConfig.findUnique({ where: { tenant_id: tenantId } }),
-      prisma.cashRegister.count({ where: { tenant_id: tenantId, is_active: true } }),
-    ]);
+      db.taxRate.count({ where: { tenant_id: tenantId, status: "active" } }),
+      db.productCategory.count({ where: { tenant_id: tenantId, status: "active" } }),
+      db.tenantFiscalConfig.findUnique({ where: { tenant_id: tenantId } }),
+      db.cashRegister.count({ where: { tenant_id: tenantId, is_active: true } }),
+    ]));
+  } catch (err) {
+    checks.push(fail(
+      "TENANT_SCHEMA_ERROR",
+      "Error al leer datos del tenant",
+      "BLOCKER",
+      "TENANT",
+      extractSafeCheckError(err),
+      "Verificar que el schema de la base objetivo incluya las tablas Gym, Branch, User, TaxRate, ProductCategory, TenantFiscalConfig y CashRegister.",
+    ));
+    return checks;
+  }
 
   // 1. Tenant / Gym existe
   if (!gym) {
@@ -426,11 +527,19 @@ async function runTenantChecks(
   if (dteActive) {
     const currentYear = new Date().getFullYear();
 
-    const [dteIssuerConfigCount, dteCorrelativeCount, dteCredentialsWithoutPayload] =
-      await Promise.all([
-        prisma.dteIssuerConfig.count({ where: { tenant_id: tenantId, is_active: true } }),
-        prisma.dteCorrelative.count({ where: { tenant_id: tenantId, year: currentYear } }),
-        prisma.dteCredential.count({
+    let dteIssuerConfigCount          = 0;
+    let dteCorrelativeCount           = 0;
+    let dteCredentialsWithoutPayload  = 0;
+
+    try {
+      ([
+        dteIssuerConfigCount,
+        dteCorrelativeCount,
+        dteCredentialsWithoutPayload,
+      ] = await Promise.all([
+        db.dteIssuerConfig.count({ where: { tenant_id: tenantId, is_active: true } }),
+        db.dteCorrelative.count({ where: { tenant_id: tenantId, year: currentYear } }),
+        db.dteCredential.count({
           where: {
             issuer_config:     { tenant_id: tenantId },
             is_active:         true,
@@ -438,7 +547,18 @@ async function runTenantChecks(
             secret_ref:        null,
           },
         }),
-      ]);
+      ]));
+    } catch (err) {
+      checks.push(fail(
+        "TENANT_DTE_SCHEMA_ERROR",
+        "Error al leer configuración DTE",
+        "BLOCKER",
+        "MODULE",
+        extractSafeCheckError(err),
+        "Verificar que las tablas DteIssuerConfig, DteCorrelative y DteCredential existan en la base objetivo.",
+      ));
+      return checks;
+    }
 
     checks.push(
       dteIssuerConfigCount >= 1
@@ -517,11 +637,14 @@ async function runTenantChecks(
 
 export async function runDatabasePreflight(
   input: DatabasePreflightInput = {},
+  options?: { prismaClient?: PrismaClient },
 ): Promise<DatabasePreflightResult> {
+  const db = (options?.prismaClient ?? prisma) as PrismaClient;
+
   const checks: PreflightCheckItem[] = [];
 
   // Siempre: checks globales
-  const globalChecks = await runGlobalChecks();
+  const globalChecks = await runGlobalChecks(db);
   checks.push(...globalChecks);
 
   // Si hay tenant: checks de tenant + módulos
@@ -529,6 +652,7 @@ export async function runDatabasePreflight(
     const tenantChecks = await runTenantChecks(
       input.tenantId,
       input.activeModuleCodes ?? [],
+      db,
     );
     checks.push(...tenantChecks);
   } else {

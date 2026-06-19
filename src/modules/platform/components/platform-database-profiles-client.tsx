@@ -16,10 +16,11 @@
 import { useState, useMemo, useTransition, useEffect } from "react";
 import { Database, Plus, AlertTriangle } from "lucide-react";
 
-import { PlatformDatabaseProfilesTable }    from "./platform-database-profiles-table";
-import { PlatformDatabaseProfileFormDialog } from "./platform-database-profile-form-dialog";
-import { setDatabaseProfileActiveAction }    from "../actions/set-database-profile-active.action";
-import { testDatabaseProfileConnectionAction } from "../actions/test-database-profile-connection.action";
+import { PlatformDatabaseProfilesTable }        from "./platform-database-profiles-table";
+import { PlatformDatabaseProfileFormDialog }     from "./platform-database-profile-form-dialog";
+import { PlatformDatabaseProfilePreflightModal } from "./platform-database-profile-preflight-modal";
+import { setDatabaseProfileActiveAction }        from "../actions/set-database-profile-active.action";
+import { testDatabaseProfileConnectionAction }   from "../actions/test-database-profile-connection.action";
 
 import type { PlatformDatabaseProfileItem } from "../types/platform.types";
 
@@ -45,12 +46,13 @@ export function PlatformDatabaseProfilesClient({
   organizations,
   encryptionKeyMissing,
 }: PlatformDatabaseProfilesClientProps) {
-  const [selectedOrgId,  setSelectedOrgId]  = useState<string>("");
-  const [showDialog,     setShowDialog]     = useState(false);
-  const [editingProfile, setEditingProfile] = useState<PlatformDatabaseProfileItem | null>(null);
-  const [testingId,      setTestingId]      = useState<string | null>(null);
-  const [togglingId,     setTogglingId]     = useState<string | null>(null);
-  const [feedback,       setFeedback]       = useState<Feedback | null>(null);
+  const [selectedOrgId,     setSelectedOrgId]     = useState<string>("");
+  const [showDialog,        setShowDialog]        = useState(false);
+  const [editingProfile,    setEditingProfile]    = useState<PlatformDatabaseProfileItem | null>(null);
+  const [testingId,         setTestingId]         = useState<string | null>(null);
+  const [togglingId,        setTogglingId]        = useState<string | null>(null);
+  const [feedback,          setFeedback]          = useState<Feedback | null>(null);
+  const [preflightProfile,  setPreflightProfile]  = useState<PlatformDatabaseProfileItem | null>(null);
 
   const [, startTransition] = useTransition();
 
@@ -109,6 +111,10 @@ export function PlatformDatabaseProfilesClient({
         message: result.message,
       });
     });
+  }
+
+  function handleOpenPreflight(p: PlatformDatabaseProfileItem) {
+    setPreflightProfile(p);
   }
 
   return (
@@ -197,9 +203,11 @@ export function PlatformDatabaseProfilesClient({
           items={filteredProfiles}
           testingId={testingId}
           togglingId={togglingId}
+          preflightingId={null}
           onEdit={handleOpenEdit}
           onToggleActive={handleToggleActive}
           onTest={handleTestConnection}
+          onPreflight={handleOpenPreflight}
         />
         {profiles.length > 0 && (
           <div className="px-4 py-2 border-t border-zinc-100 bg-zinc-50 text-xs text-zinc-400 text-right">
@@ -216,6 +224,16 @@ export function PlatformDatabaseProfilesClient({
           profile={editingProfile}
           organizations={organizations}
           onClose={handleCloseDialog}
+        />
+      )}
+
+      {/* Modal de preflight por perfil (C3) */}
+      {preflightProfile && (
+        <PlatformDatabaseProfilePreflightModal
+          key={preflightProfile.id}
+          profileId={preflightProfile.id}
+          profileLabel={preflightProfile.label}
+          onClose={() => setPreflightProfile(null)}
         />
       )}
 

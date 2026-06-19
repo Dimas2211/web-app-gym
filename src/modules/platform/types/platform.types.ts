@@ -510,6 +510,14 @@ export type ManualStepStatusUpdate =
   | "FAILED"
   | "SKIPPED";
 
+// ── Database Profile Preflight (C3) ──────────────────────────────
+
+// Resultado de runDatabaseProfilePreflightAction
+// (preflight contra un PlatformDatabaseProfile via Prisma dinámico)
+export type DatabaseProfilePreflightActionState =
+  | { result: DatabasePreflightResult; profileLabel: string; tenantIdUsed: string | null; error?: never }
+  | { result?: never; profileLabel?: string; tenantIdUsed?: never; error: string };
+
 // ── Database Profiles (B2) ────────────────────────────────────────
 
 export type PlatformDatabaseProfileEnvironment =

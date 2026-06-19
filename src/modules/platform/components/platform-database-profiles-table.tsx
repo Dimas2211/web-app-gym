@@ -9,7 +9,7 @@
 // operativos, nunca el password.
 // ─────────────────────────────────────────────────────────────────
 
-import { Pencil, Power, PlugZap, Loader2 } from "lucide-react";
+import { Pencil, Power, PlugZap, Loader2, ShieldCheck } from "lucide-react";
 import type {
   PlatformDatabaseProfileItem,
   PlatformDatabaseConnectionTestStatus,
@@ -17,12 +17,14 @@ import type {
 } from "../types/platform.types";
 
 interface Props {
-  items:          PlatformDatabaseProfileItem[];
-  testingId:      string | null;
-  togglingId:     string | null;
-  onEdit:         (p: PlatformDatabaseProfileItem) => void;
-  onToggleActive: (p: PlatformDatabaseProfileItem) => void;
-  onTest:         (p: PlatformDatabaseProfileItem) => void;
+  items:           PlatformDatabaseProfileItem[];
+  testingId:       string | null;
+  togglingId:      string | null;
+  preflightingId:  string | null;
+  onEdit:          (p: PlatformDatabaseProfileItem) => void;
+  onToggleActive:  (p: PlatformDatabaseProfileItem) => void;
+  onTest:          (p: PlatformDatabaseProfileItem) => void;
+  onPreflight:     (p: PlatformDatabaseProfileItem) => void;
 }
 
 function TestStatusBadge({ status }: { status: PlatformDatabaseConnectionTestStatus }) {
@@ -58,9 +60,11 @@ export function PlatformDatabaseProfilesTable({
   items,
   testingId,
   togglingId,
+  preflightingId,
   onEdit,
   onToggleActive,
   onTest,
+  onPreflight,
 }: Props) {
   if (items.length === 0) {
     return (
@@ -89,8 +93,9 @@ export function PlatformDatabaseProfilesTable({
         </thead>
         <tbody className="divide-y divide-zinc-50">
           {items.map((p) => {
-            const isTesting  = testingId  === p.id;
-            const isToggling = togglingId === p.id;
+            const isTesting      = testingId      === p.id;
+            const isToggling     = togglingId     === p.id;
+            const isPreflighting = preflightingId === p.id;
 
             return (
               <tr key={p.id} className="hover:bg-zinc-50/70 transition-colors">
@@ -214,6 +219,23 @@ export function PlatformDatabaseProfilesTable({
                         : <PlugZap size={11} />
                       }
                       {isTesting ? "Probando…" : "Probar"}
+                    </button>
+
+                    {/* Preflight de base de datos */}
+                    <button
+                      type="button"
+                      onClick={() => onPreflight(p)}
+                      disabled={isPreflighting}
+                      className="inline-flex items-center gap-1 text-xs px-2.5 py-1.5
+                                 border border-indigo-200 rounded-lg text-indigo-600
+                                 hover:bg-indigo-50 transition-colors disabled:opacity-50"
+                      title="Ejecutar preflight de base de datos"
+                    >
+                      {isPreflighting
+                        ? <Loader2 size={11} className="animate-spin" />
+                        : <ShieldCheck size={11} />
+                      }
+                      Preflight
                     </button>
 
                   </div>
