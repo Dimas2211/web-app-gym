@@ -421,7 +421,7 @@ async function runTenantChecks(
     );
   }
 
-  // 8, 9, 10. DTE — condicional: fiscal.dte activo
+  // 8, 9, 10, 11. DTE — condicional: fiscal.dte activo
   const dteActive = activeModuleCodes.includes(PLATFORM_MODULE_CODES.FISCAL_DTE);
   if (dteActive) {
     const currentYear = new Date().getFullYear();
@@ -471,6 +471,32 @@ async function runTenantChecks(
           ),
     );
 
+    // 10. Clave de cifrado PLATFORM_ENCRYPTION_KEY presente y válida
+    const encryptionKeyRaw = process.env.PLATFORM_ENCRYPTION_KEY ?? "";
+    const encryptionKeyValid =
+      encryptionKeyRaw.trim() !== "" &&
+      Buffer.from(encryptionKeyRaw, "base64").byteLength === 32;
+
+    checks.push(
+      encryptionKeyValid
+        ? pass(
+            "TENANT_DTE_ENCRYPTION_KEY",
+            "Clave de cifrado de credenciales DTE",
+            "WARNING",
+            "MODULE",
+          )
+        : warn(
+            "TENANT_DTE_ENCRYPTION_KEY",
+            "Clave de cifrado de credenciales DTE",
+            "MODULE",
+            "PLATFORM_ENCRYPTION_KEY no está configurada o no tiene 32 bytes en base64. " +
+              "No es posible cifrar ni descifrar DteCredential.",
+            "Generar y configurar PLATFORM_ENCRYPTION_KEY en el entorno. " +
+              "Ver .env.example para el comando de generación.",
+          ),
+    );
+
+    // 11. Credenciales activas sin payload cifrado ni secret_ref
     if (dteCredentialsWithoutPayload > 0) {
       checks.push(
         warn(
@@ -478,7 +504,7 @@ async function runTenantChecks(
           "Cifrado de credenciales DTE",
           "MODULE",
           `${dteCredentialsWithoutPayload} DteCredential(s) activa(s) sin encrypted_payload ni secret_ref.`,
-          "Implementar cifrado AES-256-GCM o integrar secrets manager antes de operar en producción.",
+          "Cifrar las credenciales existentes con encryptDteCredentialPayload antes de operar en producción.",
         ),
       );
     }
