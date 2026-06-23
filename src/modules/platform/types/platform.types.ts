@@ -892,3 +892,60 @@ export interface DatabaseExecutionSafetyResult {
   /** Advertencias que no bloquean pero deben revisarse */
   warnings:             string[];
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// D1A: DTE Catalog Items Seed Runner
+// Tipos para el seed runner controlado de catálogos DTE contra un
+// PlatformDatabaseProfile via Prisma dinámico temporal.
+// No ejecuta migraciones. Solo escribe en dte_catalog_items.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Resultado del dry-run del seed de catálogos DTE */
+export interface DteCatalogItemsSeedDryRunResult {
+  /** Total de items definidos en el seed (todos los catálogos) */
+  totalExpected:         number;
+  /** Códigos de catálogos requeridos que tienen 0 items activos */
+  missingCatalogs:       string[];
+  /** Cantidad de catálogos requeridos que ya tienen al menos 1 item activo */
+  existingCatalogsCount: number;
+  /** Items a crear (pertenecen a catálogos faltantes) */
+  itemsToCreate:         number;
+}
+
+/** Resultado del seed real de catálogos DTE */
+export interface DteCatalogItemsSeedResult {
+  /** Nuevos registros insertados */
+  created:       number;
+  /** Registros existentes actualizados (upsert) */
+  updated:       number;
+  /** Total de items esperados según el seed */
+  totalExpected: number;
+  /** Total de items activos en dte_catalog_items después del seed */
+  totalAfter:    number;
+}
+
+export type DteCatalogSeedActionMode = "DRY_RUN" | "EXECUTE";
+
+export interface DteCatalogSeedActionInput {
+  profileId:         string;
+  mode:              DteCatalogSeedActionMode;
+  confirmationText?: string;
+}
+
+export type DteCatalogSeedActionState =
+  | {
+      success:        true;
+      mode:           DteCatalogSeedActionMode;
+      profileLabel:   string;
+      safetyMessages: string[];
+      safetyWarnings: string[];
+      dryRunResult?:  DteCatalogItemsSeedDryRunResult;
+      seedResult?:    DteCatalogItemsSeedResult;
+      error?:         never;
+    }
+  | {
+      success:         false;
+      error:           string;
+      blocked?:        boolean;
+      safetyBlockers?: string[];
+    };

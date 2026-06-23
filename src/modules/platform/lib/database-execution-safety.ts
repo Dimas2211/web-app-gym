@@ -277,8 +277,8 @@ export function evaluateDatabaseExecutionSafety(
     canProceed = false;
   }
 
-  // Confirmación textual
-  if (requiresConfirmation) {
+  // Confirmación textual — no aplica en dry-run (sin escrituras)
+  if (requiresConfirmation && !input.isDryRun) {
     const confirmProvided = input.confirmationText && input.expectedConfirmationText;
     if (!confirmProvided) {
       blockers.push(
@@ -301,7 +301,7 @@ export function evaluateDatabaseExecutionSafety(
 
   // ── 5. Mensajes informativos ──────────────────────────────────────────────
 
-  if (requiresDryRunFirst && input.isDryRun) {
+  if (input.isDryRun) {
     messages.push("Modo dry-run activo. No se escribirán datos reales en esta ejecución.");
   }
 

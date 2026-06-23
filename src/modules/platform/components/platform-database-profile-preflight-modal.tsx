@@ -34,11 +34,13 @@ import {
   Ban,
   FlaskConical,
   MessageSquareWarning,
+  Play,
 } from "lucide-react";
 
-import { runDatabaseProfilePreflightAction } from "../actions/run-database-profile-preflight.action";
-import { buildDatabaseRemediationPlan }       from "../lib/database-remediation-planner";
-import { getExecutionSafetyPreview }          from "../lib/database-execution-safety";
+import { runDatabaseProfilePreflightAction }           from "../actions/run-database-profile-preflight.action";
+import { runDatabaseProfileDteCatalogSeedAction }       from "../actions/run-database-profile-dte-catalog-seed.action";
+import { buildDatabaseRemediationPlan }                 from "../lib/database-remediation-planner";
+import { getExecutionSafetyPreview }                    from "../lib/database-execution-safety";
 import type {
   DatabasePreflightResult,
   DatabasePreflightStatus,
@@ -50,6 +52,8 @@ import type {
   DatabaseRemediationStatus,
   DatabaseRemediationPlanStatus,
   PlatformDatabaseProfileEnvironment,
+  DteCatalogItemsSeedDryRunResult,
+  DteCatalogItemsSeedResult,
 } from "../types/platform.types";
 
 interface Props {
@@ -58,6 +62,9 @@ interface Props {
   environment?: PlatformDatabaseProfileEnvironment;
   onClose:      () => void;
 }
+
+// Texto de confirmación esperado para EXECUTE — debe coincidir con la action
+const DTE_SEED_CONFIRM_TEXT = "SEED DTE CATALOGS";
 
 // ── Helpers de estilo (iguales al panel existente) ─────────────────
 
@@ -391,10 +398,11 @@ export function PlatformDatabaseProfilePreflightModal({
                 </button>
               </div>
 
-              {/* Plan recomendado — C5 + D0 safety hints */}
+              {/* Plan recomendado — C5 + D0 safety hints + D1A seed runner */}
               {remediationPlan && (
                 <RemediationPlanSection
                   plan={remediationPlan}
+                  profileId={profileId}
                   environment={environment}
                   targetType={result.targetType}
                   isOpen={planOpen}
@@ -417,15 +425,17 @@ export function PlatformDatabaseProfilePreflightModal({
 import type { DatabaseRemediationPlan } from "../types/platform.types";
 
 interface RemediationPlanSectionProps {
-  plan:        DatabaseRemediationPlan;
-  isOpen:      boolean;
-  onToggle:    () => void;
+  plan:         DatabaseRemediationPlan;
+  profileId:    string;
+  isOpen:       boolean;
+  onToggle:     () => void;
   environment?: PlatformDatabaseProfileEnvironment;
   targetType?:  DatabasePreflightTargetType;
 }
 
 function RemediationPlanSection({
   plan,
+  profileId,
   isOpen,
   onToggle,
   environment,
@@ -503,6 +513,7 @@ function RemediationPlanSection({
                 <RemediationItemRow
                   key={item.code}
                   item={item}
+                  profileId={profileId}
                   environment={environment}
                   targetType={targetType}
                 />
@@ -520,11 +531,12 @@ function RemediationPlanSection({
 
 interface RemediationItemRowProps {
   item:         DatabaseRemediationItem;
+  profileId:    string;
   environment?: PlatformDatabaseProfileEnvironment;
   targetType?:  DatabasePreflightTargetType;
 }
 
-function RemediationItemRow({ item, environment, targetType }: RemediationItemRowProps) {
+function RemediationItemRow({ item, profileId, environment, targetType }: RemediationItemRowProps) {
   const [open, setOpen] = useState(false);
   const actionCfg  = ACTION_TYPE_CONFIG[item.actionType];
   const riskCfg    = RISK_CONFIG[item.risk];
@@ -657,11 +669,229 @@ function RemediationItemRow({ item, environment, targetType }: RemediationItemRo
             </div>
           )}
 
+          {/* D1A Seed Runner — solo para catálogos DTE y entornos no-producción */}
+          {item.sourceCheckCode === "GLOBAL_DTE_CATALOG_ITEMS" &&
+            environment !== "PRODUCTION" &&
+            (targetType === "CLIENT_RUNTIME" || targetType === "DEMO") && (
+            <DteCatalogSeedRunner
+              profileId={profileId}
+              environment={environment}
+              targetType={targetType}
+            />
+          )}
+
           {item.sourceCheckCode && (
             <p className="text-[9px] text-zinc-300 font-mono pt-0.5">check: {item.sourceCheckCode}</p>
           )}
         </div>
       )}
+
+    </div>
+  );
+}
+
+// ── D1A: Seed Runner para DTE Catalog Items ───────────────────────
+//
+// Renderiza solo cuando item.sourceCheckCode === "GLOBAL_DTE_CATALOG_ITEMS"
+// y el entorno no es PRODUCTION. Nunca muestra password ni DATABASE_URL.
+
+interface DteCatalogSeedRunnerProps {
+  profileId:    string;
+  environment?: PlatformDatabaseProfileEnvironment;
+  targetType?:  DatabasePreflightTargetType;
+}
+
+function DteCatalogSeedRunner({
+  profileId,
+  environment,
+  targetType,
+}: DteCatalogSeedRunnerProps) {
+  const [isPending, startTransition] = useTransition();
+  const [currentOp,    setCurrentOp]    = useState<"none" | "dry_run" | "execute">("none");
+  const [dryRunResult, setDryRunResult] = useState<DteCatalogItemsSeedDryRunResult | null>(null);
+  const [seedResult,   setSeedResult]   = useState<DteCatalogItemsSeedResult | null>(null);
+  const [error,        setError]        = useState<string | null>(null);
+  const [confirmText,  setConfirmText]  = useState("");
+  const [phase,        setPhase]        = useState<"idle" | "dry_run_done" | "executed">("idle");
+
+  // Determinar si el ambiente requiere confirmación textual
+  const needsConfirmation =
+    environment && targetType
+      ? getExecutionSafetyPreview("LOW", environment, targetType).requiresConfirmation
+      : true;
+
+  function handleDryRun() {
+    setDryRunResult(null);
+    setSeedResult(null);
+    setError(null);
+    setPhase("idle");
+    setCurrentOp("dry_run");
+    startTransition(async () => {
+      const res = await runDatabaseProfileDteCatalogSeedAction({
+        profileId,
+        mode: "DRY_RUN",
+      });
+      setCurrentOp("none");
+      if (!res.success) {
+        setError(res.error);
+      } else {
+        setDryRunResult(res.dryRunResult ?? null);
+        setPhase("dry_run_done");
+      }
+    });
+  }
+
+  function handleExecute() {
+    setError(null);
+    setCurrentOp("execute");
+    startTransition(async () => {
+      const res = await runDatabaseProfileDteCatalogSeedAction({
+        profileId,
+        mode: "EXECUTE",
+        confirmationText: needsConfirmation ? confirmText : undefined,
+      });
+      setCurrentOp("none");
+      if (!res.success) {
+        setError(res.error);
+      } else {
+        setSeedResult(res.seedResult ?? null);
+        setPhase("executed");
+      }
+    });
+  }
+
+  const canExecute =
+    phase === "dry_run_done" &&
+    !isPending &&
+    (!needsConfirmation || confirmText.trim() === DTE_SEED_CONFIRM_TEXT);
+
+  return (
+    <div className="mt-3 pt-3 border-t border-zinc-100 space-y-2.5">
+
+      {/* Cabecera de la sección */}
+      <div className="flex items-center gap-1.5">
+        <FlaskConical size={11} className="text-indigo-400 flex-shrink-0" />
+        <span className="text-[10px] font-semibold text-zinc-500 uppercase tracking-wide">
+          D1A — Seed Runner
+        </span>
+        <span className="text-[9px] text-zinc-400 ml-1 italic">
+          Solo escribe en dte_catalog_items
+        </span>
+      </div>
+
+      {/* Error */}
+      {error && (
+        <div className="flex items-start gap-2 bg-red-50 border border-red-100 rounded-lg px-2.5 py-2">
+          <XCircle size={11} className="text-red-500 flex-shrink-0 mt-0.5" />
+          <p className="text-[11px] text-red-700 leading-snug">{error}</p>
+        </div>
+      )}
+
+      {/* Resultado dry-run */}
+      {dryRunResult && phase === "dry_run_done" && (
+        <div className="bg-blue-50 border border-blue-100 rounded-lg px-2.5 py-2 space-y-1">
+          <p className="text-[11px] font-semibold text-blue-700">Dry-run completado — sin escrituras</p>
+          {dryRunResult.missingCatalogs.length === 0 ? (
+            <p className="text-[10px] text-blue-600">
+              Todos los catálogos requeridos ya están presentes. El seed no creará nuevos registros.
+            </p>
+          ) : (
+            <p className="text-[10px] text-blue-600">
+              Faltan: <span className="font-mono font-semibold">{dryRunResult.missingCatalogs.join(", ")}</span>
+              {" "}— {dryRunResult.itemsToCreate} item{dryRunResult.itemsToCreate !== 1 ? "s" : ""} a crear.
+            </p>
+          )}
+          <p className="text-[10px] text-blue-500">
+            Total seed: {dryRunResult.totalExpected} items · Catálogos OK: {dryRunResult.existingCatalogsCount} / 7
+          </p>
+        </div>
+      )}
+
+      {/* Resultado ejecución real */}
+      {seedResult && phase === "executed" && (
+        <div className="bg-green-50 border border-green-100 rounded-lg px-2.5 py-2 space-y-1">
+          <div className="flex items-center gap-1.5">
+            <CheckCircle2 size={12} className="text-green-600 flex-shrink-0" />
+            <p className="text-[11px] font-semibold text-green-700">Seed ejecutado</p>
+          </div>
+          <p className="text-[10px] text-green-600">
+            Creados: <span className="font-semibold">{seedResult.created}</span>
+            {" · "}Actualizados: <span className="font-semibold">{seedResult.updated}</span>
+            {" · "}Total activos: <span className="font-semibold">{seedResult.totalAfter}</span>
+          </p>
+        </div>
+      )}
+
+      {/* Confirmación textual (solo si el ambiente lo requiere y dry-run está listo) */}
+      {phase === "dry_run_done" && needsConfirmation && (
+        <div className="space-y-1">
+          <p className="text-[10px] text-zinc-500">
+            Escribe{" "}
+            <span className="font-mono font-bold text-zinc-700">{DTE_SEED_CONFIRM_TEXT}</span>
+            {" "}para confirmar:
+          </p>
+          <input
+            type="text"
+            value={confirmText}
+            onChange={(e) => setConfirmText(e.target.value)}
+            placeholder={DTE_SEED_CONFIRM_TEXT}
+            disabled={isPending}
+            className="w-full text-[11px] border border-zinc-200 rounded px-2 py-1.5
+                       font-mono focus:outline-none focus:ring-1 focus:ring-indigo-300
+                       disabled:opacity-50 bg-white"
+          />
+        </div>
+      )}
+
+      {/* Botones de acción */}
+      <div className="flex items-center gap-2 flex-wrap">
+        <button
+          type="button"
+          onClick={handleDryRun}
+          disabled={isPending}
+          className="flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-1.5 rounded-lg
+                     bg-indigo-50 text-indigo-700 border border-indigo-200
+                     hover:bg-indigo-100 transition-colors disabled:opacity-50"
+        >
+          {isPending && currentOp === "dry_run"
+            ? <Loader2 size={10} className="animate-spin" />
+            : <FlaskConical size={10} />}
+          {phase === "dry_run_done" || phase === "executed" ? "Re-ejecutar dry-run" : "Dry-run"}
+        </button>
+
+        {phase === "dry_run_done" && (
+          <button
+            type="button"
+            onClick={handleExecute}
+            disabled={!canExecute}
+            title={
+              needsConfirmation && confirmText.trim() !== DTE_SEED_CONFIRM_TEXT
+                ? `Escribe "${DTE_SEED_CONFIRM_TEXT}" para habilitar`
+                : undefined
+            }
+            className="flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-1.5 rounded-lg
+                       bg-emerald-600 text-white hover:bg-emerald-700
+                       transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {isPending && currentOp === "execute"
+              ? <Loader2 size={10} className="animate-spin" />
+              : <Play size={10} />}
+            Ejecutar seed
+          </button>
+        )}
+
+        {phase === "executed" && (
+          <span className="text-[10px] text-green-600 flex items-center gap-1">
+            <CheckCircle2 size={10} />
+            Completado — ejecutar dry-run para verificar
+          </span>
+        )}
+      </div>
+
+      <p className="text-[9px] text-zinc-300 italic leading-snug">
+        Esta acción escribe únicamente en dte_catalog_items. No elimina datos. No ejecuta migraciones.
+        No toca otras tablas. Seguro de re-ejecutar.
+      </p>
 
     </div>
   );
