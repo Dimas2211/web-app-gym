@@ -9,7 +9,7 @@
 // operativos, nunca el password.
 // ─────────────────────────────────────────────────────────────────
 
-import { Pencil, Power, PlugZap, Loader2, ShieldCheck } from "lucide-react";
+import { Pencil, Power, PlugZap, Loader2, ShieldCheck, Search } from "lucide-react";
 import type {
   PlatformDatabaseProfileItem,
   PlatformDatabaseConnectionTestStatus,
@@ -25,6 +25,7 @@ interface Props {
   onToggleActive:  (p: PlatformDatabaseProfileItem) => void;
   onTest:          (p: PlatformDatabaseProfileItem) => void;
   onPreflight:     (p: PlatformDatabaseProfileItem) => void;
+  onInspect:       (p: PlatformDatabaseProfileItem) => void;
 }
 
 function TestStatusBadge({ status }: { status: PlatformDatabaseConnectionTestStatus }) {
@@ -65,6 +66,7 @@ export function PlatformDatabaseProfilesTable({
   onToggleActive,
   onTest,
   onPreflight,
+  onInspect,
 }: Props) {
   if (items.length === 0) {
     return (
@@ -236,6 +238,19 @@ export function PlatformDatabaseProfilesTable({
                         : <ShieldCheck size={11} />
                       }
                       Preflight
+                    </button>
+
+                    {/* Inspector read-only (C4) */}
+                    <button
+                      type="button"
+                      onClick={() => onInspect(p)}
+                      className="inline-flex items-center gap-1 text-xs px-2.5 py-1.5
+                                 border border-blue-200 rounded-lg text-blue-700
+                                 hover:bg-blue-50 transition-colors"
+                      title="Inspeccionar base de datos (read-only)"
+                    >
+                      <Search size={11} />
+                      Inspeccionar
                     </button>
 
                   </div>

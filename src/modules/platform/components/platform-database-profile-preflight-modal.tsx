@@ -12,7 +12,7 @@
 // - Solo muestra datos de resultado: checks, status, summary.
 // ─────────────────────────────────────────────────────────────────
 
-import { useState, useTransition, useEffect } from "react";
+import { useState, useTransition, useEffect, useMemo } from "react";
 import {
   X,
   Database,
@@ -22,19 +22,35 @@ import {
   XCircle,
   ChevronDown,
   ChevronRight,
+  ClipboardList,
+  ShieldAlert,
+  Wrench,
+  Layers,
+  ArrowRightLeft,
+  Info,
+  Lock,
+  HardDrive,
 } from "lucide-react";
 
 import { runDatabaseProfilePreflightAction } from "../actions/run-database-profile-preflight.action";
+import { buildDatabaseRemediationPlan }       from "../lib/database-remediation-planner";
 import type {
   DatabasePreflightResult,
   DatabasePreflightStatus,
   DatabasePreflightTargetType,
   PreflightCheckItem,
+  DatabaseRemediationItem,
+  DatabaseRemediationActionType,
+  DatabaseRemediationRisk,
+  DatabaseRemediationStatus,
+  DatabaseRemediationPlanStatus,
+  PlatformDatabaseProfileEnvironment,
 } from "../types/platform.types";
 
 interface Props {
   profileId:    string;
   profileLabel: string;
+  environment?: PlatformDatabaseProfileEnvironment;
   onClose:      () => void;
 }
 
@@ -81,11 +97,56 @@ const TARGET_TYPE_LABEL: Record<DatabasePreflightTargetType, string> = {
   UNKNOWN:       "No definido",
 };
 
+// ── Helpers de estilo para el plan ────────────────────────────────
+
+const ACTION_TYPE_CONFIG: Record<
+  DatabaseRemediationActionType,
+  { label: string; badge: string; Icon: React.ElementType }
+> = {
+  SEED:          { label: "Seed",          badge: "bg-blue-100 text-blue-700",   Icon: Layers },
+  MIGRATION:     { label: "Migración",     badge: "bg-purple-100 text-purple-700", Icon: ArrowRightLeft },
+  CONFIGURATION: { label: "Configuración", badge: "bg-teal-100 text-teal-700",   Icon: Wrench },
+  MANUAL_REVIEW: { label: "Revisión manual", badge: "bg-orange-100 text-orange-700", Icon: ClipboardList },
+  SECURITY:      { label: "Seguridad",     badge: "bg-red-100 text-red-700",     Icon: Lock },
+  NONE:          { label: "N/A",           badge: "bg-zinc-100 text-zinc-500",   Icon: Info },
+};
+
+const RISK_CONFIG: Record<
+  DatabaseRemediationRisk,
+  { label: string; badge: string }
+> = {
+  LOW:      { label: "Bajo",     badge: "bg-green-100 text-green-700" },
+  MEDIUM:   { label: "Medio",    badge: "bg-amber-100 text-amber-700" },
+  HIGH:     { label: "Alto",     badge: "bg-red-100 text-red-700" },
+  CRITICAL: { label: "Crítico",  badge: "bg-red-200 text-red-800 font-bold" },
+};
+
+const REM_STATUS_CONFIG: Record<
+  DatabaseRemediationStatus,
+  { label: string; badge: string }
+> = {
+  RECOMMENDED:    { label: "Recomendado",   badge: "bg-indigo-100 text-indigo-700" },
+  OPTIONAL:       { label: "Opcional",      badge: "bg-zinc-100 text-zinc-500" },
+  DEFERRED:       { label: "Diferido",      badge: "bg-slate-100 text-slate-500" },
+  BLOCKED:        { label: "Bloqueado",     badge: "bg-red-100 text-red-700" },
+  NOT_APPLICABLE: { label: "No aplica",     badge: "bg-zinc-50 text-zinc-400" },
+};
+
+const PLAN_STATUS_CONFIG: Record<
+  DatabaseRemediationPlanStatus,
+  { label: string; bg: string; textColor: string; Icon: React.ElementType }
+> = {
+  NO_ACTION_NEEDED:          { label: "Sin acciones pendientes",          bg: "bg-green-50 border-green-100", textColor: "text-green-700",  Icon: CheckCircle2 },
+  ACTIONS_RECOMMENDED:       { label: "Hay acciones recomendadas",        bg: "bg-amber-50 border-amber-100", textColor: "text-amber-700",  Icon: ClipboardList },
+  CRITICAL_ACTIONS_REQUIRED: { label: "Acciones críticas requeridas",     bg: "bg-red-50 border-red-100",     textColor: "text-red-700",    Icon: ShieldAlert },
+};
+
 // ── Componente ────────────────────────────────────────────────────
 
 export function PlatformDatabaseProfilePreflightModal({
   profileId,
   profileLabel,
+  environment,
   onClose,
 }: Props) {
   const [isPending, startTransition] = useTransition();
@@ -93,6 +154,7 @@ export function PlatformDatabaseProfilePreflightModal({
   const [tenantIdUsed, setTenantIdUsed] = useState<string | null>(null);
   const [actionError, setActionError]   = useState<string | null>(null);
   const [expanded,    setExpanded]      = useState<Set<string>>(new Set());
+  const [planOpen,    setPlanOpen]      = useState(true);
 
   // Cerrar con Escape
   useEffect(() => {
@@ -133,6 +195,12 @@ export function PlatformDatabaseProfilePreflightModal({
   }
 
   const overall = result ? OVERALL_CONFIG[result.status] : null;
+
+  const isProduction = environment === "PRODUCTION";
+  const remediationPlan = useMemo(
+    () => (result ? buildDatabaseRemediationPlan(result, { isProductionEnvironment: isProduction }) : null),
+    [result, isProduction],
+  );
 
   return (
     // Overlay
@@ -318,12 +386,202 @@ export function PlatformDatabaseProfilePreflightModal({
                 </button>
               </div>
 
+              {/* Plan recomendado — C5 */}
+              {remediationPlan && (
+                <RemediationPlanSection
+                  plan={remediationPlan}
+                  isOpen={planOpen}
+                  onToggle={() => setPlanOpen((v) => !v)}
+                />
+              )}
+
             </div>
           )}
 
         </div>
 
       </div>
+    </div>
+  );
+}
+
+// ── Sección Plan recomendado ──────────────────────────────────────
+
+import type { DatabaseRemediationPlan } from "../types/platform.types";
+
+interface RemediationPlanSectionProps {
+  plan:     DatabaseRemediationPlan;
+  isOpen:   boolean;
+  onToggle: () => void;
+}
+
+function RemediationPlanSection({ plan, isOpen, onToggle }: RemediationPlanSectionProps) {
+  const planConfig = PLAN_STATUS_CONFIG[plan.status];
+
+  return (
+    <div className="border border-zinc-100 rounded-xl overflow-hidden">
+
+      {/* Cabecera colapsable */}
+      <button
+        type="button"
+        onClick={onToggle}
+        className="w-full flex items-center gap-2 px-4 py-3 bg-zinc-50 hover:bg-zinc-100 transition-colors text-left"
+      >
+        <ClipboardList size={14} className="text-indigo-400 flex-shrink-0" />
+        <span className="text-sm font-semibold text-zinc-700 flex-1">Plan recomendado</span>
+        <span className="text-[10px] text-zinc-400 italic mr-2">Solo lectura — no ejecuta acciones</span>
+        {isOpen
+          ? <ChevronDown  size={13} className="text-zinc-400 flex-shrink-0" />
+          : <ChevronRight size={13} className="text-zinc-400 flex-shrink-0" />}
+      </button>
+
+      {isOpen && (
+        <div className="p-4 space-y-4">
+
+          {/* Banner de estado del plan */}
+          <div className={`flex items-center gap-3 px-3 py-2.5 rounded-lg border ${planConfig.bg}`}>
+            <planConfig.Icon size={15} className={`${planConfig.textColor} flex-shrink-0`} />
+            <span className={`text-sm font-semibold ${planConfig.textColor}`}>{planConfig.label}</span>
+          </div>
+
+          {/* Resumen por tipo */}
+          {(plan.summary.seeds > 0 || plan.summary.migrations > 0 ||
+            plan.summary.configurations > 0 || plan.summary.manualReviews > 0 ||
+            plan.summary.highRisk > 0) && (
+            <div className="flex flex-wrap gap-2">
+              {plan.summary.seeds > 0 && (
+                <span className="flex items-center gap-1 text-[11px] px-2 py-1 rounded-md bg-blue-50 text-blue-700 border border-blue-100">
+                  <Layers size={10} /> {plan.summary.seeds} seed{plan.summary.seeds !== 1 ? "s" : ""}
+                </span>
+              )}
+              {plan.summary.migrations > 0 && (
+                <span className="flex items-center gap-1 text-[11px] px-2 py-1 rounded-md bg-purple-50 text-purple-700 border border-purple-100">
+                  <ArrowRightLeft size={10} /> {plan.summary.migrations} migración{plan.summary.migrations !== 1 ? "es" : ""}
+                </span>
+              )}
+              {plan.summary.configurations > 0 && (
+                <span className="flex items-center gap-1 text-[11px] px-2 py-1 rounded-md bg-teal-50 text-teal-700 border border-teal-100">
+                  <Wrench size={10} /> {plan.summary.configurations} configuración{plan.summary.configurations !== 1 ? "es" : ""}
+                </span>
+              )}
+              {plan.summary.manualReviews > 0 && (
+                <span className="flex items-center gap-1 text-[11px] px-2 py-1 rounded-md bg-orange-50 text-orange-700 border border-orange-100">
+                  <ClipboardList size={10} /> {plan.summary.manualReviews} revisión{plan.summary.manualReviews !== 1 ? "es" : ""} manual{plan.summary.manualReviews !== 1 ? "es" : ""}
+                </span>
+              )}
+              {plan.summary.highRisk > 0 && (
+                <span className="flex items-center gap-1 text-[11px] px-2 py-1 rounded-md bg-red-50 text-red-700 border border-red-100">
+                  <ShieldAlert size={10} /> {plan.summary.highRisk} de alto riesgo
+                </span>
+              )}
+            </div>
+          )}
+
+          {/* Lista de items */}
+          {plan.items.length === 0 ? (
+            <p className="text-xs text-zinc-400 text-center py-3">
+              No hay acciones pendientes para esta base.
+            </p>
+          ) : (
+            <div className="space-y-2">
+              {plan.items.map((item) => (
+                <RemediationItemRow key={item.code} item={item} />
+              ))}
+            </div>
+          )}
+
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Fila de item del plan ─────────────────────────────────────────
+
+function RemediationItemRow({ item }: { item: DatabaseRemediationItem }) {
+  const [open, setOpen] = useState(false);
+  const actionCfg  = ACTION_TYPE_CONFIG[item.actionType];
+  const riskCfg    = RISK_CONFIG[item.risk];
+  const statusCfg  = REM_STATUS_CONFIG[item.status];
+  const ActionIcon = actionCfg.Icon;
+
+  const isNotApplicable = item.status === "NOT_APPLICABLE";
+  const isDeferred      = item.status === "DEFERRED";
+  const isBlocked       = item.status === "BLOCKED";
+
+  return (
+    <div className={`rounded-lg border ${isNotApplicable ? "border-zinc-100 bg-zinc-50 opacity-60" : isDeferred ? "border-slate-100 bg-slate-50" : isBlocked ? "border-red-100 bg-red-50" : "border-zinc-200 bg-white"}`}>
+
+      {/* Cabecera del item */}
+      <div
+        className={`flex items-center gap-2 px-3 py-2 ${item.actionType !== "NONE" ? "cursor-pointer" : ""}`}
+        onClick={item.actionType !== "NONE" ? () => setOpen((v) => !v) : undefined}
+      >
+        <ActionIcon size={12} className={`flex-shrink-0 ${isNotApplicable ? "text-zinc-300" : "text-zinc-500"}`} />
+
+        <span className={`text-xs font-medium flex-1 min-w-0 ${isNotApplicable ? "text-zinc-400" : "text-zinc-700"}`}>
+          {item.title}
+        </span>
+
+        <div className="flex items-center gap-1 flex-shrink-0">
+          <span className={`text-[9px] font-semibold px-1.5 py-0.5 rounded ${actionCfg.badge}`}>
+            {actionCfg.label}
+          </span>
+          <span className={`text-[9px] font-semibold px-1.5 py-0.5 rounded ${riskCfg.badge}`}>
+            {riskCfg.label}
+          </span>
+          <span className={`text-[9px] font-semibold px-1.5 py-0.5 rounded ${statusCfg.badge}`}>
+            {statusCfg.label}
+          </span>
+        </div>
+
+        {item.requiresBackup && (
+          <span title="Requiere backup previo">
+            <HardDrive size={11} className="text-amber-500 flex-shrink-0" />
+          </span>
+        )}
+
+        {item.actionType !== "NONE" && (
+          open
+            ? <ChevronDown  size={11} className="text-zinc-400 flex-shrink-0" />
+            : <ChevronRight size={11} className="text-zinc-400 flex-shrink-0" />
+        )}
+      </div>
+
+      {/* Detalle expandido */}
+      {open && item.actionType !== "NONE" && (
+        <div className="px-3 pb-3 pt-0 pl-8 space-y-1.5 border-t border-zinc-100">
+          <p className="text-xs text-zinc-600 pt-2">{item.description}</p>
+
+          <div className="flex flex-wrap gap-2 pt-0.5">
+            {item.canBeAutomatedLater && (
+              <span className="text-[10px] text-zinc-400">Automatizable en D1/S1</span>
+            )}
+            {item.requiresConfirmation && (
+              <span className="text-[10px] text-amber-600">Requiere confirmación</span>
+            )}
+            {item.requiresBackup && (
+              <span className="text-[10px] text-amber-600">Requiere backup</span>
+            )}
+          </div>
+
+          {item.notes && item.notes.length > 0 && (
+            <ul className="space-y-0.5 pt-0.5">
+              {item.notes.map((note, i) => (
+                <li key={i} className="text-[10px] text-zinc-400 flex items-start gap-1">
+                  <span className="text-zinc-300 mt-0.5">›</span>
+                  <span>{note}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+
+          {item.sourceCheckCode && (
+            <p className="text-[9px] text-zinc-300 font-mono pt-0.5">check: {item.sourceCheckCode}</p>
+          )}
+        </div>
+      )}
+
     </div>
   );
 }

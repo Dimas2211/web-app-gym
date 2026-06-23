@@ -587,3 +587,143 @@ export interface PlatformDatabaseProfileFilters {
   environment?:     PlatformDatabaseProfileEnvironment;
   is_active?:       boolean;
 }
+
+// ── Database Profile Inspector (C4) ──────────────────────────────
+
+export interface DatabaseInspectionTenant {
+  id:     string;
+  name:   string;
+  slug:   string | null;
+  status: string | null;
+}
+
+export interface DatabaseInspectionLocation {
+  id:     string;
+  name:   string;
+  status: string | null;
+}
+
+export interface DatabaseInspectionAdmin {
+  id:    string;
+  name:  string;
+  email: string;
+  role:  string;
+}
+
+export interface DatabaseInspectionSale {
+  id:           string;
+  sale_code:    string;
+  status:       string;
+  total_amount: string;
+  created_at:   string;
+}
+
+export interface DatabaseInspectionDteDocument {
+  id:            string;
+  dte_type_code: string;
+  dte_status:    string;
+  created_at:    string;
+}
+
+export interface DatabaseInspectionDteConfig {
+  nit:         string;
+  name:        string;
+  is_active:   boolean;
+  environment: string;
+}
+
+export interface DatabaseInspectionSummary {
+  tenants:       number;
+  locations:     number;
+  users:         number;
+  products:      number;
+  customers:     number;
+  suppliers:     number;
+  sales:         number;
+  dteDocuments:  number;
+  cashRegisters: number;
+}
+
+export interface DatabaseInspectionCatalogSummary {
+  unitsOfMeasure:      number;
+  productCategories:   number;
+  identificationTypes: number;
+  economicActivities:  number;
+  municipalities:      number;
+  dteCatalogItems:     number;
+  taxRates:            number;
+}
+
+export interface DatabaseProfileInspectionResult {
+  success:          boolean;
+  profileLabel:     string;
+  organizationName: string;
+  tenantIdUsed:     string | null;
+  summary:          DatabaseInspectionSummary;
+  tenant:           DatabaseInspectionTenant | null;
+  locations:        DatabaseInspectionLocation[];
+  admins:           DatabaseInspectionAdmin[];
+  recentSales:      DatabaseInspectionSale[];
+  recentDte:        DatabaseInspectionDteDocument[];
+  dteConfig:        DatabaseInspectionDteConfig | null;
+  catalogSummary:   DatabaseInspectionCatalogSummary;
+  warnings:         string[];
+  error?:           string;
+}
+
+// ── Database Remediation Planner (C5) ─────────────────────────────
+
+export type DatabaseRemediationActionType =
+  | "SEED"
+  | "MIGRATION"
+  | "CONFIGURATION"
+  | "MANUAL_REVIEW"
+  | "SECURITY"
+  | "NONE";
+
+export type DatabaseRemediationRisk =
+  | "LOW"
+  | "MEDIUM"
+  | "HIGH"
+  | "CRITICAL";
+
+export type DatabaseRemediationStatus =
+  | "RECOMMENDED"
+  | "OPTIONAL"
+  | "DEFERRED"
+  | "BLOCKED"
+  | "NOT_APPLICABLE";
+
+export interface DatabaseRemediationItem {
+  code:                 string;
+  title:                string;
+  description:          string;
+  actionType:           DatabaseRemediationActionType;
+  risk:                 DatabaseRemediationRisk;
+  status:               DatabaseRemediationStatus;
+  sourceCheckCode?:     string;
+  recommendedOrder:     number;
+  canBeAutomatedLater:  boolean;
+  requiresConfirmation: boolean;
+  requiresBackup:       boolean;
+  notes?:               string[];
+}
+
+export interface DatabaseRemediationPlanSummary {
+  seeds:          number;
+  migrations:     number;
+  configurations: number;
+  manualReviews:  number;
+  highRisk:       number;
+}
+
+export type DatabaseRemediationPlanStatus =
+  | "NO_ACTION_NEEDED"
+  | "ACTIONS_RECOMMENDED"
+  | "CRITICAL_ACTIONS_REQUIRED";
+
+export interface DatabaseRemediationPlan {
+  status:  DatabaseRemediationPlanStatus;
+  items:   DatabaseRemediationItem[];
+  summary: DatabaseRemediationPlanSummary;
+}
