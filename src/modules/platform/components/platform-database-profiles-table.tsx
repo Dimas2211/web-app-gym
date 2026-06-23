@@ -10,7 +10,7 @@
 // ─────────────────────────────────────────────────────────────────
 
 import Link from "next/link";
-import { Pencil, Power, PlugZap, Loader2, ShieldCheck, Search, ExternalLink } from "lucide-react";
+import { Pencil, Power, PlugZap, Loader2, ShieldCheck, Search, ExternalLink, FileSpreadsheet } from "lucide-react";
 import type {
   PlatformDatabaseProfileItem,
   PlatformDatabaseConnectionTestStatus,
@@ -264,6 +264,18 @@ export function PlatformDatabaseProfilesTable({
                     >
                       <ExternalLink size={11} />
                       Abrir visor
+                    </Link>
+
+                    {/* Data Onboarding Center (E0) */}
+                    <Link
+                      href={`/dashboard/platform/data-onboarding/${p.id}`}
+                      className="inline-flex items-center gap-1 text-xs px-2.5 py-1.5
+                                 border border-violet-200 rounded-lg text-violet-700
+                                 hover:bg-violet-50 transition-colors whitespace-nowrap"
+                      title="Abrir Data Onboarding Center para este perfil"
+                    >
+                      <FileSpreadsheet size={11} />
+                      Data onboarding
                     </Link>
 
                   </div>
