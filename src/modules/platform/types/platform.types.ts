@@ -1024,3 +1024,117 @@ export type TenantFiscalConfigActionState =
       blocked?:        boolean;
       safetyBlockers?: string[];
     };
+
+// ─────────────────────────────────────────────────────────────────────────────
+// E0: Data Onboarding Center — Foundation read-only
+// Tipos para la estructura base del centro de importación/exportación de datos
+// desde Platform Admin. E0 no ejecuta importaciones ni exportaciones reales.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Clave única del dataset importable/exportable */
+export type DataOnboardingDatasetKey =
+  | "products"
+  | "categories"
+  | "lines"
+  | "sublines"
+  | "customers"
+  | "suppliers"
+  | "inventory_initial"
+  | "units_of_measure"
+  | "tax_rates"
+  | "sales"
+  | "dte_documents"
+  | "dte_catalogs";
+
+/** Dirección de la operación de datos */
+export type DataOnboardingDirection = "IMPORT" | "EXPORT" | "BOTH";
+
+/** Estado de disponibilidad del dataset en la plataforma */
+export type DataOnboardingDatasetStatus =
+  | "PLANNED"      // E0: definido pero no implementado
+  | "IN_PROGRESS"  // E1/E2: en implementación activa
+  | "AVAILABLE";   // Disponible y funcional
+
+/** Nivel de riesgo de la operación de importación */
+export type DataOnboardingImportRisk = "LOW" | "MEDIUM" | "HIGH";
+
+/** Definición estática de un dataset importable/exportable */
+export interface DataOnboardingDatasetDefinition {
+  key:             DataOnboardingDatasetKey;
+  label:           string;
+  description:     string;
+  direction:       DataOnboardingDirection;
+  status:          DataOnboardingDatasetStatus;
+  risk:            DataOnboardingImportRisk;
+  requiredFields:  string[];
+  optionalFields:  string[];
+  dependencies:    DataOnboardingDatasetKey[];
+  notes?:          string;
+}
+
+/** Metadatos seguros del perfil para el header del Data Onboarding Center */
+export interface DataOnboardingProfileHeader {
+  id:               string;
+  label:            string;
+  db_host:          string;
+  db_port:          number | null;
+  db_name:          string;
+  db_user:          string;
+  ssl_mode:         string;
+  environment:      string;
+  is_active:        boolean;
+  last_test_status: string;
+  last_tested_at:   string | null;
+  organization:     { id: string; code: string; name: string };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// E1B: Data Onboarding Excel Preview
+// Tipos para el parser y server action de preview de archivos Excel.
+// No ejecuta importaciones — solo lee y valida filas en memoria.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface DataOnboardingRowError {
+  code:    string;
+  field?:  string;
+  message: string;
+}
+
+export interface DataOnboardingRowWarning {
+  code:    string;
+  field?:  string;
+  message: string;
+}
+
+export type DataOnboardingRowStatus = "VALID" | "WARNING" | "ERROR";
+
+export interface DataOnboardingPreviewRow {
+  rowNumber: number;
+  status:    DataOnboardingRowStatus;
+  data:      Record<string, unknown>;
+  errors:    DataOnboardingRowError[];
+  warnings:  DataOnboardingRowWarning[];
+}
+
+export interface DataOnboardingPreviewSummary {
+  totalRows:        number;
+  validRows:        number;
+  invalidRows:      number;
+  warningRows:      number;
+  emptyRowsIgnored: number;
+}
+
+export type DataOnboardingPreviewStatus = "VALID" | "VALID_WITH_WARNINGS" | "INVALID";
+
+export interface DataOnboardingPreviewResult {
+  datasetKey: string;
+  status:     DataOnboardingPreviewStatus;
+  summary:    DataOnboardingPreviewSummary;
+  columns:    string[];
+  rows:       DataOnboardingPreviewRow[];
+  truncated?: boolean;
+}
+
+export type DataOnboardingPreviewActionState =
+  | { success: true;  result: DataOnboardingPreviewResult }
+  | { success: false; error:  string };
