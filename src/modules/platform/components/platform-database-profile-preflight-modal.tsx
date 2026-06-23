@@ -37,10 +37,11 @@ import {
   Play,
 } from "lucide-react";
 
-import { runDatabaseProfilePreflightAction }           from "../actions/run-database-profile-preflight.action";
-import { runDatabaseProfileDteCatalogSeedAction }       from "../actions/run-database-profile-dte-catalog-seed.action";
-import { buildDatabaseRemediationPlan }                 from "../lib/database-remediation-planner";
-import { getExecutionSafetyPreview }                    from "../lib/database-execution-safety";
+import { runDatabaseProfilePreflightAction }                from "../actions/run-database-profile-preflight.action";
+import { runDatabaseProfileDteCatalogSeedAction }            from "../actions/run-database-profile-dte-catalog-seed.action";
+import { runDatabaseProfileTenantFiscalConfigAction }        from "../actions/run-database-profile-tenant-fiscal-config.action";
+import { buildDatabaseRemediationPlan }                      from "../lib/database-remediation-planner";
+import { getExecutionSafetyPreview }                         from "../lib/database-execution-safety";
 import type {
   DatabasePreflightResult,
   DatabasePreflightStatus,
@@ -54,6 +55,8 @@ import type {
   PlatformDatabaseProfileEnvironment,
   DteCatalogItemsSeedDryRunResult,
   DteCatalogItemsSeedResult,
+  TenantFiscalConfigDryRunResult,
+  TenantFiscalConfigSeedResult,
 } from "../types/platform.types";
 
 interface Props {
@@ -63,8 +66,9 @@ interface Props {
   onClose:      () => void;
 }
 
-// Texto de confirmación esperado para EXECUTE — debe coincidir con la action
-const DTE_SEED_CONFIRM_TEXT = "SEED DTE CATALOGS";
+// Textos de confirmación esperados para EXECUTE — deben coincidir con sus actions
+const DTE_SEED_CONFIRM_TEXT             = "SEED DTE CATALOGS";
+const TENANT_FISCAL_CONFIG_CONFIRM_TEXT = "CREATE TENANT FISCAL CONFIG";
 
 // ── Helpers de estilo (iguales al panel existente) ─────────────────
 
@@ -680,6 +684,17 @@ function RemediationItemRow({ item, profileId, environment, targetType }: Remedi
             />
           )}
 
+          {/* D1B Runner — solo para TenantFiscalConfig y entornos no-producción */}
+          {item.sourceCheckCode === "TENANT_FISCAL_CONFIG" &&
+            environment !== "PRODUCTION" &&
+            (targetType === "CLIENT_RUNTIME" || targetType === "DEMO") && (
+            <TenantFiscalConfigSeedRunner
+              profileId={profileId}
+              environment={environment}
+              targetType={targetType}
+            />
+          )}
+
           {item.sourceCheckCode && (
             <p className="text-[9px] text-zinc-300 font-mono pt-0.5">check: {item.sourceCheckCode}</p>
           )}
@@ -891,6 +906,242 @@ function DteCatalogSeedRunner({
       <p className="text-[9px] text-zinc-300 italic leading-snug">
         Esta acción escribe únicamente en dte_catalog_items. No elimina datos. No ejecuta migraciones.
         No toca otras tablas. Seguro de re-ejecutar.
+      </p>
+
+    </div>
+  );
+}
+
+// ── D1B: Runner para TenantFiscalConfig ──────────────────────────
+//
+// Renderiza solo cuando item.sourceCheckCode === "TENANT_FISCAL_CONFIG"
+// y el entorno no es PRODUCTION. Nunca muestra password ni DATABASE_URL.
+
+interface TenantFiscalConfigSeedRunnerProps {
+  profileId:    string;
+  environment?: PlatformDatabaseProfileEnvironment;
+  targetType?:  DatabasePreflightTargetType;
+}
+
+function TenantFiscalConfigSeedRunner({
+  profileId,
+  environment,
+  targetType,
+}: TenantFiscalConfigSeedRunnerProps) {
+  const [isPending,    startTransition] = useTransition();
+  const [currentOp,   setCurrentOp]    = useState<"none" | "dry_run" | "execute">("none");
+  const [dryRunResult, setDryRunResult] = useState<TenantFiscalConfigDryRunResult | null>(null);
+  const [seedResult,   setSeedResult]   = useState<TenantFiscalConfigSeedResult | null>(null);
+  const [error,        setError]        = useState<string | null>(null);
+  const [confirmText,  setConfirmText]  = useState("");
+  const [phase,        setPhase]        = useState<"idle" | "dry_run_done" | "executed">("idle");
+
+  // CREATE_TENANT_FISCAL_CONFIG es riesgo MEDIUM → CONFIRMATION_REQUIRED en LOCAL/SANDBOX/TEST
+  const needsConfirmation =
+    environment && targetType
+      ? getExecutionSafetyPreview("MEDIUM", environment, targetType).requiresConfirmation
+      : true;
+
+  function handleDryRun() {
+    setDryRunResult(null);
+    setSeedResult(null);
+    setError(null);
+    setPhase("idle");
+    setCurrentOp("dry_run");
+    startTransition(async () => {
+      const res = await runDatabaseProfileTenantFiscalConfigAction({
+        profileId,
+        mode: "DRY_RUN",
+      });
+      setCurrentOp("none");
+      if (!res.success) {
+        setError(res.error);
+      } else {
+        setDryRunResult(res.dryRunResult ?? null);
+        setPhase("dry_run_done");
+      }
+    });
+  }
+
+  function handleExecute() {
+    setError(null);
+    setCurrentOp("execute");
+    startTransition(async () => {
+      const res = await runDatabaseProfileTenantFiscalConfigAction({
+        profileId,
+        mode:             "EXECUTE",
+        confirmationText: needsConfirmation ? confirmText : undefined,
+      });
+      setCurrentOp("none");
+      if (!res.success) {
+        setError(res.error);
+      } else {
+        setSeedResult(res.seedResult ?? null);
+        setPhase("executed");
+      }
+    });
+  }
+
+  // Solo habilitar execute si: dry-run completado, no pendiente,
+  // confirmación correcta (cuando aplica), y dry-run no requiere revisión manual
+  const dryRunRequiresManualReview = dryRunResult?.manualReviewRequired ?? false;
+  const canExecute =
+    phase === "dry_run_done" &&
+    !isPending &&
+    !dryRunRequiresManualReview &&
+    (!needsConfirmation || confirmText.trim() === TENANT_FISCAL_CONFIG_CONFIRM_TEXT);
+
+  return (
+    <div className="mt-3 pt-3 border-t border-zinc-100 space-y-2.5">
+
+      {/* Cabecera de la sección */}
+      <div className="flex items-center gap-1.5">
+        <FlaskConical size={11} className="text-teal-400 flex-shrink-0" />
+        <span className="text-[10px] font-semibold text-zinc-500 uppercase tracking-wide">
+          D1B — Config Fiscal Runner
+        </span>
+        <span className="text-[9px] text-zinc-400 ml-1 italic">
+          Solo escribe en tenant_fiscal_config
+        </span>
+      </div>
+
+      {/* Error */}
+      {error && (
+        <div className="flex items-start gap-2 bg-red-50 border border-red-100 rounded-lg px-2.5 py-2">
+          <XCircle size={11} className="text-red-500 flex-shrink-0 mt-0.5" />
+          <p className="text-[11px] text-red-700 leading-snug">{error}</p>
+        </div>
+      )}
+
+      {/* Resultado dry-run */}
+      {dryRunResult && phase === "dry_run_done" && (
+        <div className={`border rounded-lg px-2.5 py-2 space-y-1 ${
+          dryRunRequiresManualReview
+            ? "bg-amber-50 border-amber-100"
+            : "bg-blue-50 border-blue-100"
+        }`}>
+          <p className={`text-[11px] font-semibold ${dryRunRequiresManualReview ? "text-amber-700" : "text-blue-700"}`}>
+            Dry-run completado — sin escrituras
+          </p>
+
+          {dryRunRequiresManualReview ? (
+            <p className="text-[10px] text-amber-600">
+              Revisión manual requerida: {dryRunResult.manualReviewReason}
+            </p>
+          ) : dryRunResult.existingConfigFound ? (
+            <p className="text-[10px] text-blue-600">
+              Ya existe TenantFiscalConfig para este tenant
+              {dryRunResult.tenantName && ` (${dryRunResult.tenantName})`}.
+              La ejecución real no hará cambios (idempotente).
+            </p>
+          ) : (
+            <p className="text-[10px] text-blue-600">
+              No existe configuración fiscal para
+              {dryRunResult.tenantName ? ` ${dryRunResult.tenantName}` : " este tenant"}.
+              Se creará con valores por defecto seguros:
+              {" "}is_retention_agent = false, threshold = null.
+            </p>
+          )}
+
+          {dryRunResult.warnings.length > 0 && (
+            <ul className="space-y-0.5">
+              {dryRunResult.warnings.map((w, i) => (
+                <li key={i} className="text-[10px] text-amber-600 flex items-start gap-1">
+                  <span className="text-amber-400 mt-0.5">›</span>
+                  <span>{w}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+
+      {/* Resultado ejecución real */}
+      {seedResult && phase === "executed" && (
+        <div className="bg-green-50 border border-green-100 rounded-lg px-2.5 py-2 space-y-1">
+          <div className="flex items-center gap-1.5">
+            <CheckCircle2 size={12} className="text-green-600 flex-shrink-0" />
+            <p className="text-[11px] font-semibold text-green-700">
+              {seedResult.created ? "Configuración fiscal creada" : "Configuración fiscal ya existía — sin cambios"}
+            </p>
+          </div>
+          <p className="text-[10px] text-green-600">
+            {seedResult.created
+              ? `Registro creado — ID: ${seedResult.configId}`
+              : "El registro ya existía y no fue modificado (idempotente)."}
+          </p>
+        </div>
+      )}
+
+      {/* Confirmación textual (solo si aplica y dry-run está listo sin revisión manual) */}
+      {phase === "dry_run_done" && needsConfirmation && !dryRunRequiresManualReview && (
+        <div className="space-y-1">
+          <p className="text-[10px] text-zinc-500">
+            Escribe{" "}
+            <span className="font-mono font-bold text-zinc-700">{TENANT_FISCAL_CONFIG_CONFIRM_TEXT}</span>
+            {" "}para confirmar:
+          </p>
+          <input
+            type="text"
+            value={confirmText}
+            onChange={(e) => setConfirmText(e.target.value)}
+            placeholder={TENANT_FISCAL_CONFIG_CONFIRM_TEXT}
+            disabled={isPending}
+            className="w-full text-[11px] border border-zinc-200 rounded px-2 py-1.5
+                       font-mono focus:outline-none focus:ring-1 focus:ring-teal-300
+                       disabled:opacity-50 bg-white"
+          />
+        </div>
+      )}
+
+      {/* Botones de acción */}
+      <div className="flex items-center gap-2 flex-wrap">
+        <button
+          type="button"
+          onClick={handleDryRun}
+          disabled={isPending}
+          className="flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-1.5 rounded-lg
+                     bg-teal-50 text-teal-700 border border-teal-200
+                     hover:bg-teal-100 transition-colors disabled:opacity-50"
+        >
+          {isPending && currentOp === "dry_run"
+            ? <Loader2 size={10} className="animate-spin" />
+            : <FlaskConical size={10} />}
+          {phase === "dry_run_done" || phase === "executed" ? "Re-ejecutar dry-run" : "Dry-run"}
+        </button>
+
+        {phase === "dry_run_done" && !dryRunRequiresManualReview && (
+          <button
+            type="button"
+            onClick={handleExecute}
+            disabled={!canExecute}
+            title={
+              needsConfirmation && confirmText.trim() !== TENANT_FISCAL_CONFIG_CONFIRM_TEXT
+                ? `Escribe "${TENANT_FISCAL_CONFIG_CONFIRM_TEXT}" para habilitar`
+                : undefined
+            }
+            className="flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-1.5 rounded-lg
+                       bg-emerald-600 text-white hover:bg-emerald-700
+                       transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {isPending && currentOp === "execute"
+              ? <Loader2 size={10} className="animate-spin" />
+              : <Play size={10} />}
+            Crear configuración fiscal
+          </button>
+        )}
+
+        {phase === "executed" && (
+          <span className="text-[10px] text-green-600 flex items-center gap-1">
+            <CheckCircle2 size={10} />
+            Completado — ejecutar dry-run para verificar
+          </span>
+        )}
+      </div>
+
+      <p className="text-[9px] text-zinc-300 italic leading-snug">
+        Esta acción escribe únicamente en tenant_fiscal_config. No modifica ventas, DTE, productos ni clientes.
+        No ejecuta migraciones. Seguro de re-ejecutar.
       </p>
 
     </div>

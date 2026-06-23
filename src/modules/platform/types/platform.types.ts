@@ -949,3 +949,78 @@ export type DteCatalogSeedActionState =
       blocked?:        boolean;
       safetyBlockers?: string[];
     };
+
+// ─────────────────────────────────────────────────────────────────────────────
+// D1B: TenantFiscalConfig Seed Runner
+// Tipos para el runner controlado de configuración fiscal del tenant contra un
+// PlatformDatabaseProfile via Prisma dinámico temporal.
+// No ejecuta migraciones. Solo escribe en tenant_fiscal_config.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Resultado del dry-run del runner TenantFiscalConfig */
+export interface TenantFiscalConfigDryRunResult {
+  /** true si el Gym con ese tenant_id existe en la base objetivo */
+  tenantFound:          boolean;
+  /** Nombre del Gym si se encontró */
+  tenantName?:          string;
+  /** true si ya existe TenantFiscalConfig para este tenant */
+  existingConfigFound:  boolean;
+  /** ID del registro existente, si aplica */
+  existingConfigId?:    string;
+  /** true si la ejecución real crearía un registro nuevo */
+  wouldCreate:          boolean;
+  /** Siempre false en D1B — no modifica registros existentes */
+  wouldUpdate:          boolean;
+  /** Valores que se usarían en el create (seguros por defecto) */
+  recommendedDefaults: {
+    is_retention_agent:          boolean;
+    retention_threshold_amount:  null;
+  };
+  /** Advertencias no bloqueantes */
+  warnings:             string[];
+  /** true si se requiere revisión manual antes de ejecutar (ej: tenant no encontrado) */
+  manualReviewRequired: boolean;
+  /** Razón de la revisión manual requerida */
+  manualReviewReason?:  string;
+}
+
+/** Resultado del seed real de TenantFiscalConfig */
+export interface TenantFiscalConfigSeedResult {
+  /** true si se creó un registro nuevo */
+  created:   boolean;
+  /** Siempre false en D1B — update: {} no modifica datos existentes */
+  updated:   boolean;
+  /** true si ya existía y no hubo cambios */
+  unchanged: boolean;
+  /** ID del registro (nuevo o existente) */
+  configId:  string;
+  /** tenant_id usado */
+  tenantId:  string;
+}
+
+export type TenantFiscalConfigActionMode = "DRY_RUN" | "EXECUTE";
+
+export interface TenantFiscalConfigActionInput {
+  profileId:         string;
+  mode:              TenantFiscalConfigActionMode;
+  confirmationText?: string;
+}
+
+export type TenantFiscalConfigActionState =
+  | {
+      success:        true;
+      mode:           TenantFiscalConfigActionMode;
+      profileLabel:   string;
+      tenantId:       string;
+      safetyMessages: string[];
+      safetyWarnings: string[];
+      dryRunResult?:  TenantFiscalConfigDryRunResult;
+      seedResult?:    TenantFiscalConfigSeedResult;
+      error?:         never;
+    }
+  | {
+      success:         false;
+      error:           string;
+      blocked?:        boolean;
+      safetyBlockers?: string[];
+    };
