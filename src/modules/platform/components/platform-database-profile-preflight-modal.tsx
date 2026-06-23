@@ -30,10 +30,15 @@ import {
   Info,
   Lock,
   HardDrive,
+  ShieldCheck,
+  Ban,
+  FlaskConical,
+  MessageSquareWarning,
 } from "lucide-react";
 
 import { runDatabaseProfilePreflightAction } from "../actions/run-database-profile-preflight.action";
 import { buildDatabaseRemediationPlan }       from "../lib/database-remediation-planner";
+import { getExecutionSafetyPreview }          from "../lib/database-execution-safety";
 import type {
   DatabasePreflightResult,
   DatabasePreflightStatus,
@@ -386,10 +391,12 @@ export function PlatformDatabaseProfilePreflightModal({
                 </button>
               </div>
 
-              {/* Plan recomendado — C5 */}
+              {/* Plan recomendado — C5 + D0 safety hints */}
               {remediationPlan && (
                 <RemediationPlanSection
                   plan={remediationPlan}
+                  environment={environment}
+                  targetType={result.targetType}
                   isOpen={planOpen}
                   onToggle={() => setPlanOpen((v) => !v)}
                 />
@@ -410,12 +417,20 @@ export function PlatformDatabaseProfilePreflightModal({
 import type { DatabaseRemediationPlan } from "../types/platform.types";
 
 interface RemediationPlanSectionProps {
-  plan:     DatabaseRemediationPlan;
-  isOpen:   boolean;
-  onToggle: () => void;
+  plan:        DatabaseRemediationPlan;
+  isOpen:      boolean;
+  onToggle:    () => void;
+  environment?: PlatformDatabaseProfileEnvironment;
+  targetType?:  DatabasePreflightTargetType;
 }
 
-function RemediationPlanSection({ plan, isOpen, onToggle }: RemediationPlanSectionProps) {
+function RemediationPlanSection({
+  plan,
+  isOpen,
+  onToggle,
+  environment,
+  targetType,
+}: RemediationPlanSectionProps) {
   const planConfig = PLAN_STATUS_CONFIG[plan.status];
 
   return (
@@ -485,7 +500,12 @@ function RemediationPlanSection({ plan, isOpen, onToggle }: RemediationPlanSecti
           ) : (
             <div className="space-y-2">
               {plan.items.map((item) => (
-                <RemediationItemRow key={item.code} item={item} />
+                <RemediationItemRow
+                  key={item.code}
+                  item={item}
+                  environment={environment}
+                  targetType={targetType}
+                />
               ))}
             </div>
           )}
@@ -498,7 +518,13 @@ function RemediationPlanSection({ plan, isOpen, onToggle }: RemediationPlanSecti
 
 // ── Fila de item del plan ─────────────────────────────────────────
 
-function RemediationItemRow({ item }: { item: DatabaseRemediationItem }) {
+interface RemediationItemRowProps {
+  item:         DatabaseRemediationItem;
+  environment?: PlatformDatabaseProfileEnvironment;
+  targetType?:  DatabasePreflightTargetType;
+}
+
+function RemediationItemRow({ item, environment, targetType }: RemediationItemRowProps) {
   const [open, setOpen] = useState(false);
   const actionCfg  = ACTION_TYPE_CONFIG[item.actionType];
   const riskCfg    = RISK_CONFIG[item.risk];
@@ -508,6 +534,12 @@ function RemediationItemRow({ item }: { item: DatabaseRemediationItem }) {
   const isNotApplicable = item.status === "NOT_APPLICABLE";
   const isDeferred      = item.status === "DEFERRED";
   const isBlocked       = item.status === "BLOCKED";
+
+  // D0 safety preview — solo cuando hay ambiente y target conocidos
+  const d0Safety =
+    environment && targetType && item.actionType !== "NONE"
+      ? getExecutionSafetyPreview(item.risk, environment, targetType)
+      : null;
 
   return (
     <div className={`rounded-lg border ${isNotApplicable ? "border-zinc-100 bg-zinc-50 opacity-60" : isDeferred ? "border-slate-100 bg-slate-50" : isBlocked ? "border-red-100 bg-red-50" : "border-zinc-200 bg-white"}`}>
@@ -574,6 +606,55 @@ function RemediationItemRow({ item }: { item: DatabaseRemediationItem }) {
                 </li>
               ))}
             </ul>
+          )}
+
+          {/* D0 Safety Gate — requisitos de ejecución futura */}
+          {d0Safety && (
+            <div className="mt-2 pt-2 border-t border-zinc-100">
+              <div className="flex items-center gap-1.5 mb-1.5">
+                <ShieldCheck size={10} className="text-indigo-400 flex-shrink-0" />
+                <span className="text-[10px] font-semibold text-zinc-500 uppercase tracking-wide">
+                  D0 Safety Gate
+                </span>
+                <span
+                  className={`text-[9px] font-semibold px-1.5 py-0.5 rounded ml-auto ${
+                    d0Safety.isBlockedNow
+                      ? "bg-red-100 text-red-700"
+                      : d0Safety.requiresConfirmation
+                        ? "bg-amber-100 text-amber-700"
+                        : "bg-green-100 text-green-700"
+                  }`}
+                >
+                  {d0Safety.statusLabel}
+                </span>
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {d0Safety.isBlockedNow && (
+                  <span className="flex items-center gap-1 text-[10px] text-red-600 bg-red-50 px-1.5 py-0.5 rounded border border-red-100">
+                    <Ban size={9} />
+                    Producción bloqueado en D0
+                  </span>
+                )}
+                {!d0Safety.isBlockedNow && d0Safety.requiresConfirmation && (
+                  <span className="flex items-center gap-1 text-[10px] text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-100">
+                    <MessageSquareWarning size={9} />
+                    Requiere confirmación textual
+                  </span>
+                )}
+                {!d0Safety.isBlockedNow && d0Safety.requiresBackup && (
+                  <span className="flex items-center gap-1 text-[10px] text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-100">
+                    <HardDrive size={9} />
+                    Requiere backup confirmado
+                  </span>
+                )}
+                {!d0Safety.isBlockedNow && d0Safety.requiresDryRunFirst && (
+                  <span className="flex items-center gap-1 text-[10px] text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded border border-indigo-100">
+                    <FlaskConical size={9} />
+                    Requiere dry-run previo
+                  </span>
+                )}
+              </div>
+            </div>
           )}
 
           {item.sourceCheckCode && (

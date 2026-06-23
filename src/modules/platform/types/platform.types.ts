@@ -820,3 +820,75 @@ export interface SafeDatabaseProfileHeader {
   last_tested_at:   string | null;
   organization:     { id: string; code: string; name: string };
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// D0: Execution Safety Gate
+// Tipos para la compuerta de seguridad antes de ejecutar acciones controladas
+// sobre bases de datos cliente. No ejecuta acciones reales — solo evalúa.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Tipos de acciones ejecutables sobre un perfil de base de datos cliente */
+export type DatabaseExecutionActionType =
+  | "SEED_DTE_CATALOGS"           // Seeds idempotentes de catálogos DTE (bajo riesgo)
+  | "SEED_GLOBAL_CATALOGS"        // Seeds idempotentes de catálogos globales (bajo riesgo)
+  | "SEED_TENANT_BASE"            // Seed base del tenant: usuario admin, ubicación (riesgo medio)
+  | "CREATE_TENANT_FISCAL_CONFIG" // Configuración fiscal inicial del tenant (riesgo medio)
+  | "RUN_MIGRATIONS"              // Migraciones de schema (alto riesgo)
+  | "RUN_IMPORT"                  // Importación desde Excel u origen externo (riesgo medio)
+  | "RUN_REPAIR"                  // Corrección automática de datos (alto riesgo)
+  | "MANUAL_OPERATION";           // Operación manual sin categoría (riesgo crítico)
+
+/** Nivel de riesgo de ejecución para una acción sobre base de datos cliente */
+export type DatabaseExecutionRiskLevel = "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
+
+/** Política de ejecución según ambiente y nivel de riesgo */
+export type DatabaseExecutionEnvironmentPolicy =
+  | "ALLOWED"               // Permitido si se cumplen los requisitos de validación
+  | "CONFIRMATION_REQUIRED" // Requiere texto de confirmación explícito
+  | "BLOCKED";              // Bloqueado en este ambiente — no ejecutar
+
+/** Input para evaluar la compuerta de seguridad de ejecución */
+export interface DatabaseExecutionSafetyInput {
+  /** Tipo de acción que se quiere ejecutar */
+  actionType:                         DatabaseExecutionActionType;
+  /** Ambiente del perfil (LOCAL, TEST, STAGING, PRODUCTION, etc.) */
+  profileEnvironment:                 PlatformDatabaseProfileEnvironment;
+  /** Tipo de target de la base: CLIENT_RUNTIME, DEMO, CONTROL_PLANE, UNKNOWN */
+  targetType:                         DatabasePreflightTargetType;
+  /** Si se ejecuta en modo dry-run (sin escribir datos reales) */
+  isDryRun?:                          boolean;
+  /** Texto escrito por el operador para confirmar la acción */
+  confirmationText?:                  string;
+  /** Texto exacto que se espera para validar la confirmación */
+  expectedConfirmationText?:          string;
+  /** Si existe un test de conexión exitoso reciente contra este perfil */
+  hasRecentSuccessfulConnectionTest?: boolean;
+  /** Si existe un preflight reciente exitoso contra este perfil */
+  hasRecentPreflight?:                boolean;
+  /** Si el operador confirmó que existe un backup reciente */
+  hasBackupConfirmation?:             boolean;
+}
+
+/** Resultado de la evaluación de la compuerta de seguridad de ejecución */
+export interface DatabaseExecutionSafetyResult {
+  /** true = la compuerta pasa; la acción podría ejecutarse (en D1+) */
+  allowed:              boolean;
+  /** true = bloqueado explícitamente; no puede pasar sin cambiar ambiente o target */
+  blocked:              boolean;
+  /** true = se requiere texto de confirmación explícito */
+  requiresConfirmation: boolean;
+  /** true = se requiere confirmar existencia de backup reciente */
+  requiresBackup:       boolean;
+  /** true = se requiere ejecutar dry-run antes de la ejecución real */
+  requiresDryRunFirst:  boolean;
+  /** Nivel de riesgo base de la acción */
+  riskLevel:            DatabaseExecutionRiskLevel;
+  /** Política que aplica según ambiente y riesgo */
+  environmentPolicy:    DatabaseExecutionEnvironmentPolicy;
+  /** Mensajes informativos (cumplimiento de requisitos, modo activo, etc.) */
+  messages:             string[];
+  /** Razones por las que la acción está bloqueada o no puede ejecutarse aún */
+  blockers:             string[];
+  /** Advertencias que no bloquean pero deben revisarse */
+  warnings:             string[];
+}
