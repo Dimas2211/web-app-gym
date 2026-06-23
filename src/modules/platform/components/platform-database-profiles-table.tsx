@@ -9,7 +9,8 @@
 // operativos, nunca el password.
 // ─────────────────────────────────────────────────────────────────
 
-import { Pencil, Power, PlugZap, Loader2, ShieldCheck, Search } from "lucide-react";
+import Link from "next/link";
+import { Pencil, Power, PlugZap, Loader2, ShieldCheck, Search, ExternalLink } from "lucide-react";
 import type {
   PlatformDatabaseProfileItem,
   PlatformDatabaseConnectionTestStatus,
@@ -252,6 +253,18 @@ export function PlatformDatabaseProfilesTable({
                       <Search size={11} />
                       Inspeccionar
                     </button>
+
+                    {/* Visor completo read-only (C6) */}
+                    <Link
+                      href={`/dashboard/platform/client-view/${p.id}`}
+                      className="inline-flex items-center gap-1 text-xs px-2.5 py-1.5
+                                 border border-emerald-200 rounded-lg text-emerald-700
+                                 hover:bg-emerald-50 transition-colors whitespace-nowrap"
+                      title="Abrir visor read-only de esta base de datos"
+                    >
+                      <ExternalLink size={11} />
+                      Abrir visor
+                    </Link>
 
                   </div>
                 </td>

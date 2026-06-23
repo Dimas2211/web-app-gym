@@ -727,3 +727,96 @@ export interface DatabaseRemediationPlan {
   items:   DatabaseRemediationItem[];
   summary: DatabaseRemediationPlanSummary;
 }
+
+// ── Client Database Viewer (C6) ───────────────────────────────────
+
+export interface ClientViewProduct {
+  id:           string;
+  product_code: string;
+  name:         string;
+  sku:          string | null;
+  status:       string;
+  sale_price:   string | null;
+  created_at:   string;
+}
+
+export interface ClientViewCustomer {
+  id:            string;
+  customer_code: string;
+  name:          string;
+  email:         string | null;
+  phone:         string | null;
+  status:        string;
+  created_at:    string;
+}
+
+export interface ClientViewSupplier {
+  id:         string;
+  name:       string;
+  email:      string | null;
+  phone:      string | null;
+  status:     string;
+  created_at: string;
+}
+
+export interface ClientViewSale {
+  id:           string;
+  sale_code:    string;
+  status:       string;
+  total_amount: string;
+  created_at:   string;
+}
+
+export interface ClientViewDteDocument {
+  id:            string;
+  dte_type_code: string;
+  dte_status:    string;
+  created_at:    string;
+}
+
+export interface ClientViewCashRegister {
+  id:         string;
+  code:       string;
+  name:       string;
+  is_active:  boolean;
+  created_at: string;
+}
+
+export interface ClientViewData {
+  success:          boolean;
+  profileLabel:     string;
+  organizationName: string;
+  profileId:        string;
+  host:             string;
+  dbName:           string;
+  environment:      string;
+  summary:          DatabaseInspectionSummary;
+  tenant:           DatabaseInspectionTenant | null;
+  locations:        DatabaseInspectionLocation[];
+  products:         ClientViewProduct[];
+  customers:        ClientViewCustomer[];
+  suppliers:        ClientViewSupplier[];
+  sales:            ClientViewSale[];
+  dteDocuments:     ClientViewDteDocument[];
+  cashRegisters:    ClientViewCashRegister[];
+  catalogSummary:   DatabaseInspectionCatalogSummary;
+  dteConfig:        DatabaseInspectionDteConfig | null;
+  warnings:         string[];
+  error?:           string;
+}
+
+// Metadatos seguros del perfil para pasar de Server a Client Component (sin credenciales)
+export interface SafeDatabaseProfileHeader {
+  id:               string;
+  label:            string;
+  db_host:          string;
+  db_port:          number | null;
+  db_name:          string;
+  db_user:          string;
+  ssl_mode:         string;
+  environment:      string;
+  is_active:        boolean;
+  last_test_status: string;
+  last_tested_at:   string | null;
+  organization:     { id: string; code: string; name: string };
+}
