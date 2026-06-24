@@ -1136,5 +1136,68 @@ export interface DataOnboardingPreviewResult {
 }
 
 export type DataOnboardingPreviewActionState =
-  | { success: true;  result: DataOnboardingPreviewResult }
-  | { success: false; error:  string };
+  | {
+      success:        true;
+      result:         DataOnboardingPreviewResult;
+      dbAwareResult?: DataOnboardingDbAwarePreviewResult;
+      dbAwareError?:  string;
+    }
+  | { success: false; error: string };
+
+// ─────────────────────────────────────────────────────────────────────────────
+// E1B.1: Import Policy + DB-aware Preview
+// Tipos para la capa de política de importación y análisis contra la base destino.
+// No ejecuta importaciones — solo analiza y clasifica filas contra registros reales.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Política de importación que determina qué pasa cuando un registro ya existe */
+export type DataOnboardingImportPolicy =
+  | "CREATE_ONLY"       // Solo crea; si ya existe → ERROR o SKIP
+  | "UPDATE_EXISTING"   // Solo actualiza existentes; si no existe → SKIP (futuro)
+  | "UPSERT";           // Crea o actualiza según existencia (futuro)
+
+/** Resolución por fila después del análisis contra la base destino */
+export type DataOnboardingRowResolution = "CREATE" | "UPDATE" | "SKIP" | "ERROR";
+
+/** Estado general del análisis DB-aware */
+export type DataOnboardingDbAwareStatus = "READY" | "READY_WITH_WARNINGS" | "BLOCKED";
+
+/** Resultado de verificar una dependencia requerida */
+export interface DataOnboardingDependencyCheck {
+  dependencyType: string;   // ej: "category", "unit_of_measure"
+  lookupField:    string;   // campo del Excel que se usó para buscar
+  lookupValue:    string;   // valor buscado
+  found:          boolean;
+  foundId?:       string;
+  message?:       string;
+}
+
+/** Resultado DB-aware de una fila individual */
+export interface DataOnboardingDbAwareRow {
+  rowNumber:         number;
+  resolution:        DataOnboardingRowResolution;
+  naturalKey:        string;
+  existsInDb:        boolean;
+  errors:            DataOnboardingRowError[];
+  warnings:          DataOnboardingRowWarning[];
+  dependencyChecks:  DataOnboardingDependencyCheck[];
+}
+
+/** Resumen del análisis DB-aware */
+export interface DataOnboardingDbAwarePreviewSummary {
+  createRows:           number;
+  updateRows:           number;
+  skipRows:             number;
+  errorRows:            number;
+  missingDependencies:  number;
+  duplicatesInDatabase: number;
+}
+
+/** Resultado completo del análisis DB-aware para un dataset */
+export interface DataOnboardingDbAwarePreviewResult {
+  datasetKey:    DataOnboardingDatasetKey;
+  importPolicy:  DataOnboardingImportPolicy;
+  status:        DataOnboardingDbAwareStatus;
+  summary:       DataOnboardingDbAwarePreviewSummary;
+  rows:          DataOnboardingDbAwareRow[];
+}

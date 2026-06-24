@@ -47,7 +47,11 @@ import type {
   DataOnboardingPreviewActionState,
   DataOnboardingPreviewResult,
   DataOnboardingPreviewRow,
+  DataOnboardingDbAwarePreviewResult,
+  DataOnboardingDbAwareRow,
+  DataOnboardingImportPolicy,
 } from "../types/platform.types";
+import { importPolicyLabel, ENABLED_IMPORT_POLICIES } from "../lib/data-onboarding/import-policy";
 import {
   DATA_ONBOARDING_DATASETS,
   IMPORT_DATASETS,
@@ -65,6 +69,251 @@ interface Props {
 interface DatasetCardProps {
   dataset:   DataOnboardingDatasetDefinition;
   profileId: string;
+}
+
+// ── Badge de resolución DB-aware ──────────────────────────────────
+
+function ResolutionBadge({ resolution }: { resolution: DataOnboardingDbAwareRow["resolution"] }) {
+  const cfg: Record<string, { cls: string; label: string }> = {
+    CREATE: { cls: "bg-green-100 text-green-700",  label: "Crear"     },
+    UPDATE: { cls: "bg-sky-100 text-sky-700",      label: "Actualizar" },
+    SKIP:   { cls: "bg-zinc-100 text-zinc-500",    label: "Omitir"    },
+    ERROR:  { cls: "bg-red-100 text-red-700",      label: "Error"     },
+  };
+  const { cls, label } = cfg[resolution] ?? cfg.ERROR;
+  return (
+    <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold ${cls}`}>
+      {label}
+    </span>
+  );
+}
+
+// ── Panel de análisis DB-aware ────────────────────────────────────
+
+function DbAwarePanel({
+  dbAwareResult,
+  dbAwareError,
+}: {
+  dbAwareResult?: DataOnboardingDbAwarePreviewResult;
+  dbAwareError?:  string;
+}) {
+  const [expanded, setExpanded] = useState(true);
+  const [showAll,  setShowAll]  = useState(false);
+
+  if (dbAwareError) {
+    return (
+      <div className="mt-3 border border-amber-200 rounded-xl overflow-hidden">
+        <div className="flex items-start gap-2 p-3 bg-amber-50">
+          <AlertTriangle size={13} className="text-amber-500 shrink-0 mt-0.5" />
+          <div>
+            <p className="text-xs font-semibold text-amber-700">Análisis contra base no disponible</p>
+            <p className="text-[11px] text-amber-600 mt-0.5">{dbAwareError}</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (!dbAwareResult) return null;
+
+  const { summary, rows, status, importPolicy } = dbAwareResult;
+  const displayRows = showAll ? rows : rows.slice(0, 50);
+  const hasMore     = rows.length > 50 && !showAll;
+
+  const statusCfg: Record<string, { cls: string; label: string; icon: React.ReactNode }> = {
+    READY:               { cls: "bg-green-100 text-green-700",  label: "Listo para importar",       icon: <CheckCircle2 size={11} /> },
+    READY_WITH_WARNINGS: { cls: "bg-amber-100 text-amber-700",  label: "Listo con advertencias",    icon: <AlertTriangle size={11} /> },
+    BLOCKED:             { cls: "bg-red-100 text-red-700",      label: "Bloqueado — revisar errores", icon: <AlertCircle size={11} /> },
+  };
+  const { cls: statusCls, label: statusLabel, icon: statusIcon } = statusCfg[status] ?? statusCfg.BLOCKED;
+
+  return (
+    <div className="mt-3 border border-indigo-200 rounded-xl overflow-hidden">
+
+      {/* Header del panel */}
+      <button
+        type="button"
+        onClick={() => setExpanded((v) => !v)}
+        className="w-full flex items-center justify-between px-3 py-2.5 bg-indigo-50 hover:bg-indigo-100 transition-colors"
+      >
+        <div className="flex items-center gap-2">
+          <Database size={12} className="text-indigo-400" />
+          <span className="text-xs font-semibold text-indigo-700">Análisis contra base destino</span>
+          <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold ${statusCls}`}>
+            {statusIcon}
+            {statusLabel}
+          </span>
+          <span className="text-[10px] text-indigo-400">
+            Política: {importPolicyLabel(importPolicy)}
+          </span>
+        </div>
+        {expanded ? <ChevronUp size={14} className="text-indigo-300" /> : <ChevronDown size={14} className="text-indigo-300" />}
+      </button>
+
+      {expanded && (
+        <>
+          {/* Resumen DB-aware */}
+          <div className="grid grid-cols-3 gap-0 border-b border-indigo-100 bg-white">
+            <div className="px-3 py-2 text-center border-r border-indigo-100">
+              <p className="text-base font-bold text-green-600">{summary.createRows}</p>
+              <p className="text-[10px] text-zinc-400">Crear</p>
+            </div>
+            <div className="px-3 py-2 text-center border-r border-indigo-100">
+              <p className="text-base font-bold text-red-600">{summary.errorRows}</p>
+              <p className="text-[10px] text-zinc-400">Errores</p>
+            </div>
+            <div className="px-3 py-2 text-center">
+              <p className="text-base font-bold text-zinc-500">{summary.skipRows}</p>
+              <p className="text-[10px] text-zinc-400">Omitidas</p>
+            </div>
+          </div>
+
+          {/* Métricas adicionales */}
+          {(summary.missingDependencies > 0 || summary.duplicatesInDatabase > 0) && (
+            <div className="px-3 py-1.5 bg-red-50 border-b border-red-100 flex flex-wrap gap-3">
+              {summary.missingDependencies > 0 && (
+                <span className="text-[10px] text-red-600 flex items-center gap-1">
+                  <AlertCircle size={10} />
+                  {summary.missingDependencies} fila(s) con dependencias faltantes
+                </span>
+              )}
+              {summary.duplicatesInDatabase > 0 && (
+                <span className="text-[10px] text-red-600 flex items-center gap-1">
+                  <AlertCircle size={10} />
+                  {summary.duplicatesInDatabase} fila(s) ya existen en la base (CREATE_ONLY)
+                </span>
+              )}
+            </div>
+          )}
+
+          {/* Tabla de filas DB-aware */}
+          {rows.length > 0 ? (
+            <div className="overflow-x-auto max-h-72">
+              <table className="w-full text-[11px]">
+                <thead>
+                  <tr className="border-b border-indigo-100 bg-indigo-50/50">
+                    <th className="px-2 py-1.5 text-left font-medium text-zinc-500 w-10">#</th>
+                    <th className="px-2 py-1.5 text-left font-medium text-zinc-500 w-22">Acción</th>
+                    <th className="px-2 py-1.5 text-left font-medium text-zinc-500">Llave natural</th>
+                    <th className="px-2 py-1.5 text-left font-medium text-zinc-500 w-10">En BD</th>
+                    <th className="px-2 py-1.5 text-left font-medium text-zinc-500">Deps</th>
+                    <th className="px-2 py-1.5 text-left font-medium text-zinc-500">Problemas</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {displayRows.map((row) => {
+                    const rowBg =
+                      row.resolution === "ERROR" ? "bg-red-50/40" :
+                      row.resolution === "SKIP"  ? "bg-zinc-50/60" :
+                      row.resolution === "UPDATE"? "bg-sky-50/40"  : "";
+
+                    const allIssues = [...row.errors, ...row.warnings];
+                    const depsOk    = row.dependencyChecks.filter((d) => d.found).length;
+                    const depsFail  = row.dependencyChecks.filter((d) => !d.found).length;
+
+                    return (
+                      <tr key={row.rowNumber} className={`border-b border-indigo-50 ${rowBg}`}>
+                        <td className="px-2 py-1 text-zinc-400 font-mono">{row.rowNumber}</td>
+                        <td className="px-2 py-1"><ResolutionBadge resolution={row.resolution} /></td>
+                        <td className="px-2 py-1 text-zinc-700 font-mono max-w-[140px] truncate">{row.naturalKey}</td>
+                        <td className="px-2 py-1 text-center">
+                          {row.existsInDb
+                            ? <span className="text-amber-500 text-[10px] font-semibold">Sí</span>
+                            : <span className="text-zinc-300 text-[10px]">No</span>
+                          }
+                        </td>
+                        <td className="px-2 py-1">
+                          {row.dependencyChecks.length === 0 ? (
+                            <span className="text-zinc-300 text-[10px]">—</span>
+                          ) : (
+                            <span className={`text-[10px] font-semibold ${depsFail > 0 ? "text-red-600" : "text-green-600"}`}>
+                              {depsOk}/{row.dependencyChecks.length}
+                            </span>
+                          )}
+                        </td>
+                        <td className="px-2 py-1 max-w-[200px]">
+                          {allIssues.length === 0 ? (
+                            <span className="text-green-500 text-[10px]">OK</span>
+                          ) : (
+                            <ul className="space-y-0.5">
+                              {allIssues.slice(0, 3).map((issue, idx) => (
+                                <li key={idx} className={`text-[10px] leading-tight ${
+                                  row.errors.includes(issue as never) ? "text-red-600" : "text-amber-600"
+                                }`}>
+                                  {issue.field ? <span className="font-mono font-semibold">{issue.field}: </span> : null}
+                                  {issue.message}
+                                </li>
+                              ))}
+                              {allIssues.length > 3 && (
+                                <li className="text-[10px] text-zinc-400">+{allIssues.length - 3} más…</li>
+                              )}
+                            </ul>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <p className="text-xs text-zinc-400 px-3 py-3 text-center italic">
+              Sin filas para analizar.
+            </p>
+          )}
+
+          {hasMore && (
+            <div className="px-3 py-2 border-t border-indigo-100 text-center">
+              <button type="button" onClick={() => setShowAll(true)}
+                className="text-xs text-indigo-600 hover:text-indigo-800 underline">
+                Ver todas las filas ({rows.length})
+              </button>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+// ── Selector de política de importación ──────────────────────────
+
+function ImportPolicySelector({
+  value,
+  onChange,
+}: {
+  value:    DataOnboardingImportPolicy;
+  onChange: (p: DataOnboardingImportPolicy) => void;
+}) {
+  const all: DataOnboardingImportPolicy[] = ["CREATE_ONLY", "UPDATE_EXISTING", "UPSERT"];
+  return (
+    <div className="flex flex-wrap gap-1.5 items-center">
+      <span className="text-[10px] font-semibold text-zinc-400 uppercase tracking-wide">Política:</span>
+      {all.map((p) => {
+        const enabled  = ENABLED_IMPORT_POLICIES.includes(p);
+        const selected = value === p;
+        return (
+          <button
+            key={p}
+            type="button"
+            disabled={!enabled}
+            onClick={() => enabled && onChange(p)}
+            title={enabled ? importPolicyLabel(p) : `${importPolicyLabel(p)} — disponible en E1C`}
+            className={`text-[10px] px-2 py-0.5 rounded border transition-colors ${
+              selected && enabled
+                ? "border-indigo-400 bg-indigo-100 text-indigo-700 font-semibold"
+                : enabled
+                  ? "border-zinc-200 bg-white text-zinc-600 hover:border-indigo-200"
+                  : "border-zinc-100 bg-zinc-50 text-zinc-300 cursor-not-allowed"
+            }`}
+          >
+            {importPolicyLabel(p)}
+            {!enabled && <span className="ml-1 text-[9px] opacity-60">(E1C)</span>}
+          </button>
+        );
+      })}
+    </div>
+  );
 }
 
 // ── Badges de estado del perfil ───────────────────────────────────
@@ -369,10 +618,11 @@ function DatasetCard({ dataset, profileId }: DatasetCardProps) {
   const hasTemplate = canImport && TEMPLATE_AVAILABLE_KEYS.has(dataset.key);
   const templateUrl = `/dashboard/platform/data-onboarding/${profileId}/templates/${dataset.key}`;
 
-  // ── Estado de upload ──────────────────────────────────────────
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [previewState, setPreviewState] = useState<DataOnboardingPreviewActionState | null>(null);
-  const [isPending,    startTransition] = useTransition();
+  // ── Estado de upload y política ───────────────────────────────
+  const [selectedFile,   setSelectedFile]   = useState<File | null>(null);
+  const [previewState,   setPreviewState]   = useState<DataOnboardingPreviewActionState | null>(null);
+  const [importPolicy,   setImportPolicy]   = useState<DataOnboardingImportPolicy>("CREATE_ONLY");
+  const [isPending,      startTransition]   = useTransition();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
@@ -556,6 +806,11 @@ function DatasetCard({ dataset, profileId }: DatasetCardProps) {
         )}
       </div>
 
+      {/* Selector de política (visible cuando hay plantilla) */}
+      {hasTemplate && (
+        <ImportPolicySelector value={importPolicy} onChange={setImportPolicy} />
+      )}
+
       {/* Área de archivo seleccionado + validación */}
       {hasTemplate && selectedFile && (
         <div className="border border-sky-200 rounded-lg bg-sky-50 p-2.5 flex flex-col gap-2">
@@ -589,12 +844,12 @@ function DatasetCard({ dataset, profileId }: DatasetCardProps) {
             {isPending ? (
               <>
                 <Loader2 size={11} className="animate-spin" />
-                Validando...
+                Analizando archivo y base destino…
               </>
             ) : (
               <>
                 <CheckCircle2 size={11} />
-                Validar archivo
+                Validar y analizar contra base
               </>
             )}
           </button>
@@ -609,15 +864,23 @@ function DatasetCard({ dataset, profileId }: DatasetCardProps) {
         </div>
       )}
 
-      {/* Preview de resultados */}
+      {/* Preview de archivo */}
       {previewState && previewState.success && (
         <PreviewPanel result={previewState.result} datasetKey={dataset.key} />
       )}
 
-      {/* Aviso E1B para datasets con plantilla activa */}
+      {/* Preview DB-aware */}
+      {previewState && previewState.success && (
+        <DbAwarePanel
+          dbAwareResult={previewState.dbAwareResult}
+          dbAwareError={previewState.dbAwareError}
+        />
+      )}
+
+      {/* Aviso E1B.1 para datasets con plantilla activa */}
       {hasTemplate && (
         <p className="text-[10px] text-indigo-500 border-t border-indigo-50 pt-2">
-          Preview activo — E1B. La importación real estará disponible en E1C.
+          Preview activo — E1B.1. Análisis contra base incluido. Importación real disponible en E1C.
         </p>
       )}
 
@@ -657,17 +920,18 @@ export function PlatformDataOnboardingClient({ profile }: Props) {
         </p>
       </div>
 
-      {/* Banner E1B */}
+      {/* Banner E1B.1 */}
       <div className="flex items-start gap-3 p-4 rounded-xl border border-sky-200 bg-sky-50">
-        <Upload size={18} className="text-sky-500 mt-0.5 shrink-0" />
+        <Database size={18} className="text-sky-500 mt-0.5 shrink-0" />
         <div>
           <p className="text-sm font-semibold text-sky-800">
-            E1B — Excel Upload Parser + Preview activo
+            E1B.1 — Import Policy + DB-aware Preview activo
           </p>
           <p className="text-xs text-sky-700 mt-0.5">
-            Los datasets con plantilla disponible permiten subir un archivo .xlsx y ver un preview
-            validado por fila — errores, advertencias y resumen incluidos. La importación real
-            en bases cliente estará disponible en E1C. No se escriben datos durante E1B.
+            Subir un Excel muestra el preview de archivo más el análisis contra la base destino:
+            resolución por fila (Crear / Error / Omitir), dependencias verificadas, duplicados
+            detectados. Política activa: <strong>Solo crear nuevos (CREATE_ONLY)</strong>.
+            No se escribe nada — la importación real estará disponible en E1C.
           </p>
         </div>
       </div>
@@ -676,8 +940,8 @@ export function PlatformDataOnboardingClient({ profile }: Props) {
       <div className="flex items-start gap-2 p-3 rounded-lg border border-amber-200 bg-amber-50">
         <AlertTriangle size={14} className="text-amber-500 mt-0.5 shrink-0" />
         <p className="text-xs text-amber-700">
-          <span className="font-semibold">E1B — Solo lectura:</span> El botón "Importar" permanece
-          deshabilitado. Ninguna acción de esta fase escribe datos en bases de clientes.
+          <span className="font-semibold">E1B.1 — Solo lectura:</span> El análisis consulta la base
+          destino pero no escribe nada. El botón "Importar" permanece deshabilitado hasta E1C.
         </p>
       </div>
 
@@ -786,13 +1050,17 @@ export function PlatformDataOnboardingClient({ profile }: Props) {
           <div className="space-y-2">
             <div className="flex items-center gap-2">
               <span className="w-2 h-2 rounded-full bg-sky-400" />
-              <span className="font-semibold text-sky-600">E1B — Activo ahora</span>
+              <span className="font-semibold text-sky-600">E1B · E1B.1 — Activo ahora</span>
             </div>
             <ul className="text-zinc-500 space-y-1 pl-4 list-disc">
               <li>Upload de archivo .xlsx ✓</li>
               <li>Parser de hoja "Datos" ✓</li>
               <li>Validación por fila ✓</li>
               <li>Preview con errores/advertencias ✓</li>
+              <li>Política CREATE_ONLY ✓</li>
+              <li>Análisis DB-aware por dataset ✓</li>
+              <li>Resolución por fila (Crear/Error/Omitir) ✓</li>
+              <li>Verificación de dependencias ✓</li>
               <li className="text-zinc-400">Runner de importación (E1C)</li>
             </ul>
           </div>
