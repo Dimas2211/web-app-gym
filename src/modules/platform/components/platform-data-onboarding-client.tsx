@@ -50,6 +50,7 @@ import type {
   DataOnboardingDbAwarePreviewResult,
   DataOnboardingDbAwareRow,
   DataOnboardingImportPolicy,
+  CategoriesImportActionState,
 } from "../types/platform.types";
 import { importPolicyLabel, ENABLED_IMPORT_POLICIES } from "../lib/data-onboarding/import-policy";
 import {
@@ -59,6 +60,9 @@ import {
 } from "../lib/data-onboarding/data-onboarding-definitions";
 import { TEMPLATE_AVAILABLE_KEYS } from "../lib/data-onboarding/excel-template-generator";
 import { previewDataOnboardingExcelAction } from "../actions/preview-data-onboarding-excel.action";
+import { importDataOnboardingCategoriesAction } from "../actions/import-data-onboarding-categories.action";
+import { IMPORT_CATEGORIES_CONFIRMATION_TEXT }
+  from "../lib/data-onboarding/import-runners/categories-import.constants";
 
 // ── Props ─────────────────────────────────────────────────────────
 
@@ -625,6 +629,40 @@ function DatasetCard({ dataset, profileId }: DatasetCardProps) {
   const [isPending,      startTransition]   = useTransition();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // ── Estado de importación (solo categories en E1C-A) ──────────
+  const [importState,     setImportState]   = useState<CategoriesImportActionState | null>(null);
+  const [confirmText,     setConfirmText]   = useState("");
+  const [isPendingImport, startImportTrans] = useTransition();
+
+  const isCategoriesDataset = dataset.key === "categories";
+
+  // DB-aware limpio = READY y solo filas CREATE (sin errores)
+  const dbAwareResult = previewState?.success ? previewState.dbAwareResult : undefined;
+  const dbAwareClean  = isCategoriesDataset
+    && dbAwareResult?.status === "READY"
+    && dbAwareResult.summary.errorRows === 0
+    && dbAwareResult.rows.every((r) => r.resolution === "CREATE");
+
+  const confirmationMatches = confirmText.trim() === IMPORT_CATEGORIES_CONFIRMATION_TEXT;
+  const canImportCategories = isCategoriesDataset && dbAwareClean && confirmationMatches && !isPendingImport && !isPending;
+
+  function handleImportCategories() {
+    if (!selectedFile || !canImportCategories) return;
+
+    const fd = new FormData();
+    fd.set("profileId",         profileId);
+    fd.set("datasetKey",        "categories");
+    fd.set("importPolicy",      "CREATE_ONLY");
+    fd.set("mode",              "EXECUTE");
+    fd.set("confirmationText",  confirmText.trim());
+    fd.set("file",              selectedFile);
+
+    startImportTrans(async () => {
+      const result = await importDataOnboardingCategoriesAction(fd);
+      setImportState(result);
+    });
+  }
+
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const f = e.target.files?.[0] ?? null;
     setSelectedFile(f);
@@ -779,16 +817,49 @@ function DatasetCard({ dataset, profileId }: DatasetCardProps) {
               </button>
             )}
 
-            {/* Importar — siempre deshabilitado hasta E1C */}
-            <button type="button" disabled
-              className="inline-flex items-center gap-1 text-xs px-2.5 py-1.5
-                         border border-zinc-200 rounded-lg text-zinc-400
-                         cursor-not-allowed opacity-60 bg-zinc-50"
-              title="Disponible en E1C — la importación real aún no está habilitada"
-            >
-              <Database size={11} />
-              Importar
-            </button>
+            {/* Importar — habilitado solo para categories en E1C-A */}
+            {isCategoriesDataset ? (
+              <button
+                type="button"
+                onClick={handleImportCategories}
+                disabled={!canImportCategories}
+                title={
+                  !dbAwareClean
+                    ? "Valide el archivo y asegúrese de que no hay errores"
+                    : !confirmationMatches
+                      ? `Escriba "${IMPORT_CATEGORIES_CONFIRMATION_TEXT}" para confirmar`
+                      : "Importar categorías a la base destino"
+                }
+                className={`inline-flex items-center gap-1 text-xs px-2.5 py-1.5
+                             border rounded-lg transition-colors
+                             ${canImportCategories
+                               ? "border-green-300 bg-green-50 text-green-700 hover:bg-green-100 hover:border-green-400 font-semibold"
+                               : "border-zinc-200 bg-zinc-50 text-zinc-400 cursor-not-allowed opacity-60"
+                             }`}
+              >
+                {isPendingImport ? (
+                  <>
+                    <Loader2 size={11} className="animate-spin" />
+                    Importando…
+                  </>
+                ) : (
+                  <>
+                    <Database size={11} />
+                    Importar categorías
+                  </>
+                )}
+              </button>
+            ) : (
+              <button type="button" disabled
+                className="inline-flex items-center gap-1 text-xs px-2.5 py-1.5
+                           border border-zinc-200 rounded-lg text-zinc-400
+                           cursor-not-allowed opacity-60 bg-zinc-50"
+                title="Disponible en fases siguientes"
+              >
+                <Database size={11} />
+                Importar
+              </button>
+            )}
           </>
         )}
 
@@ -877,10 +948,119 @@ function DatasetCard({ dataset, profileId }: DatasetCardProps) {
         />
       )}
 
-      {/* Aviso E1B.1 para datasets con plantilla activa */}
+      {/* Panel de confirmación e importación — solo categories en E1C-A */}
+      {isCategoriesDataset && dbAwareClean && !importState?.success && (
+        <div className="border border-green-200 rounded-xl bg-green-50 p-3 flex flex-col gap-2.5">
+          {/* Aviso de seguridad */}
+          <div className="flex items-start gap-2">
+            <AlertTriangle size={12} className="text-amber-500 shrink-0 mt-0.5" />
+            <p className="text-[11px] text-amber-700 leading-snug">
+              <span className="font-semibold">Solo crea registros nuevos.</span>{" "}
+              Esta importación no actualiza ni elimina categorías existentes.
+            </p>
+          </div>
+
+          {/* Input de confirmación */}
+          <div className="flex flex-col gap-1">
+            <label className="text-[10px] font-semibold text-zinc-500 uppercase tracking-wide">
+              Escriba para confirmar:
+              <span className="ml-1 font-mono text-green-700">{IMPORT_CATEGORIES_CONFIRMATION_TEXT}</span>
+            </label>
+            <input
+              type="text"
+              value={confirmText}
+              onChange={(e) => {
+                setConfirmText(e.target.value);
+                setImportState(null);
+              }}
+              placeholder={IMPORT_CATEGORIES_CONFIRMATION_TEXT}
+              className={`w-full text-xs font-mono px-2.5 py-1.5 border rounded-lg outline-none transition-colors
+                ${confirmationMatches
+                  ? "border-green-400 bg-white text-green-800 ring-1 ring-green-200"
+                  : "border-zinc-300 bg-white text-zinc-700"
+                }`}
+            />
+          </div>
+
+          {/* Error de importación */}
+          {importState && !importState.success && (
+            <div className="flex items-start gap-1.5 p-2 rounded bg-red-50 border border-red-200">
+              <AlertCircle size={12} className="text-red-500 shrink-0 mt-0.5" />
+              <p className="text-[11px] text-red-700 leading-tight">{importState.error}</p>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Resultado de importación exitosa — categories E1C-A */}
+      {isCategoriesDataset && importState?.success && importState.importResult && (
+        <div className="border border-green-300 rounded-xl overflow-hidden">
+          <div className="flex items-center gap-2 px-3 py-2.5 bg-green-100">
+            <CheckCircle2 size={13} className="text-green-600 shrink-0" />
+            <span className="text-xs font-semibold text-green-800">
+              Importación completada — {importState.importResult.created} categoría(s) creada(s)
+            </span>
+          </div>
+          <div className="grid grid-cols-3 gap-0 border-t border-green-200 bg-white">
+            <div className="px-3 py-2 text-center border-r border-green-100">
+              <p className="text-base font-bold text-green-600">{importState.importResult.created}</p>
+              <p className="text-[10px] text-zinc-400">Creadas</p>
+            </div>
+            <div className="px-3 py-2 text-center border-r border-green-100">
+              <p className="text-base font-bold text-zinc-500">{importState.importResult.skipped}</p>
+              <p className="text-[10px] text-zinc-400">Omitidas</p>
+            </div>
+            <div className="px-3 py-2 text-center">
+              <p className="text-base font-bold text-red-500">{importState.importResult.errors}</p>
+              <p className="text-[10px] text-zinc-400">Errores</p>
+            </div>
+          </div>
+          {importState.importResult.rows.length > 0 && (
+            <div className="overflow-x-auto max-h-40 border-t border-green-100">
+              <table className="w-full text-[11px]">
+                <thead>
+                  <tr className="border-b border-green-100 bg-green-50/60">
+                    <th className="px-2 py-1 text-left font-medium text-zinc-500 w-10">#</th>
+                    <th className="px-2 py-1 text-left font-medium text-zinc-500">Nombre</th>
+                    <th className="px-2 py-1 text-left font-medium text-zinc-500">Código generado</th>
+                    <th className="px-2 py-1 text-left font-medium text-zinc-500 w-20">Resultado</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {importState.importResult.rows.map((row) => (
+                    <tr key={row.rowNumber} className="border-b border-green-50">
+                      <td className="px-2 py-1 text-zinc-400 font-mono">{row.rowNumber}</td>
+                      <td className="px-2 py-1 text-zinc-700 max-w-[120px] truncate">{row.name}</td>
+                      <td className="px-2 py-1 font-mono text-zinc-600">{row.code}</td>
+                      <td className="px-2 py-1">
+                        <span className={`text-[10px] font-semibold ${
+                          row.resolution === "CREATED" ? "text-green-600" :
+                          row.resolution === "ERROR"   ? "text-red-600" : "text-zinc-400"
+                        }`}>
+                          {row.resolution}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          <div className="px-3 py-2 bg-green-50 border-t border-green-100">
+            <p className="text-[10px] text-green-700">
+              Vuelva a validar el archivo para confirmar los cambios reflejados en la base destino.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Aviso de estado según fase */}
       {hasTemplate && (
         <p className="text-[10px] text-indigo-500 border-t border-indigo-50 pt-2">
-          Preview activo — E1B.1. Análisis contra base incluido. Importación real disponible en E1C.
+          {isCategoriesDataset
+            ? "E1C-A activo — importación real de categorías habilitada (CREATE_ONLY). Validar archivo para habilitar el botón."
+            : "Preview activo — E1B.1. Análisis contra base incluido. Importación real disponible en fases siguientes."
+          }
         </p>
       )}
 
@@ -920,18 +1100,18 @@ export function PlatformDataOnboardingClient({ profile }: Props) {
         </p>
       </div>
 
-      {/* Banner E1B.1 */}
-      <div className="flex items-start gap-3 p-4 rounded-xl border border-sky-200 bg-sky-50">
-        <Database size={18} className="text-sky-500 mt-0.5 shrink-0" />
+      {/* Banner E1C-A */}
+      <div className="flex items-start gap-3 p-4 rounded-xl border border-green-200 bg-green-50">
+        <Database size={18} className="text-green-600 mt-0.5 shrink-0" />
         <div>
-          <p className="text-sm font-semibold text-sky-800">
-            E1B.1 — Import Policy + DB-aware Preview activo
+          <p className="text-sm font-semibold text-green-800">
+            E1C-A — Importación real de Categorías habilitada
           </p>
-          <p className="text-xs text-sky-700 mt-0.5">
-            Subir un Excel muestra el preview de archivo más el análisis contra la base destino:
-            resolución por fila (Crear / Error / Omitir), dependencias verificadas, duplicados
-            detectados. Política activa: <strong>Solo crear nuevos (CREATE_ONLY)</strong>.
-            No se escribe nada — la importación real estará disponible en E1C.
+          <p className="text-xs text-green-700 mt-0.5">
+            Dataset <strong>Categorías</strong> habilitado para importación real (CREATE_ONLY).
+            Suba un Excel, valide el archivo y el análisis contra la base destino, confirme con{" "}
+            <code className="font-mono bg-green-100 px-1 rounded">IMPORT CATEGORIES</code>{" "}
+            y ejecute. Los demás datasets mantienen el botón Importar deshabilitado hasta E1C-B/C o E2.
           </p>
         </div>
       </div>
@@ -940,8 +1120,9 @@ export function PlatformDataOnboardingClient({ profile }: Props) {
       <div className="flex items-start gap-2 p-3 rounded-lg border border-amber-200 bg-amber-50">
         <AlertTriangle size={14} className="text-amber-500 mt-0.5 shrink-0" />
         <p className="text-xs text-amber-700">
-          <span className="font-semibold">E1B.1 — Solo lectura:</span> El análisis consulta la base
-          destino pero no escribe nada. El botón "Importar" permanece deshabilitado hasta E1C.
+          <span className="font-semibold">Seguridad E1C-A:</span> Solo escribe en{" "}
+          <code className="font-mono">product_categories</code>. No actualiza, no elimina, no hace
+          upsert. PRODUCTION bloqueado. Requiere confirmación textual. No hay importación parcial.
         </p>
       </div>
 
@@ -1049,8 +1230,8 @@ export function PlatformDataOnboardingClient({ profile }: Props) {
 
           <div className="space-y-2">
             <div className="flex items-center gap-2">
-              <span className="w-2 h-2 rounded-full bg-sky-400" />
-              <span className="font-semibold text-sky-600">E1B · E1B.1 — Activo ahora</span>
+              <span className="w-2 h-2 rounded-full bg-green-500" />
+              <span className="font-semibold text-green-700">E1B · E1B.1 · E1C-A — Activos</span>
             </div>
             <ul className="text-zinc-500 space-y-1 pl-4 list-disc">
               <li>Upload de archivo .xlsx ✓</li>
@@ -1061,20 +1242,20 @@ export function PlatformDataOnboardingClient({ profile }: Props) {
               <li>Análisis DB-aware por dataset ✓</li>
               <li>Resolución por fila (Crear/Error/Omitir) ✓</li>
               <li>Verificación de dependencias ✓</li>
-              <li className="text-zinc-400">Runner de importación (E1C)</li>
+              <li className="text-green-700 font-medium">Importación real: Categorías ✓ (E1C-A)</li>
             </ul>
           </div>
 
           <div className="space-y-2">
             <div className="flex items-center gap-2">
               <span className="w-2 h-2 rounded-full bg-zinc-300" />
-              <span className="font-semibold text-zinc-500">E1C · E2 — Futuro</span>
+              <span className="font-semibold text-zinc-500">E1C-B · E1C-C · E2 — Futuro</span>
             </div>
             <ul className="text-zinc-400 space-y-1 pl-4 list-disc">
-              <li>Importación real en base cliente</li>
-              <li>Exportación de datos existentes</li>
-              <li>Historial de importaciones</li>
-              <li>Rollback por importación</li>
+              <li>Importación: Líneas, Sublíneas (E1C-B)</li>
+              <li>Importación: Productos, Clientes, Prov. (E1C-C)</li>
+              <li>Exportación de datos existentes (E2)</li>
+              <li>Historial de importaciones (S1)</li>
             </ul>
           </div>
 

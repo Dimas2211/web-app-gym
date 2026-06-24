@@ -1201,3 +1201,58 @@ export interface DataOnboardingDbAwarePreviewResult {
   summary:       DataOnboardingDbAwarePreviewSummary;
   rows:          DataOnboardingDbAwareRow[];
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// E1C-A: Categories Import Runner
+// Tipos para el runner controlado de importación de categorías contra un
+// PlatformDatabaseProfile via Prisma dinámico temporal.
+// Solo política CREATE_ONLY. Solo escribe en product_categories.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Resultado de importación de una fila individual */
+export interface CategoriesImportRowResult {
+  rowNumber:  number;
+  name:       string;
+  code:       string;
+  resolution: "CREATED" | "SKIPPED" | "ERROR";
+  reason?:    string;
+}
+
+/** Resultado completo del dry-run del import runner de categorías */
+export interface CategoriesImportDryRunResult {
+  wouldCreate: number;
+  blocked:     number;
+  totalRows:   number;
+  rows:        CategoriesImportRowResult[];
+}
+
+/** Resultado completo de la ejecución real del import runner de categorías */
+export interface CategoriesImportResult {
+  created:      number;
+  skipped:      number;
+  errors:       number;
+  totalRows:    number;
+  importPolicy: DataOnboardingImportPolicy;
+  datasetKey:   "categories";
+  rows:         CategoriesImportRowResult[];
+}
+
+export type CategoriesImportActionMode = "DRY_RUN" | "EXECUTE";
+
+export type CategoriesImportActionState =
+  | {
+      success:        true;
+      mode:           CategoriesImportActionMode;
+      profileLabel:   string;
+      safetyMessages: string[];
+      safetyWarnings: string[];
+      dryRunResult?:  CategoriesImportDryRunResult;
+      importResult?:  CategoriesImportResult;
+      error?:         never;
+    }
+  | {
+      success:        false;
+      error:          string;
+      blocked?:       boolean;
+      safetyBlockers?: string[];
+    };
