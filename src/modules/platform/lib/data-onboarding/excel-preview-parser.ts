@@ -92,7 +92,8 @@ function validateEmail(val: unknown): boolean {
 
 function validateEnum(val: unknown, allowed: string[]): boolean {
   if (isEmpty(val)) return true;
-  return allowed.includes(String(val).trim().toUpperCase());
+  const normalized = String(val).trim().toLowerCase();
+  return allowed.map((a) => a.toLowerCase()).includes(normalized);
 }
 
 function cellValue(val: unknown): unknown {
@@ -110,10 +111,10 @@ function validateCategoriesRow(data: RowData): ValidationResult {
   if (isEmpty(data.name)) {
     errors.push({ code: "REQUIRED_FIELD", field: "name", message: "El campo 'name' es requerido." });
   }
-  if (!isEmpty(data.status) && !validateEnum(data.status, ["ACTIVO", "INACTIVO"])) {
+  if (!isEmpty(data.status) && !validateEnum(data.status, ["active", "inactive"])) {
     warnings.push({
       code: "INVALID_ENUM", field: "status",
-      message: `Valor '${data.status}' no reconocido en 'status'. Permitidos: ACTIVO, INACTIVO.`,
+      message: `Valor '${data.status}' no reconocido en 'status'. Permitidos: active, inactive.`,
     });
   }
 
@@ -127,8 +128,8 @@ function validateLinesRow(data: RowData): ValidationResult {
   if (isEmpty(data.name))          errors.push({ code: "REQUIRED_FIELD", field: "name",          message: "El campo 'name' es requerido." });
   if (isEmpty(data.category_name)) errors.push({ code: "REQUIRED_FIELD", field: "category_name", message: "El campo 'category_name' es requerido." });
 
-  if (!isEmpty(data.status) && !validateEnum(data.status, ["ACTIVO", "INACTIVO"])) {
-    warnings.push({ code: "INVALID_ENUM", field: "status", message: `Valor '${data.status}' no reconocido en 'status'. Permitidos: ACTIVO, INACTIVO.` });
+  if (!isEmpty(data.status) && !validateEnum(data.status, ["active", "inactive"])) {
+    warnings.push({ code: "INVALID_ENUM", field: "status", message: `Valor '${data.status}' no reconocido en 'status'. Permitidos: active, inactive.` });
   }
 
   return { errors, warnings };
@@ -141,8 +142,8 @@ function validateSublinesRow(data: RowData): ValidationResult {
   if (isEmpty(data.name))      errors.push({ code: "REQUIRED_FIELD", field: "name",      message: "El campo 'name' es requerido." });
   if (isEmpty(data.line_name)) errors.push({ code: "REQUIRED_FIELD", field: "line_name", message: "El campo 'line_name' es requerido." });
 
-  if (!isEmpty(data.status) && !validateEnum(data.status, ["ACTIVO", "INACTIVO"])) {
-    warnings.push({ code: "INVALID_ENUM", field: "status", message: `Valor '${data.status}' no reconocido en 'status'. Permitidos: ACTIVO, INACTIVO.` });
+  if (!isEmpty(data.status) && !validateEnum(data.status, ["active", "inactive"])) {
+    warnings.push({ code: "INVALID_ENUM", field: "status", message: `Valor '${data.status}' no reconocido en 'status'. Permitidos: active, inactive.` });
   }
 
   return { errors, warnings };
@@ -176,8 +177,8 @@ function validateProductsRow(data: RowData, seenCodes: Set<string>): ValidationR
     errors.push({ code: "INVALID_BOOLEAN", field: "allow_sale", message: `Valor '${data.allow_sale}' inválido. Use: true o false.` });
   }
 
-  if (!isEmpty(data.product_type) && !validateEnum(data.product_type, ["PRODUCT", "SERVICE", "COMBO"])) {
-    errors.push({ code: "INVALID_ENUM", field: "product_type", message: `Valor '${data.product_type}' inválido. Permitidos: PRODUCT, SERVICE, COMBO.` });
+  if (!isEmpty(data.product_type) && !validateEnum(data.product_type, ["PRODUCT", "SERVICE"])) {
+    errors.push({ code: "INVALID_ENUM", field: "product_type", message: `Valor '${data.product_type}' inválido. Permitidos: PRODUCT, SERVICE.` });
   }
 
   if (!isEmpty(data.cost_price) && !validateDecimal(data.cost_price).valid) {
@@ -187,8 +188,8 @@ function validateProductsRow(data: RowData, seenCodes: Set<string>): ValidationR
     errors.push({ code: "INVALID_DECIMAL", field: "sale_price", message: `Valor '${data.sale_price}' inválido para 'sale_price'. Use decimal >= 0 con punto.` });
   }
 
-  if (!isEmpty(data.status) && !validateEnum(data.status, ["ACTIVO", "INACTIVO"])) {
-    warnings.push({ code: "INVALID_ENUM", field: "status", message: `Valor '${data.status}' no reconocido en 'status'. Permitidos: ACTIVO, INACTIVO.` });
+  if (!isEmpty(data.status) && !validateEnum(data.status, ["ACTIVE", "INACTIVE", "DISCONTINUED"])) {
+    warnings.push({ code: "INVALID_ENUM", field: "status", message: `Valor '${data.status}' no reconocido en 'status'. Permitidos: ACTIVE, INACTIVE, DISCONTINUED.` });
   }
 
   if (!isEmpty(data.product_code)) {
@@ -213,8 +214,8 @@ function validateCustomersRow(data: RowData, seenDocs: Set<string>): ValidationR
     errors.push({ code: "INVALID_EMAIL", field: "email", message: `Formato de email inválido: '${data.email}'.` });
   }
 
-  if (!isEmpty(data.is_active) && !validateBoolean(data.is_active).valid) {
-    warnings.push({ code: "INVALID_BOOLEAN", field: "is_active", message: `Valor '${data.is_active}' no reconocido. Use: true o false.` });
+  if (!isEmpty(data.status) && !validateEnum(data.status, ["active", "inactive"])) {
+    warnings.push({ code: "INVALID_ENUM", field: "status", message: `Valor '${data.status}' no reconocido en 'status'. Permitidos: active, inactive.` });
   }
 
   if (!isEmpty(data.document_type) && !validateEnum(data.document_type, ["NIT", "DUI", "PASAPORTE", "CEDULA", "OTRO"])) {
@@ -243,8 +244,8 @@ function validateSuppliersRow(data: RowData, seenNits: Set<string>): ValidationR
     errors.push({ code: "INVALID_EMAIL", field: "email", message: `Formato de email inválido: '${data.email}'.` });
   }
 
-  if (!isEmpty(data.is_active) && !validateBoolean(data.is_active).valid) {
-    warnings.push({ code: "INVALID_BOOLEAN", field: "is_active", message: `Valor '${data.is_active}' no reconocido. Use: true o false.` });
+  if (!isEmpty(data.status) && !validateEnum(data.status, ["active", "inactive"])) {
+    warnings.push({ code: "INVALID_ENUM", field: "status", message: `Valor '${data.status}' no reconocido en 'status'. Permitidos: active, inactive.` });
   }
 
   if (!isEmpty(data.classification) && !validateEnum(data.classification, ["GRAN_CONTRIBUYENTE", "MEDIANO", "OTRO"])) {

@@ -607,13 +607,15 @@ async function analyzeCustomers(
       naturalKey = `DUI:${docNumber}`;
       existsInDb = duiMap.has(normalizeKey(docNumber));
     } else if (docNumber) {
-      // Documento presente pero tipo no es NIT/DUI — buscar por nombre como fallback
+      // Documento presente pero tipo no es NIT/DUI — llave débil por nombre
+      warnings.push({ code: "WEAK_NATURAL_KEY", field: "document_type", message: `Tipo de documento '${docType}' no es NIT ni DUI. La llave de identificación será el nombre — posible duplicado no detectable con certeza.` });
       if (nameMap.has(normalizeKey(name))) {
         warnings.push({ code: "POSSIBLE_DUPLICATE_NAME", field: "name", message: `Posible duplicado por nombre "${name}" (sin llave fuerte de documento).` });
         existsInDb = true;
       }
     } else {
       // Sin documento — llave débil por nombre
+      warnings.push({ code: "WEAK_NATURAL_KEY", field: "document_number", message: `Sin número de documento. La llave de identificación será el nombre — no es posible detectar duplicados con certeza.` });
       if (nameMap.has(normalizeKey(name))) {
         warnings.push({ code: "POSSIBLE_DUPLICATE_NAME", field: "name", message: `Posible duplicado por nombre "${name}" (no hay número de documento para verificar).` });
         existsInDb = true;
@@ -681,6 +683,8 @@ async function analyzeSuppliers(
         }
       }
     } else {
+      // Sin NIT — llave débil por nombre
+      warnings.push({ code: "WEAK_NATURAL_KEY", field: "nit", message: `Sin NIT. La llave de identificación es el nombre — posible duplicado no detectable con certeza.` });
       existsInDb = nameMap.has(normalizeKey(name));
     }
 

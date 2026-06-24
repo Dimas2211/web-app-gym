@@ -58,14 +58,14 @@ const TEMPLATE_CONFIGS: Partial<Record<DataOnboardingDatasetKey, TemplateDefinit
       {
         key: "status", required: false, type: "texto (valores permitidos)",
         description: "Estado del registro.",
-        example: "ACTIVO",
-        allowedValues: "ACTIVO | INACTIVO",
+        example: "active",
+        allowedValues: "active | inactive",
       },
     ],
     dependencies: [],
     extraNotes: [
       "El campo 'name' debe ser único dentro de la organización.",
-      "Si no se indica 'status', el sistema asignará ACTIVO por defecto.",
+      "Si no se indica 'status', el sistema asignará 'active' por defecto.",
     ],
   },
 
@@ -93,8 +93,8 @@ const TEMPLATE_CONFIGS: Partial<Record<DataOnboardingDatasetKey, TemplateDefinit
       {
         key: "status", required: false, type: "texto (valores permitidos)",
         description: "Estado del registro.",
-        example: "ACTIVO",
-        allowedValues: "ACTIVO | INACTIVO",
+        example: "active",
+        allowedValues: "active | inactive",
       },
     ],
     dependencies: [
@@ -134,8 +134,8 @@ const TEMPLATE_CONFIGS: Partial<Record<DataOnboardingDatasetKey, TemplateDefinit
       {
         key: "status", required: false, type: "texto (valores permitidos)",
         description: "Estado del registro.",
-        example: "ACTIVO",
-        allowedValues: "ACTIVO | INACTIVO",
+        example: "active",
+        allowedValues: "active | inactive",
       },
     ],
     dependencies: [
@@ -167,7 +167,7 @@ const TEMPLATE_CONFIGS: Partial<Record<DataOnboardingDatasetKey, TemplateDefinit
         key: "product_type", required: true, type: "texto (valores permitidos)",
         description: "Tipo del producto.",
         example: "PRODUCT",
-        allowedValues: "PRODUCT | SERVICE | COMBO",
+        allowedValues: "PRODUCT | SERVICE",
       },
       {
         key: "is_stockable", required: true, type: "booleano",
@@ -249,9 +249,9 @@ const TEMPLATE_CONFIGS: Partial<Record<DataOnboardingDatasetKey, TemplateDefinit
       },
       {
         key: "status", required: false, type: "texto (valores permitidos)",
-        description: "Estado del producto.",
-        example: "ACTIVO",
-        allowedValues: "ACTIVO | INACTIVO",
+        description: "Estado del producto. Si no se indica, el sistema asignará ACTIVE por defecto.",
+        example: "ACTIVE",
+        allowedValues: "ACTIVE | INACTIVE | DISCONTINUED",
       },
     ],
     dependencies: [
@@ -322,10 +322,10 @@ const TEMPLATE_CONFIGS: Partial<Record<DataOnboardingDatasetKey, TemplateDefinit
         example: "SV",
       },
       {
-        key: "is_active", required: false, type: "booleano",
-        description: "Estado activo del cliente.",
-        example: "true",
-        allowedValues: "true | false",
+        key: "status", required: false, type: "texto (valores permitidos)",
+        description: "Estado del cliente. Si no se indica, el sistema asignará 'active' por defecto.",
+        example: "active",
+        allowedValues: "active | inactive",
       },
       {
         key: "notes", required: false, type: "texto",
@@ -337,6 +337,9 @@ const TEMPLATE_CONFIGS: Partial<Record<DataOnboardingDatasetKey, TemplateDefinit
     extraNotes: [
       "customer_code se auto-genera si no se provee.",
       "Si document_type se especifica, se recomienda también proveer document_number.",
+      "document_type NIT y document_number se almacenan en el campo 'nit' del sistema.",
+      "document_type DUI y document_number se almacenan en el campo 'dui' del sistema.",
+      "Sin documento de identidad la llave es solo el nombre — posible duplicado no detectable.",
     ],
   },
 
@@ -409,16 +412,17 @@ const TEMPLATE_CONFIGS: Partial<Record<DataOnboardingDatasetKey, TemplateDefinit
         example: "María García",
       },
       {
-        key: "is_active", required: false, type: "booleano",
-        description: "Estado activo del proveedor.",
-        example: "true",
-        allowedValues: "true | false",
+        key: "status", required: false, type: "texto (valores permitidos)",
+        description: "Estado del proveedor. Si no se indica, el sistema asignará 'active' por defecto.",
+        example: "active",
+        allowedValues: "active | inactive",
       },
     ],
     dependencies: [],
     extraNotes: [
       "NIT y NRC son opcionales pero recomendados si el proveedor es emisor DTE.",
       "economic_activity corresponde al catálogo de actividades económicas del MH.",
+      "Si no se provee NIT, la llave de identificación es el nombre — posible duplicado no detectable.",
     ],
   },
 
