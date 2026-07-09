@@ -20,6 +20,7 @@ import { PlatformDatabaseProfilesTable }          from "./platform-database-prof
 import { PlatformDatabaseProfileFormDialog }       from "./platform-database-profile-form-dialog";
 import { PlatformDatabaseProfilePreflightModal }   from "./platform-database-profile-preflight-modal";
 import { PlatformDatabaseProfileInspectorModal }   from "./platform-database-profile-inspector-modal";
+import { PlatformTenantBindingModal }              from "./platform-tenant-binding-modal";
 import { setDatabaseProfileActiveAction }          from "../actions/set-database-profile-active.action";
 import { testDatabaseProfileConnectionAction }     from "../actions/test-database-profile-connection.action";
 
@@ -55,6 +56,7 @@ export function PlatformDatabaseProfilesClient({
   const [feedback,          setFeedback]          = useState<Feedback | null>(null);
   const [preflightProfile,  setPreflightProfile]  = useState<PlatformDatabaseProfileItem | null>(null);
   const [inspectorProfile,  setInspectorProfile]  = useState<PlatformDatabaseProfileItem | null>(null);
+  const [tenantBindingProfile, setTenantBindingProfile] = useState<PlatformDatabaseProfileItem | null>(null);
 
   const [, startTransition] = useTransition();
 
@@ -121,6 +123,10 @@ export function PlatformDatabaseProfilesClient({
 
   function handleOpenInspector(p: PlatformDatabaseProfileItem) {
     setInspectorProfile(p);
+  }
+
+  function handleOpenTenantBinding(p: PlatformDatabaseProfileItem) {
+    setTenantBindingProfile(p);
   }
 
   return (
@@ -215,6 +221,7 @@ export function PlatformDatabaseProfilesClient({
           onTest={handleTestConnection}
           onPreflight={handleOpenPreflight}
           onInspect={handleOpenInspector}
+          onDetectTenant={handleOpenTenantBinding}
         />
         {profiles.length > 0 && (
           <div className="px-4 py-2 border-t border-zinc-100 bg-zinc-50 text-xs text-zinc-400 text-right">
@@ -252,6 +259,16 @@ export function PlatformDatabaseProfilesClient({
           profileId={inspectorProfile.id}
           profileLabel={inspectorProfile.label}
           onClose={() => setInspectorProfile(null)}
+        />
+      )}
+
+      {/* Modal de tenant binding (C7) */}
+      {tenantBindingProfile && (
+        <PlatformTenantBindingModal
+          key={`tenant-binding-${tenantBindingProfile.id}`}
+          profileId={tenantBindingProfile.id}
+          profileLabel={tenantBindingProfile.label}
+          onClose={() => setTenantBindingProfile(null)}
         />
       )}
 

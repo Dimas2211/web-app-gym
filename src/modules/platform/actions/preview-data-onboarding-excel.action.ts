@@ -144,7 +144,10 @@ export async function previewDataOnboardingExcelAction(
       return {
         success:      true,
         result,
-        dbAwareError: "No se puede ejecutar el análisis DB-aware: el perfil no tiene tenant_id asociado.",
+        dbAwareError:
+          "Esta organización no tiene tenant_id operativo. Ve a Perfiles de BD → " +
+          "Detectar tenant para asociarlo. Si la base es nueva y no aparecen tenants, " +
+          "primero debe ejecutarse provisioning/seed para crear el registro en gyms.",
       };
     }
 

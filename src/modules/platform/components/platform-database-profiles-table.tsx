@@ -10,7 +10,7 @@
 // ─────────────────────────────────────────────────────────────────
 
 import Link from "next/link";
-import { Pencil, Power, PlugZap, Loader2, ShieldCheck, Search, ExternalLink, FileSpreadsheet } from "lucide-react";
+import { Pencil, Power, PlugZap, Loader2, ShieldCheck, Search, ExternalLink, FileSpreadsheet, Link2 } from "lucide-react";
 import type {
   PlatformDatabaseProfileItem,
   PlatformDatabaseConnectionTestStatus,
@@ -27,6 +27,7 @@ interface Props {
   onTest:          (p: PlatformDatabaseProfileItem) => void;
   onPreflight:     (p: PlatformDatabaseProfileItem) => void;
   onInspect:       (p: PlatformDatabaseProfileItem) => void;
+  onDetectTenant:  (p: PlatformDatabaseProfileItem) => void;
 }
 
 function TestStatusBadge({ status }: { status: PlatformDatabaseConnectionTestStatus }) {
@@ -68,6 +69,7 @@ export function PlatformDatabaseProfilesTable({
   onTest,
   onPreflight,
   onInspect,
+  onDetectTenant,
 }: Props) {
   if (items.length === 0) {
     return (
@@ -252,6 +254,19 @@ export function PlatformDatabaseProfilesTable({
                     >
                       <Search size={11} />
                       Inspeccionar
+                    </button>
+
+                    {/* Detectar / vincular tenant (C7) */}
+                    <button
+                      type="button"
+                      onClick={() => onDetectTenant(p)}
+                      className="inline-flex items-center gap-1 text-xs px-2.5 py-1.5
+                                 border border-teal-200 rounded-lg text-teal-700
+                                 hover:bg-teal-50 transition-colors whitespace-nowrap"
+                      title="Detectar y vincular tenant_id de la organización"
+                    >
+                      <Link2 size={11} />
+                      Detectar tenant
                     </button>
 
                     {/* Visor completo read-only (C6) */}

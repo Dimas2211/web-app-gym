@@ -44,6 +44,7 @@ import {
 import type {
   DataOnboardingProfileHeader,
   DataOnboardingDatasetDefinition,
+  DataOnboardingDatasetKey,
   DataOnboardingPreviewActionState,
   DataOnboardingPreviewResult,
   DataOnboardingPreviewRow,
@@ -51,6 +52,15 @@ import type {
   DataOnboardingDbAwareRow,
   DataOnboardingImportPolicy,
   CategoriesImportActionState,
+  CategoriesImportRowResult,
+  LinesImportActionState,
+  LinesImportRowResult,
+  SublinesImportActionState,
+  SublinesImportRowResult,
+  CustomersImportActionState,
+  CustomersImportRowResult,
+  SuppliersImportActionState,
+  SuppliersImportRowResult,
 } from "../types/platform.types";
 import { importPolicyLabel, ENABLED_IMPORT_POLICIES } from "../lib/data-onboarding/import-policy";
 import {
@@ -61,8 +71,63 @@ import {
 import { TEMPLATE_AVAILABLE_KEYS } from "../lib/data-onboarding/excel-template-generator";
 import { previewDataOnboardingExcelAction } from "../actions/preview-data-onboarding-excel.action";
 import { importDataOnboardingCategoriesAction } from "../actions/import-data-onboarding-categories.action";
+import { importDataOnboardingLinesAction } from "../actions/import-data-onboarding-lines.action";
+import { importDataOnboardingSublinesAction } from "../actions/import-data-onboarding-sublines.action";
+import { importDataOnboardingCustomersAction } from "../actions/import-data-onboarding-customers.action";
+import { importDataOnboardingSuppliersAction } from "../actions/import-data-onboarding-suppliers.action";
 import { IMPORT_CATEGORIES_CONFIRMATION_TEXT }
   from "../lib/data-onboarding/import-runners/categories-import.constants";
+import { IMPORT_LINES_CONFIRMATION_TEXT }
+  from "../lib/data-onboarding/import-runners/lines-import.constants";
+import { IMPORT_SUBLINES_CONFIRMATION_TEXT }
+  from "../lib/data-onboarding/import-runners/sublines-import.constants";
+import { IMPORT_CUSTOMERS_CONFIRMATION_TEXT }
+  from "../lib/data-onboarding/import-runners/customers-import.constants";
+import { IMPORT_SUPPLIERS_CONFIRMATION_TEXT }
+  from "../lib/data-onboarding/import-runners/suppliers-import.constants";
+
+// ── Datasets con importación real habilitada (E1C-A · E1C-B · E1C-C) ──
+
+type ImportEnabledDatasetKey = "categories" | "lines" | "sublines" | "customers" | "suppliers";
+
+const IMPORT_CONFIRMATION_TEXT: Record<ImportEnabledDatasetKey, string> = {
+  categories: IMPORT_CATEGORIES_CONFIRMATION_TEXT,
+  lines:      IMPORT_LINES_CONFIRMATION_TEXT,
+  sublines:   IMPORT_SUBLINES_CONFIRMATION_TEXT,
+  customers:  IMPORT_CUSTOMERS_CONFIRMATION_TEXT,
+  suppliers:  IMPORT_SUPPLIERS_CONFIRMATION_TEXT,
+};
+
+function isImportEnabledDataset(key: DataOnboardingDatasetKey): key is ImportEnabledDatasetKey {
+  return key === "categories" || key === "lines" || key === "sublines"
+    || key === "customers" || key === "suppliers";
+}
+
+type AnyImportActionState =
+  | CategoriesImportActionState
+  | LinesImportActionState
+  | SublinesImportActionState
+  | CustomersImportActionState
+  | SuppliersImportActionState;
+
+type AnyImportRowResult =
+  | CategoriesImportRowResult
+  | LinesImportRowResult
+  | SublinesImportRowResult
+  | CustomersImportRowResult
+  | SuppliersImportRowResult;
+
+function importRowParentLabel(datasetKey: DataOnboardingDatasetKey): string | null {
+  if (datasetKey === "lines")    return "Categoría";
+  if (datasetKey === "sublines") return "Línea";
+  return null;
+}
+
+function importRowParentValue(row: AnyImportRowResult): string | undefined {
+  if ("categoryName" in row) return row.categoryName;
+  if ("lineName" in row)     return row.lineName;
+  return undefined;
+}
 
 // ── Props ─────────────────────────────────────────────────────────
 
@@ -629,36 +694,45 @@ function DatasetCard({ dataset, profileId }: DatasetCardProps) {
   const [isPending,      startTransition]   = useTransition();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // ── Estado de importación (solo categories en E1C-A) ──────────
-  const [importState,     setImportState]   = useState<CategoriesImportActionState | null>(null);
+  // ── Estado de importación (categories · lines · sublines) ─────
+  const [importState,     setImportState]   = useState<AnyImportActionState | null>(null);
   const [confirmText,     setConfirmText]   = useState("");
   const [isPendingImport, startImportTrans] = useTransition();
 
-  const isCategoriesDataset = dataset.key === "categories";
+  const isImportEnabled       = isImportEnabledDataset(dataset.key);
+  const expectedConfirmation  = isImportEnabledDataset(dataset.key) ? IMPORT_CONFIRMATION_TEXT[dataset.key] : null;
 
   // DB-aware limpio = READY y solo filas CREATE (sin errores)
   const dbAwareResult = previewState?.success ? previewState.dbAwareResult : undefined;
-  const dbAwareClean  = isCategoriesDataset
+  const dbAwareClean  = isImportEnabled
     && dbAwareResult?.status === "READY"
     && dbAwareResult.summary.errorRows === 0
     && dbAwareResult.rows.every((r) => r.resolution === "CREATE");
 
-  const confirmationMatches = confirmText.trim() === IMPORT_CATEGORIES_CONFIRMATION_TEXT;
-  const canImportCategories = isCategoriesDataset && dbAwareClean && confirmationMatches && !isPendingImport && !isPending;
+  const confirmationMatches = expectedConfirmation !== null && confirmText.trim() === expectedConfirmation;
+  const canRunImport = isImportEnabled && dbAwareClean && confirmationMatches && !isPendingImport && !isPending;
 
-  function handleImportCategories() {
-    if (!selectedFile || !canImportCategories) return;
+  function handleImport() {
+    if (!selectedFile || !canRunImport || !isImportEnabled) return;
 
     const fd = new FormData();
     fd.set("profileId",         profileId);
-    fd.set("datasetKey",        "categories");
+    fd.set("datasetKey",        dataset.key);
     fd.set("importPolicy",      "CREATE_ONLY");
     fd.set("mode",              "EXECUTE");
     fd.set("confirmationText",  confirmText.trim());
     fd.set("file",              selectedFile);
 
     startImportTrans(async () => {
-      const result = await importDataOnboardingCategoriesAction(fd);
+      const result = dataset.key === "categories"
+        ? await importDataOnboardingCategoriesAction(fd)
+        : dataset.key === "lines"
+          ? await importDataOnboardingLinesAction(fd)
+          : dataset.key === "sublines"
+            ? await importDataOnboardingSublinesAction(fd)
+            : dataset.key === "customers"
+              ? await importDataOnboardingCustomersAction(fd)
+              : await importDataOnboardingSuppliersAction(fd);
       setImportState(result);
     });
   }
@@ -817,22 +891,22 @@ function DatasetCard({ dataset, profileId }: DatasetCardProps) {
               </button>
             )}
 
-            {/* Importar — habilitado solo para categories en E1C-A */}
-            {isCategoriesDataset ? (
+            {/* Importar — habilitado para categories · lines · sublines (E1C-A · E1C-B) */}
+            {isImportEnabled ? (
               <button
                 type="button"
-                onClick={handleImportCategories}
-                disabled={!canImportCategories}
+                onClick={handleImport}
+                disabled={!canRunImport}
                 title={
                   !dbAwareClean
                     ? "Valide el archivo y asegúrese de que no hay errores"
                     : !confirmationMatches
-                      ? `Escriba "${IMPORT_CATEGORIES_CONFIRMATION_TEXT}" para confirmar`
-                      : "Importar categorías a la base destino"
+                      ? `Escriba "${expectedConfirmation}" para confirmar`
+                      : `Importar ${dataset.label.toLowerCase()} a la base destino`
                 }
                 className={`inline-flex items-center gap-1 text-xs px-2.5 py-1.5
                              border rounded-lg transition-colors
-                             ${canImportCategories
+                             ${canRunImport
                                ? "border-green-300 bg-green-50 text-green-700 hover:bg-green-100 hover:border-green-400 font-semibold"
                                : "border-zinc-200 bg-zinc-50 text-zinc-400 cursor-not-allowed opacity-60"
                              }`}
@@ -845,7 +919,13 @@ function DatasetCard({ dataset, profileId }: DatasetCardProps) {
                 ) : (
                   <>
                     <Database size={11} />
-                    Importar categorías
+                    Importar {
+                      dataset.key === "categories" ? "categorías" :
+                      dataset.key === "lines"      ? "líneas" :
+                      dataset.key === "sublines"   ? "sublíneas" :
+                      dataset.key === "customers"  ? "clientes" :
+                      "proveedores"
+                    }
                   </>
                 )}
               </button>
@@ -948,15 +1028,15 @@ function DatasetCard({ dataset, profileId }: DatasetCardProps) {
         />
       )}
 
-      {/* Panel de confirmación e importación — solo categories en E1C-A */}
-      {isCategoriesDataset && dbAwareClean && !importState?.success && (
+      {/* Panel de confirmación e importación — categories · lines · sublines */}
+      {isImportEnabled && dbAwareClean && !importState?.success && (
         <div className="border border-green-200 rounded-xl bg-green-50 p-3 flex flex-col gap-2.5">
           {/* Aviso de seguridad */}
           <div className="flex items-start gap-2">
             <AlertTriangle size={12} className="text-amber-500 shrink-0 mt-0.5" />
             <p className="text-[11px] text-amber-700 leading-snug">
               <span className="font-semibold">Solo crea registros nuevos.</span>{" "}
-              Esta importación no actualiza ni elimina categorías existentes.
+              Esta importación no actualiza ni elimina datos existentes.
             </p>
           </div>
 
@@ -964,7 +1044,7 @@ function DatasetCard({ dataset, profileId }: DatasetCardProps) {
           <div className="flex flex-col gap-1">
             <label className="text-[10px] font-semibold text-zinc-500 uppercase tracking-wide">
               Escriba para confirmar:
-              <span className="ml-1 font-mono text-green-700">{IMPORT_CATEGORIES_CONFIRMATION_TEXT}</span>
+              <span className="ml-1 font-mono text-green-700">{expectedConfirmation}</span>
             </label>
             <input
               type="text"
@@ -973,7 +1053,7 @@ function DatasetCard({ dataset, profileId }: DatasetCardProps) {
                 setConfirmText(e.target.value);
                 setImportState(null);
               }}
-              placeholder={IMPORT_CATEGORIES_CONFIRMATION_TEXT}
+              placeholder={expectedConfirmation ?? ""}
               className={`w-full text-xs font-mono px-2.5 py-1.5 border rounded-lg outline-none transition-colors
                 ${confirmationMatches
                   ? "border-green-400 bg-white text-green-800 ring-1 ring-green-200"
@@ -992,13 +1072,13 @@ function DatasetCard({ dataset, profileId }: DatasetCardProps) {
         </div>
       )}
 
-      {/* Resultado de importación exitosa — categories E1C-A */}
-      {isCategoriesDataset && importState?.success && importState.importResult && (
+      {/* Resultado de importación exitosa — categories · lines · sublines */}
+      {isImportEnabled && importState?.success && importState.importResult && (
         <div className="border border-green-300 rounded-xl overflow-hidden">
           <div className="flex items-center gap-2 px-3 py-2.5 bg-green-100">
             <CheckCircle2 size={13} className="text-green-600 shrink-0" />
             <span className="text-xs font-semibold text-green-800">
-              Importación completada — {importState.importResult.created} categoría(s) creada(s)
+              Importación completada — {importState.importResult.created} registro(s) creado(s)
             </span>
           </div>
           <div className="grid grid-cols-3 gap-0 border-t border-green-200 bg-white">
@@ -1022,6 +1102,9 @@ function DatasetCard({ dataset, profileId }: DatasetCardProps) {
                   <tr className="border-b border-green-100 bg-green-50/60">
                     <th className="px-2 py-1 text-left font-medium text-zinc-500 w-10">#</th>
                     <th className="px-2 py-1 text-left font-medium text-zinc-500">Nombre</th>
+                    {importRowParentLabel(dataset.key) && (
+                      <th className="px-2 py-1 text-left font-medium text-zinc-500">{importRowParentLabel(dataset.key)}</th>
+                    )}
                     <th className="px-2 py-1 text-left font-medium text-zinc-500">Código generado</th>
                     <th className="px-2 py-1 text-left font-medium text-zinc-500 w-20">Resultado</th>
                   </tr>
@@ -1031,6 +1114,9 @@ function DatasetCard({ dataset, profileId }: DatasetCardProps) {
                     <tr key={row.rowNumber} className="border-b border-green-50">
                       <td className="px-2 py-1 text-zinc-400 font-mono">{row.rowNumber}</td>
                       <td className="px-2 py-1 text-zinc-700 max-w-[120px] truncate">{row.name}</td>
+                      {importRowParentLabel(dataset.key) && (
+                        <td className="px-2 py-1 text-zinc-700 max-w-[120px] truncate">{importRowParentValue(row) ?? "—"}</td>
+                      )}
                       <td className="px-2 py-1 font-mono text-zinc-600">{row.code}</td>
                       <td className="px-2 py-1">
                         <span className={`text-[10px] font-semibold ${
@@ -1057,8 +1143,8 @@ function DatasetCard({ dataset, profileId }: DatasetCardProps) {
       {/* Aviso de estado según fase */}
       {hasTemplate && (
         <p className="text-[10px] text-indigo-500 border-t border-indigo-50 pt-2">
-          {isCategoriesDataset
-            ? "E1C-A activo — importación real de categorías habilitada (CREATE_ONLY). Validar archivo para habilitar el botón."
+          {isImportEnabled
+            ? "E1C-A/E1C-B/E1C-C activo — importación real habilitada (CREATE_ONLY). Validar archivo para habilitar el botón."
             : "Preview activo — E1B.1. Análisis contra base incluido. Importación real disponible en fases siguientes."
           }
         </p>
@@ -1100,18 +1186,24 @@ export function PlatformDataOnboardingClient({ profile }: Props) {
         </p>
       </div>
 
-      {/* Banner E1C-A */}
+      {/* Banner E1C-A · E1C-B · E1C-C */}
       <div className="flex items-start gap-3 p-4 rounded-xl border border-green-200 bg-green-50">
         <Database size={18} className="text-green-600 mt-0.5 shrink-0" />
         <div>
           <p className="text-sm font-semibold text-green-800">
-            E1C-A — Importación real de Categorías habilitada
+            E1C-A · E1C-B · E1C-C — Importación real de Categorías, Líneas, Sublíneas, Clientes y Proveedores habilitada
           </p>
           <p className="text-xs text-green-700 mt-0.5">
-            Dataset <strong>Categorías</strong> habilitado para importación real (CREATE_ONLY).
-            Suba un Excel, valide el archivo y el análisis contra la base destino, confirme con{" "}
-            <code className="font-mono bg-green-100 px-1 rounded">IMPORT CATEGORIES</code>{" "}
-            y ejecute. Los demás datasets mantienen el botón Importar deshabilitado hasta E1C-B/C o E2.
+            Datasets <strong>Categorías</strong>, <strong>Líneas</strong>, <strong>Sublíneas</strong>,{" "}
+            <strong>Clientes</strong> y <strong>Proveedores</strong> habilitados
+            para importación real (CREATE_ONLY). Suba un Excel, valide el archivo y el análisis contra la base
+            destino, confirme con{" "}
+            <code className="font-mono bg-green-100 px-1 rounded">IMPORT CATEGORIES</code>,{" "}
+            <code className="font-mono bg-green-100 px-1 rounded">IMPORT LINES</code>,{" "}
+            <code className="font-mono bg-green-100 px-1 rounded">IMPORT SUBLINES</code>,{" "}
+            <code className="font-mono bg-green-100 px-1 rounded">IMPORT CUSTOMERS</code> o{" "}
+            <code className="font-mono bg-green-100 px-1 rounded">IMPORT SUPPLIERS</code> según el dataset,
+            y ejecute. Los demás datasets (Productos, Inventario) mantienen el botón Importar deshabilitado hasta E2.
           </p>
         </div>
       </div>
@@ -1120,8 +1212,10 @@ export function PlatformDataOnboardingClient({ profile }: Props) {
       <div className="flex items-start gap-2 p-3 rounded-lg border border-amber-200 bg-amber-50">
         <AlertTriangle size={14} className="text-amber-500 mt-0.5 shrink-0" />
         <p className="text-xs text-amber-700">
-          <span className="font-semibold">Seguridad E1C-A:</span> Solo escribe en{" "}
-          <code className="font-mono">product_categories</code>. No actualiza, no elimina, no hace
+          <span className="font-semibold">Seguridad E1C-A · E1C-B · E1C-C:</span> Solo escribe en{" "}
+          <code className="font-mono">product_categories</code>, <code className="font-mono">product_lines</code>,{" "}
+          <code className="font-mono">product_sublines</code>, <code className="font-mono">customers</code>{" "}
+          y <code className="font-mono">suppliers</code>. No actualiza, no elimina, no hace
           upsert. PRODUCTION bloqueado. Requiere confirmación textual. No hay importación parcial.
         </p>
       </div>
@@ -1231,7 +1325,7 @@ export function PlatformDataOnboardingClient({ profile }: Props) {
           <div className="space-y-2">
             <div className="flex items-center gap-2">
               <span className="w-2 h-2 rounded-full bg-green-500" />
-              <span className="font-semibold text-green-700">E1B · E1B.1 · E1C-A — Activos</span>
+              <span className="font-semibold text-green-700">E1B · E1B.1 · E1C-A · E1C-B — Activos</span>
             </div>
             <ul className="text-zinc-500 space-y-1 pl-4 list-disc">
               <li>Upload de archivo .xlsx ✓</li>
@@ -1243,17 +1337,18 @@ export function PlatformDataOnboardingClient({ profile }: Props) {
               <li>Resolución por fila (Crear/Error/Omitir) ✓</li>
               <li>Verificación de dependencias ✓</li>
               <li className="text-green-700 font-medium">Importación real: Categorías ✓ (E1C-A)</li>
+              <li className="text-green-700 font-medium">Importación real: Líneas, Sublíneas ✓ (E1C-B)</li>
+              <li className="text-green-700 font-medium">Importación real: Clientes, Proveedores ✓ (E1C-C)</li>
             </ul>
           </div>
 
           <div className="space-y-2">
             <div className="flex items-center gap-2">
               <span className="w-2 h-2 rounded-full bg-zinc-300" />
-              <span className="font-semibold text-zinc-500">E1C-B · E1C-C · E2 — Futuro</span>
+              <span className="font-semibold text-zinc-500">E2 — Futuro</span>
             </div>
             <ul className="text-zinc-400 space-y-1 pl-4 list-disc">
-              <li>Importación: Líneas, Sublíneas (E1C-B)</li>
-              <li>Importación: Productos, Clientes, Prov. (E1C-C)</li>
+              <li>Importación: Productos, Inventario inicial</li>
               <li>Exportación de datos existentes (E2)</li>
               <li>Historial de importaciones (S1)</li>
             </ul>

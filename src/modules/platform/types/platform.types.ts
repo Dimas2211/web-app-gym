@@ -671,6 +671,42 @@ export interface DatabaseProfileInspectionResult {
   error?:           string;
 }
 
+// ── Tenant Binding & Auto-Discovery (C7) ──────────────────────────
+
+export interface DetectedTenant {
+  id:     string;
+  name:   string;
+  slug:   string | null;
+  status: string | null;
+}
+
+export type TenantDetectionStatus =
+  | "NO_TENANTS_FOUND"
+  | "SINGLE_TENANT_DETECTED"
+  | "MULTIPLE_TENANTS_DETECTED"
+  | "ALREADY_BOUND"
+  | "DETECTION_FAILED";
+
+export interface TenantDetectionResult {
+  success:                       boolean;
+  profileId:                     string;
+  profileLabel:                  string;
+  organizationId:                string;
+  organizationName:              string;
+  status:                        TenantDetectionStatus;
+  detectedTenants:                DetectedTenant[];
+  currentOrganizationTenantId:   string | null;
+  recommendedTenantId:           string | null;
+  warnings:                      string[];
+  error?:                        string;
+}
+
+export interface BindOrganizationTenantResult {
+  success: boolean;
+  error?:  string;
+  tenantId?: string;
+}
+
 // ── Database Remediation Planner (C5) ─────────────────────────────
 
 export type DatabaseRemediationActionType =
@@ -1248,6 +1284,228 @@ export type CategoriesImportActionState =
       safetyWarnings: string[];
       dryRunResult?:  CategoriesImportDryRunResult;
       importResult?:  CategoriesImportResult;
+      error?:         never;
+    }
+  | {
+      success:        false;
+      error:          string;
+      blocked?:       boolean;
+      safetyBlockers?: string[];
+    };
+
+// ─────────────────────────────────────────────────────────────────────────────
+// E1C-B: Lines Import Runner
+// Tipos para el runner controlado de importación de líneas contra un
+// PlatformDatabaseProfile via Prisma dinámico temporal.
+// Solo política CREATE_ONLY. Solo escribe en product_lines.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Resultado de importación de una fila individual de líneas */
+export interface LinesImportRowResult {
+  rowNumber:    number;
+  name:         string;
+  categoryName: string;
+  code:         string;
+  resolution:   "CREATED" | "SKIPPED" | "ERROR";
+  reason?:      string;
+}
+
+/** Resultado completo del dry-run del import runner de líneas */
+export interface LinesImportDryRunResult {
+  wouldCreate: number;
+  blocked:     number;
+  totalRows:   number;
+  rows:        LinesImportRowResult[];
+}
+
+/** Resultado completo de la ejecución real del import runner de líneas */
+export interface LinesImportResult {
+  created:      number;
+  skipped:      number;
+  errors:       number;
+  totalRows:    number;
+  importPolicy: DataOnboardingImportPolicy;
+  datasetKey:   "lines";
+  rows:         LinesImportRowResult[];
+}
+
+export type LinesImportActionMode = "DRY_RUN" | "EXECUTE";
+
+export type LinesImportActionState =
+  | {
+      success:        true;
+      mode:           LinesImportActionMode;
+      profileLabel:   string;
+      safetyMessages: string[];
+      safetyWarnings: string[];
+      dryRunResult?:  LinesImportDryRunResult;
+      importResult?:  LinesImportResult;
+      error?:         never;
+    }
+  | {
+      success:        false;
+      error:          string;
+      blocked?:       boolean;
+      safetyBlockers?: string[];
+    };
+
+// ─────────────────────────────────────────────────────────────────────────────
+// E1C-B: Sublines Import Runner
+// Tipos para el runner controlado de importación de sublíneas contra un
+// PlatformDatabaseProfile via Prisma dinámico temporal.
+// Solo política CREATE_ONLY. Solo escribe en product_sublines.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Resultado de importación de una fila individual de sublíneas */
+export interface SublinesImportRowResult {
+  rowNumber:  number;
+  name:       string;
+  lineName:   string;
+  code:       string;
+  resolution: "CREATED" | "SKIPPED" | "ERROR";
+  reason?:    string;
+}
+
+/** Resultado completo del dry-run del import runner de sublíneas */
+export interface SublinesImportDryRunResult {
+  wouldCreate: number;
+  blocked:     number;
+  totalRows:   number;
+  rows:        SublinesImportRowResult[];
+}
+
+/** Resultado completo de la ejecución real del import runner de sublíneas */
+export interface SublinesImportResult {
+  created:      number;
+  skipped:      number;
+  errors:       number;
+  totalRows:    number;
+  importPolicy: DataOnboardingImportPolicy;
+  datasetKey:   "sublines";
+  rows:         SublinesImportRowResult[];
+}
+
+export type SublinesImportActionMode = "DRY_RUN" | "EXECUTE";
+
+export type SublinesImportActionState =
+  | {
+      success:        true;
+      mode:           SublinesImportActionMode;
+      profileLabel:   string;
+      safetyMessages: string[];
+      safetyWarnings: string[];
+      dryRunResult?:  SublinesImportDryRunResult;
+      importResult?:  SublinesImportResult;
+      error?:         never;
+    }
+  | {
+      success:        false;
+      error:          string;
+      blocked?:       boolean;
+      safetyBlockers?: string[];
+    };
+
+// ─────────────────────────────────────────────────────────────────────────────
+// E1C-C: Customers Import Runner
+// Tipos para el runner controlado de importación de clientes contra un
+// PlatformDatabaseProfile via Prisma dinámico temporal.
+// Solo política CREATE_ONLY. Solo escribe en customers.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Resultado de importación de una fila individual de clientes */
+export interface CustomersImportRowResult {
+  rowNumber:  number;
+  name:       string;
+  code:       string;
+  resolution: "CREATED" | "SKIPPED" | "ERROR";
+  reason?:    string;
+}
+
+/** Resultado completo del dry-run del import runner de clientes */
+export interface CustomersImportDryRunResult {
+  wouldCreate: number;
+  blocked:     number;
+  totalRows:   number;
+  rows:        CustomersImportRowResult[];
+}
+
+/** Resultado completo de la ejecución real del import runner de clientes */
+export interface CustomersImportResult {
+  created:      number;
+  skipped:      number;
+  errors:       number;
+  totalRows:    number;
+  importPolicy: DataOnboardingImportPolicy;
+  datasetKey:   "customers";
+  rows:         CustomersImportRowResult[];
+}
+
+export type CustomersImportActionMode = "DRY_RUN" | "EXECUTE";
+
+export type CustomersImportActionState =
+  | {
+      success:        true;
+      mode:           CustomersImportActionMode;
+      profileLabel:   string;
+      safetyMessages: string[];
+      safetyWarnings: string[];
+      dryRunResult?:  CustomersImportDryRunResult;
+      importResult?:  CustomersImportResult;
+      error?:         never;
+    }
+  | {
+      success:        false;
+      error:          string;
+      blocked?:       boolean;
+      safetyBlockers?: string[];
+    };
+
+// ─────────────────────────────────────────────────────────────────────────────
+// E1C-C: Suppliers Import Runner
+// Tipos para el runner controlado de importación de proveedores contra un
+// PlatformDatabaseProfile via Prisma dinámico temporal.
+// Solo política CREATE_ONLY. Solo escribe en suppliers.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Resultado de importación de una fila individual de proveedores */
+export interface SuppliersImportRowResult {
+  rowNumber:  number;
+  name:       string;
+  code:       string;
+  resolution: "CREATED" | "SKIPPED" | "ERROR";
+  reason?:    string;
+}
+
+/** Resultado completo del dry-run del import runner de proveedores */
+export interface SuppliersImportDryRunResult {
+  wouldCreate: number;
+  blocked:     number;
+  totalRows:   number;
+  rows:        SuppliersImportRowResult[];
+}
+
+/** Resultado completo de la ejecución real del import runner de proveedores */
+export interface SuppliersImportResult {
+  created:      number;
+  skipped:      number;
+  errors:       number;
+  totalRows:    number;
+  importPolicy: DataOnboardingImportPolicy;
+  datasetKey:   "suppliers";
+  rows:         SuppliersImportRowResult[];
+}
+
+export type SuppliersImportActionMode = "DRY_RUN" | "EXECUTE";
+
+export type SuppliersImportActionState =
+  | {
+      success:        true;
+      mode:           SuppliersImportActionMode;
+      profileLabel:   string;
+      safetyMessages: string[];
+      safetyWarnings: string[];
+      dryRunResult?:  SuppliersImportDryRunResult;
+      importResult?:  SuppliersImportResult;
       error?:         never;
     }
   | {

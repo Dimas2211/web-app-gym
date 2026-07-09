@@ -313,12 +313,12 @@ const TEMPLATE_CONFIGS: Partial<Record<DataOnboardingDatasetKey, TemplateDefinit
       },
       {
         key: "city", required: false, type: "texto",
-        description: "Ciudad o municipio del cliente.",
+        description: "Ciudad o municipio del cliente. NO SE GUARDA EN E1C-C — el modelo Customer no tiene columna equivalente.",
         example: "San Salvador",
       },
       {
         key: "country_code", required: false, type: "texto",
-        description: "Código de país ISO 3166-1 alpha-2.",
+        description: "Código de país ISO 3166-1 alpha-2. NO SE GUARDA EN E1C-C — el modelo Customer no tiene columna equivalente.",
         example: "SV",
       },
       {
@@ -329,7 +329,7 @@ const TEMPLATE_CONFIGS: Partial<Record<DataOnboardingDatasetKey, TemplateDefinit
       },
       {
         key: "notes", required: false, type: "texto",
-        description: "Notas o comentarios adicionales.",
+        description: "Notas o comentarios adicionales. NO SE GUARDA EN E1C-C — el modelo Customer no tiene columna equivalente.",
         example: "Cliente frecuente desde 2023",
       },
     ],
@@ -340,6 +340,8 @@ const TEMPLATE_CONFIGS: Partial<Record<DataOnboardingDatasetKey, TemplateDefinit
       "document_type NIT y document_number se almacenan en el campo 'nit' del sistema.",
       "document_type DUI y document_number se almacenan en el campo 'dui' del sistema.",
       "Sin documento de identidad la llave es solo el nombre — posible duplicado no detectable.",
+      "IMPORTANTE: las columnas 'city', 'country_code' y 'notes' se aceptan en el archivo pero " +
+      "NO se persisten actualmente — el modelo Customer no tiene esas columnas. No asuma que se guardaron.",
     ],
   },
 
@@ -402,7 +404,9 @@ const TEMPLATE_CONFIGS: Partial<Record<DataOnboardingDatasetKey, TemplateDefinit
       },
       {
         key: "classification", required: false, type: "texto (valores permitidos)",
-        description: "Clasificación fiscal del proveedor.",
+        description: "Clasificación fiscal del proveedor. NO SE MAPEA EN E1C-C — su vocabulario no " +
+          "coincide con el enum real taxpayer_type del sistema (LARGE_TAXPAYER | SMALL_TAXPAYER | " +
+          "NON_TAXPAYER | FOREIGN). El proveedor se crea con el valor por defecto del sistema.",
         example: "OTRO",
         allowedValues: "GRAN_CONTRIBUYENTE | MEDIANO | OTRO",
       },
@@ -423,6 +427,10 @@ const TEMPLATE_CONFIGS: Partial<Record<DataOnboardingDatasetKey, TemplateDefinit
       "NIT y NRC son opcionales pero recomendados si el proveedor es emisor DTE.",
       "economic_activity corresponde al catálogo de actividades económicas del MH.",
       "Si no se provee NIT, la llave de identificación es el nombre — posible duplicado no detectable.",
+      "supplier_code no se solicita en esta plantilla — se genera automáticamente (PROV-{nombre}-{código}).",
+      "IMPORTANTE: 'classification' se acepta en el archivo pero NO se mapea a taxpayer_type actualmente " +
+      "— el proveedor queda con el valor por defecto del sistema. 'city' se guarda como municipality_name " +
+      "y 'trade_name' se guarda como legal_name (no hay columnas 'city'/'trade_name' literales en el modelo).",
     ],
   },
 

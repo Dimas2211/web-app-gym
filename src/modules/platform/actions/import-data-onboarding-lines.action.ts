@@ -1,31 +1,31 @@
 "use server";
 
 // ─────────────────────────────────────────────────────────────────
-// platform — import-data-onboarding-categories.action.ts
+// platform — import-data-onboarding-lines.action.ts
 //
-// E1C-A: Server action para importar categorías desde un archivo Excel
-// hacia la base de datos cliente seleccionada (PlatformDatabaseProfile).
+// E1C-B: Server action para importar líneas de productos desde un archivo
+// Excel hacia la base de datos cliente seleccionada (PlatformDatabaseProfile).
 //
 // Flujo:
 //  1. requireSuperAdmin() obligatorio.
-//  2. Validar parámetros: datasetKey === "categories", policy === "CREATE_ONLY".
-//  3. Hard block: PRODUCTION bloqueado siempre en E1C-A.
+//  2. Validar parámetros: datasetKey === "lines", policy === "CREATE_ONLY".
+//  3. Hard block: PRODUCTION bloqueado siempre en E1C-B.
 //  4. Verificar perfil y tenant_id.
 //  5. Safety gate (D0) con RUN_IMPORT.
 //  6. Re-parsear el archivo server-side (nunca confiar en estado del cliente).
-//  7. Re-ejecutar análisis DB-aware server-side.
+//  7. Re-ejecutar análisis DB-aware server-side (resuelve category_id por nombre).
 //  8. Bloquear si hay cualquier fila con error en el análisis.
 //  9. Bloquear si hay filas que no son CREATE (duplicados detectados por DB-aware).
 // 10. Ejecutar runner (DRY_RUN o EXECUTE) en transacción.
 // 11. Registrar resultado en PlatformDeploymentLog (control plane).
 // 12. Retornar resumen seguro sin exponer credenciales.
 //
-// Reglas de seguridad E1C-A:
+// Reglas de seguridad E1C-B:
 //  - requireSuperAdmin() obligatorio.
-//  - Solo escribe en product_categories.
+//  - Solo escribe en product_lines.
 //  - No actualiza, no elimina, no hace upsert.
 //  - No toca ninguna otra tabla del cliente.
-//  - Confirmación textual obligatoria en EXECUTE: "IMPORT CATEGORIES".
+//  - Confirmación textual obligatoria en EXECUTE: "IMPORT LINES".
 //  - PRODUCTION bloqueado explícitamente.
 //  - No persistir archivo.
 //  - No exponer DATABASE_URL ni encrypted_password.
@@ -45,13 +45,12 @@ import { parseDataOnboardingWorkbook }
   from "../lib/data-onboarding/excel-preview-parser";
 import { analyzeDataOnboardingPreviewAgainstDatabase }
   from "../lib/data-onboarding/db-aware-preview-analyzer";
-import { runCategoriesImport }
-  from "../lib/data-onboarding/import-runners/categories-import-runner";
-import { IMPORT_CATEGORIES_CONFIRMATION_TEXT }
-  from "../lib/data-onboarding/import-runners/categories-import.constants";
+import { runLinesImport }
+  from "../lib/data-onboarding/import-runners/lines-import-runner";
+import { IMPORT_LINES_CONFIRMATION_TEXT }
+  from "../lib/data-onboarding/import-runners/lines-import.constants";
 import type {
-  CategoriesImportActionState,
-  CategoriesImportActionMode,
+  LinesImportActionState,
   DatabaseExecutionSafetyInput,
   PlatformDatabaseProfileEnvironment,
 } from "../types/platform.types";
@@ -74,20 +73,20 @@ function sanitizeError(msg: string): string {
   );
 }
 
-export async function importDataOnboardingCategoriesAction(
+export async function importDataOnboardingLinesAction(
   formData: FormData,
-): Promise<CategoriesImportActionState> {
+): Promise<LinesImportActionState> {
   try {
     // ── 1. Autenticación ──────────────────────────────────────────
     await requireSuperAdmin();
 
     // ── 2. Extraer y validar parámetros ──────────────────────────
     const profileId        = formData.get("profileId");
-    const mode             = formData.get("mode");
-    const datasetKey       = formData.get("datasetKey");
-    const importPolicy     = formData.get("importPolicy");
-    const confirmationText = formData.get("confirmationText");
-    const file             = formData.get("file");
+    const mode              = formData.get("mode");
+    const datasetKey        = formData.get("datasetKey");
+    const importPolicy      = formData.get("importPolicy");
+    const confirmationText  = formData.get("confirmationText");
+    const file              = formData.get("file");
 
     if (typeof profileId !== "string" || !profileId.trim()) {
       return { success: false, error: "profileId requerido." };
@@ -95,16 +94,16 @@ export async function importDataOnboardingCategoriesAction(
     if (mode !== "DRY_RUN" && mode !== "EXECUTE") {
       return { success: false, error: "mode debe ser DRY_RUN o EXECUTE." };
     }
-    if (datasetKey !== "categories") {
+    if (datasetKey !== "lines") {
       return {
         success: false,
-        error: `E1C-A solo permite importar dataset 'categories'. Recibido: '${datasetKey}'.`,
+        error: `E1C-B solo permite importar dataset 'lines' desde esta action. Recibido: '${datasetKey}'.`,
       };
     }
     if (importPolicy !== "CREATE_ONLY") {
       return {
         success: false,
-        error: `E1C-A solo permite política CREATE_ONLY. Recibida: '${importPolicy}'.`,
+        error: `E1C-B solo permite política CREATE_ONLY. Recibida: '${importPolicy}'.`,
       };
     }
     if (!(file instanceof File)) {
@@ -178,11 +177,11 @@ export async function importDataOnboardingCategoriesAction(
         success:        false,
         blocked:        true,
         safetyBlockers: [
-          "Importación bloqueada en PRODUCTION (E1C-A). " +
+          "Importación bloqueada en PRODUCTION (E1C-B). " +
           "La habilitación en producción estará disponible en fases posteriores " +
           "con controles adicionales de backup y aprobación.",
         ],
-        error: "Importación de categorías bloqueada en PRODUCTION.",
+        error: "Importación de líneas bloqueada en PRODUCTION.",
       };
     }
 
@@ -196,7 +195,7 @@ export async function importDataOnboardingCategoriesAction(
                                            ? (typeof confirmationText === "string" ? confirmationText : "")
                                            : undefined,
       expectedConfirmationText:          mode === "EXECUTE"
-                                           ? IMPORT_CATEGORIES_CONFIRMATION_TEXT
+                                           ? IMPORT_LINES_CONFIRMATION_TEXT
                                            : undefined,
       hasRecentSuccessfulConnectionTest: profile.last_test_status === "SUCCESS",
       // La preview DB-aware ya verificó conectividad exitosa contra la base destino.
@@ -222,11 +221,10 @@ export async function importDataOnboardingCategoriesAction(
     const buffer      = Buffer.from(arrayBuffer);
 
     const parsedPreview = parseDataOnboardingWorkbook({
-      datasetKey: "categories",
+      datasetKey: "lines",
       fileBuffer: buffer,
     });
 
-    // Verificar que el parser no reportó errores estructurales
     if (parsedPreview.status === "INVALID") {
       return {
         success: false,
@@ -239,7 +237,7 @@ export async function importDataOnboardingCategoriesAction(
     try {
       dbAwareResult = await withTemporaryPrismaClient(databaseUrl, async (client) => {
         return analyzeDataOnboardingPreviewAgainstDatabase({
-          datasetKey:    "categories",
+          datasetKey:    "lines",
           parsedPreview,
           importPolicy:  "CREATE_ONLY",
           prismaClient:  client,
@@ -260,12 +258,12 @@ export async function importDataOnboardingCategoriesAction(
         success: false,
         error:
           `El análisis server-side detectó ${errorRows.length} fila(s) con error ` +
-          "(duplicados, dependencias faltantes o datos inválidos). " +
+          "(categoría inexistente, duplicados u otros datos inválidos). " +
           "Corrija el archivo y vuelva a intentar.",
       };
     }
 
-    // Solo filas CREATE son aceptables en E1C-A CREATE_ONLY
+    // Solo filas CREATE son aceptables en E1C-B CREATE_ONLY
     const nonCreateRows = dbAwareResult.rows.filter(
       (r) => r.resolution !== "CREATE",
     );
@@ -275,7 +273,7 @@ export async function importDataOnboardingCategoriesAction(
         error:
           `${nonCreateRows.length} fila(s) no pueden crearse ` +
           "(política CREATE_ONLY: solo se permiten registros nuevos). " +
-          "El archivo contiene categorías que ya existen en la base destino.",
+          "El archivo contiene líneas que ya existen en la base destino.",
       };
     }
 
@@ -283,7 +281,7 @@ export async function importDataOnboardingCategoriesAction(
     const runnerResult = await withTemporaryPrismaClient(
       databaseUrl,
       async (client) => {
-        return runCategoriesImport({
+        return runLinesImport({
           parsedPreview,
           dbAwareResult,
           prismaClient: client,
@@ -302,13 +300,13 @@ export async function importDataOnboardingCategoriesAction(
             organization_id: profile.organization.id,
             action:          "RUN_IMPORT",
             status:          "SUCCESS",
-            notes:           `Import categorías E1C-A — perfil: ${profile.label} — created: ${imp.created}`,
+            notes:           `Import líneas E1C-B — perfil: ${profile.label} — created: ${imp.created}`,
             metadata: {
               profileId:    profile.id,
               profileLabel: profile.label,
               mode:         "EXECUTE",
               tenantId,
-              datasetKey:   "categories",
+              datasetKey:   "lines",
               importPolicy: "CREATE_ONLY",
               created:      imp.created,
               skipped:      imp.skipped,
@@ -324,7 +322,7 @@ export async function importDataOnboardingCategoriesAction(
 
     // ── 14. Retornar resultado según modo ─────────────────────────
     if (mode === "DRY_RUN") {
-      const dry = runnerResult as import("../types/platform.types").CategoriesImportDryRunResult;
+      const dry = runnerResult as import("../types/platform.types").LinesImportDryRunResult;
       return {
         success:        true,
         mode:           "DRY_RUN",
@@ -335,7 +333,7 @@ export async function importDataOnboardingCategoriesAction(
       };
     }
 
-    const imp = runnerResult as import("../types/platform.types").CategoriesImportResult;
+    const imp = runnerResult as import("../types/platform.types").LinesImportResult;
     return {
       success:        true,
       mode:           "EXECUTE",
@@ -346,7 +344,7 @@ export async function importDataOnboardingCategoriesAction(
     };
 
   } catch (err) {
-    const raw  = err instanceof Error ? err.message : "Error inesperado al importar categorías.";
+    const raw  = err instanceof Error ? err.message : "Error inesperado al importar líneas.";
     const safe = sanitizeError(raw);
     return { success: false, error: safe };
   }
