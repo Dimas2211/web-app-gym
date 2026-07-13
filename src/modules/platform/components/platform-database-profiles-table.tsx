@@ -10,7 +10,7 @@
 // ─────────────────────────────────────────────────────────────────
 
 import Link from "next/link";
-import { Pencil, Power, PlugZap, Loader2, ShieldCheck, Search, ExternalLink, FileSpreadsheet, Link2 } from "lucide-react";
+import { Pencil, Power, PlugZap, Loader2, ShieldCheck, Search, ExternalLink, FileSpreadsheet, Link2, LifeBuoy } from "lucide-react";
 import type {
   PlatformDatabaseProfileItem,
   PlatformDatabaseConnectionTestStatus,
@@ -268,6 +268,18 @@ export function PlatformDatabaseProfilesTable({
                       <Link2 size={11} />
                       Detectar tenant
                     </button>
+
+                    {/* Sesión de soporte por perfil (F1-A) */}
+                    <Link
+                      href={`/dashboard/platform/support-session/${p.id}`}
+                      className="inline-flex items-center gap-1 text-xs px-2.5 py-1.5
+                                 border border-cyan-200 rounded-lg text-cyan-700
+                                 hover:bg-cyan-50 transition-colors whitespace-nowrap"
+                      title="Abrir sesión de soporte operativa para este perfil"
+                    >
+                      <LifeBuoy size={11} />
+                      Abrir sesión de soporte
+                    </Link>
 
                     {/* Visor completo read-only (C6) */}
                     <Link

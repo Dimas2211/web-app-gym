@@ -857,6 +857,153 @@ export interface SafeDatabaseProfileHeader {
   organization:     { id: string; code: string; name: string };
 }
 
+// ── Platform Support Session (F1-A) ───────────────────────────────
+//
+// Contenedor operativo de sesión de soporte por perfil de base.
+// Read-only en F1-A — prepara el terreno para F1-B (ventas de soporte).
+// No expone secretos ni connection strings, solo db_name (no host/port).
+
+export type PlatformSupportSessionModuleKey =
+  | "resumen"
+  | "productos"
+  | "clientes"
+  | "proveedores"
+  | "inventario"
+  | "ventas"
+  | "dte"
+  | "caja"
+  | "configuracion";
+
+export type PlatformSupportSessionErrorReason =
+  | "PROFILE_NOT_FOUND"
+  | "INACTIVE_PROFILE"
+  | "MISSING_TENANT"
+  | "CONNECTION_FAILED";
+
+export interface PlatformSupportSessionHeader {
+  profileId:         string;
+  profileLabel:      string;
+  environment:       PlatformDatabaseProfileEnvironment;
+  dbName:            string;
+  isActive:          boolean;
+  lastTestedAt:      string | null;
+  lastTestStatus:    PlatformDatabaseConnectionTestStatus;
+  lastTestMessage:   string | null;
+  organizationId:    string;
+  organizationCode:  string;
+  organizationName:  string;
+  tenantId:          string | null;
+}
+
+export interface SupportSessionProductRow {
+  id:            string;
+  product_code:  string;
+  name:          string;
+  status:        string;
+  product_type:  string;
+  is_stockable:  boolean;
+  sale_price:    string | null;
+  category:      string | null;
+  unit:          string | null;
+}
+
+export interface SupportSessionCustomerRow {
+  id:              string;
+  customer_code:   string;
+  name:            string;
+  tax_id_masked:   string | null;
+  email:           string | null;
+  phone:           string | null;
+  status:          string;
+}
+
+export interface SupportSessionSupplierRow {
+  id:             string;
+  supplier_code:  string;
+  name:           string;
+  tax_id_masked:  string | null;
+  email:          string | null;
+  status:         string;
+}
+
+export interface SupportSessionInventoryRow {
+  id:                string;
+  product_name:      string;
+  product_code:      string;
+  location_name:     string;
+  current_stock:     string;
+  reorder_quantity:  string;
+  is_active:         boolean;
+}
+
+export interface SupportSessionSaleRow {
+  id:              string;
+  sale_code:       string;
+  sale_date:       string;
+  customer_name:   string | null;
+  total_amount:    string;
+  status:          string;
+  payment_status:  string;
+}
+
+export interface SupportSessionDteRow {
+  id:               string;
+  dte_type_code:    string;
+  dte_status:       string;
+  generation_code:  string | null;
+  control_number:   string | null;
+  reception_stamp:  string | null;
+  created_at:       string;
+  rejection_reason: string | null;
+}
+
+export interface SupportSessionCashSessionRow {
+  id:             string;
+  register_name:  string;
+  location_name:  string;
+  status:         string;
+  opened_at:      string;
+  closed_at:      string | null;
+  opening_amount: string;
+  expected_cash_amount: string;
+}
+
+export interface PlatformSupportSessionSummary extends DatabaseInspectionSummary {
+  inventoryRows: number;
+}
+
+export interface PlatformSupportSessionFiscalConfig {
+  isRetentionAgent:          boolean;
+  retentionThresholdAmount:  string | null;
+  issuer:                    DatabaseInspectionDteConfig | null;
+  dteEnvironment:            string | null;
+}
+
+export type PlatformSupportSessionData =
+  | {
+      success:        true;
+      header:         PlatformSupportSessionHeader;
+      summary:        PlatformSupportSessionSummary;
+      tenant:         DatabaseInspectionTenant | null;
+      locations:      DatabaseInspectionLocation[];
+      products:       SupportSessionProductRow[];
+      customers:      SupportSessionCustomerRow[];
+      suppliers:      SupportSessionSupplierRow[];
+      inventory:      SupportSessionInventoryRow[];
+      sales:          SupportSessionSaleRow[];
+      dte:            SupportSessionDteRow[];
+      cashSessions:   SupportSessionCashSessionRow[];
+      catalogSummary: DatabaseInspectionCatalogSummary;
+      fiscalConfig:   PlatformSupportSessionFiscalConfig;
+      warnings:       string[];
+    }
+  | {
+      success: false;
+      reason:  PlatformSupportSessionErrorReason;
+      error:   string;
+      header?: PlatformSupportSessionHeader;
+    };
+
 // ─────────────────────────────────────────────────────────────────────────────
 // D0: Execution Safety Gate
 // Tipos para la compuerta de seguridad antes de ejecutar acciones controladas
