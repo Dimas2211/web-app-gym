@@ -1570,3 +1570,63 @@ export type ProductsImportActionState =
       blocked?:       boolean;
       safetyBlockers?: string[];
     };
+
+// ─────────────────────────────────────────────────────────────────────────────
+// E1C-E1: Inventory Initial Import Runner
+// Tipos para el runner controlado de importación de inventario inicial
+// contra un PlatformDatabaseProfile via Prisma dinámico temporal.
+// Solo política CREATE_ONLY. Solo escribe en product_locations e
+// inventory_movements (tipo INITIAL_LOAD), en una sola transacción por fila.
+// No crea, actualiza ni elimina productos, categorías, unidades,
+// proveedores ni sucursales.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Resultado de importación de una fila individual de inventario inicial */
+export interface InventoryImportRowResult {
+  rowNumber:  number;
+  name:       string; // location_name (sucursal)
+  code:       string; // product_code
+  resolution: "CREATED" | "SKIPPED" | "ERROR";
+  reason?:    string;
+}
+
+/** Resultado completo del dry-run del import runner de inventario inicial */
+export interface InventoryImportDryRunResult {
+  wouldCreate: number;
+  blocked:     number;
+  totalRows:   number;
+  rows:        InventoryImportRowResult[];
+}
+
+/** Resultado completo de la ejecución real del import runner de inventario inicial */
+export interface InventoryImportResult {
+  created:                 number;
+  skipped:                 number;
+  errors:                  number;
+  totalRows:               number;
+  importPolicy:            DataOnboardingImportPolicy;
+  datasetKey:              "inventory_initial";
+  productLocationsCreated: number;
+  movementsCreated:        number;
+  rows:                    InventoryImportRowResult[];
+}
+
+export type InventoryImportActionMode = "DRY_RUN" | "EXECUTE";
+
+export type InventoryImportActionState =
+  | {
+      success:        true;
+      mode:           InventoryImportActionMode;
+      profileLabel:   string;
+      safetyMessages: string[];
+      safetyWarnings: string[];
+      dryRunResult?:  InventoryImportDryRunResult;
+      importResult?:  InventoryImportResult;
+      error?:         never;
+    }
+  | {
+      success:        false;
+      error:          string;
+      blocked?:       boolean;
+      safetyBlockers?: string[];
+    };

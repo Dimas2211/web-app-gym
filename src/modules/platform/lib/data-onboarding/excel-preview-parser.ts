@@ -272,13 +272,13 @@ function validateInventoryInitialRow(data: RowData, seenKeys: Set<string>): Vali
   if (isEmpty(data.location_name)) errors.push({ code: "REQUIRED_FIELD", field: "location_name", message: "El campo 'location_name' es requerido." });
 
   if (isEmpty(data.quantity)) {
-    errors.push({ code: "REQUIRED_FIELD", field: "quantity", message: "El campo 'quantity' es requerido (número >= 0)." });
+    errors.push({ code: "REQUIRED_FIELD", field: "quantity", message: "El campo 'quantity' es requerido (número mayor que 0)." });
   } else {
     const n = Number(String(data.quantity).trim());
     if (isNaN(n)) {
       errors.push({ code: "INVALID_NUMBER", field: "quantity", message: `Valor '${data.quantity}' inválido. 'quantity' debe ser un número.` });
-    } else if (n < 0) {
-      errors.push({ code: "INVALID_VALUE", field: "quantity", message: `'quantity' debe ser >= 0. Recibido: ${n}.` });
+    } else if (n <= 0) {
+      errors.push({ code: "INVALID_VALUE", field: "quantity", message: `'quantity' debe ser mayor que 0. No se permite cero ni negativos. Recibido: ${n}.` });
     }
   }
 

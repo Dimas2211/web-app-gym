@@ -159,14 +159,16 @@ export const DATA_ONBOARDING_DATASETS: DataOnboardingDatasetDefinition[] = [
   {
     key:         "inventory_initial",
     label:       "Inventario Inicial",
-    description: "Stock de apertura por producto y ubicación. Solo para productos is_stockable=true.",
+    description: "Stock de apertura por producto y sucursal (Branch). Solo para productos PRODUCT, is_stockable=true y status=ACTIVE.",
     direction:   "IMPORT",
     status:      "PLANNED",
     risk:        "HIGH",
     requiredFields: ["product_code", "location_name", "quantity"],
     optionalFields: ["unit_cost", "notes"],
     dependencies:   ["products"],
-    notes: "Modelos: ProductLocation + InventoryMovement (tipo INITIAL_STOCK). Requiere ubicación ya existente en la base destino.",
+    notes: "Modelos: ProductLocation + InventoryMovement (tipo INITIAL_LOAD), creados juntos en una sola transacción. " +
+      "location_name se resuelve contra Branch.name (sucursal), no un modelo Location genérico. La sucursal debe existir — no se crea desde este import. " +
+      "quantity debe ser estrictamente mayor que 0. No se permite ejecutar dos veces para el mismo producto + sucursal (bloquea si ya existe ProductLocation o un movimiento INITIAL_LOAD previo).",
   },
 
   // ── Catálogos de sistema (exportar únicamente) ────────────────

@@ -805,7 +805,7 @@ async function analyzeInventoryInitial(
   const [products, branches] = await Promise.all([
     db.product.findMany({
       where:  { tenant_id: tenantId, product_code: { in: codesInFile } },
-      select: { id: true, product_code: true, is_stockable: true },
+      select: { id: true, product_code: true, is_stockable: true, product_type: true, status: true },
     }),
     db.branch.findMany({
       where:  { tenant_id: tenantId },
@@ -813,8 +813,16 @@ async function analyzeInventoryInitial(
     }),
   ]);
 
-  const productMap  = new Map(products.map((p) => [p.product_code.toUpperCase(), p]));
-  const branchMap   = new Map(branches.map((b) => [normalizeKey(b.name), b]));
+  const productMap = new Map(products.map((p) => [p.product_code.toUpperCase(), p]));
+
+  // Agrupar sucursales por nombre normalizado para detectar ambigüedad
+  const branchesByName = new Map<string, typeof branches>();
+  for (const b of branches) {
+    const key = normalizeKey(b.name);
+    const list = branchesByName.get(key) ?? [];
+    list.push(b);
+    branchesByName.set(key, list);
+  }
 
   // Cargar product locations existentes para combinar product_id + location_id
   const productIds = products.map((p) => p.id);
@@ -865,26 +873,48 @@ async function analyzeInventoryInitial(
     });
     if (!product) errors.push({ code: "MISSING_DEPENDENCY", field: "product_code", message: `Producto "${code}" no encontrado.` });
 
-    // Dep: ubicación (Branch)
-    const branch = branchMap.get(normalizeKey(locationName));
-    deps.push({
-      dependencyType: "location",
-      lookupField:    "location_name",
-      lookupValue:    locationName,
-      found:          !!branch,
-      foundId:        branch?.id,
-      message:        branch ? undefined : `Ubicación "${locationName}" no existe en las sucursales de la base destino.`,
-    });
-    if (!branch) errors.push({ code: "MISSING_DEPENDENCY", field: "location_name", message: `Ubicación "${locationName}" no encontrada.` });
+    // Dep: ubicación (Branch) — resuelta contra Branch.name, con detección de ambigüedad
+    const branchMatches = branchesByName.get(normalizeKey(locationName)) ?? [];
+    const branch = branchMatches.length === 1 ? branchMatches[0] : undefined;
+
+    if (branchMatches.length === 0) {
+      deps.push({
+        dependencyType: "location", lookupField: "location_name", lookupValue: locationName,
+        found: false, message: `Sucursal "${locationName}" no existe en la base destino.`,
+      });
+      errors.push({ code: "MISSING_DEPENDENCY", field: "location_name", message: `Sucursal "${locationName}" no encontrada.` });
+    } else if (branchMatches.length > 1) {
+      deps.push({
+        dependencyType: "location", lookupField: "location_name", lookupValue: locationName,
+        found: false, message: `Sucursal "${locationName}" es ambigua: existen ${branchMatches.length} sucursales con ese nombre.`,
+      });
+      errors.push({ code: "AMBIGUOUS_DEPENDENCY", field: "location_name", message: `Sucursal "${locationName}" ambigua (${branchMatches.length} coincidencias).` });
+    } else {
+      deps.push({
+        dependencyType: "location", lookupField: "location_name", lookupValue: locationName,
+        found: true, foundId: branch!.id,
+      });
+    }
 
     if (!product || !branch) {
       dbRows.push({ rowNumber: row.rowNumber, resolution: "ERROR", naturalKey, existsInDb: false, errors, warnings, dependencyChecks: deps });
       continue;
     }
 
-    // Advertencia: producto no es stockable
+    // Bloqueo: producto debe ser PRODUCT, is_stockable=true y status=ACTIVE
+    if (product.product_type !== "PRODUCT") {
+      errors.push({ code: "INVALID_PRODUCT_TYPE", field: "product_code", message: `Producto "${code}" es de tipo ${product.product_type}. Solo se permite inventario inicial para PRODUCT.` });
+    }
     if (!product.is_stockable) {
-      warnings.push({ code: "NOT_STOCKABLE", field: "product_code", message: `Producto "${code}" tiene is_stockable=false. El inventario inicial no aplica.` });
+      errors.push({ code: "NOT_STOCKABLE", field: "product_code", message: `Producto "${code}" tiene is_stockable=false. El inventario inicial no aplica.` });
+    }
+    if (product.status !== "ACTIVE") {
+      errors.push({ code: "PRODUCT_NOT_ACTIVE", field: "product_code", message: `Producto "${code}" tiene status=${product.status}. Solo se permite inventario inicial para productos ACTIVE.` });
+    }
+
+    if (product.product_type !== "PRODUCT" || !product.is_stockable || product.status !== "ACTIVE") {
+      dbRows.push({ rowNumber: row.rowNumber, resolution: "ERROR", naturalKey, existsInDb: false, errors, warnings, dependencyChecks: deps });
+      continue;
     }
 
     const plKey = `${product.id}::${branch.id}`;

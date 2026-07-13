@@ -437,28 +437,28 @@ const TEMPLATE_CONFIGS: Partial<Record<DataOnboardingDatasetKey, TemplateDefinit
   inventory_initial: {
     label: "Inventario Inicial",
     description:
-      "Stock de apertura por producto y ubicación. " +
-      "Solo aplica a productos con is_stockable=true. " +
-      "Requiere que los productos y ubicaciones ya existan en el sistema.",
+      "Stock de apertura por producto y sucursal (Branch). " +
+      "Solo aplica a productos PRODUCT, con is_stockable=true y status=ACTIVE. " +
+      "Requiere que el producto y la sucursal ya existan en el sistema.",
     columns: [
       {
         key: "product_code", required: true, type: "texto",
-        description: "Código del producto. Debe existir en el sistema con is_stockable=true.",
+        description: "Código del producto. Debe existir en el sistema, ser de tipo PRODUCT, is_stockable=true y status=ACTIVE. No aplica a productos SERVICE.",
         example: "PROD001",
       },
       {
         key: "location_name", required: true, type: "texto",
-        description: "Nombre exacto de la sede/ubicación. Debe existir en el sistema.",
+        description: "Nombre exacto de la sucursal (Branch). Debe existir en el sistema. No se crea la sucursal desde este import.",
         example: "Sede Central",
       },
       {
         key: "quantity", required: true, type: "número",
-        description: "Cantidad de stock inicial (entero positivo, mayor que 0).",
+        description: "Cantidad de stock inicial. Debe ser estrictamente mayor que 0 — no se permite 0 ni negativos.",
         example: "50",
       },
       {
         key: "unit_cost", required: false, type: "decimal",
-        description: "Costo unitario del stock inicial (punto como separador decimal).",
+        description: "Costo unitario del stock inicial (punto como separador decimal). Si viene, debe ser decimal válido >= 0.",
         example: "0.75",
       },
       {
@@ -468,13 +468,16 @@ const TEMPLATE_CONFIGS: Partial<Record<DataOnboardingDatasetKey, TemplateDefinit
       },
     ],
     dependencies: [
-      { dataset: "products", note: "product_code debe existir en el sistema con is_stockable=true." },
+      { dataset: "products", note: "product_code debe existir en el sistema como PRODUCT, is_stockable=true y status=ACTIVE." },
     ],
     extraNotes: [
-      "Este dataset genera movimientos de inventario tipo INITIAL_STOCK.",
-      "quantity debe ser mayor que 0.",
-      "Solo se puede ejecutar una vez por producto/ubicación como stock inicial.",
-      "La ubicación (location_name) debe existir en la base de datos destino.",
+      "Este import crea un ProductLocation y un movimiento de inventario tipo INITIAL_LOAD, juntos en una sola transacción por fila.",
+      "quantity debe ser estrictamente mayor que 0. No se permite quantity=0 ni negativo.",
+      "No se permite inventario inicial para productos de tipo SERVICE.",
+      "No se permite inventario inicial para productos con is_stockable=false.",
+      "Solo se permite para productos con status=ACTIVE.",
+      "No se puede ejecutar dos veces para el mismo producto + sucursal: si ya existe un ProductLocation o un movimiento INITIAL_LOAD previo, la fila se bloquea.",
+      "La sucursal (location_name) se resuelve contra Branch.name, no contra un modelo Location genérico, y debe existir en la base de datos destino.",
     ],
   },
 };
