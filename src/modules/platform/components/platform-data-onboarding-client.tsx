@@ -61,6 +61,8 @@ import type {
   CustomersImportRowResult,
   SuppliersImportActionState,
   SuppliersImportRowResult,
+  ProductsImportActionState,
+  ProductsImportRowResult,
 } from "../types/platform.types";
 import { importPolicyLabel, ENABLED_IMPORT_POLICIES } from "../lib/data-onboarding/import-policy";
 import {
@@ -75,6 +77,7 @@ import { importDataOnboardingLinesAction } from "../actions/import-data-onboardi
 import { importDataOnboardingSublinesAction } from "../actions/import-data-onboarding-sublines.action";
 import { importDataOnboardingCustomersAction } from "../actions/import-data-onboarding-customers.action";
 import { importDataOnboardingSuppliersAction } from "../actions/import-data-onboarding-suppliers.action";
+import { importDataOnboardingProductsAction } from "../actions/import-data-onboarding-products.action";
 import { IMPORT_CATEGORIES_CONFIRMATION_TEXT }
   from "../lib/data-onboarding/import-runners/categories-import.constants";
 import { IMPORT_LINES_CONFIRMATION_TEXT }
@@ -85,10 +88,12 @@ import { IMPORT_CUSTOMERS_CONFIRMATION_TEXT }
   from "../lib/data-onboarding/import-runners/customers-import.constants";
 import { IMPORT_SUPPLIERS_CONFIRMATION_TEXT }
   from "../lib/data-onboarding/import-runners/suppliers-import.constants";
+import { IMPORT_PRODUCTS_CONFIRMATION_TEXT }
+  from "../lib/data-onboarding/import-runners/products-import.constants";
 
-// ── Datasets con importación real habilitada (E1C-A · E1C-B · E1C-C) ──
+// ── Datasets con importación real habilitada (E1C-A · E1C-B · E1C-C · E1C-D) ──
 
-type ImportEnabledDatasetKey = "categories" | "lines" | "sublines" | "customers" | "suppliers";
+type ImportEnabledDatasetKey = "categories" | "lines" | "sublines" | "customers" | "suppliers" | "products";
 
 const IMPORT_CONFIRMATION_TEXT: Record<ImportEnabledDatasetKey, string> = {
   categories: IMPORT_CATEGORIES_CONFIRMATION_TEXT,
@@ -96,11 +101,12 @@ const IMPORT_CONFIRMATION_TEXT: Record<ImportEnabledDatasetKey, string> = {
   sublines:   IMPORT_SUBLINES_CONFIRMATION_TEXT,
   customers:  IMPORT_CUSTOMERS_CONFIRMATION_TEXT,
   suppliers:  IMPORT_SUPPLIERS_CONFIRMATION_TEXT,
+  products:   IMPORT_PRODUCTS_CONFIRMATION_TEXT,
 };
 
 function isImportEnabledDataset(key: DataOnboardingDatasetKey): key is ImportEnabledDatasetKey {
   return key === "categories" || key === "lines" || key === "sublines"
-    || key === "customers" || key === "suppliers";
+    || key === "customers" || key === "suppliers" || key === "products";
 }
 
 type AnyImportActionState =
@@ -108,14 +114,16 @@ type AnyImportActionState =
   | LinesImportActionState
   | SublinesImportActionState
   | CustomersImportActionState
-  | SuppliersImportActionState;
+  | SuppliersImportActionState
+  | ProductsImportActionState;
 
 type AnyImportRowResult =
   | CategoriesImportRowResult
   | LinesImportRowResult
   | SublinesImportRowResult
   | CustomersImportRowResult
-  | SuppliersImportRowResult;
+  | SuppliersImportRowResult
+  | ProductsImportRowResult;
 
 function importRowParentLabel(datasetKey: DataOnboardingDatasetKey): string | null {
   if (datasetKey === "lines")    return "Categoría";
@@ -732,7 +740,9 @@ function DatasetCard({ dataset, profileId }: DatasetCardProps) {
             ? await importDataOnboardingSublinesAction(fd)
             : dataset.key === "customers"
               ? await importDataOnboardingCustomersAction(fd)
-              : await importDataOnboardingSuppliersAction(fd);
+              : dataset.key === "suppliers"
+                ? await importDataOnboardingSuppliersAction(fd)
+                : await importDataOnboardingProductsAction(fd);
       setImportState(result);
     });
   }
@@ -924,7 +934,8 @@ function DatasetCard({ dataset, profileId }: DatasetCardProps) {
                       dataset.key === "lines"      ? "líneas" :
                       dataset.key === "sublines"   ? "sublíneas" :
                       dataset.key === "customers"  ? "clientes" :
-                      "proveedores"
+                      dataset.key === "suppliers"  ? "proveedores" :
+                      "productos"
                     }
                   </>
                 )}
@@ -1144,7 +1155,7 @@ function DatasetCard({ dataset, profileId }: DatasetCardProps) {
       {hasTemplate && (
         <p className="text-[10px] text-indigo-500 border-t border-indigo-50 pt-2">
           {isImportEnabled
-            ? "E1C-A/E1C-B/E1C-C activo — importación real habilitada (CREATE_ONLY). Validar archivo para habilitar el botón."
+            ? "E1C-A/E1C-B/E1C-C/E1C-D activo — importación real habilitada (CREATE_ONLY). Validar archivo para habilitar el botón."
             : "Preview activo — E1B.1. Análisis contra base incluido. Importación real disponible en fases siguientes."
           }
         </p>
@@ -1186,24 +1197,26 @@ export function PlatformDataOnboardingClient({ profile }: Props) {
         </p>
       </div>
 
-      {/* Banner E1C-A · E1C-B · E1C-C */}
+      {/* Banner E1C-A · E1C-B · E1C-C · E1C-D */}
       <div className="flex items-start gap-3 p-4 rounded-xl border border-green-200 bg-green-50">
         <Database size={18} className="text-green-600 mt-0.5 shrink-0" />
         <div>
           <p className="text-sm font-semibold text-green-800">
-            E1C-A · E1C-B · E1C-C — Importación real de Categorías, Líneas, Sublíneas, Clientes y Proveedores habilitada
+            E1C-A · E1C-B · E1C-C · E1C-D — Importación real de Categorías, Líneas, Sublíneas, Clientes, Proveedores y Productos habilitada
           </p>
           <p className="text-xs text-green-700 mt-0.5">
             Datasets <strong>Categorías</strong>, <strong>Líneas</strong>, <strong>Sublíneas</strong>,{" "}
-            <strong>Clientes</strong> y <strong>Proveedores</strong> habilitados
+            <strong>Clientes</strong>, <strong>Proveedores</strong> y <strong>Productos</strong> habilitados
             para importación real (CREATE_ONLY). Suba un Excel, valide el archivo y el análisis contra la base
             destino, confirme con{" "}
             <code className="font-mono bg-green-100 px-1 rounded">IMPORT CATEGORIES</code>,{" "}
             <code className="font-mono bg-green-100 px-1 rounded">IMPORT LINES</code>,{" "}
             <code className="font-mono bg-green-100 px-1 rounded">IMPORT SUBLINES</code>,{" "}
-            <code className="font-mono bg-green-100 px-1 rounded">IMPORT CUSTOMERS</code> o{" "}
-            <code className="font-mono bg-green-100 px-1 rounded">IMPORT SUPPLIERS</code> según el dataset,
-            y ejecute. Los demás datasets (Productos, Inventario) mantienen el botón Importar deshabilitado hasta E2.
+            <code className="font-mono bg-green-100 px-1 rounded">IMPORT CUSTOMERS</code>,{" "}
+            <code className="font-mono bg-green-100 px-1 rounded">IMPORT SUPPLIERS</code> o{" "}
+            <code className="font-mono bg-green-100 px-1 rounded">IMPORT PRODUCTS</code> según el dataset,
+            y ejecute. Productos no crea inventario inicial, stock ni movimientos —
+            solo el registro de catálogo maestro. El dataset Inventario mantiene el botón Importar deshabilitado hasta E1C-E.
           </p>
         </div>
       </div>
@@ -1212,10 +1225,11 @@ export function PlatformDataOnboardingClient({ profile }: Props) {
       <div className="flex items-start gap-2 p-3 rounded-lg border border-amber-200 bg-amber-50">
         <AlertTriangle size={14} className="text-amber-500 mt-0.5 shrink-0" />
         <p className="text-xs text-amber-700">
-          <span className="font-semibold">Seguridad E1C-A · E1C-B · E1C-C:</span> Solo escribe en{" "}
+          <span className="font-semibold">Seguridad E1C-A · E1C-B · E1C-C · E1C-D:</span> Solo escribe en{" "}
           <code className="font-mono">product_categories</code>, <code className="font-mono">product_lines</code>,{" "}
-          <code className="font-mono">product_sublines</code>, <code className="font-mono">customers</code>{" "}
-          y <code className="font-mono">suppliers</code>. No actualiza, no elimina, no hace
+          <code className="font-mono">product_sublines</code>, <code className="font-mono">customers</code>,{" "}
+          <code className="font-mono">suppliers</code> y <code className="font-mono">products</code>{" "}
+          (sin inventario, stock ni movimientos). No actualiza, no elimina, no hace
           upsert. PRODUCTION bloqueado. Requiere confirmación textual. No hay importación parcial.
         </p>
       </div>
@@ -1339,16 +1353,17 @@ export function PlatformDataOnboardingClient({ profile }: Props) {
               <li className="text-green-700 font-medium">Importación real: Categorías ✓ (E1C-A)</li>
               <li className="text-green-700 font-medium">Importación real: Líneas, Sublíneas ✓ (E1C-B)</li>
               <li className="text-green-700 font-medium">Importación real: Clientes, Proveedores ✓ (E1C-C)</li>
+              <li className="text-green-700 font-medium">Importación real: Productos ✓ (E1C-D — sin inventario)</li>
             </ul>
           </div>
 
           <div className="space-y-2">
             <div className="flex items-center gap-2">
               <span className="w-2 h-2 rounded-full bg-zinc-300" />
-              <span className="font-semibold text-zinc-500">E2 — Futuro</span>
+              <span className="font-semibold text-zinc-500">E1C-E / E2 — Futuro</span>
             </div>
             <ul className="text-zinc-400 space-y-1 pl-4 list-disc">
-              <li>Importación: Productos, Inventario inicial</li>
+              <li>Importación: Inventario inicial (E1C-E)</li>
               <li>Exportación de datos existentes (E2)</li>
               <li>Historial de importaciones (S1)</li>
             </ul>

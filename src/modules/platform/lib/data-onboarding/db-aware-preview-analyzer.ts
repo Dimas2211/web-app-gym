@@ -386,6 +386,44 @@ async function analyzeSublines(
 //             tax_rate_name?
 // ─────────────────────────────────────────────────────────────────
 
+// ── E1C-D.1: resolución de dependencia por nombre sin ambigüedad silenciosa ──
+// Nunca resuelve al primer/último candidato: 0 → MISSING_DEPENDENCY,
+// 1 → resuelve, 2+ → AMBIGUOUS_DEPENDENCY. Solo lectura, no crea nada.
+
+interface UniqueDependencyResolution {
+  foundId?: string;
+  check:    DataOnboardingDependencyCheck;
+  error?:   DataOnboardingRowError;
+}
+
+function resolveUniqueDependency(params: {
+  dependencyType:   string;
+  lookupField:      string;
+  lookupValue:      string;
+  matches:          { id: string }[];
+  notFoundMessage:  string;
+  ambiguousMessage: string;
+}): UniqueDependencyResolution {
+  const { dependencyType, lookupField, lookupValue, matches, notFoundMessage, ambiguousMessage } = params;
+
+  if (matches.length === 0) {
+    return {
+      check: { dependencyType, lookupField, lookupValue, found: false, message: notFoundMessage },
+      error: { code: "MISSING_DEPENDENCY", field: lookupField, message: notFoundMessage },
+    };
+  }
+  if (matches.length > 1) {
+    return {
+      check: { dependencyType, lookupField, lookupValue, found: false, message: ambiguousMessage },
+      error: { code: "AMBIGUOUS_DEPENDENCY", field: lookupField, message: ambiguousMessage },
+    };
+  }
+  return {
+    foundId: matches[0].id,
+    check:   { dependencyType, lookupField, lookupValue, found: true, foundId: matches[0].id },
+  };
+}
+
 async function analyzeProducts(
   preview:      DataOnboardingPreviewResult,
   importPolicy: DataOnboardingImportPolicy,
@@ -397,8 +435,9 @@ async function analyzeProducts(
     .map((r) => strVal(r.data.product_code).toUpperCase())
     .filter(Boolean);
 
-  // Cargar todo lo necesario en paralelo
-  const [existingProducts, categories, lines, sublines, units, taxRates] = await Promise.all([
+  // Cargar todo lo necesario en paralelo — listas planas, sin Map que
+  // sobrescriba silenciosamente ante nombres normalizados duplicados.
+  const [existingProducts, categories, lines, sublines, units, taxRates, suppliers] = await Promise.all([
     db.product.findMany({
       where:  { tenant_id: tenantId, product_code: { in: codesInFile } },
       select: { id: true, product_code: true, sku: true },
@@ -423,19 +462,13 @@ async function analyzeProducts(
       where:  { tenant_id: tenantId },
       select: { id: true, name: true },
     }),
+    db.supplier.findMany({
+      where:  { tenant_id: tenantId },
+      select: { id: true, name: true },
+    }),
   ]);
 
-  // Mapas de lookup
-  const productMap  = new Map(existingProducts.map((p) => [p.product_code.toUpperCase(), p]));
-  const catMap      = new Map(categories.map((c) => [normalizeKey(c.name), c.id]));
-  const lineMap     = new Map(lines.map((l) => [normalizeKey(l.name), l]));
-  const sublineMap  = new Map(sublines.map((s) => [normalizeKey(s.name), s]));
-  const unitMap     = new Map<string, string>();
-  for (const u of units) {
-    unitMap.set(normalizeKey(u.name), u.id);
-    unitMap.set(normalizeKey(u.symbol), u.id);
-  }
-  const taxMap = new Map(taxRates.map((t) => [normalizeKey(t.name), t.id]));
+  const productMap = new Map(existingProducts.map((p) => [p.product_code.toUpperCase(), p]));
 
   // SKUs existentes en la base para detectar duplicados por SKU
   const existingSkus = new Set(
@@ -459,75 +492,128 @@ async function analyzeProducts(
 
     const existsInDb = code !== "" && productMap.has(code);
 
-    // Dep: categoría (requerida)
-    const catName  = strVal(row.data.category_name);
-    const catId    = catMap.get(normalizeKey(catName));
-    deps.push({
-      dependencyType: "category",
-      lookupField: "category_name",
-      lookupValue: catName,
-      found:       !!catId,
-      foundId:     catId,
-      message:     catId ? undefined : `Categoría "${catName}" no existe en la base destino.`,
+    // Dep: categoría (requerida) — 0/1/2+ candidatos por nombre normalizado
+    const catName    = strVal(row.data.category_name);
+    const catMatches = categories.filter((c) => normalizeKey(c.name) === normalizeKey(catName));
+    const catResult  = resolveUniqueDependency({
+      dependencyType:   "category",
+      lookupField:      "category_name",
+      lookupValue:      catName,
+      matches:          catMatches,
+      notFoundMessage:  `Categoría "${catName}" no existe en la base destino.`,
+      ambiguousMessage: `Dependencia ambigua: hay más de una categoría con el nombre "${catName}". Usa nombres únicos o corrige el catálogo antes de importar productos.`,
     });
-    if (!catId) errors.push({ code: "MISSING_DEPENDENCY", field: "category_name", message: `Categoría "${catName}" no encontrada.` });
+    const catId = catResult.foundId;
+    deps.push(catResult.check);
+    if (catResult.error) errors.push(catResult.error);
 
-    // Dep: unidad de medida (requerida)
-    const unitName = strVal(row.data.unit_name);
-    const unitId   = unitMap.get(normalizeKey(unitName));
-    deps.push({
-      dependencyType: "unit_of_measure",
-      lookupField: "unit_name",
-      lookupValue: unitName,
-      found:       !!unitId,
-      foundId:     unitId,
-      message:     unitId ? undefined : `Unidad "${unitName}" no existe en el catálogo global.`,
+    // Dep: unidad de medida (requerida) — candidatos por nombre O símbolo, 0/1/2+
+    const unitName    = strVal(row.data.unit_name);
+    const unitKey      = normalizeKey(unitName);
+    const unitMatches = units.filter((u) => normalizeKey(u.name) === unitKey || normalizeKey(u.symbol) === unitKey);
+    const unitResult  = resolveUniqueDependency({
+      dependencyType:   "unit_of_measure",
+      lookupField:      "unit_name",
+      lookupValue:      unitName,
+      matches:          unitMatches,
+      notFoundMessage:  `Unidad "${unitName}" no existe en el catálogo global.`,
+      ambiguousMessage: `Dependencia ambigua: hay más de una unidad de medida que coincide con "${unitName}" (por nombre o símbolo). Usa nombres/símbolos únicos o corrige el catálogo antes de importar productos.`,
     });
-    if (!unitId) errors.push({ code: "MISSING_DEPENDENCY", field: "unit_name", message: `Unidad de medida "${unitName}" no encontrada.` });
+    deps.push(unitResult.check);
+    if (unitResult.error) errors.push(unitResult.error);
 
-    // Dep: línea (opcional)
+    // Dep: línea (opcional) — debe pertenecer a la categoría resuelta, sin ambigüedad
+    let resolvedLineId: string | undefined;
     if (!isEmpty(row.data.line_name)) {
       const lineName = strVal(row.data.line_name);
-      const line     = lineMap.get(normalizeKey(lineName));
-      deps.push({
-        dependencyType: "line",
-        lookupField: "line_name",
-        lookupValue: lineName,
-        found:       !!line,
-        foundId:     line?.id,
-        message:     line ? undefined : `Línea "${lineName}" no existe en la base destino.`,
-      });
-      if (!line) errors.push({ code: "MISSING_DEPENDENCY", field: "line_name", message: `Línea "${lineName}" no encontrada.` });
+      const lineKey  = normalizeKey(lineName);
+      const byName   = lines.filter((l) => normalizeKey(l.name) === lineKey);
+
+      if (!catId) {
+        const msg = `No se puede validar la línea "${lineName}" sin una categoría resuelta.`;
+        deps.push({ dependencyType: "line", lookupField: "line_name", lookupValue: lineName, found: false, message: msg });
+        errors.push({ code: "MISSING_DEPENDENCY", field: "line_name", message: msg });
+      } else if (byName.length === 0) {
+        const msg = `Línea "${lineName}" no existe en la base destino.`;
+        deps.push({ dependencyType: "line", lookupField: "line_name", lookupValue: lineName, found: false, message: msg });
+        errors.push({ code: "MISSING_DEPENDENCY", field: "line_name", message: msg });
+      } else {
+        const inCategory = byName.filter((l) => l.category_id === catId);
+        if (inCategory.length === 0) {
+          const msg = `Línea "${lineName}" no pertenece a la categoría "${catName}".`;
+          deps.push({ dependencyType: "line", lookupField: "line_name", lookupValue: lineName, found: false, message: msg });
+          errors.push({ code: "LINE_CATEGORY_MISMATCH", field: "line_name", message: msg });
+        } else if (inCategory.length > 1) {
+          const msg = `Dependencia ambigua: hay más de una línea con el nombre "${lineName}" dentro de la categoría "${catName}". Usa nombres únicos o corrige el catálogo antes de importar productos.`;
+          deps.push({ dependencyType: "line", lookupField: "line_name", lookupValue: lineName, found: false, message: msg });
+          errors.push({ code: "AMBIGUOUS_DEPENDENCY", field: "line_name", message: msg });
+        } else {
+          resolvedLineId = inCategory[0].id;
+          deps.push({ dependencyType: "line", lookupField: "line_name", lookupValue: lineName, found: true, foundId: resolvedLineId });
+        }
+      }
     }
 
-    // Dep: sublínea (opcional)
+    // Dep: sublínea (opcional) — debe pertenecer a la línea resuelta, sin ambigüedad
     if (!isEmpty(row.data.subline_name)) {
       const sublineName = strVal(row.data.subline_name);
-      const subline     = sublineMap.get(normalizeKey(sublineName));
-      deps.push({
-        dependencyType: "subline",
-        lookupField: "subline_name",
-        lookupValue: sublineName,
-        found:       !!subline,
-        foundId:     subline?.id,
-        message:     subline ? undefined : `Sublínea "${sublineName}" no existe en la base destino.`,
-      });
-      if (!subline) errors.push({ code: "MISSING_DEPENDENCY", field: "subline_name", message: `Sublínea "${sublineName}" no encontrada.` });
+      const sublineKey  = normalizeKey(sublineName);
+      const byName      = sublines.filter((s) => normalizeKey(s.name) === sublineKey);
+
+      if (!resolvedLineId) {
+        const msg = `No se puede validar la sublínea "${sublineName}" sin una línea resuelta.`;
+        deps.push({ dependencyType: "subline", lookupField: "subline_name", lookupValue: sublineName, found: false, message: msg });
+        errors.push({ code: "MISSING_DEPENDENCY", field: "subline_name", message: msg });
+      } else if (byName.length === 0) {
+        const msg = `Sublínea "${sublineName}" no existe en la base destino.`;
+        deps.push({ dependencyType: "subline", lookupField: "subline_name", lookupValue: sublineName, found: false, message: msg });
+        errors.push({ code: "MISSING_DEPENDENCY", field: "subline_name", message: msg });
+      } else {
+        const inLine = byName.filter((s) => s.line_id === resolvedLineId);
+        if (inLine.length === 0) {
+          const msg = `Sublínea "${sublineName}" no pertenece a la línea "${strVal(row.data.line_name)}".`;
+          deps.push({ dependencyType: "subline", lookupField: "subline_name", lookupValue: sublineName, found: false, message: msg });
+          errors.push({ code: "SUBLINE_LINE_MISMATCH", field: "subline_name", message: msg });
+        } else if (inLine.length > 1) {
+          const msg = `Dependencia ambigua: hay más de una sublínea con el nombre "${sublineName}" dentro de la línea "${strVal(row.data.line_name)}". Usa nombres únicos o corrige el catálogo antes de importar productos.`;
+          deps.push({ dependencyType: "subline", lookupField: "subline_name", lookupValue: sublineName, found: false, message: msg });
+          errors.push({ code: "AMBIGUOUS_DEPENDENCY", field: "subline_name", message: msg });
+        } else {
+          deps.push({ dependencyType: "subline", lookupField: "subline_name", lookupValue: sublineName, found: true, foundId: inLine[0].id });
+        }
+      }
     }
 
-    // Dep: tasa de impuesto (opcional)
+    // Dep: tasa de impuesto (opcional) — 0/1/2+ candidatos por nombre normalizado
     if (!isEmpty(row.data.tax_rate_name)) {
-      const taxName = strVal(row.data.tax_rate_name);
-      const taxId   = taxMap.get(normalizeKey(taxName));
-      deps.push({
-        dependencyType: "tax_rate",
-        lookupField: "tax_rate_name",
-        lookupValue: taxName,
-        found:       !!taxId,
-        foundId:     taxId,
-        message:     taxId ? undefined : `Tasa de impuesto "${taxName}" no existe en la base destino.`,
+      const taxName    = strVal(row.data.tax_rate_name);
+      const taxMatches = taxRates.filter((t) => normalizeKey(t.name) === normalizeKey(taxName));
+      const taxResult  = resolveUniqueDependency({
+        dependencyType:   "tax_rate",
+        lookupField:      "tax_rate_name",
+        lookupValue:      taxName,
+        matches:          taxMatches,
+        notFoundMessage:  `Tasa de impuesto "${taxName}" no existe en la base destino.`,
+        ambiguousMessage: `Dependencia ambigua: hay más de una tasa de impuesto con el nombre "${taxName}". Usa nombres únicos o corrige el catálogo antes de importar productos.`,
       });
-      if (!taxId) errors.push({ code: "MISSING_DEPENDENCY", field: "tax_rate_name", message: `Tasa de impuesto "${taxName}" no encontrada.` });
+      deps.push(taxResult.check);
+      if (taxResult.error) errors.push(taxResult.error);
+    }
+
+    // Dep: proveedor (opcional) — 0/1/2+ candidatos por nombre normalizado
+    if (!isEmpty(row.data.supplier_name)) {
+      const supplierName    = strVal(row.data.supplier_name);
+      const supplierMatches = suppliers.filter((s) => normalizeKey(s.name) === normalizeKey(supplierName));
+      const supplierResult  = resolveUniqueDependency({
+        dependencyType:   "supplier",
+        lookupField:      "supplier_name",
+        lookupValue:      supplierName,
+        matches:          supplierMatches,
+        notFoundMessage:  `Proveedor "${supplierName}" no existe en la base destino.`,
+        ambiguousMessage: `Dependencia ambigua: hay más de un proveedor con el nombre "${supplierName}". Usa nombres únicos o corrige el catálogo antes de importar productos.`,
+      });
+      deps.push(supplierResult.check);
+      if (supplierResult.error) errors.push(supplierResult.error);
     }
 
     // Warning: SKU duplicado contra base

@@ -1514,3 +1514,59 @@ export type SuppliersImportActionState =
       blocked?:       boolean;
       safetyBlockers?: string[];
     };
+
+// ─────────────────────────────────────────────────────────────────────────────
+// E1C-D: Products Import Runner
+// Tipos para el runner controlado de importación de productos contra un
+// PlatformDatabaseProfile via Prisma dinámico temporal.
+// Solo política CREATE_ONLY. Solo escribe en products.
+// No crea inventario, stock ni movimientos.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Resultado de importación de una fila individual de productos */
+export interface ProductsImportRowResult {
+  rowNumber:  number;
+  name:       string;
+  code:       string;
+  resolution: "CREATED" | "SKIPPED" | "ERROR";
+  reason?:    string;
+}
+
+/** Resultado completo del dry-run del import runner de productos */
+export interface ProductsImportDryRunResult {
+  wouldCreate: number;
+  blocked:     number;
+  totalRows:   number;
+  rows:        ProductsImportRowResult[];
+}
+
+/** Resultado completo de la ejecución real del import runner de productos */
+export interface ProductsImportResult {
+  created:      number;
+  skipped:      number;
+  errors:       number;
+  totalRows:    number;
+  importPolicy: DataOnboardingImportPolicy;
+  datasetKey:   "products";
+  rows:         ProductsImportRowResult[];
+}
+
+export type ProductsImportActionMode = "DRY_RUN" | "EXECUTE";
+
+export type ProductsImportActionState =
+  | {
+      success:        true;
+      mode:           ProductsImportActionMode;
+      profileLabel:   string;
+      safetyMessages: string[];
+      safetyWarnings: string[];
+      dryRunResult?:  ProductsImportDryRunResult;
+      importResult?:  ProductsImportResult;
+      error?:         never;
+    }
+  | {
+      success:        false;
+      error:          string;
+      blocked?:       boolean;
+      safetyBlockers?: string[];
+    };
