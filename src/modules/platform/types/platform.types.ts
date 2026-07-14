@@ -1020,6 +1020,8 @@ export type DatabaseExecutionActionType =
   | "RUN_IMPORT"                  // Importación desde Excel u origen externo (riesgo medio)
   | "RUN_REPAIR"                  // Corrección automática de datos (alto riesgo)
   | "CREATE_SUPPORT_SALE"         // F1-B1: crear venta de prueba en base cliente (alto riesgo)
+  | "CREATE_SUPPORT_DTE"          // F2-B1: crear DTE pendiente + reservar correlativo (alto riesgo)
+  | "GENERATE_SUPPORT_DTE_JSON"   // F2-B1: generar JSON DTE + validar schema AJV (riesgo medio)
   | "MANUAL_OPERATION";           // Operación manual sin categoría (riesgo crítico)
 
 /** Nivel de riesgo de ejecución para una acción sobre base de datos cliente */
@@ -1927,4 +1929,181 @@ export type SupportSaleFormData =
   | {
       success: false;
       error:   string;
+    };
+
+// ─────────────────────────────────────────────────────────────────────────────
+// F2-B1: Support Session — DTE pendiente + generación de JSON por perfil
+//
+// Runners controlados que replican (sin modificar) commerce/dte/services
+// directamente contra la base cliente de un PlatformDatabaseProfile:
+//   Paso 1 — crear DteOutgoingDocument PENDING_GENERATION + reservar correlativo.
+//   Paso 2 — generar json_document (FE 01 / CCFE 03) y validar schema AJV
+//            en el mismo paso (firma exige SCHEMA_VALIDATED).
+// No firma. No transmite a Hacienda. No toca inventario ni Sale/SaleItem.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export type SupportDteTypeCode = "01" | "03";
+
+/** Fila de venta CONFIRMED elegible para crear DTE (sin DTE activo del mismo tipo) */
+export interface SupportDteSaleRow {
+  id:                    string;
+  sale_code:             string;
+  sale_date:             string;
+  customer_name:         string | null;
+  primary_dte_type_code: string | null;
+  total_amount:          string;
+  inventory_moved:       boolean;
+}
+
+/** Fila de DteOutgoingDocument reciente (sin json_document ni secrets) */
+export interface SupportDteDocumentRow {
+  id:                string;
+  sale_id:           string;
+  sale_code:          string | null;
+  dte_type_code:      string;
+  dte_status:         string;
+  environment:        string;
+  generation_code:    string | null;
+  control_number:     string | null;
+  has_json_document:  boolean;
+  has_signed_jws:     boolean;
+  created_at:         string;
+  generated_at:       string | null;
+  schema_validated_at: string | null;
+  rejection_reason:   string | null;
+}
+
+export interface SupportDteIssuerConfigStatus {
+  exists:             boolean;
+  is_active:          boolean;
+  environment:        string | null;
+  has_cod_estable_mh: boolean;
+  has_cod_punto_venta_mh: boolean;
+}
+
+export interface SupportDteCorrelativeStatus {
+  dte_type_code: SupportDteTypeCode;
+  exists:        boolean;
+  last_sequence: number | null;
+  year:          number;
+}
+
+export type SupportDtePanelData =
+  | {
+      success:            true;
+      tenantId:           string;
+      environment:        string;
+      eligibleSales:      SupportDteSaleRow[];
+      recentDocuments:    SupportDteDocumentRow[];
+      issuerConfig:       SupportDteIssuerConfigStatus;
+      correlatives:       SupportDteCorrelativeStatus[];
+      warnings:           string[];
+    }
+  | {
+      success: false;
+      error:   string;
+    };
+
+// ── Paso 1 — Crear DTE pendiente ──────────────────────────────────
+
+export type CreateSupportDteActionMode = "DRY_RUN" | "EXECUTE";
+
+export interface CreateSupportDtePendingInput {
+  profileId:              string;
+  mode:                   CreateSupportDteActionMode;
+  sale_id:                string;
+  dte_type_code:          SupportDteTypeCode;
+  confirmationText?:      string;
+  /** Requerido para EXECUTE — riesgo HIGH exige confirmar backup reciente del perfil */
+  hasBackupConfirmation?: boolean;
+  /** Requerido para EXECUTE — indica que el cliente ya completó un preview (DRY_RUN) vigente */
+  hasDryRunConfirmation?: boolean;
+}
+
+export interface CreateSupportDtePendingPreviewResult {
+  sale_id:            string;
+  sale_code:          string;
+  dte_type_code:       SupportDteTypeCode;
+  issuer_config_id:    string;
+  environment:         string;
+  next_sequence:       number;
+  control_number_preview: string;
+  warnings:            string[];
+}
+
+export interface CreateSupportDtePendingResult {
+  dte_document_id: string;
+  sale_id:         string;
+  sale_code:       string;
+  dte_type_code:    SupportDteTypeCode;
+  generation_code:  string;
+  control_number:   string;
+  dte_status:       "PENDING_GENERATION";
+}
+
+export type CreateSupportDtePendingActionState =
+  | {
+      success:        true;
+      mode:           "DRY_RUN";
+      profileLabel:   string;
+      safetyMessages: string[];
+      safetyWarnings: string[];
+      preview:        CreateSupportDtePendingPreviewResult;
+      error?:         never;
+    }
+  | {
+      success:        true;
+      mode:           "EXECUTE";
+      profileLabel:   string;
+      safetyMessages: string[];
+      safetyWarnings: string[];
+      result:         CreateSupportDtePendingResult;
+      error?:         never;
+    }
+  | {
+      success:         false;
+      error:           string;
+      field?:          string;
+      blocked?:        boolean;
+      safetyBlockers?: string[];
+    };
+
+// ── Paso 2 — Generar JSON + validar schema (mismo paso) ───────────
+
+export interface GenerateSupportDteJsonInput {
+  profileId:              string;
+  dte_document_id:        string;
+  confirmationText?:      string;
+  /** Requerido — riesgo MEDIUM exige confirmar backup reciente del perfil en STAGING/PRODUCTION; no en LOCAL/SANDBOX/TEST */
+  hasBackupConfirmation?: boolean;
+}
+
+export interface GenerateSupportDteJsonValidationError {
+  path:    string;
+  message: string;
+}
+
+export interface GenerateSupportDteJsonResult {
+  dte_document_id: string;
+  dte_status:      "SCHEMA_VALIDATED";
+  generated_at:    string;
+  schema_validated_at: string;
+}
+
+export type GenerateSupportDteJsonActionState =
+  | {
+      success:        true;
+      profileLabel:   string;
+      safetyMessages: string[];
+      safetyWarnings: string[];
+      result:         GenerateSupportDteJsonResult;
+      error?:         never;
+    }
+  | {
+      success:            false;
+      error:              string;
+      field?:             string;
+      blocked?:           boolean;
+      safetyBlockers?:    string[];
+      validation_errors?: GenerateSupportDteJsonValidationError[];
     };

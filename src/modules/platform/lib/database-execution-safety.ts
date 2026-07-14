@@ -41,6 +41,8 @@ export const ACTION_EXECUTION_RISK: Record<
   RUN_IMPORT:                  "MEDIUM",
   RUN_REPAIR:                  "HIGH",
   CREATE_SUPPORT_SALE:         "HIGH",
+  CREATE_SUPPORT_DTE:          "HIGH",
+  GENERATE_SUPPORT_DTE_JSON:   "MEDIUM",
   MANUAL_OPERATION:            "CRITICAL",
 };
 

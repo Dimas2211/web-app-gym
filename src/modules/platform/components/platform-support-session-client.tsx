@@ -17,6 +17,7 @@
 
 import { useState, useEffect, useTransition } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import {
   ArrowLeft,
   ShieldAlert,
@@ -40,6 +41,7 @@ import {
 } from "lucide-react";
 
 import { getSupportSessionDataAction } from "../actions/get-support-session-data.action";
+import { SupportDtePanel } from "./support-session/support-dte-panel";
 import type {
   PlatformSupportSessionData,
   PlatformSupportSessionModuleKey,
@@ -200,10 +202,20 @@ function ViewerTable({
 // Componente principal
 // ─────────────────────────────────────────────────────────────────
 
+const VALID_TAB_KEYS: readonly PlatformSupportSessionModuleKey[] = [
+  "resumen", "productos", "clientes", "proveedores", "inventario", "ventas", "dte", "caja", "configuracion",
+];
+
 export function PlatformSupportSessionClient({ profile }: Props) {
+  const searchParams = useSearchParams();
   const [isPending, startTransition] = useTransition();
   const [data,      setData]         = useState<PlatformSupportSessionData | null>(null);
-  const [activeTab, setActiveTab]    = useState<PlatformSupportSessionModuleKey>("resumen");
+  const [activeTab, setActiveTab]    = useState<PlatformSupportSessionModuleKey>(() => {
+    const tabParam = searchParams.get("tab");
+    return VALID_TAB_KEYS.includes(tabParam as PlatformSupportSessionModuleKey)
+      ? (tabParam as PlatformSupportSessionModuleKey)
+      : "resumen";
+  });
 
   function loadData() {
     setData(null);
@@ -468,11 +480,15 @@ export function PlatformSupportSessionClient({ profile }: Props) {
 
       case "dte":
         return (
-          <ViewerTable
-            headers={["Tipo", "Estado DTE", "Cód. generación", "Nro. control", "Sello", "Fecha"]}
-            totalCount={data.summary.dteDocuments}
-            emptyMessage="Sin documentos DTE registrados."
-            rows={data.dte.map((d) => [
+          <div className="space-y-6">
+            <SupportDtePanel profileId={profile.id} />
+
+            <Section title="Todos los documentos DTE (visor read-only)">
+              <ViewerTable
+                headers={["Tipo", "Estado DTE", "Cód. generación", "Nro. control", "Sello", "Fecha"]}
+                totalCount={data.summary.dteDocuments}
+                emptyMessage="Sin documentos DTE registrados."
+                rows={data.dte.map((d) => [
               <span key="type" className="inline-flex px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-700 text-[10px] font-semibold">
                 {DTE_TYPE_LABELS[d.dte_type_code] ?? d.dte_type_code}
               </span>,
@@ -493,8 +509,10 @@ export function PlatformSupportSessionClient({ profile }: Props) {
               <span key="date" className="text-zinc-400 whitespace-nowrap">
                 {d.created_at ? new Date(d.created_at).toLocaleDateString("es-SV") : "—"}
               </span>,
-            ])}
-          />
+                ])}
+              />
+            </Section>
+          </div>
         );
 
       case "caja":

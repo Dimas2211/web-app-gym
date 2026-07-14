@@ -17,7 +17,7 @@
 
 import { useState, useEffect, useTransition } from "react";
 import Link from "next/link";
-import { ShieldAlert, Loader2, AlertTriangle, CheckCircle2, Plus, Trash2, ArrowLeft } from "lucide-react";
+import { ShieldAlert, Loader2, AlertTriangle, CheckCircle2, Plus, Trash2, ArrowLeft, FileText } from "lucide-react";
 
 import { getSupportSaleFormDataAction } from "../../actions/get-support-sale-form-data.action";
 import { createSupportSaleAction }      from "../../actions/create-support-sale.action";
@@ -215,12 +215,36 @@ export function SupportSaleForm({ profileId, profileLabel, environment }: Props)
             )}
           </div>
         </div>
-        <Link
-          href={`/dashboard/platform/support-session/${profileId}`}
-          className="inline-flex items-center gap-1.5 text-xs text-emerald-700 border border-emerald-200 rounded-lg px-3 py-1.5 hover:bg-emerald-50"
-        >
-          <ArrowLeft size={12} /> Volver a la sesión de soporte
-        </Link>
+        <div className="flex items-center gap-2 flex-wrap">
+          <Link
+            href={`/dashboard/platform/support-session/${profileId}?tab=dte&saleId=${result.saleId}`}
+            className="inline-flex items-center gap-1.5 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg px-3 py-1.5"
+          >
+            <FileText size={12} /> Ir a DTE de esta venta
+          </Link>
+          <Link
+            href={`/dashboard/platform/support-session/${profileId}`}
+            className="inline-flex items-center gap-1.5 text-xs text-emerald-700 border border-emerald-200 rounded-lg px-3 py-1.5 hover:bg-emerald-50"
+          >
+            <ArrowLeft size={12} /> Volver a la sesión de soporte
+          </Link>
+          <button
+            type="button"
+            onClick={() => {
+              setResult(null);
+              setPreview(null);
+              setPreviewSuccess(false);
+              setError(null);
+              setConfirmationText("");
+              setHasBackupConfirmation(false);
+              setLines([newLine()]);
+              setNotes("");
+            }}
+            className="inline-flex items-center gap-1.5 text-xs text-zinc-600 border border-zinc-200 rounded-lg px-3 py-1.5 hover:bg-zinc-50"
+          >
+            <Plus size={12} /> Crear otra venta
+          </button>
+        </div>
       </div>
     );
   }
