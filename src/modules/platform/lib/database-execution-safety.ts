@@ -40,6 +40,7 @@ export const ACTION_EXECUTION_RISK: Record<
   RUN_MIGRATIONS:              "HIGH",
   RUN_IMPORT:                  "MEDIUM",
   RUN_REPAIR:                  "HIGH",
+  CREATE_SUPPORT_SALE:         "HIGH",
   MANUAL_OPERATION:            "CRITICAL",
 };
 
@@ -259,8 +260,10 @@ export function evaluateDatabaseExecutionSafety(
     }
   }
 
-  // Dry-run
-  if (requiresDryRunFirst && !input.isDryRun) {
+  // Dry-run — se satisface con isDryRun=true (la llamada actual) o con
+  // hasRecentSuccessfulDryRun=true (ya se ejecutó un dry-run vigente antes
+  // de esta llamada EXECUTE, ej: preview del cliente sin cambios posteriores).
+  if (requiresDryRunFirst && !input.isDryRun && !input.hasRecentSuccessfulDryRun) {
     blockers.push(
       "Esta acción requiere ejecución previa en modo dry-run antes de la ejecución real. " +
       "Ejecuta primero con isDryRun=true para verificar el resultado esperado.",

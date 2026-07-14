@@ -1019,6 +1019,7 @@ export type DatabaseExecutionActionType =
   | "RUN_MIGRATIONS"              // Migraciones de schema (alto riesgo)
   | "RUN_IMPORT"                  // Importación desde Excel u origen externo (riesgo medio)
   | "RUN_REPAIR"                  // Corrección automática de datos (alto riesgo)
+  | "CREATE_SUPPORT_SALE"         // F1-B1: crear venta de prueba en base cliente (alto riesgo)
   | "MANUAL_OPERATION";           // Operación manual sin categoría (riesgo crítico)
 
 /** Nivel de riesgo de ejecución para una acción sobre base de datos cliente */
@@ -1050,6 +1051,8 @@ export interface DatabaseExecutionSafetyInput {
   hasRecentPreflight?:                boolean;
   /** Si el operador confirmó que existe un backup reciente */
   hasBackupConfirmation?:             boolean;
+  /** Si ya se ejecutó un dry-run exitoso y vigente antes de esta llamada EXECUTE */
+  hasRecentSuccessfulDryRun?:         boolean;
 }
 
 /** Resultado de la evaluación de la compuerta de seguridad de ejecución */
@@ -1776,4 +1779,152 @@ export type InventoryImportActionState =
       error:          string;
       blocked?:       boolean;
       safetyBlockers?: string[];
+    };
+
+// ─────────────────────────────────────────────────────────────────────────────
+// F1-B1: Support Session — crear venta de prueba por perfil de base de datos
+//
+// Runner controlado que crea una venta comercial (Sale + SaleItem +
+// SalePayment opcional) directamente CONFIRMED en la base cliente
+// seleccionada, replicando las fórmulas de commerce/sales sin modificarlo.
+// No genera DTE (queda para F2). No abre/cierra caja. No toca catálogos.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export type CreateSupportSaleActionMode = "DRY_RUN" | "EXECUTE";
+
+export interface CreateSupportSaleItemInput {
+  product_id: string;
+  quantity:   number;
+  unit_price: number;
+  notes?:     string | null;
+}
+
+export interface CreateSupportSaleInput {
+  profileId:              string;
+  mode:                   CreateSupportSaleActionMode;
+  location_id:            string;
+  customer_id?:           string | null;
+  // CAT-002: 01=Factura Electrónica, 03=Comprobante de Crédito Fiscal
+  primary_dte_type_code:  "01" | "03";
+  items:                  CreateSupportSaleItemInput[];
+  payment_method_code?:   string | null;
+  notes?:                 string | null;
+  confirmationText?:      string;
+  /** Requerido para EXECUTE — riesgo HIGH exige confirmar backup reciente del perfil */
+  hasBackupConfirmation?: boolean;
+  /** Requerido para EXECUTE — indica que el cliente ya completó un preview (DRY_RUN) vigente */
+  hasDryRunConfirmation?: boolean;
+}
+
+/** Línea calculada en preview/ejecución — mismas fórmulas que sale-calculations.ts */
+export interface SupportSaleComputedItem {
+  product_id:      string;
+  product_code:    string;
+  product_name:    string;
+  is_stockable:    boolean;
+  quantity:        number;
+  unit_price:      number;
+  tax_rate:        number | null;
+  line_subtotal:   number;
+  tax_amount:      number;
+  line_total:      number;
+  available_stock: number | null;
+}
+
+export interface SupportSaleComputedTotals {
+  subtotal:        number;
+  discount_amount: number;
+  tax_amount:      number;
+  total_amount:    number;
+}
+
+/** Resultado del dry-run (preview) — solo lectura, sin escrituras */
+export interface CreateSupportSalePreviewResult {
+  items:             SupportSaleComputedItem[];
+  totals:            SupportSaleComputedTotals;
+  willCreatePayment: boolean;
+  warnings:          string[];
+}
+
+/** Resultado de la ejecución real — venta confirmada */
+export interface CreateSupportSaleResult {
+  saleId:         string;
+  saleCode:       string;
+  status:         "CONFIRMED";
+  total:          number;
+  inventoryMoved: boolean;
+  itemsCount:     number;
+  warnings:       string[];
+}
+
+export type CreateSupportSaleActionState =
+  | {
+      success:        true;
+      mode:           "DRY_RUN";
+      profileLabel:   string;
+      safetyMessages: string[];
+      safetyWarnings: string[];
+      preview:        CreateSupportSalePreviewResult;
+      error?:         never;
+    }
+  | {
+      success:        true;
+      mode:           "EXECUTE";
+      profileLabel:   string;
+      safetyMessages: string[];
+      safetyWarnings: string[];
+      result:         CreateSupportSaleResult;
+      error?:         never;
+    }
+  | {
+      success:         false;
+      error:           string;
+      field?:          string;
+      blocked?:        boolean;
+      safetyBlockers?: string[];
+    };
+
+// ── Datos read-only para el formulario de venta de soporte ────────
+
+export interface SupportSaleFormBranch {
+  id:     string;
+  name:   string;
+  status: string;
+}
+
+export interface SupportSaleFormCustomer {
+  id:            string;
+  customer_code: string;
+  name:          string;
+  tax_id_masked: string | null;
+}
+
+export interface SupportSaleFormProduct {
+  id:           string;
+  product_code: string;
+  name:         string;
+  product_type: string;
+  is_stockable: boolean;
+  allow_sale:   boolean;
+  sale_price:   number | null;
+  tax_rate:     number | null;
+}
+
+export interface SupportSaleFormPaymentMethod {
+  code:  string;
+  label: string;
+}
+
+export type SupportSaleFormData =
+  | {
+      success:        true;
+      tenantId:       string;
+      branches:       SupportSaleFormBranch[];
+      customers:      SupportSaleFormCustomer[];
+      products:       SupportSaleFormProduct[];
+      paymentMethods: SupportSaleFormPaymentMethod[];
+    }
+  | {
+      success: false;
+      error:   string;
     };

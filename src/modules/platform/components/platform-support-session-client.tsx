@@ -437,7 +437,18 @@ export function PlatformSupportSessionClient({ profile }: Props) {
 
       case "ventas":
         return (
-          <ViewerTable
+          <div className="space-y-3">
+            <div className="flex justify-end">
+              <Link
+                href={`/dashboard/platform/support-session/${profile.id}/sales/new`}
+                className="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5
+                           bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg transition-colors"
+              >
+                <ShoppingCart size={12} />
+                Nueva venta de prueba
+              </Link>
+            </div>
+            <ViewerTable
             headers={["Código", "Fecha", "Cliente", "Estado", "Pago", "Total"]}
             totalCount={data.summary.sales}
             emptyMessage="Sin ventas registradas."
@@ -451,7 +462,8 @@ export function PlatformSupportSessionClient({ profile }: Props) {
               <StatusChip key="pay" value={s.payment_status} />,
               <span key="total" className="tabular-nums font-medium">${Number(s.total_amount).toFixed(2)}</span>,
             ])}
-          />
+            />
+          </div>
         );
 
       case "dte":
