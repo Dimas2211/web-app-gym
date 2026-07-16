@@ -16,10 +16,12 @@ import { getSupportDtePanelDataAction }   from "../../actions/get-support-dte-pa
 import { createSupportDtePendingAction }  from "../../actions/support-dte-create-pending.action";
 import { generateSupportDteJsonAction }   from "../../actions/support-dte-generate-json.action";
 import { signSupportDteAction }           from "../../actions/support-dte-sign.action";
+import { transmitSupportDteAction }       from "../../actions/support-dte-transmit.action";
 import {
   CREATE_SUPPORT_DTE_CONFIRMATION_TEXT,
   GENERATE_SUPPORT_DTE_JSON_CONFIRMATION_TEXT,
   SIGN_SUPPORT_DTE_CONFIRMATION_TEXT,
+  TRANSMIT_SUPPORT_DTE_CONFIRMATION_TEXT,
 }                                          from "../../lib/support-session/dte/support-dte.constants";
 import type {
   SupportDtePanelData,
@@ -28,6 +30,8 @@ import type {
   SupportDteTypeCode,
   CreateSupportDtePendingPreviewResult,
   SignSupportDtePreviewResult,
+  TransmitSupportDtePreviewResult,
+  TransmitSupportDteResult,
 } from "../../types/platform.types";
 
 interface Props {
@@ -39,6 +43,7 @@ function StatusChip({ value }: { value: string }) {
     value === "SCHEMA_VALIDATED" || value === "GENERATED" ? "bg-blue-100 text-blue-700"
     : value === "PENDING_GENERATION"                       ? "bg-amber-100 text-amber-700"
     : value === "ACCEPTED"                                 ? "bg-green-100 text-green-700"
+    : value === "OBSERVED"                                 ? "bg-amber-100 text-amber-700"
     : value === "REJECTED"                                 ? "bg-red-100 text-red-700"
     : "bg-zinc-100 text-zinc-600";
   return <span className={`inline-flex px-1.5 py-0.5 rounded text-[10px] font-semibold ${cls}`}>{value}</span>;
@@ -203,8 +208,18 @@ function DteDocumentRow({ profileId, doc, onDone }: {
   const [signSuccess, setSignSuccess]       = useState<string | null>(null);
   const [isSignPending, startSignTransition] = useTransition();
 
+  // ── Transmisión a Hacienda TEST (SIGNED → ACCEPTED/OBSERVED/REJECTED) ──
+  const [transmitExpanded, setTransmitExpanded]     = useState(false);
+  const [transmitPreview, setTransmitPreview]       = useState<TransmitSupportDtePreviewResult | null>(null);
+  const [transmitConfirmationText, setTransmitConfirmationText]     = useState("");
+  const [transmitHasBackupConfirmation, setTransmitHasBackupConfirmation] = useState(false);
+  const [transmitError, setTransmitError]           = useState<string | null>(null);
+  const [transmitResult, setTransmitResult]         = useState<TransmitSupportDteResult | null>(null);
+  const [isTransmitPending, startTransmitTransition] = useTransition();
+
   const canGenerate = doc.dte_status === "PENDING_GENERATION";
   const canSign     = doc.dte_status === "SCHEMA_VALIDATED";
+  const canTransmit = doc.dte_status === "SIGNED";
 
   function handleGenerate() {
     setError(null); setSuccess(null); setValidationErrors(null);
@@ -260,6 +275,40 @@ function DteDocumentRow({ profileId, doc, onDone }: {
     });
   }
 
+  function handleTransmitPreview() {
+    setTransmitError(null); setTransmitResult(null); setTransmitPreview(null);
+    startTransmitTransition(async () => {
+      const res = await transmitSupportDteAction({
+        profileId, mode: "DRY_RUN", dte_document_id: doc.id,
+      });
+      if (!res.success) { setTransmitError(res.error); return; }
+      if (res.mode === "DRY_RUN") setTransmitPreview(res.preview);
+    });
+  }
+
+  function handleTransmitExecute() {
+    setTransmitError(null);
+    if (transmitConfirmationText.trim() !== TRANSMIT_SUPPORT_DTE_CONFIRMATION_TEXT) {
+      setTransmitError(`Escribe exactamente: ${TRANSMIT_SUPPORT_DTE_CONFIRMATION_TEXT}`);
+      return;
+    }
+    if (!transmitHasBackupConfirmation) { setTransmitError("Debes confirmar que existe un backup reciente."); return; }
+
+    startTransmitTransition(async () => {
+      const res = await transmitSupportDteAction({
+        profileId, mode: "EXECUTE", dte_document_id: doc.id,
+        confirmationText: transmitConfirmationText, hasBackupConfirmation: transmitHasBackupConfirmation,
+        hasDryRunConfirmation: !!transmitPreview,
+      });
+      if (!res.success) { setTransmitError(res.error); return; }
+      if (res.mode === "EXECUTE") {
+        setTransmitResult(res.result);
+        setTransmitPreview(null);
+        onDone();
+      }
+    });
+  }
+
   return (
     <div className="border border-zinc-100 rounded-lg">
       <div className="flex items-center gap-3 px-3 py-2 flex-wrap">
@@ -290,6 +339,16 @@ function DteDocumentRow({ profileId, doc, onDone }: {
           >
             Firmar DTE
             {signExpanded ? <ChevronUp size={11} /> : <ChevronDown size={11} />}
+          </button>
+        )}
+        {canTransmit && (
+          <button
+            type="button"
+            onClick={() => setTransmitExpanded((v) => !v)}
+            className="ml-auto flex items-center gap-1 text-xs font-semibold px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded transition-colors"
+          >
+            Transmitir a MH TEST
+            {transmitExpanded ? <ChevronUp size={11} /> : <ChevronDown size={11} />}
           </button>
         )}
       </div>
@@ -401,6 +460,102 @@ function DteDocumentRow({ profileId, doc, onDone }: {
             <div className="flex items-start gap-1.5 bg-green-50 border border-green-100 rounded px-2.5 py-1.5">
               <CheckCircle2 size={11} className="text-green-500 shrink-0 mt-0.5" />
               <span className="text-[11px] text-green-700">{signSuccess}</span>
+            </div>
+          )}
+        </div>
+      )}
+
+      {transmitExpanded && canTransmit && (
+        <div className="px-3 pb-3 space-y-2 border-t border-zinc-50 pt-2">
+          {!transmitPreview && !transmitResult && (
+            <button
+              type="button"
+              onClick={handleTransmitPreview}
+              disabled={isTransmitPending}
+              className="text-xs font-semibold px-3 py-1.5 border border-zinc-200 rounded-lg hover:bg-zinc-50 transition-colors disabled:opacity-50"
+            >
+              {isTransmitPending ? "Validando…" : "1. Vista previa (DRY_RUN)"}
+            </button>
+          )}
+
+          {transmitPreview && !transmitResult && (
+            <div className="space-y-2">
+              <div className="bg-zinc-50 border border-zinc-100 rounded-lg px-3 py-2 text-xs space-y-1">
+                <div><span className="text-zinc-400">Ambiente fiscal:</span> <span className="font-medium">{transmitPreview.environment}</span></div>
+                <div><span className="text-zinc-400">Nro. control:</span> <span className="font-mono">{transmitPreview.control_number}</span></div>
+                <div><span className="text-zinc-400">Cód. generación:</span> <span className="font-mono">{transmitPreview.generation_code}</span></div>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-[11px] text-zinc-500">
+                  Escribe <span className="font-mono font-semibold">{TRANSMIT_SUPPORT_DTE_CONFIRMATION_TEXT}</span> para confirmar
+                </label>
+                <input
+                  type="text"
+                  value={transmitConfirmationText}
+                  onChange={(e) => setTransmitConfirmationText(e.target.value)}
+                  className="w-full text-xs border border-zinc-200 rounded px-2 py-1.5"
+                  placeholder={TRANSMIT_SUPPORT_DTE_CONFIRMATION_TEXT}
+                />
+                <label className="flex items-center gap-1.5 text-[11px] text-zinc-600">
+                  <input type="checkbox" checked={transmitHasBackupConfirmation} onChange={(e) => setTransmitHasBackupConfirmation(e.target.checked)} />
+                  Confirmo que existe un backup reciente y verificado de esta base.
+                </label>
+                <button
+                  type="button"
+                  onClick={handleTransmitExecute}
+                  disabled={isTransmitPending}
+                  className="text-xs font-semibold px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg transition-colors disabled:opacity-50"
+                >
+                  {isTransmitPending ? "Transmitiendo…" : "2. Transmitir a MH TEST (EXECUTE)"}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {transmitError && (
+            <div className="flex items-start gap-1.5 bg-red-50 border border-red-100 rounded px-2.5 py-1.5">
+              <AlertTriangle size={11} className="text-red-500 shrink-0 mt-0.5" />
+              <span className="text-[11px] text-red-700">{transmitError}</span>
+            </div>
+          )}
+
+          {transmitResult && (
+            <div
+              className={`space-y-1 border rounded-lg px-3 py-2 text-xs ${
+                transmitResult.dte_status === "ACCEPTED" ? "bg-green-50 border-green-100"
+                : transmitResult.dte_status === "OBSERVED" ? "bg-amber-50 border-amber-100"
+                : "bg-red-50 border-red-100"
+              }`}
+            >
+              <div className="flex items-center gap-2">
+                <CheckCircle2 size={12} className={
+                  transmitResult.dte_status === "ACCEPTED" ? "text-green-500"
+                  : transmitResult.dte_status === "OBSERVED" ? "text-amber-500"
+                  : "text-red-500"
+                } />
+                <StatusChip value={transmitResult.dte_status} />
+                <span className="font-mono text-[11px] text-zinc-500">{transmitResult.mh_estado}</span>
+              </div>
+              {transmitResult.reception_stamp && (
+                <div><span className="text-zinc-400">Sello de recepción:</span> <span className="font-mono">{transmitResult.reception_stamp}</span></div>
+              )}
+              {transmitResult.processed_at && (
+                <div><span className="text-zinc-400">Fecha procesamiento:</span> <span className="font-mono">{transmitResult.processed_at}</span></div>
+              )}
+              {transmitResult.descripcion_msg && (
+                <div><span className="text-zinc-400">Mensaje MH:</span> {transmitResult.codigo_msg ? `[${transmitResult.codigo_msg}] ` : ""}{transmitResult.descripcion_msg}</div>
+              )}
+              {transmitResult.observations && transmitResult.observations.length > 0 && (
+                <div className="space-y-0.5">
+                  <span className="text-zinc-400">Observaciones:</span>
+                  <ul className="list-disc list-inside">
+                    {transmitResult.observations.map((o, i) => (
+                      <li key={i} className="text-[11px]">{typeof o === "string" ? o : JSON.stringify(o)}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
             </div>
           )}
         </div>
