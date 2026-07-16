@@ -1022,6 +1022,7 @@ export type DatabaseExecutionActionType =
   | "CREATE_SUPPORT_SALE"         // F1-B1: crear venta de prueba en base cliente (alto riesgo)
   | "CREATE_SUPPORT_DTE"          // F2-B1: crear DTE pendiente + reservar correlativo (alto riesgo)
   | "GENERATE_SUPPORT_DTE_JSON"   // F2-B1: generar JSON DTE + validar schema AJV (riesgo medio)
+  | "SIGN_SUPPORT_DTE"            // F2-B2: firmar DTE SCHEMA_VALIDATED con el firmador MH (alto riesgo)
   | "MANUAL_OPERATION";           // Operación manual sin categoría (riesgo crítico)
 
 /** Nivel de riesgo de ejecución para una acción sobre base de datos cliente */
@@ -2106,4 +2107,64 @@ export type GenerateSupportDteJsonActionState =
       blocked?:           boolean;
       safetyBlockers?:    string[];
       validation_errors?: GenerateSupportDteJsonValidationError[];
+    };
+
+// ── Paso 3 — Firmar DTE (F2-B2) ───────────────────────────────────
+
+export interface SignSupportDteInput {
+  profileId:              string;
+  mode:                   CreateSupportDteActionMode;
+  dte_document_id:        string;
+  confirmationText?:      string;
+  /** Requerido para EXECUTE — riesgo HIGH exige confirmar backup reciente del perfil */
+  hasBackupConfirmation?: boolean;
+  /** Requerido para EXECUTE — indica que el cliente ya completó un preview (DRY_RUN) vigente */
+  hasDryRunConfirmation?: boolean;
+}
+
+export interface SignSupportDtePreviewResult {
+  dte_document_id: string;
+  sale_id:         string;
+  sale_code:       string;
+  dte_type_code:   SupportDteTypeCode;
+  environment:     string;
+  generation_code: string;
+  control_number:  string;
+  warnings:        string[];
+}
+
+export interface SignSupportDteResult {
+  dte_document_id: string;
+  dte_status:      "SIGNED";
+  signed_at:       string;
+  dte_type_code:   SupportDteTypeCode;
+  generation_code: string;
+  control_number:  string;
+}
+
+export type SignSupportDteActionState =
+  | {
+      success:        true;
+      mode:           "DRY_RUN";
+      profileLabel:   string;
+      safetyMessages: string[];
+      safetyWarnings: string[];
+      preview:        SignSupportDtePreviewResult;
+      error?:         never;
+    }
+  | {
+      success:        true;
+      mode:           "EXECUTE";
+      profileLabel:   string;
+      safetyMessages: string[];
+      safetyWarnings: string[];
+      result:         SignSupportDteResult;
+      error?:         never;
+    }
+  | {
+      success:         false;
+      error:           string;
+      field?:          string;
+      blocked?:        boolean;
+      safetyBlockers?: string[];
     };

@@ -15,9 +15,11 @@ import { AlertTriangle, CheckCircle2, Loader2, FileText, RefreshCw, ChevronDown,
 import { getSupportDtePanelDataAction }   from "../../actions/get-support-dte-panel-data.action";
 import { createSupportDtePendingAction }  from "../../actions/support-dte-create-pending.action";
 import { generateSupportDteJsonAction }   from "../../actions/support-dte-generate-json.action";
+import { signSupportDteAction }           from "../../actions/support-dte-sign.action";
 import {
   CREATE_SUPPORT_DTE_CONFIRMATION_TEXT,
   GENERATE_SUPPORT_DTE_JSON_CONFIRMATION_TEXT,
+  SIGN_SUPPORT_DTE_CONFIRMATION_TEXT,
 }                                          from "../../lib/support-session/dte/support-dte.constants";
 import type {
   SupportDtePanelData,
@@ -25,6 +27,7 @@ import type {
   SupportDteDocumentRow,
   SupportDteTypeCode,
   CreateSupportDtePendingPreviewResult,
+  SignSupportDtePreviewResult,
 } from "../../types/platform.types";
 
 interface Props {
@@ -191,7 +194,17 @@ function DteDocumentRow({ profileId, doc, onDone }: {
   const [success, setSuccess]     = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
+  // ── Firma (SCHEMA_VALIDATED → SIGNED) ────────────────────────────
+  const [signExpanded, setSignExpanded]     = useState(false);
+  const [signPreview, setSignPreview]       = useState<SignSupportDtePreviewResult | null>(null);
+  const [signConfirmationText, setSignConfirmationText]     = useState("");
+  const [signHasBackupConfirmation, setSignHasBackupConfirmation] = useState(false);
+  const [signError, setSignError]           = useState<string | null>(null);
+  const [signSuccess, setSignSuccess]       = useState<string | null>(null);
+  const [isSignPending, startSignTransition] = useTransition();
+
   const canGenerate = doc.dte_status === "PENDING_GENERATION";
+  const canSign     = doc.dte_status === "SCHEMA_VALIDATED";
 
   function handleGenerate() {
     setError(null); setSuccess(null); setValidationErrors(null);
@@ -210,6 +223,40 @@ function DteDocumentRow({ profileId, doc, onDone }: {
       }
       setSuccess(`JSON generado y validado — estado: ${res.result.dte_status}`);
       onDone();
+    });
+  }
+
+  function handleSignPreview() {
+    setSignError(null); setSignSuccess(null); setSignPreview(null);
+    startSignTransition(async () => {
+      const res = await signSupportDteAction({
+        profileId, mode: "DRY_RUN", dte_document_id: doc.id,
+      });
+      if (!res.success) { setSignError(res.error); return; }
+      if (res.mode === "DRY_RUN") setSignPreview(res.preview);
+    });
+  }
+
+  function handleSignExecute() {
+    setSignError(null);
+    if (signConfirmationText.trim() !== SIGN_SUPPORT_DTE_CONFIRMATION_TEXT) {
+      setSignError(`Escribe exactamente: ${SIGN_SUPPORT_DTE_CONFIRMATION_TEXT}`);
+      return;
+    }
+    if (!signHasBackupConfirmation) { setSignError("Debes confirmar que existe un backup reciente."); return; }
+
+    startSignTransition(async () => {
+      const res = await signSupportDteAction({
+        profileId, mode: "EXECUTE", dte_document_id: doc.id,
+        confirmationText: signConfirmationText, hasBackupConfirmation: signHasBackupConfirmation,
+        hasDryRunConfirmation: !!signPreview,
+      });
+      if (!res.success) { setSignError(res.error); return; }
+      if (res.mode === "EXECUTE") {
+        setSignSuccess(`DTE firmado — estado: ${res.result.dte_status}`);
+        setSignPreview(null);
+        onDone();
+      }
     });
   }
 
@@ -233,6 +280,16 @@ function DteDocumentRow({ profileId, doc, onDone }: {
           >
             Generar / validar JSON
             {expanded ? <ChevronUp size={11} /> : <ChevronDown size={11} />}
+          </button>
+        )}
+        {canSign && (
+          <button
+            type="button"
+            onClick={() => setSignExpanded((v) => !v)}
+            className="ml-auto flex items-center gap-1 text-xs font-semibold px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded transition-colors"
+          >
+            Firmar DTE
+            {signExpanded ? <ChevronUp size={11} /> : <ChevronDown size={11} />}
           </button>
         )}
       </div>
@@ -281,6 +338,69 @@ function DteDocumentRow({ profileId, doc, onDone }: {
             <div className="flex items-start gap-1.5 bg-green-50 border border-green-100 rounded px-2.5 py-1.5">
               <CheckCircle2 size={11} className="text-green-500 shrink-0 mt-0.5" />
               <span className="text-[11px] text-green-700">{success}</span>
+            </div>
+          )}
+        </div>
+      )}
+
+      {signExpanded && canSign && (
+        <div className="px-3 pb-3 space-y-2 border-t border-zinc-50 pt-2">
+          {!signPreview && (
+            <button
+              type="button"
+              onClick={handleSignPreview}
+              disabled={isSignPending}
+              className="text-xs font-semibold px-3 py-1.5 border border-zinc-200 rounded-lg hover:bg-zinc-50 transition-colors disabled:opacity-50"
+            >
+              {isSignPending ? "Validando…" : "1. Vista previa (DRY_RUN)"}
+            </button>
+          )}
+
+          {signPreview && (
+            <div className="space-y-2">
+              <div className="bg-zinc-50 border border-zinc-100 rounded-lg px-3 py-2 text-xs space-y-1">
+                <div><span className="text-zinc-400">Ambiente fiscal:</span> <span className="font-medium">{signPreview.environment}</span></div>
+                <div><span className="text-zinc-400">Nro. control:</span> <span className="font-mono">{signPreview.control_number}</span></div>
+                <div><span className="text-zinc-400">Cód. generación:</span> <span className="font-mono">{signPreview.generation_code}</span></div>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-[11px] text-zinc-500">
+                  Escribe <span className="font-mono font-semibold">{SIGN_SUPPORT_DTE_CONFIRMATION_TEXT}</span> para confirmar
+                </label>
+                <input
+                  type="text"
+                  value={signConfirmationText}
+                  onChange={(e) => setSignConfirmationText(e.target.value)}
+                  className="w-full text-xs border border-zinc-200 rounded px-2 py-1.5"
+                  placeholder={SIGN_SUPPORT_DTE_CONFIRMATION_TEXT}
+                />
+                <label className="flex items-center gap-1.5 text-[11px] text-zinc-600">
+                  <input type="checkbox" checked={signHasBackupConfirmation} onChange={(e) => setSignHasBackupConfirmation(e.target.checked)} />
+                  Confirmo que existe un backup reciente y verificado de esta base.
+                </label>
+                <button
+                  type="button"
+                  onClick={handleSignExecute}
+                  disabled={isSignPending}
+                  className="text-xs font-semibold px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg transition-colors disabled:opacity-50"
+                >
+                  {isSignPending ? "Firmando…" : "2. Firmar DTE (EXECUTE)"}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {signError && (
+            <div className="flex items-start gap-1.5 bg-red-50 border border-red-100 rounded px-2.5 py-1.5">
+              <AlertTriangle size={11} className="text-red-500 shrink-0 mt-0.5" />
+              <span className="text-[11px] text-red-700">{signError}</span>
+            </div>
+          )}
+          {signSuccess && (
+            <div className="flex items-start gap-1.5 bg-green-50 border border-green-100 rounded px-2.5 py-1.5">
+              <CheckCircle2 size={11} className="text-green-500 shrink-0 mt-0.5" />
+              <span className="text-[11px] text-green-700">{signSuccess}</span>
             </div>
           )}
         </div>
