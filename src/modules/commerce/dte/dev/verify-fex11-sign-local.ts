@@ -25,7 +25,12 @@ import "dotenv/config";
 import { prisma } from "@/lib/db/prisma";
 import { signDteDocument } from "../services/sign-dte-document.service";
 
-const SALE_MARKER = "FEX11_TEST_SALE";
+// F3-C15B — FEX11_TEST_CASE=CATALOG_OK apunta al DTE de prueba nuevo
+// (venta marcada FEX11_TEST_CATALOG_OK_SALE), sin tocar el DTE original
+// REJECTED en F3-C14 (venta marcada FEX11_TEST_SALE).
+const TEST_CASE: "DEFAULT" | "CATALOG_OK" =
+  process.env.FEX11_TEST_CASE === "CATALOG_OK" ? "CATALOG_OK" : "DEFAULT";
+const SALE_MARKER = TEST_CASE === "CATALOG_OK" ? "FEX11_TEST_CATALOG_OK_SALE" : "FEX11_TEST_SALE";
 
 class AbortError extends Error {}
 
@@ -225,6 +230,7 @@ async function main() {
 
   const { signerUrlHost } = assertSignerCredentialsPresent();
   console.log(`Credenciales del firmador: presentes (DTE_SIGNER_URL host="${signerUrlHost}", DTE_SIGNER_NIT presente, DTE_SIGNER_PASSWORD presente).`);
+  console.log(`Caso de prueba (FEX11_TEST_CASE): ${TEST_CASE} (marcador de venta: ${SALE_MARKER})`);
 
   const doc = await findTestDteDocument();
 

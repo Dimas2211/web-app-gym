@@ -29,15 +29,54 @@ import { buildControlNumber } from "../utils/dte-control-number";
 import { generateFexJsonForSale } from "../services/generate-fex-json.service";
 import { previewFexJsonAction } from "../actions/preview-fex-json.action";
 
-const MARKER = {
-  customerCode: "FEX11-TEST-CUST",
-  productCode:  "FEX11-TEST-001",
-  unitSymbol:   "FEX11-U",
-  unitName:     "FEX11_TEST_UNIT",
-  categoryCode: "FEX11-TEST",
-  categoryName: "FEX11_TEST_CATEGORY",
-  saleMarker:   "FEX11_TEST_SALE",
-};
+// F3-C15B — caso de prueba CATALOG_OK: usa valores oficiales del
+// Catálogo - Sistema de Transmisión (CAT-027/028/031) para reintentar
+// contra MH TEST sin tocar el DTE original que quedó REJECTED en F3-C14
+// (ese registro sigue marcado FEX11_TEST_SALE / FEX11-TEST-*).
+const TEST_CASE: "DEFAULT" | "CATALOG_OK" =
+  process.env.FEX11_TEST_CASE === "CATALOG_OK" ? "CATALOG_OK" : "DEFAULT";
+
+const MARKER =
+  TEST_CASE === "CATALOG_OK"
+    ? {
+        customerCode: "FEX11-TEST-CATALOG-OK-CUST",
+        productCode:  "FEX11-TEST-CATALOG-OK-001",
+        unitSymbol:   "FEX11-U",
+        unitName:     "FEX11_TEST_UNIT",
+        categoryCode: "FEX11-TEST",
+        categoryName: "FEX11_TEST_CATEGORY",
+        saleMarker:   "FEX11_TEST_CATALOG_OK_SALE",
+      }
+    : {
+        customerCode: "FEX11-TEST-CUST",
+        productCode:  "FEX11-TEST-001",
+        unitSymbol:   "FEX11-U",
+        unitName:     "FEX11_TEST_UNIT",
+        categoryCode: "FEX11-TEST",
+        categoryName: "FEX11_TEST_CATEGORY",
+        saleMarker:   "FEX11_TEST_SALE",
+      };
+
+// Valores oficiales — Catálogo - Sistema de Transmisión (fuente externa al
+// repo, confirmada por el usuario en F3-C15B): CAT-031 (09 = FOB-Libre a
+// bordo), CAT-028 (EX-1.1000.000 = exportación definitiva común), CAT-027
+// (02 = Marítima de Acajutla, coherente con FOB marítimo; el valor "10"
+// original no fue el campo rechazado por MH, pero se alinea igual porque
+// el nuevo caso de prueba usa un incoterm marítimo).
+const EXPORT_DETAILS_VALUES =
+  TEST_CASE === "CATALOG_OK"
+    ? {
+        fiscal_precinct_code: "02", // CAT-027: Marítima de Acajutla
+        regime_code: "EX-1.1000.000", // CAT-028: exportación definitiva común
+        incoterm_code: "09", // CAT-031: FOB
+        incoterm_desc: "FOB-Libre a bordo",
+      }
+    : {
+        fiscal_precinct_code: "10",
+        regime_code: "EX01",
+        incoterm_code: "FOB",
+        incoterm_desc: "FREE ON BOARD",
+      };
 
 class AbortError extends Error {}
 
@@ -322,10 +361,7 @@ async function ensureSale(
         country_name: "ESTADOS UNIDOS",
         customer_person_type: "2",
         item_type_export: 1,
-        fiscal_precinct_code: "10",
-        regime_code: "EX01",
-        incoterm_code: "FOB",
-        incoterm_desc: "FREE ON BOARD",
+        ...EXPORT_DETAILS_VALUES,
         insurance_amount: new Prisma.Decimal(0),
         freight_amount: new Prisma.Decimal(0),
       },
@@ -416,10 +452,7 @@ async function ensureSale(
         country_name: "ESTADOS UNIDOS",
         customer_person_type: "2",
         item_type_export: 1,
-        fiscal_precinct_code: "10",
-        regime_code: "EX01",
-        incoterm_code: "FOB",
-        incoterm_desc: "FREE ON BOARD",
+        ...EXPORT_DETAILS_VALUES,
         insurance_amount: new Prisma.Decimal(0),
         freight_amount: new Prisma.Decimal(0),
       },
@@ -523,6 +556,7 @@ function validateFexAjv(doc: unknown): { ok: true } | { ok: false; errors: strin
 async function main() {
   const { dbHostSafe } = assertLocalEnvironment();
   console.log(`Ambiente local verificado. DB: ${dbHostSafe}`);
+  console.log(`Caso de prueba (FEX11_TEST_CASE): ${TEST_CASE} (marcador de venta: ${MARKER.saleMarker})`);
 
   const { tenant_id, location_id } = await resolveTenantLocation();
   console.log(`Tenant/location resueltos: tenant_id=${tenant_id} location_id=${location_id}`);

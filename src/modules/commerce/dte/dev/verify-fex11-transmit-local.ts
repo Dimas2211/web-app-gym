@@ -37,7 +37,12 @@ import type {
   DteTransmissionSuccessResult,
 } from "../types/dte-transmission.types";
 
-const SALE_MARKER = "FEX11_TEST_SALE";
+// F3-C15B — FEX11_TEST_CASE=CATALOG_OK apunta al DTE de prueba nuevo
+// (venta marcada FEX11_TEST_CATALOG_OK_SALE), sin tocar el DTE original
+// REJECTED en F3-C14 (venta marcada FEX11_TEST_SALE).
+const TEST_CASE: "DEFAULT" | "CATALOG_OK" =
+  process.env.FEX11_TEST_CASE === "CATALOG_OK" ? "CATALOG_OK" : "DEFAULT";
+const SALE_MARKER = TEST_CASE === "CATALOG_OK" ? "FEX11_TEST_CATALOG_OK_SALE" : "FEX11_TEST_SALE";
 
 // FEX 11 identificacion.version es fijo en 1 (ver fex-json.types.ts).
 const FEX11_VERSION = 1;
@@ -288,6 +293,7 @@ async function main() {
   console.log(`Credenciales MH: presentes (DTE_MH_USER presente, DTE_MH_PASSWORD presente).`);
   console.log(`MH auth URL host:      ${authUrlHost}`);
   console.log(`MH reception URL host: ${receptionUrlHost}`);
+  console.log(`Caso de prueba (FEX11_TEST_CASE): ${TEST_CASE} (marcador de venta: ${SALE_MARKER})`);
 
   const doc = await findTestDteDocument();
 
