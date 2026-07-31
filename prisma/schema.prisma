@@ -688,6 +688,10 @@ model UnitOfMeasure {
   name       String
   symbol     String
   status     Status    @default(active)
+
+  // Código de unidad de medida MH (CAT-014) para DTE de exportación (FEX 11)
+  mh_unit_code String?
+
   created_at DateTime  @default(now())
   updated_at DateTime  @updatedAt
   products   Product[]
@@ -1495,6 +1499,12 @@ model Customer {
   // Estado
   status              Status    @default(active)
 
+  // Datos de exportación (FEX 11) — solo aplican a clientes del exterior
+  is_foreign            Boolean   @default(false)
+  country_code          String?   // código de país usado para exportación/MH, no necesariamente ISO alpha-2
+  country_name          String?
+  customer_person_type  String?
+
   // Auditoría
   created_at          DateTime  @default(now())
   updated_at          DateTime  @updatedAt
@@ -1595,6 +1605,7 @@ model Sale {
   items                    SaleItem[]
   payments                 SalePayment[]
   dte_documents            DteOutgoingDocument[]
+  export_details           SaleExportDetails?
 
   // Correlativos internos únicos por location
   @@unique([tenant_id, location_id, sale_code])
@@ -1606,6 +1617,45 @@ model Sale {
   @@index([created_by])
   @@index([cash_session_id])
   @@map("sales")
+}
+
+// Detalle de exportación (FEX 11) — 1:1 opcional con Sale, solo se crea
+// para ventas que generan Comprobante de Liquidación de Exportación.
+model SaleExportDetails {
+  id String @id @default(uuid())
+
+  tenant_id String
+  sale_id String @unique
+
+  country_code String // código de país usado para exportación/MH, no necesariamente ISO alpha-2
+  country_name String
+  customer_person_type String?
+
+  item_type_export Int
+
+  fiscal_precinct_code String?
+  fiscal_precinct_name String?
+
+  regime_code String?
+  regime_name String?
+
+  incoterm_code String?
+  incoterm_desc String?
+
+  insurance_amount Decimal @default(0) @db.Decimal(12, 4)
+  freight_amount Decimal @default(0) @db.Decimal(12, 4)
+
+  // Campos diferidos: otrosDocumentos, ventaTercero, apendice, campos V2
+  extra_export_data Json?
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  sale Sale @relation(fields: [sale_id], references: [id], onDelete: Cascade)
+
+  @@index([tenant_id])
+  @@index([sale_id])
+  @@map("sale_export_details")
 }
 
 model SaleItem {
