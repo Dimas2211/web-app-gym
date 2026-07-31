@@ -258,11 +258,6 @@ export async function generateFexJsonForSale(params: {
     return { ok: false, error: "El cliente no tiene número de documento (NIT/DUI) para el tipo de documento configurado." };
   }
 
-  // Regla condicional del schema: correo obligatorio si montoTotalOperacion >= 10000.
-  if (totalAmount >= 10000 && !c.email) {
-    return { ok: false, error: "El cliente debe tener correo electrónico configurado: el monto total de la operación es igual o mayor a $10,000." };
-  }
-
   // ── 7. Validar SaleExportDetails ──────────────────────────────────
   const exportDetails = sale.export_details;
   if (!exportDetails) {
@@ -409,6 +404,13 @@ export async function generateFexJsonForSale(params: {
   // montoTotalOperacion = total de la venta (sin IVA, exportación 0%) + seguro + flete.
   const montoTotalOperacion = r2(totalAmount + seguro + flete);
   const totalPagar          = montoTotalOperacion; // TODO FEX FORMULA REVIEW: ver contrato §10.8
+
+  // Regla condicional del schema (allOf raíz): correo obligatorio si
+  // resumen.montoTotalOperacion >= 10000 (no basta con validar total_amount,
+  // ya que montoTotalOperacion suma seguro + flete).
+  if (montoTotalOperacion >= 10000 && !c.email) {
+    return { ok: false, error: "El cliente debe tener correo electrónico configurado: el monto total de la operación (incluye seguro y flete) es igual o mayor a $10,000." };
+  }
 
   // ── 12. Construir pagos ────────────────────────────────────────────
 
