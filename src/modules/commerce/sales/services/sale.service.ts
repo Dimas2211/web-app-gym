@@ -570,7 +570,11 @@ export async function confirmSale(
       return { ok: false, error: "El total de la venta no puede ser negativo." };
     }
 
-    const ACTIVE_DTE_TYPES = ["01", "03"] as const;
+    // "11" (FEX) — F3-C21: venta de exportación real desde el módulo comercial
+    // /dashboard/sales/export. Reutiliza el mismo pipeline DRAFT→CONFIRMED
+    // (inventario, caja, pagos) que FE/CCFE; el guard de feature flag y
+    // ambiente TEST se evalúa después, al crear el DteOutgoingDocument.
+    const ACTIVE_DTE_TYPES = ["01", "03", "11"] as const;
     type ActiveDteType = typeof ACTIVE_DTE_TYPES[number];
     if (!ACTIVE_DTE_TYPES.includes(sale.primary_dte_type_code as ActiveDteType)) {
       return {
@@ -584,6 +588,25 @@ export async function confirmSale(
         ok:    false,
         error: "El Comprobante de Crédito Fiscal (CCFE 03) requiere un cliente seleccionado.",
       };
+    }
+
+    if (sale.primary_dte_type_code === "11") {
+      if (!sale.customer_id) {
+        return {
+          ok:    false,
+          error: "La Factura de Exportación (FEX 11) requiere un cliente extranjero seleccionado.",
+        };
+      }
+      const exportDetails = await prisma.saleExportDetails.findUnique({
+        where:  { sale_id },
+        select: { id: true },
+      });
+      if (!exportDetails) {
+        return {
+          ok:    false,
+          error: "La venta no tiene detalle de exportación (SaleExportDetails) registrado. No se puede confirmar.",
+        };
+      }
     }
   }
 

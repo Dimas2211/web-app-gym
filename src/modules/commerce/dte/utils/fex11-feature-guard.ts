@@ -2,9 +2,11 @@
 // commerce/dte — fex11-feature-guard.ts
 //
 // F3-C17 — habilitación controlada server-side de FEX 11 en TEST.
-//
-// FEX 11 se habilita solo para TEST mediante DTE_FEX11_TEST_ENABLED
-// hasta que exista UI y validaciones completas de catálogos.
+// F3-C21 — se agrega DTE_FEX11_ENABLED como flag comercial explícito,
+// además del flag de consola de prueba DTE_FEX11_TEST_ENABLED. Ambos
+// flags habilitan operación únicamente en ambiente TEST — ninguno
+// habilita producción. Producción requerirá un flag productivo
+// explícito futuro (DTE_FEX11_PRODUCTION_ENABLED), no implementado aún.
 //
 // No lee ni imprime credenciales — solo evalúa flags/estado.
 // ─────────────────────────────────────────────────────────────────
@@ -20,11 +22,22 @@ export function isFex11TestEnabled(): boolean {
   return process.env["DTE_FEX11_TEST_ENABLED"] === "YES";
 }
 
+/** true solo si el flag comercial está activo y no estamos en producción. */
+export function isFex11CommercialEnabled(): boolean {
+  if (process.env["NODE_ENV"] === "production") return false;
+  return process.env["DTE_FEX11_ENABLED"] === "YES";
+}
+
+/** true si cualquiera de los dos flags (comercial o de consola de prueba) habilita FEX 11 en TEST. */
+export function isFex11Enabled(): boolean {
+  return isFex11CommercialEnabled() || isFex11TestEnabled();
+}
+
 /** true si el documento/flujo puede operar sobre FEX 11 en este servidor. */
 export function canUseFex11InServerFlow(params: Fex11GuardParams): boolean {
   if (params.dte_type_code !== "11") return false;
   if (params.environment !== "TEST") return false;
-  return isFex11TestEnabled();
+  return isFex11Enabled();
 }
 
 /**
