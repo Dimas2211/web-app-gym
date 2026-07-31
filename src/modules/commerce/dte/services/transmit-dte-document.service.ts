@@ -18,6 +18,7 @@ import { prisma }                    from "@/lib/db/prisma";
 import { Prisma }                    from "@prisma/client";
 import { getDteMhConfig }             from "../config/dte-mh.config";
 import { MhDteTransmissionAdapter }  from "../adapters/dte-transmission.adapter";
+import { canUseFex11InServerFlow }   from "../utils/fex11-feature-guard";
 import type {
   DteTransmissionSuccessResult,
 } from "../types/dte-transmission.types";
@@ -52,10 +53,16 @@ class TransmitDteBusinessError extends Error {
 
 // ── Helpers ───────────────────────────────────────────────────────
 
+// Tipos DTE con transmisión pública habilitada sin condiciones adicionales.
+// FEX 11 se evalúa aparte vía fex11-feature-guard — habilitada solo para
+// TEST mediante DTE_FEX11_TEST_ENABLED hasta que exista UI y validaciones
+// completas de catálogos.
 const SUPPORTED_TYPE_CODES = new Set(["01", "03", "05"]);
 
 function dteTypeCodeToVersion(code: string): number {
   if (code === "03" || code === "05") return 3;
+  // FEX 11 identificacion.version es fijo en 1 (ver fex-json.types.ts).
+  if (code === "11") return 1;
   return 1;
 }
 
@@ -131,7 +138,18 @@ export async function transmitDteDocument(
     if (!dteDoc.control_number) {
       throw new TransmitDteBusinessError("El documento no tiene número de control.");
     }
-    if (!SUPPORTED_TYPE_CODES.has(dteDoc.dte_type_code)) {
+    if (dteDoc.dte_type_code === "11") {
+      if (!canUseFex11InServerFlow({ dte_type_code: dteDoc.dte_type_code, environment: dteDoc.environment })) {
+        throw new TransmitDteBusinessError(
+          "FEX 11 solo está habilitada para pruebas controladas en ambiente TEST.",
+        );
+      }
+      if (dteDoc.dte_status !== "SIGNED") {
+        throw new TransmitDteBusinessError(
+          `Solo se pueden transmitir documentos firmados. Estado actual: ${dteDoc.dte_status}.`,
+        );
+      }
+    } else if (!SUPPORTED_TYPE_CODES.has(dteDoc.dte_type_code)) {
       throw new TransmitDteBusinessError(
         `Tipo DTE no soportado para transmisión: ${dteDoc.dte_type_code}.`,
       );
@@ -139,8 +157,11 @@ export async function transmitDteDocument(
 
     // 4. Parámetros de transmisión
     const environment   = dteDoc.environment as "TEST" | "PRODUCTION";
+    // FEX 11 se transmite solo bajo fex11-feature-guard (ver arriba). El tipo
+    // compartido DteTypeCode del adapter no incluye "11" por diseño (F3-C11B);
+    // se castea localmente aquí, igual que en el script dev-only equivalente.
     const dteTypeCode   = dteDoc.dte_type_code as "01" | "03" | "05";
-    const version       = dteTypeCodeToVersion(dteTypeCode);
+    const version       = dteTypeCodeToVersion(dteDoc.dte_type_code);
     const receptionUrl  = buildReceptionUrl(environment);
     const attemptNumber = dteDoc.retry_count + 1;
 

@@ -16,6 +16,7 @@ import type {
   ExternalDtePayload,
   ExternalDteResponseMH,
 } from "../types/external-dte-delivery.types";
+import { canUseFex11InServerFlow } from "../utils/fex11-feature-guard";
 
 // ── Forma esperada del documento cargado ─────────────────────────
 
@@ -43,6 +44,10 @@ export type BuildExternalDtePayloadResult =
   | { ok: false; error: string };
 
 // ── Tipos DTE integrados en esta fase ─────────────────────────────
+//
+// FEX 11 se evalúa aparte vía fex11-feature-guard — habilitada solo para
+// TEST mediante DTE_FEX11_TEST_ENABLED hasta que exista UI y validaciones
+// completas de catálogos.
 
 const SUPPORTED_TYPES = new Set(["01", "03", "05"]);
 
@@ -58,7 +63,14 @@ export function buildExternalDtePayload(
     };
   }
 
-  if (!SUPPORTED_TYPES.has(doc.dte_type_code)) {
+  if (doc.dte_type_code === "11") {
+    if (!canUseFex11InServerFlow({ dte_type_code: doc.dte_type_code, environment: doc.environment })) {
+      return {
+        ok:    false,
+        error: "FEX 11 solo está habilitada para pruebas controladas en ambiente TEST.",
+      };
+    }
+  } else if (!SUPPORTED_TYPES.has(doc.dte_type_code)) {
     return {
       ok:    false,
       error: `Tipo DTE no integrado en entrega externa: ${doc.dte_type_code}.`,
@@ -93,6 +105,10 @@ export function buildExternalDtePayload(
   const mhRaw          = doc.mh_response   as Record<string, unknown>;
   const emisor         = jsonDoc["emisor"]  as Record<string, unknown> | undefined;
   const identificacion = jsonDoc["identificacion"] as Record<string, unknown> | undefined;
+
+  if (doc.dte_type_code === "11" && identificacion?.["tipoDte"] !== "11") {
+    return { ok: false, error: "El json_document no corresponde a un tipoDte 11 (FEX)." };
+  }
 
   // Obtener NRC del emisor — nunca hardcodeado
   const codigoEmpresa = (emisor?.["nrc"] as string | undefined) ?? null;

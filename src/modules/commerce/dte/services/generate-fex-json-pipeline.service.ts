@@ -34,6 +34,7 @@ import {
   validateDteJsonSchema,
   type DteValidationError,
 } from "./validate-dte-json-schema.service";
+import { canUseFex11InServerFlow } from "../utils/fex11-feature-guard";
 
 // ── Tipos públicos ────────────────────────────────────────────────
 
@@ -100,10 +101,10 @@ export async function generateAndPersistFexJsonForDte(
   if (!dteDoc.sale_id) {
     return { ok: false, error: "El documento DTE no está asociado a ninguna venta." };
   }
-  if (dteDoc.environment !== "TEST") {
+  if (!canUseFex11InServerFlow({ dte_type_code: dteDoc.dte_type_code, environment: dteDoc.environment })) {
     return {
       ok:    false,
-      error: "La generación controlada de FEX 11 solo está habilitada en ambiente TEST en esta microfase.",
+      error: "FEX 11 solo está habilitada para pruebas controladas en ambiente TEST.",
     };
   }
   if (dteDoc.signed_jws) {

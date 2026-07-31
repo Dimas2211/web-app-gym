@@ -17,10 +17,14 @@
 // DTE específico). Como F3-C10B ya permite que un DteOutgoingDocument
 // tipo 11 (FEX) llegue a SCHEMA_VALIDATED, esta action pública debe
 // bloquear explícitamente la firma de tipo 11 hasta que exista una
-// fase controlada dedicada (F3-C12). El botón "Firmar DTE" ya está
-// oculto en UI para tipo 11 (sales-client.tsx solo lo muestra para
-// "01"/"03"), pero eso es un control de cliente, no de servidor — este
-// guard cierra esa brecha a nivel de action.
+// fase controlada dedicada. El botón "Firmar DTE" ya está oculto en UI
+// para tipo 11 (sales-client.tsx solo lo muestra para "01"/"03"), pero
+// eso es un control de cliente, no de servidor — este guard cierra esa
+// brecha a nivel de action.
+//
+// F3-C17 — FEX 11 se permite únicamente bajo fex11-feature-guard
+// (DTE_FEX11_TEST_ENABLED=YES, TEST, NODE_ENV != production). Sigue sin
+// haber UI para tipo 11.
 // ─────────────────────────────────────────────────────────────────
 
 import { revalidatePath }         from "next/cache";
@@ -31,10 +35,12 @@ import {
   signDteDocument,
   type SignDteDocumentResult,
 } from "../services/sign-dte-document.service";
+import { canUseFex11InServerFlow } from "../utils/fex11-feature-guard";
 
 export type { SignDteDocumentResult };
 
-// Tipos DTE con firma pública habilitada. FEX 11 queda fuera hasta F3-C12.
+// Tipos DTE con firma pública habilitada sin condiciones adicionales.
+// FEX 11 se evalúa aparte vía fex11-feature-guard.
 const SIGNABLE_TYPE_CODES = new Set(["01", "03", "05"]);
 
 export async function signDteDocumentAction(
@@ -50,14 +56,26 @@ export async function signDteDocumentAction(
 
   const dteDoc = await prisma.dteOutgoingDocument.findFirst({
     where:  { id: dteDocumentId, tenant_id, location_id },
-    select: { dte_type_code: true },
+    select: { dte_type_code: true, dte_status: true, signed_jws: true, environment: true },
   });
 
   if (!dteDoc) {
     return { ok: false, error: "El documento DTE no existe o no pertenece a la location activa." };
   }
 
-  if (!SIGNABLE_TYPE_CODES.has(dteDoc.dte_type_code)) {
+  if (dteDoc.dte_type_code === "11") {
+    const eligible =
+      canUseFex11InServerFlow({ dte_type_code: dteDoc.dte_type_code, environment: dteDoc.environment }) &&
+      dteDoc.dte_status === "SCHEMA_VALIDATED" &&
+      !dteDoc.signed_jws;
+
+    if (!eligible) {
+      return {
+        ok:    false,
+        error: "FEX 11 solo está habilitada para pruebas controladas en ambiente TEST.",
+      };
+    }
+  } else if (!SIGNABLE_TYPE_CODES.has(dteDoc.dte_type_code)) {
     return {
       ok:    false,
       error: "La firma de Factura de Exportación 11 todavía no está habilitada desde el flujo general. Use la fase controlada FEX 11.",
