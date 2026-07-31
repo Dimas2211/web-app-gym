@@ -53,6 +53,105 @@ import type {
 
 const TOLERANCE = 0.01;
 
+// ── Tipos de entrada para la función pura ──────────────────────────
+// Reflejan exactamente los campos que buildFexJsonFromLoadedData lee de
+// los `select` de Prisma en generateFexJsonForSale. Se extraen aquí para
+// permitir probar el builder con un objeto ya cargado (fixture), sin
+// depender de PrismaClient real (Microfase F3-C6).
+
+export interface FexLoadedCustomer {
+  id:                   string;
+  name:                 string;
+  legal_name:           string | null;
+  id_type_code:         string | null;
+  nit:                  string | null;
+  dui:                  string | null;
+  activity_name:        string | null;
+  address_complement:   string | null;
+  phone:                string | null;
+  email:                string | null;
+  is_foreign:           boolean;
+  country_code:         string | null;
+  country_name:         string | null;
+  customer_person_type: string | null;
+}
+
+export interface FexLoadedExportDetails {
+  tenant_id:            string;
+  item_type_export:     number;
+  fiscal_precinct_code: string | null;
+  regime_code:          string | null;
+  incoterm_code:        string | null;
+  incoterm_desc:        string | null;
+  insurance_amount:     number | string;
+  freight_amount:       number | string;
+}
+
+export interface FexLoadedItem {
+  line_number:           number;
+  product_code_snapshot: string | null;
+  product_name_snapshot: string;
+  quantity:               number | string;
+  unit_price:             number | string;
+  discount_amount:        number | string;
+  tax_rate_snapshot:      number | string | null;
+  line_subtotal:          number | string;
+  line_total:             number | string;
+  product: {
+    unit: { mh_unit_code: string | null };
+  };
+}
+
+export interface FexLoadedPayment {
+  mh_payment_form_code: string | null;
+  amount:               number | string;
+  reference:            string | null;
+}
+
+export interface FexLoadedSale {
+  status:                   string;
+  inventory_moved:          boolean;
+  customer_id:              string | null;
+  primary_dte_type_code:    string | null;
+  condition_operation_code: string | null;
+  payment_method_code:      string | null;
+  payment_term_code:        string | null;
+  payment_term_value:       number | null;
+  total_amount:             number | string;
+  notes:                    string | null;
+  customer:                 FexLoadedCustomer | null;
+  export_details:           FexLoadedExportDetails | null;
+  items:                    FexLoadedItem[];
+  payments:                 FexLoadedPayment[];
+}
+
+export interface FexLoadedIssuerConfig {
+  nit:                      string | null;
+  nrc:                      string | null;
+  name:                     string;
+  legal_name:               string | null;
+  activity_code:            string | null;
+  activity_name:            string | null;
+  establishment_code:       string | null;
+  establishment_type_code:  string | null;
+  point_of_sale_code:       string | null;
+  cod_estable_mh:           string | null;
+  cod_punto_venta_mh:       string | null;
+  dept_code:                string | null;
+  municipality_code:        string | null;
+  address_complement:       string | null;
+  phone:                    string | null;
+  email:                    string | null;
+  environment:              string;
+}
+
+export interface FexLoadedData {
+  tenant_id:      string;
+  dteDoc:         { control_number: string; generation_code: string };
+  sale:           FexLoadedSale;
+  issuerConfig:   FexLoadedIssuerConfig;
+}
+
 // ── Helpers ───────────────────────────────────────────────────────
 
 function r2(n: number): number {
@@ -203,6 +302,52 @@ export async function generateFexJsonForSale(params: {
     return { ok: false, error: "La venta asociada al DTE no existe o no pertenece a la location activa." };
   }
 
+  const issuerConfig = await prisma.dteIssuerConfig.findFirst({
+    where: { id: dteDoc.issuer_config_id, tenant_id, location_id },
+    select: {
+      nit:                true,
+      nrc:                true,
+      name:               true,
+      legal_name:         true,
+      activity_code:      true,
+      activity_name:      true,
+      establishment_code:      true,
+      establishment_type_code: true,
+      point_of_sale_code:      true,
+      cod_estable_mh:          true,
+      cod_punto_venta_mh:      true,
+      dept_code:          true,
+      municipality_code:  true,
+      address_complement: true,
+      phone:              true,
+      email:              true,
+      environment:        true,
+    },
+  });
+
+  if (!issuerConfig) {
+    return { ok: false, error: "La configuración DTE del emisor no existe o no pertenece a esta location." };
+  }
+
+  return buildFexJsonFromLoadedData({
+    tenant_id,
+    dteDoc: {
+      control_number:  dteDoc.control_number,
+      generation_code: dteDoc.generation_code,
+    },
+    sale:         sale as unknown as FexLoadedSale,
+    issuerConfig: issuerConfig as unknown as FexLoadedIssuerConfig,
+  });
+}
+
+// ── Función pura ───────────────────────────────────────────────────
+// Construye el json_document FEX 11 a partir de datos ya cargados.
+// No accede a Prisma ni a ningún recurso externo — permite pruebas
+// aisladas con un fixture in-memory (Microfase F3-C6).
+
+export function buildFexJsonFromLoadedData(loaded: FexLoadedData): GenerateFexJsonResult {
+  const { tenant_id, dteDoc, sale, issuerConfig } = loaded;
+
   // ── 5. Validar precondiciones de la venta ─────────────────────────
   if (sale.primary_dte_type_code !== "11") {
     return { ok: false, error: "La venta no tiene tipo de DTE principal 11 (Factura de Exportación)." };
@@ -283,34 +428,7 @@ export async function generateFexJsonForSale(params: {
     return { ok: false, error: "Seguro y flete no pueden ser negativos." };
   }
 
-  // ── 8. Cargar configuración del emisor ────────────────────────────
-  const issuerConfig = await prisma.dteIssuerConfig.findFirst({
-    where: { id: dteDoc.issuer_config_id, tenant_id, location_id },
-    select: {
-      nit:                true,
-      nrc:                true,
-      name:               true,
-      legal_name:         true,
-      activity_code:      true,
-      activity_name:      true,
-      establishment_code:      true,
-      establishment_type_code: true,
-      point_of_sale_code:      true,
-      cod_estable_mh:          true,
-      cod_punto_venta_mh:      true,
-      dept_code:          true,
-      municipality_code:  true,
-      address_complement: true,
-      phone:              true,
-      email:              true,
-      environment:        true,
-    },
-  });
-
-  if (!issuerConfig) {
-    return { ok: false, error: "La configuración DTE del emisor no existe o no pertenece a esta location." };
-  }
-
+  // ── 8. Validar configuración del emisor (ya cargada por el caller) ─
   const missingIssuerFields: string[] = [];
   if (!issuerConfig.nit)                 missingIssuerFields.push("NIT");
   if (!issuerConfig.nrc)                 missingIssuerFields.push("NRC");
