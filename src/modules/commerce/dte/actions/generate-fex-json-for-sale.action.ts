@@ -7,7 +7,16 @@
 // real: construye el json_document, lo persiste y lo valida contra el
 // schema oficial MH, actualizando dte_status.
 //
-// Flujo:
+// Microfase F3-C10B: la lógica core (carga del documento, validaciones,
+// build, persistencia, AJV) se extrajo a
+// generateAndPersistFexJsonForDte (generate-fex-json-pipeline.service.ts)
+// para poder probarla con PrismaClient real fuera de un request/sesión
+// (script dev-only). Esta action queda como wrapper de sesión: resuelve
+// tenant_id/location_id/user_id desde requireAdmin y delega el flujo
+// completo en el service. El contrato público (firma, tipos de retorno)
+// no cambió.
+//
+// Flujo (implementado en el service):
 //   DteOutgoingDocument tipo 11 → Sale asociada
 //   → generateFexJsonForSale (builder puro, F3-C4)
 //   → persistir json_document, dte_status → GENERATED
@@ -32,15 +41,12 @@
 // ─────────────────────────────────────────────────────────────────
 
 import { revalidatePath }         from "next/cache";
-import { Prisma }                 from "@prisma/client";
-import { prisma }                 from "@/lib/db/prisma";
 import { requireAdmin }           from "@/lib/permissions/guards";
 import { getEffectiveLocationId } from "@/lib/location/active-location";
-import { generateFexJsonForSale } from "../services/generate-fex-json.service";
 import {
-  validateDteJsonSchema,
-  type DteValidationError,
-} from "../services/validate-dte-json-schema.service";
+  generateAndPersistFexJsonForDte,
+} from "../services/generate-fex-json-pipeline.service";
+import type { DteValidationError } from "../services/validate-dte-json-schema.service";
 
 // ── Tipos públicos ────────────────────────────────────────────────
 
@@ -48,15 +54,6 @@ export type GenerateFexJsonForSaleActionResult =
   | { ok: true; schema_validated: true }
   | { ok: true; schema_validated: false; validation_errors: DteValidationError[] }
   | { ok: false; error: string };
-
-// Estados del DteOutgoingDocument compatibles con (re)generación.
-// Cualquier estado posterior implica que el documento ya avanzó en el
-// ciclo fiscal real (firmado/transmitido) y esta action no debe operar.
-const GENERATABLE_STATUSES = new Set([
-  "PENDING_GENERATION",
-  "GENERATED",
-  "SCHEMA_VALIDATED",
-]);
 
 // ── Action principal ────────────────────────────────────────────────
 
@@ -71,79 +68,25 @@ export async function generateFexJsonForSaleAction(
   if (!location_id)     return { ok: false, error: "La sesión no tiene una location activa." };
   if (!dte_document_id) return { ok: false, error: "El ID del documento DTE es requerido." };
 
-  // ── 1. Precondiciones sobre el DteOutgoingDocument ────────────────
-  const dteDoc = await prisma.dteOutgoingDocument.findFirst({
-    where: { id: dte_document_id, tenant_id, location_id },
-    select: {
-      id:            true,
-      dte_type_code: true,
-      sale_id:       true,
-      signed_jws:    true,
-      dte_status:    true,
-      environment:   true,
-    },
+  const result = await generateAndPersistFexJsonForDte({
+    tenant_id,
+    location_id,
+    dte_document_id,
+    user_id: sessionUser.id,
   });
 
-  if (!dteDoc) {
-    return { ok: false, error: "El documento DTE no existe o no pertenece a la location activa." };
+  if (!result.ok) {
+    return { ok: false, error: result.error ?? "Error desconocido al generar el JSON FEX 11." };
   }
-  if (dteDoc.dte_type_code !== "11") {
-    return {
-      ok:    false,
-      error: `Esta action solo genera JSON para Factura de Exportación (11). El documento es tipo "${dteDoc.dte_type_code}".`,
-    };
-  }
-  if (!dteDoc.sale_id) {
-    return { ok: false, error: "El documento DTE no está asociado a ninguna venta." };
-  }
-  if (dteDoc.environment !== "TEST") {
-    return {
-      ok:    false,
-      error: "La generación controlada de FEX 11 solo está habilitada en ambiente TEST en esta microfase.",
-    };
-  }
-  if (dteDoc.signed_jws) {
-    return { ok: false, error: "El documento DTE ya está firmado. No se puede regenerar el JSON de un documento firmado." };
-  }
-  if (!GENERATABLE_STATUSES.has(dteDoc.dte_status)) {
-    return {
-      ok:    false,
-      error: `El documento DTE está en estado "${dteDoc.dte_status}", incompatible con generación de JSON. Estados permitidos: ${Array.from(GENERATABLE_STATUSES).join(", ")}.`,
-    };
-  }
-
-  // ── 2. Construir el JSON candidato (builder puro, no persiste) ────
-  const built = await generateFexJsonForSale({ tenant_id, location_id, dte_document_id });
-
-  if (!built.ok) {
-    return { ok: false, error: built.error };
-  }
-
-  // ── 3. Persistir json_document y avanzar a GENERATED ──────────────
-  await prisma.dteOutgoingDocument.update({
-    where: { id: dte_document_id },
-    data:  {
-      json_document: built.json as unknown as Prisma.InputJsonValue,
-      dte_status:    "GENERATED",
-      generated_at:  new Date(),
-      updated_by:    sessionUser.id,
-    },
-  });
-
-  // ── 4. Validar contra el schema oficial MH (AJV) ───────────────────
-  // Reutiliza el mismo servicio que FE/CCFE/NC: si pasa, avanza a
-  // SCHEMA_VALIDATED y guarda schema_validated_at; si falla, mantiene
-  // GENERATED (con el json_document ya persistido) y no toca el estado.
-  const validated = await validateDteJsonSchema(dte_document_id, tenant_id, location_id, sessionUser.id);
 
   revalidatePath("/dashboard/sales");
   revalidatePath("/dashboard/dte/outgoing");
 
-  if (!validated.ok) {
+  if (result.dte_status !== "SCHEMA_VALIDATED") {
     return {
       ok:                 true,
       schema_validated:   false,
-      validation_errors:  validated.validation_errors ?? [],
+      validation_errors:  result.validation_errors ?? [],
     };
   }
 
