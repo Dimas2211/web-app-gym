@@ -10,9 +10,8 @@
 // ─────────────────────────────────────────────────────────────────
 
 import { X } from "lucide-react";
-import {
-  FEX_INCOTERMS, FEX_REGIMES, FEX_FISCAL_PRECINCTS, FEX_ITEM_TYPE_EXPORT,
-} from "../utils/fex-catalogs";
+import { FEX_ITEM_TYPE_EXPORT } from "../utils/fex-catalogs";
+import type { DteCatalogItem } from "@/modules/commerce/dte/types/dte-catalog.types";
 
 export interface FiscalData {
   itemTypeExport: 1 | 2 | 3;
@@ -28,6 +27,9 @@ interface Props {
   data: FiscalData;
   onChange: (patch: Partial<FiscalData>) => void;
   onClose: () => void;
+  catalogCAT027: DteCatalogItem[]; // Recinto fiscal
+  catalogCAT028: DteCatalogItem[]; // Régimen
+  catalogCAT031: DteCatalogItem[]; // INCOTERMS
 }
 
 const inputCls =
@@ -35,7 +37,7 @@ const inputCls =
   "focus:outline-none focus:border-zinc-500";
 const labelCls = "block text-[10px] text-zinc-500 mb-1";
 
-export function ExportFiscalModal({ data, onChange, onClose }: Props) {
+export function ExportFiscalModal({ data, onChange, onClose, catalogCAT027, catalogCAT028, catalogCAT031 }: Props) {
   function handleBackdrop(e: React.MouseEvent<HTMLDivElement>) {
     if (e.target === e.currentTarget) onClose();
   }
@@ -80,14 +82,14 @@ export function ExportFiscalModal({ data, onChange, onClose }: Props) {
                 <label className={labelCls}>Recinto fiscal (CAT-027)</label>
                 <select className={inputCls} value={data.fiscalPrecinct}
                   onChange={(e) => onChange({ fiscalPrecinct: e.target.value })}>
-                  {FEX_FISCAL_PRECINCTS.map((f) => <option key={f.code} value={f.code}>{f.label}</option>)}
+                  {catalogCAT027.map((f) => <option key={f.item_code} value={f.item_code}>{f.item_label}</option>)}
                 </select>
               </div>
               <div>
                 <label className={labelCls}>Régimen (CAT-028)</label>
                 <select className={inputCls} value={data.regimeCode}
                   onChange={(e) => onChange({ regimeCode: e.target.value })}>
-                  {FEX_REGIMES.map((r) => <option key={r.code} value={r.code}>{r.label}</option>)}
+                  {catalogCAT028.map((r) => <option key={r.item_code} value={r.item_code}>{r.item_label}</option>)}
                 </select>
               </div>
             </>
@@ -99,11 +101,11 @@ export function ExportFiscalModal({ data, onChange, onClose }: Props) {
               className={inputCls}
               value={data.incotermCode}
               onChange={(e) => {
-                const inc = FEX_INCOTERMS.find((i) => i.code === e.target.value);
-                onChange({ incotermCode: e.target.value, incotermDesc: inc?.label ?? "" });
+                const inc = catalogCAT031.find((i) => i.item_code === e.target.value);
+                onChange({ incotermCode: e.target.value, incotermDesc: inc?.item_label ?? "" });
               }}
             >
-              {FEX_INCOTERMS.map((i) => <option key={i.code} value={i.code}>{i.label}</option>)}
+              {catalogCAT031.map((i) => <option key={i.item_code} value={i.item_code}>{i.item_label}</option>)}
             </select>
           </div>
 

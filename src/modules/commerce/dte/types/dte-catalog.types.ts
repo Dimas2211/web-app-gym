@@ -34,11 +34,18 @@ export const DTE_CATALOG_CODES = {
   CAT_004_TIPO_TRANSMISION:    "CAT-004",
   CAT_005_CONTINGENCIA:        "CAT-005",
   CAT_011_TIPO_ITEM:           "CAT-011",
+  CAT_015_TRIBUTOS:            "CAT-015",
   CAT_016_CONDICION_OPERACION: "CAT-016",
   CAT_017_FORMA_PAGO:          "CAT-017",
   CAT_018_PLAZO:               "CAT-018",
+  CAT_020_PAIS:                "CAT-020",
   CAT_022_TIPO_IDENTIFICACION: "CAT-022",
   CAT_024_TIPO_INVALIDACION:   "CAT-024",
+  // FEX 11 — Factura de Exportación (Microfase F3-C23)
+  CAT_027_RECINTO_FISCAL:      "CAT-027",
+  CAT_028_REGIMEN:             "CAT-028",
+  CAT_029_TIPO_PERSONA:        "CAT-029",
+  CAT_031_INCOTERMS:           "CAT-031",
 } as const;
 
 export type DteCatalogCode = typeof DTE_CATALOG_CODES[keyof typeof DTE_CATALOG_CODES];

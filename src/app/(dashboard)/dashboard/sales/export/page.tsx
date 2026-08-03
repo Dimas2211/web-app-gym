@@ -31,18 +31,30 @@ export default async function SalesExportPage({
 
   const fex11Enabled = isFex11Enabled();
 
-  const [cat016, cat017] = fex11Enabled
+  const [cat016, cat017, cat020, cat022, cat027, cat028, cat029, cat031] = fex11Enabled
     ? await Promise.all([
         listDteCatalogItems({ catalog_code: "CAT-016" }),
         listDteCatalogItems({ catalog_code: "CAT-017" }),
+        listDteCatalogItems({ catalog_code: "CAT-020" }),
+        listDteCatalogItems({ catalog_code: "CAT-022" }),
+        listDteCatalogItems({ catalog_code: "CAT-027" }),
+        listDteCatalogItems({ catalog_code: "CAT-028" }),
+        listDteCatalogItems({ catalog_code: "CAT-029" }),
+        listDteCatalogItems({ catalog_code: "CAT-031" }),
       ])
-    : [[], []];
+    : [[], [], [], [], [], [], [], []];
 
   return (
     <ExportSalePage
       fex11Enabled={fex11Enabled}
       catalogCAT016={cat016}
       catalogCAT017={cat017}
+      catalogCAT020={cat020}
+      catalogCAT022={cat022}
+      catalogCAT027={cat027}
+      catalogCAT028={cat028}
+      catalogCAT029={cat029}
+      catalogCAT031={cat031}
       contextNote={from === "sales-new" ? "Redirigido desde Ventas — estás creando una venta de exportación (FEX 11)." : null}
     />
   );

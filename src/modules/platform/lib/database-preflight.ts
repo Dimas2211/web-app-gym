@@ -60,6 +60,19 @@ const REQUIRED_DTE_CATALOGS = [
   "CAT-024",
 ] as const;
 
+// Catálogos DTE requeridos solo por FEX 11 (Factura de Exportación).
+// FEX 11 es una funcionalidad controlada por feature flag (no un módulo
+// de plataforma), por eso este check es WARNING y no BLOCKER: una base
+// sin FEX 11 activo no debe fallar el preflight general por esto.
+const FEX11_DTE_CATALOGS = [
+  "CAT-015",
+  "CAT-020",
+  "CAT-027",
+  "CAT-028",
+  "CAT-029",
+  "CAT-031",
+] as const;
+
 // ── Helpers de construcción de checks ─────────────────────────────
 
 function pass(
@@ -260,6 +273,43 @@ async function runGlobalChecks(
       `Error al verificar catálogos DTE: ${extractSafeCheckError(err)}`,
       "Verificar que la tabla DteCatalogItem exista y esté actualizada en la base objetivo.",
     ));
+  }
+
+  // 7b. Catálogos DTE requeridos por FEX 11 (WARNING — feature flag, no módulo)
+  try {
+    const fex11CatalogCounts = await Promise.all(
+      FEX11_DTE_CATALOGS.map((cat) =>
+        db.dteCatalogItem
+          .count({ where: { catalog_code: cat, is_active: true } })
+          .then((count) => ({ cat, count })),
+      ),
+    );
+
+    const missingFex11Catalogs = fex11CatalogCounts
+      .filter(({ count }) => count === 0)
+      .map(({ cat }) => cat);
+
+    checks.push(
+      missingFex11Catalogs.length === 0
+        ? pass("GLOBAL_FEX11_CATALOG_ITEMS", "Catálogos FEX 11 (exportación)", "WARNING", "GLOBAL")
+        : warn(
+            "GLOBAL_FEX11_CATALOG_ITEMS",
+            "Catálogos FEX 11 (exportación)",
+            "GLOBAL",
+            `Faltan ítems activos en: ${missingFex11Catalogs.join(", ")}. Requeridos solo si FEX 11 está habilitado.`,
+            "Ejecutar seedDteCatalogItems con modo 'catalogs', 'base' o 'demo'.",
+          ),
+    );
+  } catch (err) {
+    checks.push(
+      warn(
+        "GLOBAL_FEX11_CATALOG_ITEMS",
+        "Catálogos FEX 11 (exportación)",
+        "GLOBAL",
+        `Error al verificar catálogos FEX 11: ${extractSafeCheckError(err)}`,
+        "Verificar que la tabla DteCatalogItem exista y esté actualizada en la base objetivo.",
+      ),
+    );
   }
 
   // 8–10. Checks platform — BLOCKER solo en CONTROL_PLANE; WARNING en bases cliente/runtime

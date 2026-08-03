@@ -16,13 +16,14 @@ import {
 } from "../actions/export-sale.actions";
 import type { ForeignCustomerLookup } from "../queries/search-foreign-customers";
 import type { CreateForeignCustomerInput } from "../schemas/export-sale.schemas";
-import {
-  FEX_COUNTRIES, FEX_PERSON_TYPES, FEX_RECEIVER_ID_TYPES,
-} from "../utils/fex-catalogs";
+import type { DteCatalogItem } from "@/modules/commerce/dte/types/dte-catalog.types";
 
 interface Props {
   onClose: () => void;
   onSelect: (customer: ForeignCustomerLookup) => void;
+  catalogCAT020: DteCatalogItem[]; // País
+  catalogCAT022: DteCatalogItem[]; // Tipo de documento de identificación
+  catalogCAT029: DteCatalogItem[]; // Tipo de persona
 }
 
 const inputCls =
@@ -30,16 +31,23 @@ const inputCls =
   "placeholder:text-zinc-600 focus:outline-none focus:border-zinc-500";
 const labelCls = "block text-[10px] text-zinc-500 mb-1";
 
-function emptyDraft(): CreateForeignCustomerInput {
+// FEX 11 no admite "00" Consumidor final — el receptor extranjero siempre
+// debe traer un tipo de documento de identificación real.
+function receiverIdTypes(catalogCAT022: DteCatalogItem[]): DteCatalogItem[] {
+  return catalogCAT022.filter((t) => t.item_code !== "00");
+}
+
+function emptyDraft(catalogCAT020: DteCatalogItem[]): CreateForeignCustomerInput {
   return {
     name: "", legal_name: "", id_type_code: "03", document_number: "",
-    country_code: FEX_COUNTRIES[0]?.code ?? "", country_name: FEX_COUNTRIES[0]?.label ?? "",
+    country_code: catalogCAT020[0]?.item_code ?? "", country_name: catalogCAT020[0]?.item_label ?? "",
     customer_person_type: "2", activity_name: "", address_complement: "", phone: "", email: "",
   };
 }
 
-export function ExportCustomerModal({ onClose, onSelect }: Props) {
+export function ExportCustomerModal({ onClose, onSelect, catalogCAT020, catalogCAT022, catalogCAT029 }: Props) {
   const [mode, setMode] = useState<"search" | "create">("search");
+  const idTypes = receiverIdTypes(catalogCAT022);
 
   // Búsqueda
   const [query, setQuery] = useState("");
@@ -48,7 +56,7 @@ export function ExportCustomerModal({ onClose, onSelect }: Props) {
   const [hasSearched, setHasSearched] = useState(false);
 
   // Alta rápida
-  const [draft, setDraft] = useState<CreateForeignCustomerInput>(emptyDraft());
+  const [draft, setDraft] = useState<CreateForeignCustomerInput>(() => emptyDraft(catalogCAT020));
   const [isCreating, setIsCreating] = useState(false);
 
   const [error, setError] = useState<string | null>(null);
@@ -216,7 +224,7 @@ export function ExportCustomerModal({ onClose, onSelect }: Props) {
                 <label className={labelCls}>Tipo de documento</label>
                 <select className={inputCls} value={draft.id_type_code}
                   onChange={(e) => setDraft((s) => ({ ...s, id_type_code: e.target.value as CreateForeignCustomerInput["id_type_code"] }))}>
-                  {FEX_RECEIVER_ID_TYPES.map((t) => <option key={t.code} value={t.code}>{t.label}</option>)}
+                  {idTypes.map((t) => <option key={t.item_code} value={t.item_code}>{t.item_label}</option>)}
                 </select>
               </div>
               <div>
@@ -228,17 +236,17 @@ export function ExportCustomerModal({ onClose, onSelect }: Props) {
                 <label className={labelCls}>País (CAT-020)</label>
                 <select className={inputCls} value={draft.country_code}
                   onChange={(e) => {
-                    const country = FEX_COUNTRIES.find((c) => c.code === e.target.value);
-                    setDraft((s) => ({ ...s, country_code: e.target.value, country_name: country?.label ?? s.country_name }));
+                    const country = catalogCAT020.find((c) => c.item_code === e.target.value);
+                    setDraft((s) => ({ ...s, country_code: e.target.value, country_name: country?.item_label ?? s.country_name }));
                   }}>
-                  {FEX_COUNTRIES.map((c) => <option key={c.code} value={c.code}>{c.label}</option>)}
+                  {catalogCAT020.map((c) => <option key={c.item_code} value={c.item_code}>{c.item_label}</option>)}
                 </select>
               </div>
               <div>
                 <label className={labelCls}>Tipo de persona (CAT-029)</label>
                 <select className={inputCls} value={draft.customer_person_type}
                   onChange={(e) => setDraft((s) => ({ ...s, customer_person_type: e.target.value as CreateForeignCustomerInput["customer_person_type"] }))}>
-                  {FEX_PERSON_TYPES.map((p) => <option key={p.code} value={p.code}>{p.label}</option>)}
+                  {catalogCAT029.map((p) => <option key={p.item_code} value={p.item_code}>{p.item_label}</option>)}
                 </select>
               </div>
               <div className="col-span-2">

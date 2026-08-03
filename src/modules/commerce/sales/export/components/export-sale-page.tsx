@@ -20,10 +20,20 @@ interface Props {
   fex11Enabled: boolean;
   catalogCAT016: DteCatalogItem[];
   catalogCAT017: DteCatalogItem[];
+  catalogCAT020: DteCatalogItem[];
+  catalogCAT022: DteCatalogItem[];
+  catalogCAT027: DteCatalogItem[];
+  catalogCAT028: DteCatalogItem[];
+  catalogCAT029: DteCatalogItem[];
+  catalogCAT031: DteCatalogItem[];
   contextNote?: string | null;
 }
 
-export function ExportSalePage({ fex11Enabled, catalogCAT016, catalogCAT017, contextNote }: Props) {
+export function ExportSalePage({
+  fex11Enabled, catalogCAT016, catalogCAT017,
+  catalogCAT020, catalogCAT022, catalogCAT027, catalogCAT028, catalogCAT029, catalogCAT031,
+  contextNote,
+}: Props) {
   const router = useRouter();
 
   if (!fex11Enabled) {
@@ -49,6 +59,12 @@ export function ExportSalePage({ fex11Enabled, catalogCAT016, catalogCAT017, con
     <ExportSaleWorkspace
       catalogCAT016={catalogCAT016}
       catalogCAT017={catalogCAT017}
+      catalogCAT020={catalogCAT020}
+      catalogCAT022={catalogCAT022}
+      catalogCAT027={catalogCAT027}
+      catalogCAT028={catalogCAT028}
+      catalogCAT029={catalogCAT029}
+      catalogCAT031={catalogCAT031}
       onBack={() => router.push("/dashboard/sales")}
       contextNote={contextNote}
     />

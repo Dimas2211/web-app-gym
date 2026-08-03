@@ -28,7 +28,13 @@ import { prisma } from "@/lib/db/prisma";
 import { createSaleDraft, addSaleItemToDraft, confirmSale } from "../../services/sale.service";
 import { buildControlNumber } from "../../../dte/utils/dte-control-number";
 import { isFex11Enabled } from "../../../dte/utils/fex11-feature-guard";
-import { validateExportSaleBusinessRules, type ExportProductForValidation } from "../utils/fex-validation";
+import { listDteCatalogItems } from "../../../dte/queries/list-dte-catalog-items";
+import { DTE_CATALOG_CODES } from "../../../dte/types/dte-catalog.types";
+import {
+  validateExportSaleBusinessRules,
+  validateForeignCustomerCatalogs,
+  type ExportProductForValidation,
+} from "../utils/fex-validation";
 import type { CreateForeignCustomerInput, CreateExportSaleInput } from "../schemas/export-sale.schemas";
 
 // ── Resultados públicos ────────────────────────────────────────────
@@ -61,6 +67,17 @@ export async function createForeignCustomer(
   user_id:   string,
   input:     CreateForeignCustomerInput,
 ): Promise<CreateForeignCustomerResult> {
+  const [countries, personTypes, idTypes] = await Promise.all([
+    listDteCatalogItems({ catalog_code: DTE_CATALOG_CODES.CAT_020_PAIS }),
+    listDteCatalogItems({ catalog_code: DTE_CATALOG_CODES.CAT_029_TIPO_PERSONA }),
+    listDteCatalogItems({ catalog_code: DTE_CATALOG_CODES.CAT_022_TIPO_IDENTIFICACION }),
+  ]);
+
+  const catalogErrors = validateForeignCustomerCatalogs(input, { countries, personTypes, idTypes });
+  if (catalogErrors.length > 0) {
+    return { ok: false, error: catalogErrors[0] };
+  }
+
   const customer_code = buildForeignCustomerCode();
 
   const id_type_code = input.id_type_code;
@@ -258,7 +275,23 @@ export async function createExportSale(
     id: p.id, name: p.name, mh_unit_code: p.unit?.mh_unit_code ?? null,
   }));
 
-  const businessErrors = validateExportSaleBusinessRules(input, productsForValidation);
+  const [fiscalPrecincts, regimes, incoterms, tributes] = await Promise.all([
+    listDteCatalogItems({ catalog_code: DTE_CATALOG_CODES.CAT_027_RECINTO_FISCAL }),
+    listDteCatalogItems({ catalog_code: DTE_CATALOG_CODES.CAT_028_REGIMEN }),
+    listDteCatalogItems({ catalog_code: DTE_CATALOG_CODES.CAT_031_INCOTERMS }),
+    listDteCatalogItems({ catalog_code: DTE_CATALOG_CODES.CAT_015_TRIBUTOS }),
+  ]);
+
+  if (!tributes.some((t) => t.item_code === "C3")) {
+    return {
+      ok: false,
+      error: "El catálogo DTE CAT-015 no tiene cargado el tributo C3 (IVA exportaciones 0%), requerido por FEX 11. Ejecute el seed de catálogos DTE.",
+    };
+  }
+
+  const businessErrors = validateExportSaleBusinessRules(input, productsForValidation, {
+    fiscalPrecincts, regimes, incoterms,
+  });
   if (businessErrors.length > 0) {
     return { ok: false, error: "Datos de exportación no válidos.", errors: businessErrors };
   }

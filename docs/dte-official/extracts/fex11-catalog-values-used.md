@@ -1,6 +1,11 @@
 # FEX 11 — Valores de catálogo usados en pruebas ACCEPTED
 
 > Microfase F3-C20. Extracto de trazabilidad técnica, no catálogo completo. Valores confirmados contra `src/modules/commerce/dte/fex11-test/utils/fex11-test-data.ts` (caso de prueba usado por la consola `/dashboard/dte/fex11-test`) y contra el caso `FEX11_UI_TEST_20260731_105701`, `dte_status = ACCEPTED` en base local.
+>
+> **Actualización F3-C23**: estos valores ya no viven como fuente única en código
+> (`fex-catalogs.ts`) — están cargados en el sistema central de catálogos DTE
+> (`DteCatalogItem`). Ver `docs/dte-official/extracts/fex11-catalogs-operational.md`
+> para el detalle de qué catálogos quedaron integrados y cómo se cargan.
 
 1. **CAT-031 INCOTERMS:**
    - `09` = FOB-Libre a bordo.

@@ -10,13 +10,9 @@
 // evidentemente incompletos o con catálogos inventados.
 // ─────────────────────────────────────────────────────────────────
 
-import {
-  isValidIncoterm,
-  isValidRegime,
-  isValidFiscalPrecinct,
-  isValidItemTypeExport,
-} from "./fex-catalogs";
-import type { CreateExportSaleInput } from "../schemas/export-sale.schemas";
+import { isValidItemTypeExport } from "./fex-catalogs";
+import type { CreateExportSaleInput, CreateForeignCustomerInput } from "../schemas/export-sale.schemas";
+import type { DteCatalogItem } from "@/modules/commerce/dte/types/dte-catalog.types";
 
 export interface ExportProductForValidation {
   id:           string;
@@ -24,9 +20,20 @@ export interface ExportProductForValidation {
   mh_unit_code: string | null;
 }
 
+export interface FexSaleCatalogItems {
+  fiscalPrecincts: DteCatalogItem[]; // CAT-027
+  regimes:         DteCatalogItem[]; // CAT-028
+  incoterms:       DteCatalogItem[]; // CAT-031
+}
+
+function existsInCatalog(catalog: DteCatalogItem[], code: string | null | undefined): boolean {
+  return !!code && catalog.some((item) => item.item_code === code);
+}
+
 export function validateExportSaleBusinessRules(
   input:    CreateExportSaleInput,
   products: ExportProductForValidation[],
+  catalogs: FexSaleCatalogItems,
 ): string[] {
   const errors: string[] = [];
 
@@ -39,16 +46,16 @@ export function validateExportSaleBusinessRules(
       errors.push("Para exportación de servicios, recinto fiscal y régimen deben quedar vacíos.");
     }
   } else {
-    if (!input.fiscal_precinct_code || !isValidFiscalPrecinct(input.fiscal_precinct_code)) {
-      errors.push("El recinto fiscal es requerido y debe existir en el catálogo mínimo soportado.");
+    if (!input.fiscal_precinct_code || !existsInCatalog(catalogs.fiscalPrecincts, input.fiscal_precinct_code)) {
+      errors.push("El recinto fiscal es requerido y debe existir en el catálogo DTE (CAT-027).");
     }
-    if (!input.regime_code || !isValidRegime(input.regime_code)) {
-      errors.push("El régimen es requerido y debe existir en el catálogo mínimo soportado.");
+    if (!input.regime_code || !existsInCatalog(catalogs.regimes, input.regime_code)) {
+      errors.push("El régimen es requerido y debe existir en el catálogo DTE (CAT-028).");
     }
   }
 
-  if (input.incoterm_code && !isValidIncoterm(input.incoterm_code)) {
-    errors.push("El INCOTERM indicado no existe en el catálogo mínimo soportado.");
+  if (input.incoterm_code && !existsInCatalog(catalogs.incoterms, input.incoterm_code)) {
+    errors.push("El INCOTERM indicado no existe en el catálogo DTE (CAT-031).");
   }
 
   if (input.insurance_amount < 0) errors.push("El seguro no puede ser negativo.");
@@ -75,6 +82,31 @@ export function validateExportSaleBusinessRules(
         `No se puede generar el DTE de exportación hasta asignar mh_unit_code a su unidad.`,
       );
     }
+  }
+
+  return errors;
+}
+
+export interface FexCustomerCatalogItems {
+  countries:    DteCatalogItem[]; // CAT-020
+  personTypes:  DteCatalogItem[]; // CAT-029
+  idTypes:      DteCatalogItem[]; // CAT-022
+}
+
+export function validateForeignCustomerCatalogs(
+  input:    CreateForeignCustomerInput,
+  catalogs: FexCustomerCatalogItems,
+): string[] {
+  const errors: string[] = [];
+
+  if (!existsInCatalog(catalogs.countries, input.country_code)) {
+    errors.push("El país indicado no existe en el catálogo DTE (CAT-020).");
+  }
+  if (!existsInCatalog(catalogs.personTypes, input.customer_person_type)) {
+    errors.push("El tipo de persona indicado no existe en el catálogo DTE (CAT-029).");
+  }
+  if (!existsInCatalog(catalogs.idTypes, input.id_type_code)) {
+    errors.push("El tipo de documento indicado no existe en el catálogo DTE (CAT-022).");
   }
 
   return errors;

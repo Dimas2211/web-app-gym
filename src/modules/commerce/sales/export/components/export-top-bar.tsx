@@ -24,7 +24,6 @@ import { ArrowLeft, Globe2, AlertTriangle, UserRound, Settings2, X } from "lucid
 import type { ForeignCustomerLookup } from "../queries/search-foreign-customers";
 import type { DteCatalogItem } from "@/modules/commerce/dte/types/dte-catalog.types";
 import type { FiscalData } from "./export-fiscal-modal";
-import { FEX_FISCAL_PRECINCTS, FEX_REGIMES } from "../utils/fex-catalogs";
 
 interface Props {
   saleCode:            string | null;
@@ -42,6 +41,9 @@ interface Props {
   paymentMethodCode:      string;
   onPaymentMethodChange:  (v: string) => void;
   catalogCAT017:          DteCatalogItem[];
+
+  catalogCAT027: DteCatalogItem[];
+  catalogCAT028: DteCatalogItem[];
 
   notes:         string;
   onNotesChange: (v: string) => void;
@@ -85,6 +87,7 @@ export function ExportTopBar({
   saleDate, onSaleDateChange,
   conditionCode, onConditionChange, catalogCAT016,
   paymentMethodCode, onPaymentMethodChange, catalogCAT017,
+  catalogCAT027, catalogCAT028,
   notes, onNotesChange,
   fiscalData, onOpenFiscalModal,
   onBack, readOnly,
@@ -93,8 +96,8 @@ export function ExportTopBar({
   const cat016Items = catalogCAT016.length > 0 ? catalogCAT016 : FALLBACK_CAT016;
   const cat017Items = catalogCAT017.length > 0 ? catalogCAT017 : FALLBACK_CAT017;
 
-  const precinctLabel = FEX_FISCAL_PRECINCTS.find((f) => f.code === fiscalData.fiscalPrecinct)?.label ?? "—";
-  const regimeLabel   = FEX_REGIMES.find((r) => r.code === fiscalData.regimeCode)?.label ?? "—";
+  const precinctLabel = catalogCAT027.find((f) => f.item_code === fiscalData.fiscalPrecinct)?.item_label ?? "—";
+  const regimeLabel   = catalogCAT028.find((r) => r.item_code === fiscalData.regimeCode)?.item_label ?? "—";
 
   // Refs para avanzar con Enter en el orden operativo B→F (fecha → condición → pago → notas → datos fiscales).
   const conditionRef = useRef<HTMLSelectElement>(null);

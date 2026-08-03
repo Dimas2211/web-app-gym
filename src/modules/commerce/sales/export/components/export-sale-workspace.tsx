@@ -25,7 +25,6 @@ import { getExportDteStateAction, type ExportDteState } from "../actions/export-
 import type { ForeignCustomerLookup } from "../queries/search-foreign-customers";
 import type { ExportProductLookup } from "../queries/search-export-products";
 import type { DteCatalogItem } from "@/modules/commerce/dte/types/dte-catalog.types";
-import { FEX_FISCAL_PRECINCTS, FEX_REGIMES, FEX_INCOTERMS } from "../utils/fex-catalogs";
 
 interface CreatedSale {
   sale_id: string;
@@ -36,11 +35,23 @@ interface CreatedSale {
 export function ExportSaleWorkspace({
   catalogCAT016,
   catalogCAT017,
+  catalogCAT020,
+  catalogCAT022,
+  catalogCAT027,
+  catalogCAT028,
+  catalogCAT029,
+  catalogCAT031,
   onBack,
   contextNote,
 }: {
   catalogCAT016: DteCatalogItem[];
   catalogCAT017: DteCatalogItem[];
+  catalogCAT020: DteCatalogItem[];
+  catalogCAT022: DteCatalogItem[];
+  catalogCAT027: DteCatalogItem[];
+  catalogCAT028: DteCatalogItem[];
+  catalogCAT029: DteCatalogItem[];
+  catalogCAT031: DteCatalogItem[];
   onBack: () => void;
   contextNote?: string | null;
 }) {
@@ -57,10 +68,10 @@ export function ExportSaleWorkspace({
   const [showFiscalModal, setShowFiscalModal] = useState(false);
   const [fiscal, setFiscal] = useState<FiscalData>({
     itemTypeExport: 1,
-    fiscalPrecinct: FEX_FISCAL_PRECINCTS[0]?.code ?? "",
-    regimeCode: FEX_REGIMES[0]?.code ?? "",
-    incotermCode: FEX_INCOTERMS[0]?.code ?? "",
-    incotermDesc: FEX_INCOTERMS[0]?.label ?? "",
+    fiscalPrecinct: catalogCAT027[0]?.item_code ?? "",
+    regimeCode: catalogCAT028[0]?.item_code ?? "",
+    incotermCode: catalogCAT031[0]?.item_code ?? "",
+    incotermDesc: catalogCAT031[0]?.item_label ?? "",
     insurance: 0,
     freight: 0,
   });
@@ -191,10 +202,10 @@ export function ExportSaleWorkspace({
     setNotes("");
     setFiscal({
       itemTypeExport: 1,
-      fiscalPrecinct: FEX_FISCAL_PRECINCTS[0]?.code ?? "",
-      regimeCode: FEX_REGIMES[0]?.code ?? "",
-      incotermCode: FEX_INCOTERMS[0]?.code ?? "",
-      incotermDesc: FEX_INCOTERMS[0]?.label ?? "",
+      fiscalPrecinct: catalogCAT027[0]?.item_code ?? "",
+      regimeCode: catalogCAT028[0]?.item_code ?? "",
+      incotermCode: catalogCAT031[0]?.item_code ?? "",
+      incotermDesc: catalogCAT031[0]?.item_label ?? "",
       insurance: 0,
       freight: 0,
     });
@@ -223,6 +234,8 @@ export function ExportSaleWorkspace({
           paymentMethodCode={paymentMethodCode}
           onPaymentMethodChange={setPaymentMethodCode}
           catalogCAT017={catalogCAT017}
+          catalogCAT027={catalogCAT027}
+          catalogCAT028={catalogCAT028}
           notes={notes}
           onNotesChange={setNotes}
           fiscalData={fiscal}
@@ -282,6 +295,9 @@ export function ExportSaleWorkspace({
 
       {showCustomerModal && (
         <ExportCustomerModal
+          catalogCAT020={catalogCAT020}
+          catalogCAT022={catalogCAT022}
+          catalogCAT029={catalogCAT029}
           onClose={() => {
             setShowCustomerModal(false);
             // Cancelado sin seleccionar — el foco vuelve al botón que abrió el modal (A).
@@ -299,6 +315,9 @@ export function ExportSaleWorkspace({
 
       {showFiscalModal && (
         <ExportFiscalModal
+          catalogCAT027={catalogCAT027}
+          catalogCAT028={catalogCAT028}
+          catalogCAT031={catalogCAT031}
           data={fiscal}
           onChange={(patch) => setFiscal((s) => ({ ...s, ...patch }))}
           onClose={() => {
