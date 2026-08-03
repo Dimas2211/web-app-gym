@@ -3,69 +3,54 @@
 // ─────────────────────────────────────────────────────────────────
 // commerce/sales/export — export-sale-page.tsx
 //
-// F3-C21 — Pantalla comercial real "Ventas de exportación" (FEX 11).
-// Muestra el formulario hasta crear la venta; luego cambia al panel
-// DTE para generar/firmar/transmitir/entregar el documento.
+// F3-C21B — Punto de entrada del módulo comercial "Ventas de
+// exportación" (FEX 11). Si el feature flag está deshabilitado,
+// muestra un aviso dentro del layout normal del dashboard. Si está
+// habilitado, delega en ExportSaleWorkspace: una pantalla operativa
+// de una sola vista (mismo patrón que /dashboard/sales/new), sin
+// depender de scroll general de página.
 // ─────────────────────────────────────────────────────────────────
 
-import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { AlertTriangle } from "lucide-react";
-import { ExportSaleForm } from "./export-sale-form";
-import { ExportSaleDtePanel } from "./export-sale-dte-panel";
-import { getExportDteStateAction, type ExportDteState } from "../actions/export-sale-dte.actions";
+import { ExportSaleWorkspace } from "./export-sale-workspace";
+import type { DteCatalogItem } from "@/modules/commerce/dte/types/dte-catalog.types";
 
-interface CreatedSale {
-  sale_id: string;
-  sale_code: string;
-  dte_document_id: string;
+interface Props {
+  fex11Enabled: boolean;
+  catalogCAT016: DteCatalogItem[];
+  catalogCAT017: DteCatalogItem[];
+  contextNote?: string | null;
 }
 
-export function ExportSalePage({ fex11Enabled }: { fex11Enabled: boolean }) {
-  const [created, setCreated]     = useState<CreatedSale | null>(null);
-  const [dteState, setDteState]   = useState<ExportDteState | null>(null);
-
-  async function handleCreated(result: CreatedSale) {
-    setCreated(result);
-    const state = await getExportDteStateAction(result.dte_document_id);
-    if (state.ok) setDteState(state.state);
-  }
+export function ExportSalePage({ fex11Enabled, catalogCAT016, catalogCAT017, contextNote }: Props) {
+  const router = useRouter();
 
   if (!fex11Enabled) {
     return (
-      <div className="rounded-lg border border-amber-700/50 bg-amber-950/30 p-6">
-        <div className="flex items-center gap-2 text-amber-300 font-semibold mb-2">
-          <AlertTriangle className="h-5 w-5" />
-          Ventas de exportación — módulo deshabilitado
+      <div className="mx-auto max-w-3xl px-4 py-8">
+        <div className="rounded-xl border border-amber-200 bg-amber-50 p-6">
+          <div className="flex items-center gap-2 text-amber-800 font-semibold mb-2">
+            <AlertTriangle className="h-5 w-5" />
+            Ventas de exportación — módulo deshabilitado
+          </div>
+          <p className="text-sm text-amber-800/90 leading-relaxed">
+            FEX 11 solo está habilitada para pruebas controladas en ambiente TEST. Activa{" "}
+            <code className="rounded bg-amber-100 px-1.5 py-0.5 text-xs text-amber-900">DTE_FEX11_ENABLED=YES</code> o{" "}
+            <code className="rounded bg-amber-100 px-1.5 py-0.5 text-xs text-amber-900">DTE_FEX11_TEST_ENABLED=YES</code>{" "}
+            fuera de producción para usar este módulo.
+          </p>
         </div>
-        <p className="text-sm text-zinc-300">
-          FEX 11 solo está habilitada para pruebas controladas en ambiente TEST. Active{" "}
-          <code>DTE_FEX11_ENABLED=YES</code> o <code>DTE_FEX11_TEST_ENABLED=YES</code> fuera de
-          producción para usar este módulo.
-        </p>
       </div>
     );
   }
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-xl font-semibold text-zinc-100">Ventas de exportación</h1>
-        <p className="text-sm text-amber-400 font-medium mt-1">
-          FEX 11 habilitada solo para ambiente TEST/controlado — no usar para operación productiva.
-        </p>
-      </div>
-
-      {created && (
-        <div className="rounded border border-emerald-700/50 bg-emerald-950/30 px-4 py-2 text-sm text-emerald-300">
-          Venta de exportación creada: {created.sale_code}
-        </div>
-      )}
-
-      {!created && <ExportSaleForm onCreated={handleCreated} />}
-
-      {created && dteState && (
-        <ExportSaleDtePanel key={created.dte_document_id} initialState={dteState} />
-      )}
-    </div>
+    <ExportSaleWorkspace
+      catalogCAT016={catalogCAT016}
+      catalogCAT017={catalogCAT017}
+      onBack={() => router.push("/dashboard/sales")}
+      contextNote={contextNote}
+    />
   );
 }

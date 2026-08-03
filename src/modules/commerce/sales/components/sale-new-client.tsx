@@ -33,6 +33,8 @@ export interface SaleNewClientProps {
   catalogCAT018: DteCatalogItem[];
   locationName?: string;
   initialDraft?: SaleDetail;
+  /** F3-C21C — habilita la opción FEX 11 en el selector de tipo DTE (portal especializado). */
+  fex11Enabled?: boolean;
 }
 
 interface SaleTotalsState {
@@ -71,8 +73,16 @@ export function SaleNewClient({
   catalogCAT018,
   locationName,
   initialDraft,
+  fex11Enabled = false,
 }: SaleNewClientProps) {
   const router = useRouter();
+
+  // F3-C21C — FEX 11 no se opera en el formulario de venta normal: seleccionarlo
+  // navega directo al portal especializado /dashboard/sales/export, sin tocar
+  // el estado de este borrador ni el pipeline FE/CCFE.
+  function handleSelectFex11() {
+    router.push("/dashboard/sales/export?from=sales-new");
+  }
 
   // ── Refs de foco para navegación con teclado ──────────────────────
   const conditionOpRef     = useRef<HTMLSelectElement>(null);
@@ -477,6 +487,8 @@ export function SaleNewClient({
                   <SaleDteSection
                     primaryDteTypeCode={primaryDteTypeCode}
                     onChange={(code) => { setPrimaryDteTypeCode(code); setError(null); }}
+                    onSelectFex11={handleSelectFex11}
+                    fex11Enabled={fex11Enabled}
                   />
                 </div>
 

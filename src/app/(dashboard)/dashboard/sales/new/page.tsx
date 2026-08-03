@@ -4,6 +4,7 @@ import { getLocationById } from "@/core/modules/locations/queries";
 import { listDteCatalogItems } from "@/modules/commerce/dte/queries/list-dte-catalog-items";
 import { getSaleDetailById } from "@/modules/commerce/sales/queries/get-sale-detail-by-id";
 import { SaleNewClient } from "@/modules/commerce/sales/components/sale-new-client";
+import { isFex11Enabled } from "@/modules/commerce/dte/utils/fex11-feature-guard";
 
 export const metadata = { title: "Nueva venta" };
 
@@ -58,6 +59,7 @@ export default async function NewSalePage({
       catalogCAT018={cat018}
       locationName={location?.name ?? undefined}
       initialDraft={initialDraft}
+      fex11Enabled={isFex11Enabled()}
     />
   );
 }
