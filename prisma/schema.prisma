@@ -62,58 +62,61 @@ model Branch {
 }
 
 model User {
-  id                            String               @id @default(uuid())
-  gym_id                        String
-  tenant_id                     String?
-  branch_id                     String?
-  location_id                   String?
-  email                         String               @unique
-  password_hash                 String
-  first_name                    String
-  last_name                     String
-  role                          UserRole
-  status                        Status               @default(active)
-  operational_code              String?
-  avatar_url                    String?
-  qr_token                      String?              @unique
-  created_at                    DateTime             @default(now())
-  updated_at                    DateTime             @updatedAt
-  memberships_sold              ClientMembership[]   @relation("MembershipSales")
-  clients_assigned              Client[]             @relation("ClientTrainer")
-  client_profile                Client?              @relation("ClientUserLink")
-  created_classes               ScheduledClass[]     @relation("ClassCreator")
-  trainer_profile               Trainer?             @relation("TrainerUserLink")
-  branch                        Branch?              @relation(fields: [branch_id], references: [id])
-  gym                           Gym                  @relation(fields: [gym_id], references: [id])
-  created_weekly_plan_templates WeeklyPlanTemplate[] @relation("TemplateCreator")
-  products_created              Product[]            @relation("ProductCreatedBy")
-  products_updated              Product[]            @relation("ProductUpdatedBy")
-  product_locations_created     ProductLocation[]    @relation("ProductLocationCreatedBy")
-  product_locations_updated     ProductLocation[]    @relation("ProductLocationUpdatedBy")
-  inventory_movements_performed InventoryMovement[]  @relation("MovementPerformedBy")
-  purchases_confirmed           Purchase[]           @relation("PurchaseConfirmedBy")
-  purchases_cancelled           Purchase[]           @relation("PurchaseCancelledBy")
-  purchases_created             Purchase[]           @relation("PurchaseCreatedBy")
-  purchases_updated             Purchase[]           @relation("PurchaseUpdatedBy")
-  suppliers_created             Supplier[]           @relation("SupplierCreatedBy")
-  suppliers_updated             Supplier[]           @relation("SupplierUpdatedBy")
-  customers_created             Customer[]           @relation("CustomerCreatedBy")
-  customers_updated             Customer[]           @relation("CustomerUpdatedBy")
-  sales_created                 Sale[]               @relation("SaleCreatedBy")
-  sales_updated                 Sale[]               @relation("SaleUpdatedBy")
-  sales_confirmed               Sale[]               @relation("SaleConfirmedBy")
-  sales_cancelled               Sale[]               @relation("SaleCancelledBy")
-  sale_payments_created         SalePayment[]        @relation("SalePaymentCreatedBy")
-  dte_issuer_configs_created    DteIssuerConfig[]    @relation("DteIssuerConfigCreatedBy")
-  dte_issuer_configs_updated    DteIssuerConfig[]    @relation("DteIssuerConfigUpdatedBy")
-  dte_credentials_created       DteCredential[]      @relation("DteCredentialCreatedBy")
-  dte_credentials_updated       DteCredential[]      @relation("DteCredentialUpdatedBy")
-  dte_outgoing_docs_created     DteOutgoingDocument[] @relation("DteOutgoingDocumentCreatedBy")
-  dte_outgoing_docs_updated     DteOutgoingDocument[] @relation("DteOutgoingDocumentUpdatedBy")
+  id                                String                 @id @default(uuid())
+  gym_id                            String
+  tenant_id                         String?
+  branch_id                         String?
+  location_id                       String?
+  email                             String                 @unique
+  password_hash                     String
+  first_name                        String
+  last_name                         String
+  role                              UserRole
+  status                            Status                 @default(active)
+  operational_code                  String?
+  avatar_url                        String?
+  qr_token                          String?                @unique
+  created_at                        DateTime               @default(now())
+  updated_at                        DateTime               @updatedAt
+  memberships_sold                  ClientMembership[]     @relation("MembershipSales")
+  clients_assigned                  Client[]               @relation("ClientTrainer")
+  client_profile                    Client?                @relation("ClientUserLink")
+  created_classes                   ScheduledClass[]       @relation("ClassCreator")
+  trainer_profile                   Trainer?               @relation("TrainerUserLink")
+  branch                            Branch?                @relation(fields: [branch_id], references: [id])
+  gym                               Gym                    @relation(fields: [gym_id], references: [id])
+  created_weekly_plan_templates     WeeklyPlanTemplate[]   @relation("TemplateCreator")
+  products_created                  Product[]              @relation("ProductCreatedBy")
+  products_updated                  Product[]              @relation("ProductUpdatedBy")
+  product_locations_created         ProductLocation[]      @relation("ProductLocationCreatedBy")
+  product_locations_updated         ProductLocation[]      @relation("ProductLocationUpdatedBy")
+  inventory_movements_performed     InventoryMovement[]    @relation("MovementPerformedBy")
+  purchases_confirmed               Purchase[]             @relation("PurchaseConfirmedBy")
+  purchases_cancelled               Purchase[]             @relation("PurchaseCancelledBy")
+  purchases_created                 Purchase[]             @relation("PurchaseCreatedBy")
+  purchases_updated                 Purchase[]             @relation("PurchaseUpdatedBy")
+  suppliers_created                 Supplier[]             @relation("SupplierCreatedBy")
+  suppliers_updated                 Supplier[]             @relation("SupplierUpdatedBy")
+  customers_created                 Customer[]             @relation("CustomerCreatedBy")
+  customers_updated                 Customer[]             @relation("CustomerUpdatedBy")
+  sales_created                     Sale[]                 @relation("SaleCreatedBy")
+  sales_updated                     Sale[]                 @relation("SaleUpdatedBy")
+  sales_confirmed                   Sale[]                 @relation("SaleConfirmedBy")
+  sales_cancelled                   Sale[]                 @relation("SaleCancelledBy")
+  sale_payments_created             SalePayment[]          @relation("SalePaymentCreatedBy")
+  dte_issuer_configs_created        DteIssuerConfig[]      @relation("DteIssuerConfigCreatedBy")
+  dte_issuer_configs_updated        DteIssuerConfig[]      @relation("DteIssuerConfigUpdatedBy")
+  dte_credentials_created           DteCredential[]        @relation("DteCredentialCreatedBy")
+  dte_credentials_updated           DteCredential[]        @relation("DteCredentialUpdatedBy")
+  dte_environment_audit_logs        DteEnvironmentAuditLog[] @relation("DteEnvironmentAuditLogChangedBy")
+  dte_outgoing_docs_created         DteOutgoingDocument[]  @relation("DteOutgoingDocumentCreatedBy")
+  dte_outgoing_docs_updated         DteOutgoingDocument[]  @relation("DteOutgoingDocumentUpdatedBy")
+  dte_correlatives_baseline_set     DteCorrelative[]       @relation("DteCorrelativeBaselineSetBy")
   dte_rendered_documents_generated  DteRenderedDocument[]  @relation("DteRenderedDocumentGeneratedBy")
   dte_deliveries_created            DteDelivery[]          @relation("DteDeliveryCreatedBy")
   dte_document_relations_created    DteDocumentRelation[]  @relation("DteDocumentRelationCreatedBy")
   dte_invalidation_events_requested DteInvalidationEvent[] @relation("DteInvalidationEventRequestedBy")
+  dte_contingency_events_requested  DteContingencyEvent[]  @relation("DteContingencyEventRequestedBy")
   cash_sessions_opened              CashSession[]          @relation("CashSessionOpenedBy")
   cash_sessions_closed              CashSession[]          @relation("CashSessionClosedBy")
   cash_movements_performed          CashMovement[]         @relation("CashMovementPerformedBy")
@@ -521,12 +524,12 @@ model GymSettings {
 // Contiene los parámetros que determinan si el tenant actúa como
 // agente retenedor de IVA 1% al momento de registrar compras.
 model TenantFiscalConfig {
-  id                         String    @id @default(uuid())
-  tenant_id                  String    @unique
-  is_retention_agent         Boolean   @default(false)
-  retention_threshold_amount Decimal?  @db.Decimal(10, 2)
-  created_at                 DateTime  @default(now())
-  updated_at                 DateTime  @updatedAt
+  id                         String   @id @default(uuid())
+  tenant_id                  String   @unique
+  is_retention_agent         Boolean  @default(false)
+  retention_threshold_amount Decimal? @db.Decimal(10, 2)
+  created_at                 DateTime @default(now())
+  updated_at                 DateTime @updatedAt
 
   @@map("tenant_fiscal_config")
 }
@@ -629,18 +632,18 @@ enum ProductType {
 
 enum MovementType {
   // Operaciones disponibles en la Etapa 11
-  INITIAL_LOAD    // carga inicial de existencias
-  MANUAL_IN       // entrada manual autorizada
-  MANUAL_OUT      // salida manual autorizada
-  ADJUSTMENT_UP   // ajuste positivo por conteo físico
+  INITIAL_LOAD // carga inicial de existencias
+  MANUAL_IN // entrada manual autorizada
+  MANUAL_OUT // salida manual autorizada
+  ADJUSTMENT_UP // ajuste positivo por conteo físico
   ADJUSTMENT_DOWN // ajuste negativo por conteo físico
   // Reservados para integración futura — no implementados aún
-  PURCHASE_IN     // entrada por orden de compra (Etapa 13)
-  SALE_OUT        // salida por venta (Etapa 14)
-  TRANSFER_IN     // entrada por transferencia entre locations (futuro)
-  TRANSFER_OUT    // salida por transferencia entre locations (futuro)
-  RETURN_IN       // devolución recibida (futuro)
-  RETURN_OUT      // devolución enviada (futuro)
+  PURCHASE_IN // entrada por orden de compra (Etapa 13)
+  SALE_OUT // salida por venta (Etapa 14)
+  TRANSFER_IN // entrada por transferencia entre locations (futuro)
+  TRANSFER_OUT // salida por transferencia entre locations (futuro)
+  RETURN_IN // devolución recibida (futuro)
+  RETURN_OUT // devolución enviada (futuro)
 }
 
 enum ProductStatus {
@@ -654,40 +657,65 @@ enum ProductStatus {
 // ── Enums commerce/purchases ─────────────────────────────────────
 
 enum PurchaseStatus {
-  DRAFT       // borrador editable
-  CONFIRMED   // confirmado — genera movimientos PURCHASE_IN en inventory
-  CANCELLED   // anulado desde DRAFT
+  DRAFT // borrador editable
+  CONFIRMED // confirmado — genera movimientos PURCHASE_IN en inventory
+  CANCELLED // anulado desde DRAFT
 }
 
 enum PurchaseSourceType {
-  MANUAL      // compra ingresada manualmente por el usuario
-  DTE_IMPORT  // compra originada desde importación de factura electrónica (DTE)
+  MANUAL // compra ingresada manualmente por el usuario
+  DTE_IMPORT // compra originada desde importación de factura electrónica (DTE)
+}
+
+// Naturaleza del pago — relevante para decidir si la Retención de Renta
+// automática de FSE 14 aplica. La FSE es el documento fiscal; la retención
+// depende de esta naturaleza + la clasificación del proveedor, nunca del
+// solo hecho de que el documento sea FSE. Ver purchase.service.ts.
+enum PurchasePaymentNature {
+  GOODS // Compra de bienes — nunca aplica retención automática
+  SERVICES // Prestación de servicios — 10% automático si proveedor es persona natural
+  GOODS_AND_SERVICES // Bienes + servicios separados — requiere base manual (income_tax_withholding_base)
+  LUMP_SUM_CONTRACT // Contrato por precio alzado — 10% automático sobre el total si persona natural
+  OTHER // Otro / no sujeto a automatización
 }
 
 enum DteImportStatus {
-  UPLOADED               // JSON recibido, pendiente de revisión
-  PENDING_REVIEW         // en proceso de revisión manual
+  UPLOADED // JSON recibido, pendiente de revisión
+  PENDING_REVIEW // en proceso de revisión manual
   READY_TO_CREATE_PURCHASE // revisado, aprobado para crear compra
-  LINKED                 // ya vinculado a una Purchase creada
-  REJECTED               // descartado por el revisor
+  LINKED // ya vinculado a una Purchase creada
+  REJECTED // descartado por el revisor
 }
 
 // ── Enums commerce/suppliers ─────────────────────────────────────
 
 enum TaxpayerType {
-  LARGE_TAXPAYER  // Gran contribuyente
-  SMALL_TAXPAYER  // Pequeño contribuyente
-  NON_TAXPAYER    // No contribuyente (persona natural sin NRC)
-  FOREIGN         // Proveedor extranjero
+  LARGE_TAXPAYER // Gran contribuyente
+  SMALL_TAXPAYER // Pequeño contribuyente
+  NON_TAXPAYER // No contribuyente (persona natural sin NRC)
+  FOREIGN // Proveedor extranjero
+  EXCLUDED_SUBJECT // Sujeto excluido — habilita emisión de FSE 14. Distinto de NON_TAXPAYER: no se infiere automáticamente.
+}
+
+// Clasificación persona natural/jurídica del proveedor — independiente de
+// TaxpayerType. EXCLUDED_SUBJECT (sujeto excluido) NO implica persona natural:
+// un sujeto excluido puede ser persona natural o jurídica según el caso real.
+// Se usa para decidir si la Retención de Renta automática de FSE 14 aplica
+// (ver income_tax_withholding_* en Purchase). UNKNOWN es el default seguro
+// para proveedores históricos — nunca se infiere retroactivamente.
+enum SupplierPersonType {
+  NATURAL_PERSON
+  LEGAL_ENTITY
+  UNKNOWN
 }
 
 // ── Unidades de medida (referencia global) ───────────────────────
 
 model UnitOfMeasure {
-  id         String    @id @default(uuid())
-  name       String
-  symbol     String
-  status     Status    @default(active)
+  id     String @id @default(uuid())
+  name   String
+  symbol String
+  status Status @default(active)
 
   // Código de unidad de medida MH (CAT-014) para DTE de exportación (FEX 11)
   mh_unit_code String?
@@ -777,7 +805,7 @@ model TaxRate {
 
 // CAT-022 El Salvador DTE — tipos de identificación del contribuyente
 model IdentificationType {
-  code        String  @id    // "00", "02", "03", "13", "37"
+  code        String  @id // "00", "02", "03", "13", "37"
   name        String
   description String?
   status      Status  @default(active)
@@ -787,9 +815,9 @@ model IdentificationType {
 
 // CAT-019 El Salvador MH — actividades económicas del contribuyente
 model EconomicActivity {
-  code    String  @id    // código CIIU adaptado MH, e.g., "01110"
+  code    String  @id // código CIIU adaptado MH, e.g., "01110"
   name    String
-  section String?        // división o sección (agrupación de búsqueda)
+  section String? // división o sección (agrupación de búsqueda)
   status  Status  @default(active)
 
   @@index([name])
@@ -801,14 +829,14 @@ model EconomicActivity {
 // code = últimos 2 dígitos de "Código de carga agentes" (código DTE real).
 // dte_full_code = código completo de 4 dígitos (ej: "0511" para Santa Tecla).
 model Municipality {
-  id        String @id @default(uuid())
+  id String @id @default(uuid())
 
   // Departamento (CAT-012)
-  dept_code String  // "01"–"14"
+  dept_code String // "01"–"14"
   dept_name String
 
   // Código DTE relativo al departamento (últimos 2 dígitos de dte_full_code)
-  code      String
+  code String
 
   // Código completo de carga agentes (4 dígitos) — es el código DTE unificado
   dte_full_code String?
@@ -822,9 +850,9 @@ model Municipality {
   new_municipality_name String?
 
   // Nombre visible en UI: "${district_name} — ${new_municipality_name}"
-  name      String
+  name String
 
-  status    Status @default(active)
+  status Status @default(active)
 
   @@unique([dept_code, code])
   @@unique([dte_full_code])
@@ -837,7 +865,7 @@ model Municipality {
 
 // Catálogo de países — ISO 3166-1 alpha-2
 model Country {
-  code   String @id   // "SV", "GT", "HN", "US", etc.
+  code   String @id // "SV", "GT", "HN", "US", etc.
   name   String
   status Status @default(active)
 
@@ -848,60 +876,64 @@ model Country {
 
 model Supplier {
   // Identidad
-  id             String  @id @default(uuid())
-  tenant_id      String
-  supplier_code  String           // código interno del sistema — único por tenant
-  account_code   String?          // código de cuenta contable (externo, opcional)
-  name           String           // nombre comercial / razón social
-  legal_name     String?          // razón social formal si difiere del nombre
+  id            String  @id @default(uuid())
+  tenant_id     String
+  supplier_code String // código interno del sistema — único por tenant
+  account_code  String? // código de cuenta contable (externo, opcional)
+  name          String // nombre comercial / razón social
+  legal_name    String? // razón social formal si difiere del nombre
 
   // Clasificación tributaria — requerida para reglas de retención en compras
-  taxpayer_type  TaxpayerType  @default(SMALL_TAXPAYER)
+  taxpayer_type TaxpayerType @default(SMALL_TAXPAYER)
 
   // Identificación documental
   // id_type_code referencia IdentificationType.code — sin FK formal (validado por service)
-  id_type_code   String?          // "00" | "02" | "03" | "13" | "37"
-  dui            String?          // aplica si id_type_code = "13"
-  nit            String?          // número de identificación tributaria (renta)
-  nrc            String?          // número de registro de contribuyente (IVA)
-  other_document String?          // pasaporte / carnet de residente / otro
+  id_type_code   String? // "00" | "02" | "03" | "13" | "37"
+  dui            String? // aplica si id_type_code = "13"
+  nit            String? // número de identificación tributaria (renta)
+  nrc            String? // número de registro de contribuyente (IVA)
+  other_document String? // pasaporte / carnet de residente / otro
 
   // Actividad económica CAT-019 (denormalizado — sin FK formal)
-  activity_code  String?
-  activity_name  String?
+  activity_code String?
+  activity_name String?
 
   // Dirección estructurada (denormalizada desde catálogos — sin FK formal)
-  dept_code           String?
-  dept_name           String?
-  municipality_code   String?      // código relativo al departamento
-  municipality_name   String?
-  country_code        String?      // ISO alpha-2
-  country_name        String?
-  address_complement  String?      // domicilio libre / complemento
+  dept_code          String?
+  dept_name          String?
+  municipality_code  String? // código relativo al departamento
+  municipality_name  String?
+  country_code       String? // ISO alpha-2
+  country_name       String?
+  address_complement String? // domicilio libre / complemento
 
   // Contacto principal
-  contact_name  String?
-  contact_role  String?
-  phone         String?
-  phone_alt     String?
-  email         String?
-  whatsapp      String?
+  contact_name String?
+  contact_role String?
+  phone        String?
+  phone_alt    String?
+  email        String?
+  whatsapp     String?
 
   // Estado
-  status  Status  @default(active)
-  is_subject_to_1pct_retention  Boolean  @default(false)
+  status                       Status  @default(active)
+  is_subject_to_1pct_retention Boolean @default(false)
+
+  // Clasificación persona natural/jurídica — independiente de taxpayer_type.
+  // Ver comentario del enum SupplierPersonType. UNKNOWN por defecto (histórico).
+  person_type SupplierPersonType @default(UNKNOWN)
 
   // Auditoría
-  created_at  DateTime  @default(now())
-  updated_at  DateTime  @updatedAt
-  created_by  String?
-  updated_by  String?
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+  created_by String?
+  updated_by String?
 
   // Relaciones
-  created_by_user  User?       @relation("SupplierCreatedBy", fields: [created_by], references: [id])
-  updated_by_user  User?       @relation("SupplierUpdatedBy", fields: [updated_by], references: [id])
-  products                Product[]
-  purchases               Purchase[]
+  created_by_user          User?                  @relation("SupplierCreatedBy", fields: [created_by], references: [id])
+  updated_by_user          User?                  @relation("SupplierUpdatedBy", fields: [updated_by], references: [id])
+  products                 Product[]
+  purchases                Purchase[]
   supplier_product_aliases SupplierProductAlias[]
 
   // Índices
@@ -955,14 +987,14 @@ model Product {
   updated_by String?
 
   // Relaciones
-  category        ProductCategory @relation(fields: [category_id], references: [id])
-  line            ProductLine?    @relation(fields: [line_id], references: [id])
-  subline         ProductSubline? @relation(fields: [subline_id], references: [id])
-  unit            UnitOfMeasure   @relation(fields: [unit_id], references: [id])
-  supplier        Supplier?       @relation(fields: [supplier_id], references: [id])
-  tax_rate        TaxRate?        @relation(fields: [tax_rate_id], references: [id])
-  created_by_user User?           @relation("ProductCreatedBy", fields: [created_by], references: [id])
-  updated_by_user User?           @relation("ProductUpdatedBy", fields: [updated_by], references: [id])
+  category                 ProductCategory        @relation(fields: [category_id], references: [id])
+  line                     ProductLine?           @relation(fields: [line_id], references: [id])
+  subline                  ProductSubline?        @relation(fields: [subline_id], references: [id])
+  unit                     UnitOfMeasure          @relation(fields: [unit_id], references: [id])
+  supplier                 Supplier?              @relation(fields: [supplier_id], references: [id])
+  tax_rate                 TaxRate?               @relation(fields: [tax_rate_id], references: [id])
+  created_by_user          User?                  @relation("ProductCreatedBy", fields: [created_by], references: [id])
+  updated_by_user          User?                  @relation("ProductUpdatedBy", fields: [updated_by], references: [id])
   product_locations        ProductLocation[]
   inventory_movements      InventoryMovement[]
   purchase_items           PurchaseItem[]
@@ -993,7 +1025,7 @@ model Product {
 
 model ProductLocation {
   // Identidad
-  id          String @id @default(uuid())
+  id String @id @default(uuid())
 
   // Identidad transversal — mismo patrón que el resto del proyecto.
   // location_id es String sin FK formal; no existe modelo Location todavía.
@@ -1001,7 +1033,7 @@ model ProductLocation {
   location_id String
 
   // FK al catálogo maestro
-  product_id  String
+  product_id String
 
   // Estado operativo actual
   current_stock    Decimal @default(0) @db.Decimal(12, 4)
@@ -1023,10 +1055,10 @@ model ProductLocation {
   updated_by String?
 
   // Relaciones
-  product              Product             @relation(fields: [product_id], references: [id])
-  created_by_user      User?               @relation("ProductLocationCreatedBy", fields: [created_by], references: [id])
-  updated_by_user      User?               @relation("ProductLocationUpdatedBy", fields: [updated_by], references: [id])
-  movements            InventoryMovement[]
+  product         Product             @relation(fields: [product_id], references: [id])
+  created_by_user User?               @relation("ProductLocationCreatedBy", fields: [created_by], references: [id])
+  updated_by_user User?               @relation("ProductLocationUpdatedBy", fields: [updated_by], references: [id])
+  movements       InventoryMovement[]
 
   // Una sola fila operativa por producto en cada location del tenant
   @@unique([tenant_id, location_id, product_id])
@@ -1083,9 +1115,9 @@ model InventoryMovement {
   created_at DateTime @default(now())
 
   // Relaciones
-  product          Product         @relation(fields: [product_id], references: [id])
-  product_location ProductLocation @relation(fields: [product_location_id], references: [id])
-  performed_by_user User?          @relation("MovementPerformedBy", fields: [performed_by], references: [id])
+  product           Product         @relation(fields: [product_id], references: [id])
+  product_location  ProductLocation @relation(fields: [product_location_id], references: [id])
+  performed_by_user User?           @relation("MovementPerformedBy", fields: [performed_by], references: [id])
 
   // Índices
   @@index([tenant_id])
@@ -1114,7 +1146,7 @@ model InventoryMovement {
 
 model Purchase {
   // Identidad
-  id          String @id @default(uuid())
+  id String @id @default(uuid())
 
   // Identidad transversal — una compra pertenece a un tenant y una location
   tenant_id   String
@@ -1125,8 +1157,8 @@ model Purchase {
 
   // Código del documento — correlativo numérico mensual por location
   purchase_code  String
-  purchase_year  Int      // año extraído de purchase_date — para unicidad mensual
-  purchase_month Int      // mes extraído de purchase_date — para unicidad mensual
+  purchase_year  Int // año extraído de purchase_date — para unicidad mensual
+  purchase_month Int // mes extraído de purchase_date — para unicidad mensual
 
   // Fecha del documento (solo fecha, sin hora)
   purchase_date DateTime @db.Date
@@ -1151,25 +1183,44 @@ model Purchase {
   cancelled_by String?
 
   // Campos documentales base
-  document_type      String?
-  document_series    String?
-  document_number    String?
-  payment_condition  String?
-  cancellation_type  String?
+  document_type     String?
+  document_series   String?
+  document_number   String?
+  payment_condition String?
+  cancellation_type String?
 
   // Retención IVA 1%
-  retention_1pct_applies  Boolean  @default(false)
-  retention_1pct_amount   Decimal  @default(0) @db.Decimal(10, 2)
+  retention_1pct_applies Boolean @default(false)
+  retention_1pct_amount  Decimal @default(0) @db.Decimal(10, 2)
+
+  // Retención de Renta — relevante para FSE 14 (compra a sujeto excluido).
+  // NO se deriva automáticamente de Supplier.taxpayer_type: el usuario/operación
+  // decide si aplica en cada compra. Cuando aplica, income_tax_withholding_amount
+  // es el snapshot fiscal persistido (no se recalcula en emisión FSE).
+  income_tax_withholding_applies Boolean  @default(false)
+  income_tax_withholding_rate    Decimal? @db.Decimal(5, 2) // ej. 10.00 = 10%
+  income_tax_withholding_amount  Decimal  @default(0) @db.Decimal(10, 2)
+
+  // Naturaleza del pago declarada por el usuario para esta compra — decide
+  // (junto a Supplier.person_type) si income_tax_withholding_* se calcula
+  // automáticamente. Null en compras históricas anteriores a esta funcionalidad;
+  // nunca se infiere retroactivamente. Ver income-tax-withholding.util.ts.
+  payment_nature PurchasePaymentNature?
+
+  // Base sujeta a Retención de Renta. Para SERVICES/LUMP_SUM_CONTRACT se
+  // deriva de subtotal (= totalCompra fiscal, sin impuesto). Para
+  // GOODS_AND_SERVICES el usuario la ingresa manualmente (0 <= base <= subtotal).
+  income_tax_withholding_base Decimal @default(0) @db.Decimal(10, 2)
 
   // DTE avanzado — columnas reservadas, UI stub
-  generation_code  String?
-  control_number   String?
-  reception_stamp  String?
+  generation_code String?
+  control_number  String?
+  reception_stamp String?
 
   // Origen y metadata DTE — preparado para importación futura de facturas electrónicas
   source_type          PurchaseSourceType @default(MANUAL)
-  dte_processed_at     DateTime?          // fecha en que se procesó el DTE de origen
-  dte_environment_code String?            // "00" prueba, "01" producción (códigos MH)
+  dte_processed_at     DateTime? // fecha en que se procesó el DTE de origen
+  dte_environment_code String? // "00" prueba, "01" producción (códigos MH)
 
   // Auditoría
   created_at DateTime @default(now())
@@ -1178,13 +1229,14 @@ model Purchase {
   updated_by String?
 
   // Relaciones
-  supplier           Supplier           @relation(fields: [supplier_id], references: [id])
-  confirmed_by_user  User?              @relation("PurchaseConfirmedBy",  fields: [confirmed_by], references: [id])
-  cancelled_by_user  User?              @relation("PurchaseCancelledBy",  fields: [cancelled_by], references: [id])
-  created_by_user    User?              @relation("PurchaseCreatedBy",    fields: [created_by],   references: [id])
-  updated_by_user    User?              @relation("PurchaseUpdatedBy",    fields: [updated_by],   references: [id])
-  items              PurchaseItem[]
-  dte_import         PurchaseDteImport?
+  supplier          Supplier           @relation(fields: [supplier_id], references: [id])
+  confirmed_by_user User?              @relation("PurchaseConfirmedBy", fields: [confirmed_by], references: [id])
+  cancelled_by_user User?              @relation("PurchaseCancelledBy", fields: [cancelled_by], references: [id])
+  created_by_user   User?              @relation("PurchaseCreatedBy", fields: [created_by], references: [id])
+  updated_by_user   User?              @relation("PurchaseUpdatedBy", fields: [updated_by], references: [id])
+  items             PurchaseItem[]
+  dte_import        PurchaseDteImport?
+  dte_documents     DteOutgoingDocument[]
 
   // Correlativo único por location+mes+año — permite reinicio mensual
   @@unique([location_id, purchase_year, purchase_month, purchase_code])
@@ -1201,7 +1253,7 @@ model Purchase {
 
 model PurchaseItem {
   // Identidad
-  id          String @id @default(uuid())
+  id String @id @default(uuid())
 
   // FK al documento
   purchase_id String
@@ -1253,7 +1305,7 @@ model PurchaseItem {
 
 model PurchaseDteImport {
   // Identidad
-  id          String @id @default(uuid())
+  id String @id @default(uuid())
 
   // Identidad transversal
   tenant_id   String
@@ -1263,12 +1315,12 @@ model PurchaseDteImport {
   raw_json Json
 
   // Metadata extraída del DTE (opcionales — se completan al parsear en fases futuras)
-  dte_type         String?  // tipo de documento DTE (CCF, FAC, etc.)
-  generation_code  String?  // código de generación único del DTE
-  control_number   String?  // número de control
-  reception_stamp  String?  // sello de recepción del MH
+  dte_type         String? // tipo de documento DTE (CCF, FAC, etc.)
+  generation_code  String? // código de generación único del DTE
+  control_number   String? // número de control
+  reception_stamp  String? // sello de recepción del MH
   processed_at     DateTime? // fecha de procesamiento del DTE
-  environment_code String?  // "00" prueba, "01" producción
+  environment_code String? // "00" prueba, "01" producción
 
   // Datos del emisor extraídos del DTE (para revisión, sin vincular a Supplier)
   issuer_nit  String?
@@ -1277,9 +1329,9 @@ model PurchaseDteImport {
 
   // Totales extraídos del DTE
   issued_at    DateTime?
-  subtotal     Decimal? @db.Decimal(12, 2)
-  tax_amount   Decimal? @db.Decimal(12, 2)
-  total_amount Decimal? @db.Decimal(12, 2)
+  subtotal     Decimal?  @db.Decimal(12, 2)
+  tax_amount   Decimal?  @db.Decimal(12, 2)
+  total_amount Decimal?  @db.Decimal(12, 2)
   item_count   Int?
 
   // Estado del ciclo de revisión
@@ -1348,7 +1400,6 @@ model SupplierProductAlias {
   // Unique sobre código normalizado (NULLs no participan en unique en PostgreSQL,
   // por lo que el constraint solo aplica cuando el código está presente)
   @@unique([tenant_id, supplier_id, normalized_supplier_product_code])
-
   @@index([tenant_id, supplier_id])
   @@index([tenant_id, product_id])
   @@index([tenant_id, supplier_id, normalized_supplier_product_name])
@@ -1432,9 +1483,9 @@ enum DteInvalidationStatus {
 // Tipo contribuyente para receptores fiscales (commerce/customers).
 // Separado de TaxpayerType de suppliers — semántica diferente.
 enum CustomerTaxpayerType {
-  FINAL_CONSUMER       // Consumidor final — FE código 01
-  REGISTERED_TAXPAYER  // Contribuyente registrado con NIT/NRC — CCFE código 03
-  EXCLUDED_SUBJECT     // Sujeto excluido — FSEE código 14 (fuera del MVP)
+  FINAL_CONSUMER // Consumidor final — FE código 01
+  REGISTERED_TAXPAYER // Contribuyente registrado con NIT/NRC — CCFE código 03
+  EXCLUDED_SUBJECT // Sujeto excluido — FSEE código 14 (fuera del MVP)
 }
 
 // ── Enums commerce/cash ──────────────────────────────────────────
@@ -1446,18 +1497,18 @@ enum CashSessionStatus {
 }
 
 enum CashMovementType {
-  MANUAL_IN         // Ingreso manual genérico (fondos adicionales)
-  MANUAL_OUT        // Egreso manual genérico
-  CASH_WITHDRAWAL   // Retiro de efectivo por supervisor
-  PETTY_EXPENSE     // Gasto menor (petty cash)
-  ADJUSTMENT_UP     // Ajuste positivo de arqueo
-  ADJUSTMENT_DOWN   // Ajuste negativo de arqueo
-  REFUND_OUT        // Devolución en efectivo al cliente
+  MANUAL_IN // Ingreso manual genérico (fondos adicionales)
+  MANUAL_OUT // Egreso manual genérico
+  CASH_WITHDRAWAL // Retiro de efectivo por supervisor
+  PETTY_EXPENSE // Gasto menor (petty cash)
+  ADJUSTMENT_UP // Ajuste positivo de arqueo
+  ADJUSTMENT_DOWN // Ajuste negativo de arqueo
+  REFUND_OUT // Devolución en efectivo al cliente
 }
 
 enum CashMovementDirection {
-  IN   // Suma al expected_cash_amount
-  OUT  // Resta del expected_cash_amount
+  IN // Suma al expected_cash_amount
+  OUT // Resta del expected_cash_amount
 }
 
 // ═════════════════════════════════════════════════════════════════
@@ -1468,53 +1519,53 @@ enum CashMovementDirection {
 // ═════════════════════════════════════════════════════════════════
 
 model Customer {
-  id                  String                @id @default(uuid())
-  tenant_id           String
-  customer_code       String
-  name                String
-  legal_name          String?
+  id            String  @id @default(uuid())
+  tenant_id     String
+  customer_code String
+  name          String
+  legal_name    String?
 
   // Clasificación tributaria para DTE
-  taxpayer_type       CustomerTaxpayerType?
+  taxpayer_type CustomerTaxpayerType?
 
   // Identificación documental (CAT-022 MH)
-  id_type_code        String?   // "13" DUI, "36" NIT, "37" Otro, "02" Carnet, "03" Pasaporte
-  nit                 String?
-  nrc                 String?
-  dui                 String?
+  id_type_code String? // "13" DUI, "36" NIT, "37" Otro, "02" Carnet, "03" Pasaporte
+  nit          String?
+  nrc          String?
+  dui          String?
 
   // Actividad económica (CAT-019 MH — denormalizado, sin FK formal)
-  activity_code       String?
-  activity_name       String?
+  activity_code String?
+  activity_name String?
 
   // Dirección fiscal (denormalizada, sin FK formal)
-  dept_code           String?
-  municipality_code   String?
-  address_complement  String?
+  dept_code          String?
+  municipality_code  String?
+  address_complement String?
 
   // Contacto
-  phone               String?
-  email               String?
+  phone String?
+  email String?
 
   // Estado
-  status              Status    @default(active)
+  status Status @default(active)
 
   // Datos de exportación (FEX 11) — solo aplican a clientes del exterior
-  is_foreign            Boolean   @default(false)
-  country_code          String?   // código de país usado para exportación/MH, no necesariamente ISO alpha-2
-  country_name          String?
-  customer_person_type  String?
+  is_foreign           Boolean @default(false)
+  country_code         String? // código de país usado para exportación/MH, no necesariamente ISO alpha-2
+  country_name         String?
+  customer_person_type String?
 
   // Auditoría
-  created_at          DateTime  @default(now())
-  updated_at          DateTime  @updatedAt
-  created_by          String?
-  updated_by          String?
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+  created_by String?
+  updated_by String?
 
   // Relaciones
-  created_by_user     User?     @relation("CustomerCreatedBy", fields: [created_by], references: [id])
-  updated_by_user     User?     @relation("CustomerUpdatedBy", fields: [updated_by], references: [id])
-  sales               Sale[]
+  created_by_user User?  @relation("CustomerCreatedBy", fields: [created_by], references: [id])
+  updated_by_user User?  @relation("CustomerUpdatedBy", fields: [updated_by], references: [id])
+  sales           Sale[]
 
   @@unique([tenant_id, customer_code])
   @@index([tenant_id])
@@ -1539,73 +1590,73 @@ model Customer {
 // ═════════════════════════════════════════════════════════════════
 
 model Sale {
-  id                       String            @id @default(uuid())
-  tenant_id                String
-  location_id              String
-  customer_id              String?
+  id          String  @id @default(uuid())
+  tenant_id   String
+  location_id String
+  customer_id String?
 
   // Correlativo interno de venta — independiente del correlativo DTE
-  sale_code                String
-  sale_year                Int
-  sale_month               Int
-  sale_sequence            Int
+  sale_code     String
+  sale_year     Int
+  sale_month    Int
+  sale_sequence Int
 
-  sale_date                DateTime          @db.Date
+  sale_date DateTime @db.Date
 
   // Estados independientes
-  status                   SaleStatus        @default(DRAFT)
-  payment_status           SalePaymentStatus @default(UNPAID)
+  status         SaleStatus        @default(DRAFT)
+  payment_status SalePaymentStatus @default(UNPAID)
 
   // Tipo DTE principal esperado para la venta (CAT-002: 01=FE, 03=CCFE)
   // Representa la intención fiscal — no implica que el DTE haya sido generado.
   // El DTE real vive en DteOutgoingDocument.
-  primary_dte_type_code    String    @default("01")
+  primary_dte_type_code String @default("01")
 
   // Campos documentales opcionales
   payment_method_code      String?
-  condition_operation_code String?   // CAT-016 condición de operación DTE
-  payment_term_code        String?   // CAT-018 plazo (01 Días, 02 Meses, 03 Años)
-  payment_term_value       Int?      // cantidad de días/meses/años según payment_term_code
+  condition_operation_code String? // CAT-016 condición de operación DTE
+  payment_term_code        String? // CAT-018 plazo (01 Días, 02 Meses, 03 Años)
+  payment_term_value       Int? // cantidad de días/meses/años según payment_term_code
 
   // Totales derivados de las líneas
-  subtotal                 Decimal   @default(0) @db.Decimal(10, 2)
-  discount_amount          Decimal   @default(0) @db.Decimal(10, 2)
-  tax_amount               Decimal   @default(0) @db.Decimal(10, 2)
-  total_amount             Decimal   @default(0) @db.Decimal(10, 2)
+  subtotal        Decimal @default(0) @db.Decimal(10, 2)
+  discount_amount Decimal @default(0) @db.Decimal(10, 2)
+  tax_amount      Decimal @default(0) @db.Decimal(10, 2)
+  total_amount    Decimal @default(0) @db.Decimal(10, 2)
 
   // Control de flujo de inventario
-  inventory_moved          Boolean   @default(false)
+  inventory_moved Boolean @default(false)
 
   // Referencia opcional a sesión de caja — FK en cash_sessions (nullable)
-  cash_session_id          String?
+  cash_session_id String?
 
-  notes                    String?
+  notes String?
 
   // Confirmación
-  confirmed_at             DateTime?
-  confirmed_by             String?
+  confirmed_at DateTime?
+  confirmed_by String?
 
   // Cancelación
-  cancelled_at             DateTime?
-  cancelled_by             String?
+  cancelled_at DateTime?
+  cancelled_by String?
 
   // Auditoría
-  created_at               DateTime  @default(now())
-  updated_at               DateTime  @updatedAt
-  created_by               String?
-  updated_by               String?
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+  created_by String?
+  updated_by String?
 
   // Relaciones
-  customer                 Customer?           @relation(fields: [customer_id], references: [id])
-  confirmed_by_user        User?               @relation("SaleConfirmedBy", fields: [confirmed_by], references: [id])
-  cancelled_by_user        User?               @relation("SaleCancelledBy", fields: [cancelled_by], references: [id])
-  created_by_user          User?               @relation("SaleCreatedBy",   fields: [created_by],   references: [id])
-  updated_by_user          User?               @relation("SaleUpdatedBy",   fields: [updated_by],   references: [id])
-  cash_session             CashSession?        @relation(fields: [cash_session_id], references: [id])
-  items                    SaleItem[]
-  payments                 SalePayment[]
-  dte_documents            DteOutgoingDocument[]
-  export_details           SaleExportDetails?
+  customer          Customer?             @relation(fields: [customer_id], references: [id])
+  confirmed_by_user User?                 @relation("SaleConfirmedBy", fields: [confirmed_by], references: [id])
+  cancelled_by_user User?                 @relation("SaleCancelledBy", fields: [cancelled_by], references: [id])
+  created_by_user   User?                 @relation("SaleCreatedBy", fields: [created_by], references: [id])
+  updated_by_user   User?                 @relation("SaleUpdatedBy", fields: [updated_by], references: [id])
+  cash_session      CashSession?          @relation(fields: [cash_session_id], references: [id])
+  items             SaleItem[]
+  payments          SalePayment[]
+  dte_documents     DteOutgoingDocument[]
+  export_details    SaleExportDetails?
 
   // Correlativos internos únicos por location
   @@unique([tenant_id, location_id, sale_code])
@@ -1625,10 +1676,10 @@ model SaleExportDetails {
   id String @id @default(uuid())
 
   tenant_id String
-  sale_id String @unique
+  sale_id   String @unique
 
-  country_code String // código de país usado para exportación/MH, no necesariamente ISO alpha-2
-  country_name String
+  country_code         String // código de país usado para exportación/MH, no necesariamente ISO alpha-2
+  country_name         String
   customer_person_type String?
 
   item_type_export Int
@@ -1643,7 +1694,7 @@ model SaleExportDetails {
   incoterm_desc String?
 
   insurance_amount Decimal @default(0) @db.Decimal(12, 4)
-  freight_amount Decimal @default(0) @db.Decimal(12, 4)
+  freight_amount   Decimal @default(0) @db.Decimal(12, 4)
 
   // Campos diferidos: otrosDocumentos, ventaTercero, apendice, campos V2
   extra_export_data Json?
@@ -1659,39 +1710,39 @@ model SaleExportDetails {
 }
 
 model SaleItem {
-  id                      String   @id @default(uuid())
-  sale_id                 String
-  product_id              String
-  line_number             Int
+  id          String @id @default(uuid())
+  sale_id     String
+  product_id  String
+  line_number Int
 
   // Snapshots inmutables del producto al momento de la venta
-  product_code_snapshot   String
-  product_name_snapshot   String
-  product_type_snapshot   String?
-  is_stockable_snapshot   Boolean
+  product_code_snapshot String
+  product_name_snapshot String
+  product_type_snapshot String?
+  is_stockable_snapshot Boolean
 
   // Cantidad y precio
-  quantity                Decimal  @db.Decimal(12, 4)
-  unit_price              Decimal  @db.Decimal(10, 2)
-  discount_amount         Decimal  @default(0) @db.Decimal(10, 2)
+  quantity        Decimal @db.Decimal(12, 4)
+  unit_price      Decimal @db.Decimal(10, 2)
+  discount_amount Decimal @default(0) @db.Decimal(10, 2)
 
   // Impuesto por línea
-  tax_rate_snapshot       Decimal? @db.Decimal(5, 2)
-  tax_amount              Decimal  @default(0) @db.Decimal(10, 2)
+  tax_rate_snapshot Decimal? @db.Decimal(5, 2)
+  tax_amount        Decimal  @default(0) @db.Decimal(10, 2)
 
   // Totales de línea
-  line_subtotal           Decimal  @db.Decimal(10, 2)
-  line_total              Decimal  @db.Decimal(10, 2)
+  line_subtotal Decimal @db.Decimal(10, 2)
+  line_total    Decimal @db.Decimal(10, 2)
 
-  notes                   String?
+  notes String?
 
   // Auditoría de línea
-  created_at              DateTime @default(now())
-  updated_at              DateTime @updatedAt
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
 
   // Relaciones
-  sale     Sale    @relation(fields: [sale_id], references: [id])
-  product  Product @relation(fields: [product_id], references: [id])
+  sale    Sale    @relation(fields: [sale_id], references: [id])
+  product Product @relation(fields: [product_id], references: [id])
 
   // line_number único por venta — permite líneas repetidas del mismo producto
   @@unique([sale_id, line_number])
@@ -1704,7 +1755,7 @@ model SalePayment {
   id                   String    @id @default(uuid())
   sale_id              String
   payment_method_code  String
-  mh_payment_form_code String?   // CAT-017 forma de pago MH
+  mh_payment_form_code String? // CAT-017 forma de pago MH
   amount               Decimal   @db.Decimal(10, 2)
   paid_at              DateTime?
   reference            String?
@@ -1715,9 +1766,9 @@ model SalePayment {
   created_by           String?
 
   // Relaciones
-  sale             Sale         @relation(fields: [sale_id], references: [id])
-  created_by_user  User?        @relation("SalePaymentCreatedBy", fields: [created_by], references: [id])
-  cash_session     CashSession? @relation(fields: [cash_session_id], references: [id])
+  sale            Sale         @relation(fields: [sale_id], references: [id])
+  created_by_user User?        @relation("SalePaymentCreatedBy", fields: [created_by], references: [id])
+  cash_session    CashSession? @relation(fields: [cash_session_id], references: [id])
 
   @@index([sale_id])
   @@index([payment_method_code])
@@ -1743,18 +1794,18 @@ model SalePayment {
 // ═════════════════════════════════════════════════════════════════
 
 model DteIssuerConfig {
-  id                      String         @id @default(uuid())
-  tenant_id               String
-  location_id             String
-  environment             DteEnvironment
+  id          String         @id @default(uuid())
+  tenant_id   String
+  location_id String
+  environment DteEnvironment
 
   // Datos fiscales del emisor
-  nit                     String
-  nrc                     String?
-  name                    String
-  legal_name              String?
-  activity_code           String?
-  activity_name           String?
+  nit           String
+  nrc           String?
+  name          String
+  legal_name    String?
+  activity_code String?
+  activity_name String?
 
   // Establecimiento (CAT-009 MH) — códigos propios del sistema
   establishment_code      String?
@@ -1763,35 +1814,73 @@ model DteIssuerConfig {
 
   // Códigos reales asignados por MH — usados en numeroControl
   // Formato: exactamente 4 caracteres alfanuméricos (ej. "M001", "P001")
-  cod_estable_mh          String?
-  cod_punto_venta_mh      String?
+  cod_estable_mh     String?
+  cod_punto_venta_mh String?
 
   // Dirección fiscal
-  dept_code               String?
-  municipality_code       String?
-  address_complement      String?
+  dept_code          String?
+  municipality_code  String?
+  address_complement String?
 
   // Contacto
-  phone                   String?
-  email                   String?
+  phone String?
+  email String?
 
-  is_active               Boolean        @default(true)
+  is_active Boolean @default(true)
 
   // Auditoría
-  created_at              DateTime       @default(now())
-  updated_at              DateTime       @updatedAt
-  created_by              String?
-  updated_by              String?
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+  created_by String?
+  updated_by String?
 
   // Relaciones
-  created_by_user    User?               @relation("DteIssuerConfigCreatedBy", fields: [created_by], references: [id])
-  updated_by_user    User?               @relation("DteIssuerConfigUpdatedBy", fields: [updated_by], references: [id])
+  created_by_user    User?                     @relation("DteIssuerConfigCreatedBy", fields: [created_by], references: [id])
+  updated_by_user    User?                     @relation("DteIssuerConfigUpdatedBy", fields: [updated_by], references: [id])
   credentials        DteCredential[]
   outgoing_documents DteOutgoingDocument[]
+  correlatives       DteCorrelative[]
+  environment_switches_to DteEnvironmentAuditLog[] @relation("DteEnvironmentAuditLogNewConfig")
 
   @@unique([tenant_id, location_id, environment])
   @@index([tenant_id, location_id, is_active])
   @@map("dte_issuer_configs")
+}
+
+// ─── DteEnvironmentAuditLog ──────────────────────────────────────
+// Log inmutable de cambios de ambiente DTE activo (TEST ⇄ PRODUCTION)
+// por tenant/location. Complementa DteIssuerConfig.updated_at/updated_by
+// (que solo reflejan el último estado) con el historial completo de
+// transiciones — necesario para trazabilidad fiscal de cuándo una
+// sucursal empezó a operar en PRODUCTION.
+//
+// No depende de PlatformOrganization/PlatformDeploymentLog a propósito:
+// esos requieren una fila PlatformOrganization real (organization_id),
+// que no existe en toda base cliente (ver docs/modules/
+// dte-correlatives-onboarding.md, mismo criterio ya usado para
+// align-dte-correlative-session.action.ts). Este log vive scoped
+// directamente a tenant_id/location_id, igual que el resto del dominio DTE.
+model DteEnvironmentAuditLog {
+  id          String @id @default(uuid())
+  tenant_id   String
+  location_id String
+
+  previous_environment DteEnvironment?
+  new_environment      DteEnvironment
+  new_issuer_config_id String
+
+  changed_by String?
+
+  // Sin updated_at — registro inmutable, igual que DteTransmissionLog.
+  created_at DateTime @default(now())
+
+  // Relaciones
+  new_issuer_config DteIssuerConfig @relation("DteEnvironmentAuditLogNewConfig", fields: [new_issuer_config_id], references: [id])
+  changed_by_user   User?           @relation("DteEnvironmentAuditLogChangedBy", fields: [changed_by], references: [id])
+
+  @@index([tenant_id, location_id])
+  @@index([created_at])
+  @@map("dte_environment_audit_logs")
 }
 
 // Estructura para credenciales cifradas del emisor DTE.
@@ -1801,10 +1890,10 @@ model DteIssuerConfig {
 model DteCredential {
   id                     String    @id @default(uuid())
   issuer_config_id       String
-  credential_type        String    // ej: "API_USER", "API_PASSWORD", "P12_CERT", "PRIVATE_KEY"
-  encrypted_payload      String?   @db.Text  // payload cifrado — NUNCA texto plano
-  secret_ref             String?             // referencia a secrets manager externo
-  encryption_key_version String?             // versión de clave maestra usada
+  credential_type        String // ej: "API_USER", "API_PASSWORD", "P12_CERT", "PRIVATE_KEY"
+  encrypted_payload      String?   @db.Text // payload cifrado — NUNCA texto plano
+  secret_ref             String? // referencia a secrets manager externo
+  encryption_key_version String? // versión de clave maestra usada
   expires_at             DateTime?
   is_active              Boolean   @default(true)
   created_at             DateTime  @default(now())
@@ -1813,9 +1902,9 @@ model DteCredential {
   updated_by             String?
 
   // Relaciones
-  issuer_config    DteIssuerConfig @relation(fields: [issuer_config_id], references: [id])
-  created_by_user  User?           @relation("DteCredentialCreatedBy", fields: [created_by], references: [id])
-  updated_by_user  User?           @relation("DteCredentialUpdatedBy", fields: [updated_by], references: [id])
+  issuer_config   DteIssuerConfig @relation(fields: [issuer_config_id], references: [id])
+  created_by_user User?           @relation("DteCredentialCreatedBy", fields: [created_by], references: [id])
+  updated_by_user User?           @relation("DteCredentialUpdatedBy", fields: [updated_by], references: [id])
 
   @@index([issuer_config_id])
   @@index([credential_type])
@@ -1825,19 +1914,51 @@ model DteCredential {
 
 // Correlativo fiscal DTE separado del correlativo interno de Sale.
 // El incremento debe ocurrir dentro de una transacción atómica para evitar duplicados.
+//
+// F3-C24 — Alineación inicial de correlativos DTE:
+//   - issuer_config_id / cod_estable_mh / cod_punto_venta_mh se agregan
+//     explícitamente a la clave de partición (antes se derivaban de forma
+//     implícita vía DteIssuerConfig, que hoy es único por
+//     tenant_id+location_id+environment). Esto deja la combinación exigida
+//     por la regla fiscal (tenant, location, emisor, ambiente, tipo DTE,
+//     establecimiento, punto de venta) explícita y auditable, y prepara el
+//     modelo para el día que un location pueda tener más de un
+//     establecimiento/punto de venta MH.
+//   - Los campos external_baseline_* registran el "punto de partida" que el
+//     cliente trae de un sistema de facturación anterior, para que el
+//     siguiente numeroControl emitido nunca choque con uno ya usado ante
+//     Hacienda. Ver dte-correlative.service.ts (reserveDteControlNumber) y
+//     docs/modules/dte-correlatives-onboarding.md.
 model DteCorrelative {
-  id              String         @id @default(uuid())
-  tenant_id       String
-  location_id     String
-  environment     DteEnvironment
-  dte_type_code   String         // "01" FE, "03" CCFE, futuros según CAT-002
-  year            Int
-  last_sequence   Int            @default(0)
-  created_at      DateTime       @default(now())
-  updated_at      DateTime       @updatedAt
+  id                 String         @id @default(uuid())
+  tenant_id          String
+  location_id        String
+  issuer_config_id   String
+  environment        DteEnvironment
+  dte_type_code      String // "01" FE, "03" CCFE, "05" NC, "11" FEX, futuros según CAT-002
+  cod_estable_mh     String? // copia informativa del emisor al momento de crear/alinear la fila
+  cod_punto_venta_mh String?
+  year               Int
+  last_sequence      Int            @default(0)
 
-  @@unique([tenant_id, location_id, environment, dte_type_code, year])
+  // ── Baseline externo (alineación inicial por migración de otro sistema) ──
+  external_baseline_last_used_sequence Int? // último número usado en el sistema anterior (evidencia del cliente)
+  external_baseline_source             String? // ej. "Sistema anterior XYZ", "Migración inicial"
+  external_baseline_notes              String?   @db.Text // obligatorio al registrar baseline — justificación/evidencia
+  external_baseline_evidence_ref       String? // referencia opcional (folio, archivo, ticket)
+  external_baseline_set_by             String? // user_id que hizo la alineación
+  external_baseline_set_at             DateTime?
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  // Relaciones
+  issuer_config          DteIssuerConfig @relation(fields: [issuer_config_id], references: [id])
+  external_baseline_user User?           @relation("DteCorrelativeBaselineSetBy", fields: [external_baseline_set_by], references: [id])
+
+  @@unique([tenant_id, location_id, issuer_config_id, environment, dte_type_code, year])
   @@index([tenant_id, location_id])
+  @@index([issuer_config_id])
   @@map("dte_correlatives")
 }
 
@@ -1845,61 +1966,102 @@ model DteCorrelative {
 // Relación N desde Sale (en MVP se controla 1 documento FE/CCFE activo por venta
 // mediante regla de servicio, no a nivel de schema).
 model DteOutgoingDocument {
-  id                   String            @id @default(uuid())
-  tenant_id            String
-  location_id          String
-  sale_id              String
-  issuer_config_id     String?
+  id               String  @id @default(uuid())
+  tenant_id        String
+  location_id      String
 
-  dte_type_code        String            // "01" FE, "03" CCFE (CAT-002)
-  generation_code      String?           @unique  // codigoGeneracion UUID — inmutable una vez asignado
-  control_number       String?
-  reception_stamp      String?
-  environment          DteEnvironment
+  // Origen del hecho económico — exactamente uno debe estar presente.
+  // sale_id      → FE 01, CCFE 03, NC 05, FEX 11 (venta).
+  // purchase_id  → FSE 14 (compra a sujeto excluido).
+  // La regla XOR se valida a nivel de service (assertExactlyOneDteOrigin en
+  // dte-origin-validation.utils.ts) — no confiar únicamente en la UI.
+  sale_id          String?
+  purchase_id      String?
+  issuer_config_id String?
+
+  dte_type_code   String // "01" FE, "03" CCFE, "05" NC, "11" FEX, "14" FSE (CAT-002)
+  generation_code String?        @unique // codigoGeneracion UUID — inmutable una vez asignado
+  control_number  String?
+  reception_stamp String?
+  environment     DteEnvironment
+
+  // Evento de Contingencia MH (Bloque A — persistencia mínima) —
+  // el propio documento conserva la causa de contingencia con la que
+  // fue construido para poder reconstruir su JSON de forma determinista
+  // sin depender del futuro DteContingencyEvent.
+  //   transmission_type_code: CAT-004 "1" = normal (default), "2" = contingencia.
+  //   contingency_type_code:  CAT-023 "1".."5", null si transmisión normal.
+  //   contingency_reason:     obligatorio solo cuando contingency_type_code === "5".
+  transmission_type_code String  @default("1")
+  contingency_type_code  String?
+  contingency_reason     String?
 
   // Estado fiscal — independiente de Sale.status
-  dte_status           DteOutgoingStatus @default(PENDING_GENERATION)
+  dte_status DteOutgoingStatus @default(PENDING_GENERATION)
 
   // Documento DTE
-  json_document        Json?             // JSON DTE antes de firma
-  signed_jws           String?           @db.Text  // JWS firmado recibido del firmador
-  mh_response          Json?             // respuesta sanitizada del MH
-  observations         Json?             // observaciones del MH si aplica
-  rejection_reason     String?
+  json_document    Json? // JSON DTE antes de firma
+  signed_jws       String? @db.Text // JWS firmado recibido del firmador
+  mh_response      Json? // respuesta sanitizada del MH
+  observations     Json? // observaciones del MH si aplica
+  rejection_reason String?
 
-  retry_count          Int               @default(0)
+  retry_count Int @default(0)
 
   // Timestamps del ciclo de vida fiscal
-  issued_at            DateTime?
-  generated_at         DateTime?
-  schema_validated_at  DateTime?
-  signed_at            DateTime?
-  sent_at              DateTime?
-  accepted_at          DateTime?
-  rejected_at          DateTime?
-  observed_at          DateTime?
-  invalidated_at       DateTime?
+  issued_at           DateTime?
+  generated_at        DateTime?
+  schema_validated_at DateTime?
+  signed_at           DateTime?
+  sent_at             DateTime?
+  accepted_at         DateTime?
+  rejected_at         DateTime?
+  observed_at         DateTime?
+  invalidated_at      DateTime?
 
   // Auditoría
-  created_at           DateTime          @default(now())
-  updated_at           DateTime          @updatedAt
-  created_by           String?
-  updated_by           String?
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+  created_by String?
+  updated_by String?
 
   // Relaciones
-  sale              Sale              @relation(fields: [sale_id], references: [id])
-  issuer_config     DteIssuerConfig?  @relation(fields: [issuer_config_id], references: [id])
-  created_by_user   User?             @relation("DteOutgoingDocumentCreatedBy", fields: [created_by], references: [id])
-  updated_by_user   User?             @relation("DteOutgoingDocumentUpdatedBy", fields: [updated_by], references: [id])
-  transmission_logs   DteTransmissionLog[]
-  rendered_documents  DteRenderedDocument[]
-  deliveries          DteDelivery[]
-  source_relations    DteDocumentRelation[] @relation("SourceDteDocument")
-  related_in_relations DteDocumentRelation[] @relation("RelatedDteDocument")
-  invalidation_events DteInvalidationEvent[]
+  sale                    Sale?                     @relation(fields: [sale_id], references: [id])
+  purchase                Purchase?                 @relation(fields: [purchase_id], references: [id])
+  issuer_config           DteIssuerConfig?          @relation(fields: [issuer_config_id], references: [id])
+  created_by_user         User?                     @relation("DteOutgoingDocumentCreatedBy", fields: [created_by], references: [id])
+  updated_by_user         User?                     @relation("DteOutgoingDocumentUpdatedBy", fields: [updated_by], references: [id])
+  transmission_logs       DteTransmissionLog[]
+  rendered_documents      DteRenderedDocument[]
+  deliveries              DteDelivery[]
+  source_relations        DteDocumentRelation[]     @relation("SourceDteDocument")
+  related_in_relations    DteDocumentRelation[]     @relation("RelatedDteDocument")
+  invalidation_events     DteInvalidationEvent[]
+  contingency_event_items DteContingencyEventItem[]
 
+  // F3-C24 — control_number nunca debe repetirse dentro del mismo tenant +
+  // ambiente. La lógica de reserva (reserveDteControlNumber) ya lo
+  // garantiza a nivel de aplicación mediante el lock de fila de
+  // DteCorrelative, pero el guardián final debe vivir en la base: este
+  // unique impide, a nivel de constraint, que dos documentos del mismo
+  // tenant/ambiente terminen con el mismo numeroControl aunque exista un
+  // bug futuro en la capa de aplicación.
+  //
+  // Incluye "environment" a propósito: el numeroControl NO codifica el
+  // ambiente (mismo formato en TEST y PRODUCTION), así que sin este campo
+  // el unique bloquearía a un tenant de emitir en PRODUCTION un
+  // numeroControl que ya usó en pruebas TEST con el mismo establecimiento/
+  // punto de venta/secuencia — colisión legítima entre ambientes distintos,
+  // no un duplicado real. No se incluye issuer_config_id (es nullable y
+  // "environment" ya es suficiente para desambiguar; el numeroControl ya
+  // codifica estable+puntoVenta+tipo+secuencia).
+  //
+  // NULLs (documentos sin numeroControl aún reservado) no colisionan entre
+  // sí en Postgres.
+  @@unique([tenant_id, environment, control_number])
   @@index([tenant_id, location_id, dte_status])
   @@index([sale_id])
+  @@index([purchase_id])
   @@index([dte_type_code])
   @@index([control_number])
   @@index([reception_stamp])
@@ -1912,15 +2074,15 @@ model DteTransmissionLog {
   id              String   @id @default(uuid())
   dte_document_id String
   attempt_number  Int
-  operation_type  String   // SIGN, SEND, QUERY, INVALIDATE, CONTINGENCY, AUTH
+  operation_type  String // SIGN, SEND, QUERY, INVALIDATE, CONTINGENCY, AUTH
   request_url     String?
   http_status     Int?
-  response_body   Json?    // respuesta sanitizada — sin secretos ni tokens
+  response_body   Json? // respuesta sanitizada — sin secretos ni tokens
   error_message   String?
   created_at      DateTime @default(now())
 
   // Relaciones
-  dte_document  DteOutgoingDocument @relation(fields: [dte_document_id], references: [id])
+  dte_document DteOutgoingDocument @relation(fields: [dte_document_id], references: [id])
 
   @@index([dte_document_id])
   @@index([operation_type])
@@ -1939,11 +2101,11 @@ model DteTransmissionLog {
 //        CAT-016, CAT-017, CAT-018, CAT-022, CAT-024, etc.
 model DteCatalogItem {
   id           String   @id @default(uuid())
-  catalog_code String   // "CAT-001", "CAT-002", etc.
-  item_code    String   // "00", "01", "03", etc.
+  catalog_code String // "CAT-001", "CAT-002", etc.
+  item_code    String // "00", "01", "03", etc.
   item_label   String
   description  String?
-  applies_to   String?  // tipo de documento u otro contexto de aplicación
+  applies_to   String? // tipo de documento u otro contexto de aplicación
   version      String   @default("1")
   sort_order   Int?
   metadata     Json?
@@ -1961,25 +2123,25 @@ model DteCatalogItem {
 // Representación gráfica del DTE — principalmente PDF.
 // No genera PDF real en esta fase. Solo modela la estructura.
 model DteRenderedDocument {
-  id              String                    @id @default(uuid())
+  id              String @id @default(uuid())
   tenant_id       String
   location_id     String
   dte_document_id String
 
-  format          String                    // "PDF" en implementación futura
-  storage_key     String?                   // ruta en almacenamiento (S3, local, etc.)
-  public_url      String?
-  file_name       String?
-  mime_type       String?                   // "application/pdf"
-  file_size       Int?                      // bytes
+  format      String // "PDF" en implementación futura
+  storage_key String? // ruta en almacenamiento (S3, local, etc.)
+  public_url  String?
+  file_name   String?
+  mime_type   String? // "application/pdf"
+  file_size   Int? // bytes
 
-  status          DteRenderedDocumentStatus @default(PENDING)
-  generated_at    DateTime?
-  generated_by    String?
-  error_message   String?
+  status        DteRenderedDocumentStatus @default(PENDING)
+  generated_at  DateTime?
+  generated_by  String?
+  error_message String?
 
-  created_at      DateTime  @default(now())
-  updated_at      DateTime  @updatedAt
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
 
   // Relaciones
   dte_document      DteOutgoingDocument @relation(fields: [dte_document_id], references: [id])
@@ -1996,28 +2158,28 @@ model DteRenderedDocument {
 // Registro de envíos del DTE: email cliente, email interno, impresión, descarga.
 // No envía email real en esta fase. Solo modela la estructura.
 model DteDelivery {
-  id                   String            @id @default(uuid())
+  id                   String  @id @default(uuid())
   tenant_id            String
   location_id          String
   dte_document_id      String
   rendered_document_id String?
 
-  delivery_type        DteDeliveryType
-  recipient_email      String?
-  cc                   String?
-  bcc                  String?
-  subject              String?
-  provider             String?           // "resend", "smtp", etc. — futuro
-  provider_message_id  String?
+  delivery_type       DteDeliveryType
+  recipient_email     String?
+  cc                  String?
+  bcc                 String?
+  subject             String?
+  provider            String? // "resend", "smtp", etc. — futuro
+  provider_message_id String?
 
-  status               DteDeliveryStatus @default(PENDING)
-  sent_at              DateTime?
-  attempted_at         DateTime?
-  error_message        String?
+  status        DteDeliveryStatus @default(PENDING)
+  sent_at       DateTime?
+  attempted_at  DateTime?
+  error_message String?
 
-  created_by           String?
-  created_at           DateTime  @default(now())
-  updated_at           DateTime  @updatedAt
+  created_by String?
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
 
   // Relaciones
   dte_document      DteOutgoingDocument  @relation(fields: [dte_document_id], references: [id])
@@ -2035,22 +2197,22 @@ model DteDelivery {
 // Relación entre documentos DTE: nota de crédito → factura original, etc.
 // No implementa lógica de creación de notas en esta fase.
 model DteDocumentRelation {
-  id                      String                  @id @default(uuid())
+  id                      String @id @default(uuid())
   tenant_id               String
   location_id             String
-  source_dte_document_id  String                  // documento origen (ej: nota de crédito)
-  related_dte_document_id String                  // documento referenciado (ej: factura original)
+  source_dte_document_id  String // documento origen (ej: nota de crédito)
+  related_dte_document_id String // documento referenciado (ej: factura original)
 
-  relation_type           DteDocumentRelationType
-  reason_code             String?                 // código de razón según catálogo DTE
-  reason_text             String?
-  amount                  Decimal?                @db.Decimal(10, 2)
+  relation_type DteDocumentRelationType
+  reason_code   String? // código de razón según catálogo DTE
+  reason_text   String?
+  amount        Decimal?                @db.Decimal(10, 2)
 
-  created_by              String?
-  created_at              DateTime  @default(now())
+  created_by String?
+  created_at DateTime @default(now())
 
   // Relaciones
-  source_document  DteOutgoingDocument @relation("SourceDteDocument",  fields: [source_dte_document_id],  references: [id])
+  source_document  DteOutgoingDocument @relation("SourceDteDocument", fields: [source_dte_document_id], references: [id])
   related_document DteOutgoingDocument @relation("RelatedDteDocument", fields: [related_dte_document_id], references: [id])
   created_by_user  User?               @relation("DteDocumentRelationCreatedBy", fields: [created_by], references: [id])
 
@@ -2064,36 +2226,36 @@ model DteDocumentRelation {
 // Evento fiscal de invalidación. Separado de Sale y de DteOutgoingDocument.
 // No transmite invalidación en esta fase. Solo modela la estructura.
 model DteInvalidationEvent {
-  id              String                @id @default(uuid())
+  id              String @id @default(uuid())
   tenant_id       String
   location_id     String
   dte_document_id String
 
-  invalidation_type_code String        // CAT-024 tipo de invalidación
+  invalidation_type_code String // CAT-024 tipo de invalidación
   reason                 String
   event_json             Json?
-  signed_jws             String?       @db.Text
+  signed_jws             String? @db.Text
 
   // Respuesta del Ministerio de Hacienda
-  mh_estado           String?
-  mh_sello_recibido   String?
-  mh_codigo_msg       String?
-  mh_descripcion_msg  String?
-  mh_observaciones    Json?
+  mh_estado          String?
+  mh_sello_recibido  String?
+  mh_codigo_msg      String?
+  mh_descripcion_msg String?
+  mh_observaciones   Json?
 
-  status          DteInvalidationStatus @default(DRAFT)
+  status DteInvalidationStatus @default(DRAFT)
 
   // Timestamps del ciclo de vida fiscal
-  requested_at    DateTime?
-  sent_at         DateTime?
-  accepted_at     DateTime?
-  rejected_at     DateTime?
+  requested_at DateTime?
+  sent_at      DateTime?
+  accepted_at  DateTime?
+  rejected_at  DateTime?
 
-  last_error      String?
-  requested_by    String?
+  last_error   String?
+  requested_by String?
 
-  created_at      DateTime  @default(now())
-  updated_at      DateTime  @updatedAt
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
 
   // Relaciones
   dte_document      DteOutgoingDocument @relation(fields: [dte_document_id], references: [id])
@@ -2103,6 +2265,91 @@ model DteInvalidationEvent {
   @@index([dte_document_id])
   @@index([status])
   @@map("dte_invalidation_events")
+}
+
+enum DteContingencyStatus {
+  DRAFT
+  PENDING_SIGNATURE
+  SIGNED
+  SENT
+  ACCEPTED
+  REJECTED
+}
+
+// DteContingencyEvent — Evento de Contingencia MH (Bloque A: solo
+// persistencia; el builder que arma event_json/signed_jws llega en el
+// Bloque B). Reporta uno o varios DTE contingentes ya generados; NO es
+// la fuente desde la cual un DTE deriva tipoOperacion/tipoContingencia
+// (eso vive en el propio DteOutgoingDocument — ver arriba).
+model DteContingencyEvent {
+  id          String @id @default(uuid())
+  tenant_id   String
+  location_id String
+
+  contingency_type_code String // CAT-023 "1".."5"
+  reason                String
+
+  // codigoGeneracion del propio Evento de Contingencia (identificacion.codigoGeneracion
+  // del JSON MH) — Bloque B. Se genera una sola vez al crear el Evento y se persiste
+  // aquí para que reconstruir/reintentar el builder nunca emita un código distinto
+  // (idempotencia) y para poder ubicar el Evento por ese código de forma estable.
+  generation_code String @unique
+
+  period_start_date DateTime? @db.Date
+  period_start_time String?
+  period_end_date   DateTime? @db.Date
+  period_end_time   String?
+
+  event_json Json?
+  signed_jws String? @db.Text
+
+  // Respuesta del Ministerio de Hacienda
+  mh_estado          String?
+  mh_sello_recibido  String?
+  mh_codigo_msg      String?
+  mh_descripcion_msg String?
+  mh_observaciones   Json?
+
+  status DteContingencyStatus @default(DRAFT)
+
+  // Timestamps del ciclo de vida fiscal
+  requested_at DateTime?
+  sent_at      DateTime?
+  accepted_at  DateTime?
+  rejected_at  DateTime?
+  requested_by String?
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  // Relaciones
+  requested_by_user User?                     @relation("DteContingencyEventRequestedBy", fields: [requested_by], references: [id])
+  items             DteContingencyEventItem[]
+
+  @@index([tenant_id, location_id])
+  @@index([status])
+  @@map("dte_contingency_events")
+}
+
+// DteContingencyEventItem — puente 1:N entre DteContingencyEvent y los
+// DteOutgoingDocument que reporta.
+model DteContingencyEventItem {
+  id                   String @id @default(uuid())
+  contingency_event_id String
+  dte_document_id      String
+  no_item              Int
+
+  created_at DateTime @default(now())
+
+  // Relaciones
+  contingency_event DteContingencyEvent @relation(fields: [contingency_event_id], references: [id])
+  dte_document      DteOutgoingDocument @relation(fields: [dte_document_id], references: [id])
+
+  @@unique([contingency_event_id, dte_document_id])
+  @@unique([contingency_event_id, no_item])
+  @@index([contingency_event_id])
+  @@index([dte_document_id])
+  @@map("dte_contingency_event_items")
 }
 
 // ═════════════════════════════════════════════════════════════════
@@ -2139,13 +2386,13 @@ model CashRegister {
 }
 
 model CashSession {
-  id               String            @id @default(uuid())
+  id               String    @id @default(uuid())
   tenant_id        String
   location_id      String
   cash_register_id String
   opened_by        String
   closed_by        String?
-  opened_at        DateTime          @default(now())
+  opened_at        DateTime  @default(now())
   closed_at        DateTime?
 
   opening_amount       Decimal  @default(0) @db.Decimal(10, 2)
@@ -2268,7 +2515,7 @@ enum PlatformProvisioningStatus {
 
 model PlatformVertical {
   id          String   @id @default(uuid())
-  code        String   @unique  // "GYM", "RETAIL", "CLINIC", "VETERINARY", "GENERAL"
+  code        String   @unique // "GYM", "RETAIL", "CLINIC", "VETERINARY", "GENERAL"
   name        String
   description String?
   is_active   Boolean  @default(true)
@@ -2285,14 +2532,14 @@ model PlatformVertical {
 
 model PlatformPlan {
   id            String               @id @default(uuid())
-  code          String               @unique  // "starter", "professional", "enterprise"
+  code          String               @unique // "starter", "professional", "enterprise"
   name          String
   description   String?
   billing_cycle PlatformBillingCycle @default(MONTHLY)
   price_monthly Decimal?             @db.Decimal(10, 2)
   price_annual  Decimal?             @db.Decimal(10, 2)
-  max_locations Int?                 // null = sin límite
-  max_users     Int?                 // null = sin límite
+  max_locations Int? // null = sin límite
+  max_users     Int? // null = sin límite
   is_active     Boolean              @default(true)
   created_at    DateTime             @default(now())
   updated_at    DateTime             @updatedAt
@@ -2305,11 +2552,11 @@ model PlatformPlan {
 // ── PlatformOrganization — instancia cliente ──────────────────────
 
 model PlatformOrganization {
-  id         String @id @default(uuid())
-  code       String @unique  // identificador único de la organización (slug/código)
-  name       String          // nombre comercial
-  legal_name String?         // razón social formal
-  nit        String?         // identificación fiscal
+  id         String  @id @default(uuid())
+  code       String  @unique // identificador único de la organización (slug/código)
+  name       String // nombre comercial
+  legal_name String? // razón social formal
+  nit        String? // identificación fiscal
 
   // Referencia al tenant runtime — string sin FK formal.
   // El ERP opera independiente; este campo es solo para administración Platform.
@@ -2322,39 +2569,39 @@ model PlatformOrganization {
   plan_id String?
 
   // Estados
-  status               PlatformOrganizationStatus  @default(PENDING)
-  license_status       PlatformLicenseStatus        @default(TRIAL)
-  billing_cycle        PlatformBillingCycle         @default(MONTHLY)
-  provisioning_status  PlatformProvisioningStatus   @default(NOT_READY)
+  status              PlatformOrganizationStatus @default(PENDING)
+  license_status      PlatformLicenseStatus      @default(TRIAL)
+  billing_cycle       PlatformBillingCycle       @default(MONTHLY)
+  provisioning_status PlatformProvisioningStatus @default(NOT_READY)
 
   // Licencia y fechas
   trial_ends_at      DateTime?
   license_expires_at DateTime?
 
   // Configuración regional
-  country_code String?  // ISO alpha-2
-  timezone     String?  // ej: "America/El_Salvador"
+  country_code String? // ISO alpha-2
+  timezone     String? // ej: "America/El_Salvador"
 
   // Presencia web
   domain   String?
   logo_url String?
 
   // Despliegue e instancia
-  deployment_url      String?  // URL del ERP desplegado para esta org
-  instance_identifier String?  // identificador técnico de la instancia
+  deployment_url      String? // URL del ERP desplegado para esta org
+  instance_identifier String? // identificador técnico de la instancia
 
   // Suspensión
-  suspended_at       DateTime?
-  suspension_reason  String?
+  suspended_at      DateTime?
+  suspension_reason String?
 
   // Auditoría
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
-  created_by String?  // ID del admin Platform que creó el registro
+  created_by String? // ID del admin Platform que creó el registro
 
   // Relaciones
-  vertical          PlatformVertical?                @relation(fields: [vertical_id], references: [id])
-  plan              PlatformPlan?                    @relation(fields: [plan_id], references: [id])
+  vertical          PlatformVertical?             @relation(fields: [vertical_id], references: [id])
+  plan              PlatformPlan?                 @relation(fields: [plan_id], references: [id])
   modules           PlatformOrganizationModule[]
   branding          PlatformBranding?
   deployments       PlatformDeploymentLog[]
@@ -2376,13 +2623,13 @@ model PlatformOrganization {
 
 model PlatformModule {
   id          String                 @id @default(uuid())
-  code        String                 @unique  // "core.users", "commerce.sales", "gym.memberships", etc.
+  code        String                 @unique // "core.users", "commerce.sales", "gym.memberships", etc.
   name        String
   description String?
   category    PlatformModuleCategory
   status      PlatformModuleStatus   @default(AVAILABLE)
   version     String                 @default("1.0")
-  is_core     Boolean                @default(false)  // módulos base no desactivables
+  is_core     Boolean                @default(false) // módulos base no desactivables
 
   // Vertical asociada (null = módulo transversal/core)
   vertical_id String?
@@ -2403,7 +2650,7 @@ model PlatformModule {
 // ── PlatformOrganizationModule — módulos activos por organización ─
 
 model PlatformOrganizationModule {
-  id              String    @id @default(uuid())
+  id              String @id @default(uuid())
   organization_id String
   module_id       String
 
@@ -2431,14 +2678,14 @@ model PlatformOrganizationModule {
 // ── PlatformBranding — identidad visual por organización ──────────
 
 model PlatformBranding {
-  id              String  @id @default(uuid())
-  organization_id String  @unique  // 1:1 con PlatformOrganization
+  id              String @id @default(uuid())
+  organization_id String @unique // 1:1 con PlatformOrganization
 
-  primary_color   String?   // hex válido: "#RRGGBB"
-  secondary_color String?   // hex válido: "#RRGGBB"
+  primary_color   String? // hex válido: "#RRGGBB"
+  secondary_color String? // hex válido: "#RRGGBB"
   logo_url        String?
   favicon_url     String?
-  custom_domain   String?   // dominio personalizado verificado
+  custom_domain   String? // dominio personalizado verificado
 
   // Auditoría
   created_at DateTime @default(now())
@@ -2455,16 +2702,16 @@ model PlatformBranding {
 // ── PlatformDeploymentLog — log inmutable de provisioning ─────────
 
 model PlatformDeploymentLog {
-  id              String                   @id @default(uuid())
+  id              String @id @default(uuid())
   organization_id String
 
-  action       String                   // "CREATE_ORG", "ACTIVATE_MODULE", "CHANGE_STATUS", etc.
-  status       PlatformDeploymentStatus
-  notes        String?
-  metadata     Json?                    // payload estructurado adicional
+  action   String // "CREATE_ORG", "ACTIVATE_MODULE", "CHANGE_STATUS", etc.
+  status   PlatformDeploymentStatus
+  notes    String?
+  metadata Json? // payload estructurado adicional
 
-  triggered_by String?                  // ID admin Platform que disparó la acción
-  started_at   DateTime                 @default(now())
+  triggered_by String? // ID admin Platform que disparó la acción
+  started_at   DateTime  @default(now())
   ended_at     DateTime?
 
   // Sin updated_at — registro inmutable
@@ -2488,11 +2735,11 @@ model PlatformProvisioningLog {
   organization_id String
 
   // Resultado de la validación
-  result          PlatformProvisioningStatus  // READY, NOT_READY, FAILED, etc.
-  triggered_by    String?                     // ID super_admin que disparó la acción
+  result       PlatformProvisioningStatus // READY, NOT_READY, FAILED, etc.
+  triggered_by String? // ID super_admin que disparó la acción
 
   // Detalle
-  validation_errors Json?   // lista de errores de validación si NOT_READY
+  validation_errors Json? // lista de errores de validación si NOT_READY
   notes             String?
 
   // Registro inmutable
@@ -2515,10 +2762,10 @@ model PlatformDeploymentExportLog {
   id              String @id @default(uuid())
   organization_id String
 
-  export_type    String  // "DEPLOYMENT_BUNDLE" | "CONFIGURATION_PACKAGE"
-  bundle_version String  // "v1", "v2", "v3", …
+  export_type    String // "DEPLOYMENT_BUNDLE" | "CONFIGURATION_PACKAGE"
+  bundle_version String // "v1", "v2", "v3", …
   exported_by    String? // ID del super_admin que exportó
-  result         String  // "SUCCESS" | "FAILED"
+  result         String // "SUCCESS" | "FAILED"
   error_message  String?
 
   // Snapshot inmutable del bundle exportado
@@ -2579,9 +2826,9 @@ model PlatformDeploymentJob {
   bundle_export_id String?
 
   // Estado y configuración
-  job_status         PlatformDeploymentJobStatus       @default(PENDING)
-  target_environment PlatformDeploymentJobEnvironment  @default(LOCAL)
-  deployment_mode    PlatformDeploymentJobMode         @default(SIMULATION)
+  job_status         PlatformDeploymentJobStatus      @default(PENDING)
+  target_environment PlatformDeploymentJobEnvironment @default(LOCAL)
+  deployment_mode    PlatformDeploymentJobMode        @default(SIMULATION)
 
   // Tiempos de ejecución
   started_at  DateTime?
@@ -2613,9 +2860,9 @@ model PlatformDeploymentStep {
   id     String @id @default(uuid())
   job_id String
 
-  step_key   String  // "VALIDATE_BUNDLE", "GENERATE_ENV_CONFIG", etc.
-  step_name  String  // Nombre legible
-  step_order Int     // Orden de ejecución
+  step_key   String // "VALIDATE_BUNDLE", "GENERATE_ENV_CONFIG", etc.
+  step_name  String // Nombre legible
+  step_order Int // Orden de ejecución
 
   status      PlatformDeploymentStepStatus @default(PENDING)
   started_at  DateTime?
@@ -2675,20 +2922,20 @@ model PlatformDatabaseProfile {
   organization_id String
 
   // Identificación del perfil
-  label       String                             // ej: "TrustMe PROD", "Demo Local"
+  label       String // ej: "TrustMe PROD", "Demo Local"
   environment PlatformDatabaseProfileEnvironment @default(LOCAL)
   provider    PlatformDatabaseProvider           @default(POSTGRESQL)
 
   // Componentes de conexión — sin password en texto plano
   db_host            String
-  db_port            Int?    // ej: 5432; null = puerto por defecto del provider
+  db_port            Int? // ej: 5432; null = puerto por defecto del provider
   db_name            String
   db_user            String
-  encrypted_password String  // resultado de encryptText(password) — AES-256-GCM
+  encrypted_password String // resultado de encryptText(password) — AES-256-GCM
 
   // SSL y opciones adicionales
   ssl_mode           PlatformDatabaseSslMode @default(PREFER)
-  connection_options Json?   // opciones extra, ej: { "schema": "public" }
+  connection_options Json? // opciones extra, ej: { "schema": "public" }
 
   // Estado de la última prueba de conexión (Microfase C en adelante)
   last_tested_at    DateTime?
