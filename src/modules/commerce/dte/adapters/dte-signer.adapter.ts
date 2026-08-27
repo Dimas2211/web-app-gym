@@ -8,7 +8,7 @@
 //   re-serializa con ObjectMapper.writeValueAsString() antes de firmar.
 //   Por lo tanto, dteJson DEBE enviarse como objeto JSON, NO como string.
 
-import { getDteSignerConfig } from "../config/dte-signer.config";
+import type { DteSignerConfig } from "../config/dte-signer.config";
 import type {
   DteSignerInput,
   DteSignerResult,
@@ -35,8 +35,12 @@ function isMhSignerResponse(value: unknown): value is MhSignerResponse {
 }
 
 export class MhHttpDteSignerAdapter {
-  async sign(input: DteSignerInput): Promise<DteSignerResult> {
-    const { signerUrl, timeoutMs } = getDteSignerConfig();
+  // FSE14-DUAL-SIGNER — signerConfig ahora es obligatorio y viene siempre
+  // de resolveDteSignerConfig(dte.environment) en el caller. El adapter
+  // ya no resuelve su propia URL: es agnóstico de ambiente, así no puede
+  // firmar accidentalmente contra el signer equivocado.
+  async sign(input: DteSignerInput, signerConfig: DteSignerConfig): Promise<DteSignerResult> {
+    const { signerUrl, timeoutMs, apiKey } = signerConfig;
 
     const payload = {
       nit:        stripDashes(input.nit),
@@ -45,6 +49,12 @@ export class MhHttpDteSignerAdapter {
       activo:     input.activo ?? true,
     };
 
+    // VPS-SIGNER-APIKEY — el firmador detrás de Apache/cPanel exige este
+    // header; sin apiKey configurada se omite (compat local sin protección).
+    // Nunca loguear apiKey.
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (apiKey) headers["X-DTE-Signer-Key"] = apiKey;
+
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
 
@@ -52,7 +62,7 @@ export class MhHttpDteSignerAdapter {
     try {
       raw = await fetch(signerUrl, {
         method:  "POST",
-        headers: { "Content-Type": "application/json" },
+        headers,
         body:    JSON.stringify(payload),
         signal:  controller.signal,
       });
@@ -108,15 +118,19 @@ export class MhHttpDteSignerAdapter {
     return { ok: false, errorCode, message, httpStatus: raw.status };
   }
 
-  async checkHealth(): Promise<DteSignerHealthResult> {
-    const { healthUrl, timeoutMs } = getDteSignerConfig();
+  async checkHealth(signerConfig: DteSignerConfig): Promise<DteSignerHealthResult> {
+    const { healthUrl, timeoutMs, apiKey } = signerConfig;
+
+    const headers: Record<string, string> | undefined = apiKey
+      ? { "X-DTE-Signer-Key": apiKey }
+      : undefined;
 
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
 
     let raw: Response;
     try {
-      raw = await fetch(healthUrl, { signal: controller.signal });
+      raw = await fetch(healthUrl, { headers, signal: controller.signal });
     } catch (err) {
       clearTimeout(timer);
       if (err instanceof Error && err.name === "AbortError") {
