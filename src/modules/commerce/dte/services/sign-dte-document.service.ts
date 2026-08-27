@@ -14,8 +14,9 @@
 // ─────────────────────────────────────────────────────────────────
 
 import { prisma }                 from "@/lib/db/prisma";
-import { getDteSignerConfig }     from "../config/dte-signer.config";
+import { resolveDteSignerConfig, DteSignerConfigError } from "../config/dte-signer.config";
 import { MhHttpDteSignerAdapter } from "../adapters/dte-signer.adapter";
+import type { DteMhEnvironment }  from "../types/dte-mh-auth.types";
 
 // ── Tipos públicos ────────────────────────────────────────────────
 
@@ -68,6 +69,7 @@ export async function signDteDocument(
         json_document: true,
         signed_jws:    true,
         retry_count:   true,
+        environment:   true,
       },
     });
 
@@ -121,12 +123,14 @@ export async function signDteDocument(
       );
     }
 
-    // 6. Llamar al firmador
-    const { signerUrl } = getDteSignerConfig();
-    const adapter       = new MhHttpDteSignerAdapter();
-    const attemptNumber = dteDoc.retry_count + 1;
+    // 6. Resolver signer por el ambiente real del documento (nunca por UI
+    //    ni por env global) y llamarlo.
+    const signerConfig  = resolveDteSignerConfig(dteDoc.environment as DteMhEnvironment);
+    const { signerUrl } = signerConfig;
+    const adapter        = new MhHttpDteSignerAdapter();
+    const attemptNumber  = dteDoc.retry_count + 1;
 
-    const signerResult = await adapter.sign({ nit, passwordPri, dteJson });
+    const signerResult = await adapter.sign({ nit, passwordPri, dteJson }, signerConfig);
 
     if (signerResult.ok) {
       // 7. Firma exitosa → actualizar a SIGNED en transacción con log
@@ -192,7 +196,7 @@ export async function signDteDocument(
     }
 
   } catch (error) {
-    if (error instanceof SignDteBusinessError) {
+    if (error instanceof SignDteBusinessError || error instanceof DteSignerConfigError) {
       return { ok: false, error: error.message };
     }
     throw error;

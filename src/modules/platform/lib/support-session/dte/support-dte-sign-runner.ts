@@ -36,8 +36,9 @@ if (typeof window !== "undefined") {
 }
 
 import { PrismaClient }           from "@prisma/client";
-import { getDteSignerConfig }     from "../../../../commerce/dte/config/dte-signer.config";
+import { resolveDteSignerConfig } from "../../../../commerce/dte/config/dte-signer.config";
 import { MhHttpDteSignerAdapter } from "../../../../commerce/dte/adapters/dte-signer.adapter";
+import type { DteMhEnvironment }  from "../../../../commerce/dte/types/dte-mh-auth.types";
 import { SUPPORT_DTE_ACTIVE_TYPE_CODES } from "./support-dte.constants";
 import type {
   SignSupportDteInput,
@@ -120,6 +121,9 @@ async function validateSignSupportDte(
   }
 
   // 7. Venta relacionada debe existir, estar CONFIRMED y con inventario aplicado
+  if (!dteDoc.sale_id) {
+    return { ok: false, error: "El documento DTE no está asociado a ninguna venta." };
+  }
   const sale = await client.sale.findFirst({
     where:  { id: dteDoc.sale_id, tenant_id: tenantId, location_id: dteDoc.location_id },
     select: { id: true, sale_code: true, status: true, inventory_moved: true },
@@ -220,13 +224,19 @@ export async function signSupportDteRunner(
     return { ok: false, error: "El JSON almacenado no es parseable. El documento puede estar corrupto." };
   }
 
-  const { signerUrl } = getDteSignerConfig();
+  let signerConfig;
+  try {
+    signerConfig = resolveDteSignerConfig(data.environment as DteMhEnvironment);
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Firmador no configurado para el ambiente del documento." };
+  }
+  const { signerUrl } = signerConfig;
   const adapter        = new MhHttpDteSignerAdapter();
   const attemptNumber  = data.retry_count + 1;
 
   let signerResult: Awaited<ReturnType<MhHttpDteSignerAdapter["sign"]>>;
   try {
-    signerResult = await adapter.sign({ nit, passwordPri, dteJson });
+    signerResult = await adapter.sign({ nit, passwordPri, dteJson }, signerConfig);
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : "Error inesperado al llamar al firmador DTE." };
   }

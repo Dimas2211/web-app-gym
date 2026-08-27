@@ -16,8 +16,9 @@
 
 import { type Prisma } from "@prisma/client";
 import { prisma }                 from "@/lib/db/prisma";
-import { getDteSignerConfig }     from "../config/dte-signer.config";
+import { resolveDteSignerConfig, DteSignerConfigError } from "../config/dte-signer.config";
 import { MhHttpDteSignerAdapter } from "../adapters/dte-signer.adapter";
+import type { DteMhEnvironment }  from "../types/dte-mh-auth.types";
 
 // ── Tipos públicos ────────────────────────────────────────────────
 
@@ -99,7 +100,7 @@ export async function signInvalidationEvent(
     // 3. Cargar DteOutgoingDocument relacionado
     const dteDoc = await prisma.dteOutgoingDocument.findFirst({
       where:  { id: invEvent.dte_document_id },
-      select: { id: true, dte_status: true },
+      select: { id: true, dte_status: true, environment: true },
     });
 
     if (!dteDoc) {
@@ -140,10 +141,11 @@ export async function signInvalidationEvent(
       );
     }
 
-    // 7. Llamar al firmador
-    const { signerUrl } = getDteSignerConfig();
+    // 7. Resolver signer por el ambiente del DTE original y llamarlo.
+    const signerConfig  = resolveDteSignerConfig(dteDoc.environment as DteMhEnvironment);
+    const { signerUrl } = signerConfig;
     const adapter       = new MhHttpDteSignerAdapter();
-    const signerResult  = await adapter.sign({ nit, passwordPri, dteJson });
+    const signerResult  = await adapter.sign({ nit, passwordPri, dteJson }, signerConfig);
 
     const signedAt = new Date();
 
@@ -211,7 +213,7 @@ export async function signInvalidationEvent(
     }
 
   } catch (err) {
-    if (err instanceof SignInvalidationBusinessError) {
+    if (err instanceof SignInvalidationBusinessError || err instanceof DteSignerConfigError) {
       return { ok: false, error: err.message };
     }
     console.error("[signInvalidationEvent] Error inesperado:", err);
