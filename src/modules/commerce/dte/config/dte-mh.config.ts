@@ -31,6 +31,37 @@ function resolvePositiveInt(raw: string | undefined, fallback: number): number {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
+// ── Resolución centralizada de URLs TEST/PROD ─────────────────────
+//
+// F-DTE-ENV — Auditoría TEST/PROD detectó esta misma lógica duplicada
+// en 3 archivos (dte-auth.adapter.ts, dte-transmission.adapter.ts,
+// transmit-dte-document.service.ts), y una de las copias tenía un bug
+// latente: su fallback usaba `getDteMhConfig().receptionUrl` — que
+// depende de DTE_ENVIRONMENT global — en vez del ambiente real del
+// documento que se está transmitiendo. Si DTE_ENVIRONMENT=TEST (el
+// default seguro) y el documento es PRODUCTION, y no hay
+// DTE_MH_RECEPTION_URL_PROD/DTE_MH_AUTH_URL_PROD en el entorno, ese
+// fallback resolvía silenciosamente a la URL de TEST. Este helper
+// resuelve siempre por el `environment` explícito recibido, con
+// fallback a las URLs oficiales hardcodeadas — nunca al ambiente
+// global. Los 3 call sites fueron actualizados para usarlo.
+export function resolveDteMhUrls(environment: DteMhEnvironment): {
+  authUrl: string;
+  receptionUrl: string;
+} {
+  const authUrl =
+    environment === "PRODUCTION"
+      ? (process.env["DTE_MH_AUTH_URL_PROD"] ?? AUTH_URL_PROD)
+      : (process.env["DTE_MH_AUTH_URL_TEST"] ?? AUTH_URL_TEST);
+
+  const receptionUrl =
+    environment === "PRODUCTION"
+      ? (process.env["DTE_MH_RECEPTION_URL_PROD"] ?? RECEPTION_URL_PROD)
+      : (process.env["DTE_MH_RECEPTION_URL_TEST"] ?? RECEPTION_URL_TEST);
+
+  return { authUrl, receptionUrl };
+}
+
 export function getDteMhConfig(): DteMhConfig {
   const environment = resolveEnvironment();
 
