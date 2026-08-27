@@ -240,7 +240,7 @@ export async function getDteProductionPreflight(
   // automáticamente en la primera reserva real (comportamiento ya
   // existente de reserveDteControlNumber). Aquí solo informamos.
   const correlatives = await prisma.dteCorrelative.findMany({
-    where: { tenant_id, location_id, issuer_config_id: config.id, environment: "PRODUCTION" },
+    where: { tenant_id, location_id, environment: "PRODUCTION" },
     select: { dte_type_code: true, last_sequence: true },
   });
   checks.push({
