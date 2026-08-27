@@ -32,6 +32,7 @@ export const SUPPLIER_FULL_SELECT = {
 
   // Clasificación tributaria
   taxpayer_type: true,
+  person_type:   true,
 
   // Identificación documental
   id_type_code:   true,
@@ -97,6 +98,7 @@ function mapToSupplierDetail(row: NonNullable<RawSupplierRow>): SupplierDetail {
 
     // Clasificación tributaria
     taxpayer_type: row.taxpayer_type as SupplierDetail["taxpayer_type"],
+    person_type:   row.person_type   as SupplierDetail["person_type"],
 
     // Identificación documental
     id_type_code:   row.id_type_code,

@@ -174,9 +174,10 @@ async function main() {
 
   const corrFE = await prisma.dteCorrelative.upsert({
     where: {
-      tenant_id_location_id_environment_dte_type_code_year: {
+      tenant_id_location_id_issuer_config_id_environment_dte_type_code_year: {
         tenant_id,
         location_id,
+        issuer_config_id: issuerConfig.id,
         environment:   "TEST",
         dte_type_code: "01",
         year,
@@ -186,8 +187,11 @@ async function main() {
     create: {
       tenant_id,
       location_id,
+      issuer_config_id: issuerConfig.id,
       environment:   "TEST",
       dte_type_code: "01",
+      cod_estable_mh:     issuerConfig.cod_estable_mh,
+      cod_punto_venta_mh: issuerConfig.cod_punto_venta_mh,
       year,
       last_sequence: 0,
     },
@@ -203,9 +207,10 @@ async function main() {
 
   const corrCCFE = await prisma.dteCorrelative.upsert({
     where: {
-      tenant_id_location_id_environment_dte_type_code_year: {
+      tenant_id_location_id_issuer_config_id_environment_dte_type_code_year: {
         tenant_id,
         location_id,
+        issuer_config_id: issuerConfig.id,
         environment:   "TEST",
         dte_type_code: "03",
         year,
@@ -215,8 +220,11 @@ async function main() {
     create: {
       tenant_id,
       location_id,
+      issuer_config_id: issuerConfig.id,
       environment:   "TEST",
       dte_type_code: "03",
+      cod_estable_mh:     issuerConfig.cod_estable_mh,
+      cod_punto_venta_mh: issuerConfig.cod_punto_venta_mh,
       year,
       last_sequence: 0,
     },
@@ -232,9 +240,10 @@ async function main() {
 
   const corrNC = await prisma.dteCorrelative.upsert({
     where: {
-      tenant_id_location_id_environment_dte_type_code_year: {
+      tenant_id_location_id_issuer_config_id_environment_dte_type_code_year: {
         tenant_id,
         location_id,
+        issuer_config_id: issuerConfig.id,
         environment:   "TEST",
         dte_type_code: "05",
         year,
@@ -244,8 +253,11 @@ async function main() {
     create: {
       tenant_id,
       location_id,
+      issuer_config_id: issuerConfig.id,
       environment:   "TEST",
       dte_type_code: "05",
+      cod_estable_mh:     issuerConfig.cod_estable_mh,
+      cod_punto_venta_mh: issuerConfig.cod_punto_venta_mh,
       year,
       last_sequence: 0,
     },

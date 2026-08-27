@@ -11,15 +11,17 @@
 import Link from "next/link";
 import { Loader2, CheckCircle, RotateCcw } from "lucide-react";
 import type { PurchaseDetail } from "../types/purchase.types";
+import { PurchasePaymentNatureFields } from "./purchase-payment-nature-fields";
 
 interface Props {
-  detail:       PurchaseDetail | null;
-  purchaseId:   string | null;
-  isConfirming: boolean;
-  confirmError: string | null;
-  onConfirm:    () => void;
-  onBack:       () => void;
-  onClear:      () => void;
+  detail:            PurchaseDetail | null;
+  purchaseId:        string | null;
+  isConfirming:      boolean;
+  confirmError:      string | null;
+  onConfirm:         () => void;
+  onBack:            () => void;
+  onClear:           () => void;
+  onDetailUpdated:   (detail: PurchaseDetail) => void;
 }
 
 const rowCls   = "flex justify-between items-baseline py-0.5";
@@ -39,6 +41,7 @@ export function PurchaseFormTotals({
   onConfirm,
   onBack,
   onClear,
+  onDetailUpdated,
 }: Props) {
   const sub     = detail ? Number(detail.subtotal)              : 0;
   const tax     = detail ? Number(detail.tax_amount)            : 0;
@@ -47,14 +50,21 @@ export function PurchaseFormTotals({
   const net     = detail ? Number(detail.net_to_pay)            : 0;
   const applies = detail?.retention_1pct_applies ?? false;
   const hasItems = (detail?.items?.length ?? 0) > 0;
+  const isFse    = detail?.document_type === "FSE";
+
+  // La FSE nunca genera crédito fiscal IVA — sus líneas siempre llevan
+  // tax_amount = 0 (forzado server-side en purchase.service.ts), así que
+  // el label "IVA (13%)" es engañoso aquí. Confirmar además exige
+  // payment_nature ya definida (mismo guard que confirmPurchase()).
+  const natureMissing = isFse && !detail?.payment_nature;
 
   return (
-    <div className="flex flex-col h-full border-l border-zinc-800 bg-zinc-900 px-3 pt-3 pb-2">
+    <div className="flex flex-col h-full border-l border-zinc-800 bg-zinc-900 px-3 pt-3 pb-2 overflow-y-auto">
       <span className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500 mb-2">
         Totales
       </span>
 
-      <div className="flex-1 space-y-0.5">
+      <div className="space-y-0.5">
         <div className={rowCls}>
           <span className={labelCls}>Exenta</span>
           <span className={`${valueCls} text-zinc-600`}>$0.00</span>
@@ -64,7 +74,7 @@ export function PurchaseFormTotals({
           <span className={valueCls}>{fmt(sub)}</span>
         </div>
         <div className={rowCls}>
-          <span className={labelCls}>IVA (13%)</span>
+          <span className={labelCls}>{isFse ? "IVA compra" : "IVA (13%)"}</span>
           <span className={valueCls}>{fmt(tax)}</span>
         </div>
 
@@ -93,6 +103,26 @@ export function PurchaseFormTotals({
         )}
       </div>
 
+      {/* ── Naturaleza del pago / Retención de Renta — FSE, ANTES de confirmar ── */}
+      {isFse && detail && (
+        <div className="mt-2">
+          <PurchasePaymentNatureFields
+            detail={detail}
+            editable={detail.status === "DRAFT"}
+            onUpdated={onDetailUpdated}
+            showCommercialTotals={false}
+          />
+        </div>
+      )}
+
+      <div className="flex-1" />
+
+      {natureMissing && (
+        <p className="text-[10px] text-amber-400 bg-amber-900/20 border border-amber-700/30 rounded px-1.5 py-1 mt-2">
+          Define la Naturaleza del pago antes de confirmar esta compra FSE.
+        </p>
+      )}
+
       {confirmError && (
         <p className="text-[10px] text-red-400 bg-red-900/30 border border-red-700/30 rounded px-1.5 py-1 mb-2">
           {confirmError}
@@ -102,7 +132,7 @@ export function PurchaseFormTotals({
       <div className="space-y-1.5 mt-2">
         <button
           type="button"
-          disabled={!purchaseId || isConfirming || !hasItems}
+          disabled={!purchaseId || isConfirming || !hasItems || natureMissing}
           onClick={onConfirm}
           className="w-full h-8 text-xs font-medium bg-emerald-700 hover:bg-emerald-600 text-white rounded flex items-center justify-center gap-1 disabled:opacity-40 transition-colors"
         >

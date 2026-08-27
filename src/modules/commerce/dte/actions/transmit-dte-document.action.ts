@@ -43,6 +43,7 @@ export async function transmitDteDocumentAction(
 
   if (result.ok) {
     revalidatePath("/dashboard/sales");
+    revalidatePath("/dashboard/purchases");
     revalidatePath("/dashboard/dte/outgoing");
   }
 

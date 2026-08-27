@@ -15,6 +15,7 @@ import { listPlatformVerticalsQuery }       from "@/modules/platform/queries/lis
 import { listPlatformPlansQuery }           from "@/modules/platform/queries/list-platform-plans";
 import { getPlatformBrandingQuery }         from "@/modules/platform/queries/get-platform-branding";
 import { listDeploymentLogsQuery }          from "@/modules/platform/queries/list-deployment-logs";
+import { getDteCorrelativeAlignmentPanelDataQuery } from "@/modules/platform/queries/get-dte-correlative-alignment-panel-data";
 
 import { PlatformOrganizationDetail }         from "@/modules/platform/components/platform-organization-detail";
 import { PlatformOrganizationModulesPanel }   from "@/modules/platform/components/platform-organization-modules-panel";
@@ -23,6 +24,7 @@ import { PlatformOrganizationSettingsPanel }  from "@/modules/platform/component
 import { PlatformDeploymentSummary }          from "@/modules/platform/components/platform-deployment-summary";
 import { PlatformBrandingPanel }              from "@/modules/platform/components/platform-branding-panel";
 import { PlatformDeploymentLogsPanel }        from "@/modules/platform/components/platform-deployment-logs-panel";
+import { PlatformDteCorrelativePanel }        from "@/modules/platform/components/platform-dte-correlative-panel";
 
 interface Props {
   params: Promise<{ id: string }>;
@@ -41,7 +43,7 @@ export default async function PlatformOrganizationDetailPage({ params }: Props) 
 
   const { id } = await params;
 
-  const [org, orgModules, allModules, verticals, plans, branding, logs] = await Promise.all([
+  const [org, orgModules, allModules, verticals, plans, branding, logs, dteCorrelatives] = await Promise.all([
     getPlatformOrganizationByIdQuery(id),
     listOrganizationModulesQuery(id),
     listPlatformModulesQuery(),
@@ -49,6 +51,7 @@ export default async function PlatformOrganizationDetailPage({ params }: Props) 
     listPlatformPlansQuery(false),
     getPlatformBrandingQuery(id),
     listDeploymentLogsQuery(id, 30),
+    getDteCorrelativeAlignmentPanelDataQuery(id),
   ]);
 
   if (!org) notFound();
@@ -91,6 +94,9 @@ export default async function PlatformOrganizationDetailPage({ params }: Props) 
 
       {/* Deployment logs */}
       <PlatformDeploymentLogsPanel logs={logs} />
+
+      {/* F3-C24 — Alineación de correlativos DTE */}
+      <PlatformDteCorrelativePanel organizationId={org.id} rows={dteCorrelatives.rows} />
 
     </div>
   );

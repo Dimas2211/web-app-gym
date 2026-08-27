@@ -31,6 +31,7 @@ const TAXPAYER_OPTIONS = [
   { value: "SMALL_TAXPAYER", label: "Pequeño contribuyente" },
   { value: "NON_TAXPAYER",   label: "No contribuyente"      },
   { value: "FOREIGN",        label: "Extranjero"             },
+  { value: "EXCLUDED_SUBJECT", label: "Sujeto excluido"      },
 ] as const;
 
 // ── Style helpers (mismo patrón que new-supplier-dialog) ──────────

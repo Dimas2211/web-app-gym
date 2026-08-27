@@ -210,19 +210,64 @@ async function runGlobalChecks(
         ),
   );
 
-  // 5. Municipios
+  // 5. Municipios — cantidad mínima + resolución de casos centinela.
+  // No basta con "¿hay alguna fila?": el catálogo territorial completo
+  // (CAT-013, 262 registros oficiales) debe estar presente y los pares
+  // (dept_code, code) de referencia deben resolver exactamente a los
+  // valores respaldados por DTE reales PROCESADOS por Hacienda —
+  // ver dte-territory.resolver.ts.
+  const MIN_MUNICIPALITIES = 200;
   checks.push(
-    municipalityCount >= 1
-      ? pass("GLOBAL_MUNICIPALITIES", "Municipios", "BLOCKER", "GLOBAL")
+    municipalityCount >= MIN_MUNICIPALITIES
+      ? pass("GLOBAL_MUNICIPALITIES", "Municipios — cantidad mínima", "BLOCKER", "GLOBAL")
       : fail(
           "GLOBAL_MUNICIPALITIES",
-          "Municipios",
+          "Municipios — cantidad mínima",
           "BLOCKER",
           "GLOBAL",
-          "No hay municipios registrados. Requerido para direcciones fiscales.",
-          "Ejecutar seed de catálogos geográficos.",
+          `Solo hay ${municipalityCount} municipios activos (mínimo esperado: ${MIN_MUNICIPALITIES}). Catálogo territorial incompleto — requerido para direcciones fiscales.`,
+          "Ejecutar seedCommerceCatalogs (prisma/seeds/seed.commerce-catalogs.ts) para cargar el catálogo completo de Municipality.",
         ),
   );
+
+  try {
+    const [staTecla, sanSalvador] = await Promise.all([
+      db.municipality.findFirst({
+        where:  { dept_code: "05", code: "11", status: "active" },
+        select: { id: true },
+      }),
+      db.municipality.findFirst({
+        where:  { dept_code: "06", code: "14", status: "active" },
+        select: { id: true },
+      }),
+    ]);
+
+    const sentinelFailures: string[] = [];
+    if (!staTecla)    sentinelFailures.push('La Libertad / Santa Tecla (dept_code="05", code="11")');
+    if (!sanSalvador) sentinelFailures.push('San Salvador / San Salvador (dept_code="06", code="14")');
+
+    checks.push(
+      sentinelFailures.length === 0
+        ? pass("GLOBAL_MUNICIPALITIES_SENTINEL", "Municipios — casos centinela resuelven", "BLOCKER", "GLOBAL")
+        : fail(
+            "GLOBAL_MUNICIPALITIES_SENTINEL",
+            "Municipios — casos centinela resuelven",
+            "BLOCKER",
+            "GLOBAL",
+            `No resuelven los municipios centinela requeridos para habilitar DTE: ${sentinelFailures.join("; ")}.`,
+            "Verificar que el seed de Municipality haya cargado el catálogo oficial completo (prisma/importers/generated/municipalities.data.ts) sin alterar dept_code/code.",
+          ),
+    );
+  } catch (err) {
+    checks.push(fail(
+      "GLOBAL_MUNICIPALITIES_SENTINEL",
+      "Municipios — casos centinela resuelven",
+      "BLOCKER",
+      "GLOBAL",
+      `Error al verificar municipios centinela: ${extractSafeCheckError(err)}`,
+      "Verificar que la tabla Municipality exista y esté actualizada en la base objetivo.",
+    ));
+  }
 
   // 6. Países
   checks.push(
@@ -616,12 +661,14 @@ async function runTenantChecks(
     let dteIssuerConfigCount          = 0;
     let dteCorrelativeCount           = 0;
     let dteCredentialsWithoutPayload  = 0;
+    let dteCorrelativesWithoutBaseline = 0;
 
     try {
       ([
         dteIssuerConfigCount,
         dteCorrelativeCount,
         dteCredentialsWithoutPayload,
+        dteCorrelativesWithoutBaseline,
       ] = await Promise.all([
         db.dteIssuerConfig.count({ where: { tenant_id: tenantId, is_active: true } }),
         db.dteCorrelative.count({ where: { tenant_id: tenantId, year: currentYear } }),
@@ -632,6 +679,9 @@ async function runTenantChecks(
             encrypted_payload: null,
             secret_ref:        null,
           },
+        }),
+        db.dteCorrelative.count({
+          where: { tenant_id: tenantId, year: currentYear, external_baseline_set_at: null },
         }),
       ]));
     } catch (err) {
@@ -676,6 +726,29 @@ async function runTenantChecks(
             "Inicializar correlativos DTE para el año en curso.",
           ),
     );
+
+    // F3-C24 — Alineación de correlativos DTE. WARNING (no bloquea): un
+    // correlativo sin baseline revisado no es necesariamente un error —
+    // solo lo es si el tenant ya venía transmitiendo con otro sistema.
+    // No hay forma de saber eso automáticamente, así que se advierte
+    // siempre que exista al menos un DteCorrelative sin baseline, para
+    // que el onboarding lo confirme explícitamente. Ver
+    // docs/modules/dte-correlatives-onboarding.md.
+    if (dteCorrelativeCount >= 1) {
+      checks.push(
+        dteCorrelativesWithoutBaseline === 0
+          ? pass("TENANT_DTE_CORRELATIVE_BASELINE", "Baseline de correlativos DTE revisado", "WARNING", "MODULE")
+          : warn(
+              "TENANT_DTE_CORRELATIVE_BASELINE",
+              "Baseline de correlativos DTE revisado",
+              "MODULE",
+              `${dteCorrelativesWithoutBaseline} correlativo(s) DTE del año ${currentYear} no tienen baseline externo alineado. ` +
+              `Si este tenant migra desde otro sistema de facturación, Hacienda puede rechazar el próximo numeroControl por duplicado ` +
+              `("YA EXISTE UN REGISTRO CON ESE VALOR") hasta que se registre el último número usado externamente.`,
+              "Revisar y, si aplica, alinear el baseline en Platform Admin → Organización → Alineación de correlativos DTE.",
+            ),
+      );
+    }
 
     // 10. Clave de cifrado PLATFORM_ENCRYPTION_KEY presente y válida
     const encryptionKeyRaw = process.env.PLATFORM_ENCRYPTION_KEY ?? "";

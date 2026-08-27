@@ -97,9 +97,12 @@ export async function getSaleDetailById(
               },
             },
           },
-          // Logs de entrega externa (ambos tipos: DTE e invalidación)
+          // Logs de entrega externa (ambos tipos: DTE e invalidación) +
+          // SEND — este último solo se usa internamente para calcular
+          // can_retry_signature (codigoMsg del último envío a MH); su
+          // response_body NUNCA se expone en el objeto retornado.
           transmission_logs: {
-            where:   { operation_type: { in: ["EXTERNAL_DELIVERY", "EXTERNAL_INVALIDATION_DELIVERY"] } },
+            where:   { operation_type: { in: ["EXTERNAL_DELIVERY", "EXTERNAL_INVALIDATION_DELIVERY", "SEND"] } },
             orderBy: { created_at: "desc" },
             select: {
               operation_type: true,
@@ -165,6 +168,19 @@ export async function getSaleDetailById(
   const allTransmissionLogs = row.dte_documents[0]?.transmission_logs ?? [];
   const externalDeliveryLogs            = allTransmissionLogs.filter((l) => l.operation_type === "EXTERNAL_DELIVERY");
   const externalInvalidationDeliveryLogs = allTransmissionLogs.filter((l) => l.operation_type === "EXTERNAL_INVALIDATION_DELIVERY");
+
+  // can_retry_signature — mismo criterio estrecho que
+  // reopen-rejected-dte-for-resign.service.ts: solo REJECTED + último
+  // SEND con codigoMsg "802" (firma no válida). response_body nunca sale
+  // de esta función — solo el booleano derivado.
+  const lastSendLog = allTransmissionLogs
+    .filter((l) => l.operation_type === "SEND")
+    .sort((a, b) => b.created_at.getTime() - a.created_at.getTime())[0];
+  const lastSendCodigoMsg = (lastSendLog?.response_body as { codigoMsg?: unknown } | null)?.codigoMsg;
+  const canRetrySignature =
+    row.dte_documents[0]?.dte_status === "REJECTED" &&
+    typeof lastSendCodigoMsg === "string" &&
+    lastSendCodigoMsg === "802";
 
   // buildDeliverySummary del helper compartido — misma lógica, mismo comportamiento.
   // SaleExternalDeliverySummary y DteOutgoingDeliverySummary son estructuralmente idénticos.
@@ -249,6 +265,7 @@ export async function getSaleDetailById(
           rejected_at:      row.dte_documents[0].rejected_at,
           invalidated_at:   row.dte_documents[0].invalidated_at,
           created_at:       row.dte_documents[0].created_at,
+          can_retry_signature: canRetrySignature,
         }
       : null,
 

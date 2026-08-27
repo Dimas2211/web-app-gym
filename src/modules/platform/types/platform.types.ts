@@ -1960,7 +1960,7 @@ export interface SupportDteSaleRow {
 /** Fila de DteOutgoingDocument reciente (sin json_document ni secrets) */
 export interface SupportDteDocumentRow {
   id:                string;
-  sale_id:           string;
+  sale_id:           string | null;
   sale_code:          string | null;
   dte_type_code:      string;
   dte_status:         string;

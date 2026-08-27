@@ -133,11 +133,6 @@ export function ExportTopBar({
         )}
 
         <div className="ml-auto flex items-center gap-2">
-          {errorMessage && (
-            <span className="max-w-xs truncate text-[11px] text-red-400 bg-red-900/30 border border-red-700/30 rounded px-2 py-1">
-              {errorMessage}
-            </span>
-          )}
           {successMessage && (
             <span className="max-w-xs truncate text-[11px] text-emerald-400 bg-emerald-900/30 border border-emerald-700/30 rounded px-2 py-1">
               {successMessage}
@@ -153,6 +148,18 @@ export function ExportTopBar({
           </button>
         </div>
       </div>
+
+      {/* Alerta de error — panel completo, sin truncar. F3-C23E: antes era un
+          span de una sola línea con truncate + max-w-xs, que cortaba mensajes
+          largos (nombre de producto + causa + acción sugerida). */}
+      {errorMessage && (
+        <div
+          role="alert"
+          className="border-b border-red-800/40 bg-red-950/40 px-3 py-2 text-[11px] leading-relaxed text-red-300 whitespace-pre-wrap break-words"
+        >
+          {errorMessage}
+        </div>
+      )}
 
       {/* Fila 2 — barra operativa (orden de Tab: A receptor → B fecha → C condición → D pago → E notas → F fiscal) */}
       <div className="flex items-end gap-3 px-3 py-2 flex-wrap">

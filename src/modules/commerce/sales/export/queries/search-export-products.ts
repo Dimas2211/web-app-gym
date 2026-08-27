@@ -15,6 +15,8 @@ export interface ExportProductLookup {
   id:                  string;
   product_code:        string;
   name:                string;
+  unit_id:             string | null;
+  unit_name:           string | null;
   unit_symbol:         string | null;
   mh_unit_code:        string | null;
   sale_price:          number | null;
@@ -46,7 +48,7 @@ export async function searchExportProducts(
     take:    limit,
     select: {
       id: true, product_code: true, name: true, sale_price: true, is_stockable: true,
-      unit: { select: { symbol: true, mh_unit_code: true } },
+      unit: { select: { id: true, name: true, symbol: true, mh_unit_code: true } },
       product_locations: {
         where:  { tenant_id, location_id, is_active: true },
         select: { current_stock: true },
@@ -59,6 +61,8 @@ export async function searchExportProducts(
     id:            p.id,
     product_code:  p.product_code,
     name:          p.name,
+    unit_id:       p.unit?.id ?? null,
+    unit_name:     p.unit?.name ?? null,
     unit_symbol:   p.unit?.symbol ?? null,
     mh_unit_code:  p.unit?.mh_unit_code ?? null,
     sale_price:    p.sale_price != null ? Number(p.sale_price) : null,

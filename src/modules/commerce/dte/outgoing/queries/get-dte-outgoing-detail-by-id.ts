@@ -33,6 +33,7 @@ export async function getDteOutgoingDetailById(params: {
       select: {
         id:               true,
         sale_id:          true,
+        purchase_id:      true,
         dte_type_code:    true,
         dte_status:       true,
         environment:      true,
@@ -253,6 +254,7 @@ export async function getDteOutgoingDetailById(params: {
   const action_availability = computeDteOutgoingActionAvailability({
     dte_status:            row.dte_status,
     dte_type_code:         row.dte_type_code,
+    reception_stamp:       row.reception_stamp,
     related_nc,
     latest_invalidation,
     delivery,
@@ -264,6 +266,7 @@ export async function getDteOutgoingDetailById(params: {
   return {
     id:               row.id,
     sale_id:          row.sale_id,
+    purchase_id:      row.purchase_id,
     dte_type_code:    row.dte_type_code,
     dte_status:       row.dte_status as DteOutgoingStatus,
     environment:      row.environment as DteEnvironment,

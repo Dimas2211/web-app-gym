@@ -16,9 +16,10 @@
 
 import { prisma }                    from "@/lib/db/prisma";
 import { Prisma }                    from "@prisma/client";
-import { getDteMhConfig }             from "../config/dte-mh.config";
+import { resolveDteMhUrls }           from "../config/dte-mh.config";
 import { MhDteTransmissionAdapter }  from "../adapters/dte-transmission.adapter";
 import { canUseFex11InServerFlow }   from "../utils/fex11-feature-guard";
+import { assertDteContingencyTransmissionAllowed } from "./assert-dte-contingency-transmission-allowed.service";
 import type {
   DteTransmissionSuccessResult,
 } from "../types/dte-transmission.types";
@@ -57,12 +58,14 @@ class TransmitDteBusinessError extends Error {
 // FEX 11 se evalúa aparte vía fex11-feature-guard — habilitada solo para
 // TEST mediante DTE_FEX11_TEST_ENABLED hasta que exista UI y validaciones
 // completas de catálogos.
-const SUPPORTED_TYPE_CODES = new Set(["01", "03", "05"]);
+const SUPPORTED_TYPE_CODES = new Set(["01", "03", "05", "14"]);
 
 function dteTypeCodeToVersion(code: string): number {
   if (code === "03" || code === "05") return 3;
   // FEX 11 identificacion.version es fijo en 1 (ver fex-json.types.ts).
   if (code === "11") return 1;
+  // FSE 14 identificacion.version es fijo en 1 (ver fse-json.types.ts / fse-14.schema.json).
+  if (code === "14") return 1;
   return 1;
 }
 
@@ -84,12 +87,11 @@ function determineFinalStatus(
   return null;
 }
 
-function buildReceptionUrl(environment: string): string {
-  const config = getDteMhConfig();
-  if (environment === "PRODUCTION") {
-    return process.env["DTE_MH_RECEPTION_URL_PROD"] ?? config.receptionUrl;
-  }
-  return process.env["DTE_MH_RECEPTION_URL_TEST"] ?? config.receptionUrl;
+function buildReceptionUrl(environment: "TEST" | "PRODUCTION"): string {
+  // F-DTE-ENV — Auditoría TEST/PROD: resolución centralizada en
+  // dte-mh.config.ts, corrige el fallback que antes dependía de
+  // DTE_ENVIRONMENT global en vez del ambiente real del documento.
+  return resolveDteMhUrls(environment).receptionUrl;
 }
 
 // ── Función principal ─────────────────────────────────────────────
@@ -111,7 +113,10 @@ export async function transmitDteDocument(
         control_number:  true,
         dte_type_code:   true,
         environment:     true,
+        issuer_config_id: true,
         retry_count:     true,
+        transmission_type_code: true,
+        contingency_type_code:  true,
       },
     });
 
@@ -155,12 +160,27 @@ export async function transmitDteDocument(
       );
     }
 
+    // 3b. Guard de contingencia — un DTE con transmission_type_code="2" solo
+    // puede transmitirse si está cubierto por un Evento de Contingencia
+    // ACCEPTED. No afecta documentos normales (transmission_type_code="1").
+    const contingencyGuard = await assertDteContingencyTransmissionAllowed({
+      dteDocumentId,
+      tenantId,
+      locationId,
+      transmissionTypeCode: dteDoc.transmission_type_code,
+      contingencyTypeCode:  dteDoc.contingency_type_code,
+      generationCode:       dteDoc.generation_code,
+    });
+    if (!contingencyGuard.ok) {
+      throw new TransmitDteBusinessError(contingencyGuard.error);
+    }
+
     // 4. Parámetros de transmisión
     const environment   = dteDoc.environment as "TEST" | "PRODUCTION";
     // FEX 11 se transmite solo bajo fex11-feature-guard (ver arriba). El tipo
     // compartido DteTypeCode del adapter no incluye "11" por diseño (F3-C11B);
     // se castea localmente aquí, igual que en el script dev-only equivalente.
-    const dteTypeCode   = dteDoc.dte_type_code as "01" | "03" | "05";
+    const dteTypeCode   = dteDoc.dte_type_code as "01" | "03" | "05" | "14";
     const version       = dteTypeCodeToVersion(dteDoc.dte_type_code);
     const receptionUrl  = buildReceptionUrl(environment);
     const attemptNumber = dteDoc.retry_count + 1;
@@ -169,6 +189,7 @@ export async function transmitDteDocument(
     const adapter = new MhDteTransmissionAdapter();
     const result  = await adapter.transmit({
       environment,
+      issuerConfigId: dteDoc.issuer_config_id ?? undefined,
       dteTypeCode,
       version,
       codigoGeneracion: dteDoc.generation_code,

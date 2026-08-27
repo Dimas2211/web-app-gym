@@ -193,6 +193,7 @@ export async function createSupplier(
         supplier_code: input.supplier_code,
         name:          input.name,
         taxpayer_type: input.taxpayer_type,
+        person_type:   input.person_type ?? "UNKNOWN",
 
         // Identidad opcional
         account_code:   input.account_code   ?? null,
@@ -295,6 +296,7 @@ export async function updateSupplier(
       name:          input.name,
       taxpayer_type: input.taxpayer_type,
 
+      ...(input.person_type    !== undefined && { person_type:    input.person_type ?? "UNKNOWN" }),
       ...(input.account_code   !== undefined && { account_code:   input.account_code }),
       ...(input.legal_name     !== undefined && { legal_name:     input.legal_name }),
 

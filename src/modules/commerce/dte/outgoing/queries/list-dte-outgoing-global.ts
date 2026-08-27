@@ -108,6 +108,7 @@ export async function listDteOutgoingGlobal(
       select: {
         id:               true,
         sale_id:          true,
+        purchase_id:      true,
         dte_type_code:    true,
         control_number:   true,
         generation_code:  true,
@@ -199,6 +200,7 @@ export async function listDteOutgoingGlobal(
     return {
       id:               row.id,
       sale_id:          row.sale_id,
+      purchase_id:      row.purchase_id,
       dte_type_code:    row.dte_type_code,
       dte_status:       row.dte_status as DteOutgoingStatus,
       environment:      row.environment as DteEnvironment,

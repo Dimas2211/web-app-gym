@@ -12,14 +12,19 @@
 //   - NO toca inventario.
 //   - Solo acepta dte_type_code "01" (FE) y "03" (CCFE).
 //   - CCFE requiere cliente con NIT y NRC.
-//   - El correlativo (DteCorrelative.last_sequence) se incrementa de
-//     forma atómica dentro de la misma transacción Prisma.
+//   - El correlativo se reserva de forma atómica dentro de la misma
+//     transacción Prisma vía reserveDteControlNumber (dte-correlative
+//     .service.ts), que además considera el máximo ya usado en
+//     DteOutgoingDocument y el baseline externo alineado por un admin
+//     (empresas que migran desde otro sistema — F3-C24).
 //   - Si la transacción falla, el correlativo hace rollback.
 // ─────────────────────────────────────────────────────────────────
 
 import { randomUUID }     from "crypto";
 import { prisma }         from "@/lib/db/prisma";
-import { buildControlNumber } from "../utils/dte-control-number";
+import { reserveDteControlNumber } from "./dte-correlative.service";
+import { validateDteTransmissionInput } from "../utils/dte-transmission-validation.utils";
+import { FSE_ELIGIBLE_DOCUMENT_TYPES } from "@/modules/commerce/purchases/constants/purchase-document.constants";
 import type { CreatePendingDteResult } from "../types/dte.types";
 import { DTE_MVP_TYPE_CODES } from "../types/dte.types";
 
@@ -40,6 +45,11 @@ export async function createPendingDteForSale(
     dte_type_code:    "01" | "03";
     issuer_config_id: string;
     environment:      "TEST" | "PRODUCTION";
+    // Evento de Contingencia MH (Bloque A) — opcionales; si el caller no los
+    // envía, el DTE se crea como transmisión normal exactamente como hoy.
+    transmission_type_code?: "1" | "2";
+    contingency_type_code?:  "1" | "2" | "3" | "4" | "5" | null;
+    contingency_reason?:     string | null;
   },
 ): Promise<CreatePendingDteResult> {
   if (!DTE_MVP_TYPE_CODES.includes(input.dte_type_code as typeof DTE_MVP_TYPE_CODES[number])) {
@@ -47,6 +57,17 @@ export async function createPendingDteForSale(
       ok:    false,
       error: `Tipo DTE "${input.dte_type_code}" está fuera del MVP. Solo se admiten "01" (FE) y "03" (CCFE).`,
     };
+  }
+
+  // Validación central de la combinación transmisión/contingencia —
+  // nunca confiar en lo enviado por el caller sin normalizar/validar.
+  const transmission = validateDteTransmissionInput(input.dte_type_code, {
+    transmission_type_code: input.transmission_type_code,
+    contingency_type_code:  input.contingency_type_code,
+    contingency_reason:     input.contingency_reason,
+  });
+  if (!transmission.ok) {
+    return { ok: false, error: transmission.error };
   }
 
   try {
@@ -94,12 +115,16 @@ export async function createPendingDteForSale(
       }
 
       // ── 2. Verificar que no existe DTE activo duplicado ──────────
+      // F3-C24: REJECTED se excluye del bloqueo — un documento rechazado
+      // (p. ej. por numeroControl duplicado ante Hacienda) no debe impedir
+      // generar uno nuevo con numeroControl fresco. El documento rechazado
+      // queda intacto como registro histórico (nunca se edita/retransmite).
       const activeDte = await tx.dteOutgoingDocument.findFirst({
         where: {
           sale_id:       input.sale_id,
           tenant_id,
           dte_type_code: input.dte_type_code,
-          dte_status:    { notIn: ["NOT_REQUIRED", "INVALIDATED"] },
+          dte_status:    { notIn: ["NOT_REQUIRED", "INVALIDATED", "REJECTED"] },
         },
         select: { id: true, dte_status: true },
       });
@@ -138,50 +163,24 @@ export async function createPendingDteForSale(
       }
 
       // ── 4. Reservar correlativo de forma atómica ─────────────────
-      // UPDATE ... SET last_sequence = last_sequence + 1 es atómico en PostgreSQL.
-      // Dentro de la transacción, cada request obtiene su propio número único.
-      // Si no existe el correlativo, Prisma lanza P2025.
-      const year = new Date().getFullYear();
-
-      let correlative: { last_sequence: number };
-      try {
-        correlative = await tx.dteCorrelative.update({
-          where: {
-            tenant_id_location_id_environment_dte_type_code_year: {
-              tenant_id,
-              location_id,
-              environment:   input.environment,
-              dte_type_code: input.dte_type_code,
-              year,
-            },
-          },
-          data:   { last_sequence: { increment: 1 } },
-          select: { last_sequence: true },
-        });
-      } catch (err) {
-        const code = (err as { code?: string }).code;
-        if (code === "P2025") {
-          throw new DteBusinessError(
-            `No existe correlativo DTE activo para tipo "${input.dte_type_code}" en el año ${year}. Configure el correlativo antes de generar DTE.`,
-          );
-        }
-        throw err;
-      }
-
-      const reservedSequence = correlative.last_sequence;
+      // F3-C24: reserva genérica por dte_type_code — toma el máximo entre
+      // el correlativo interno, la mayor secuencia ya usada en
+      // DteOutgoingDocument y el baseline externo alineado por un admin
+      // (empresa migrando desde otro sistema). Ver dte-correlative.service.ts.
+      const { control_number } = await reserveDteControlNumber(tx, {
+        tenant_id,
+        location_id,
+        issuer_config_id:   issuerConfig.id,
+        environment:        input.environment,
+        dte_type_code:      input.dte_type_code,
+        cod_estable_mh:     issuerConfig.cod_estable_mh,
+        cod_punto_venta_mh: issuerConfig.cod_punto_venta_mh,
+      });
 
       // ── 5. Generar codigoGeneracion (UUID uppercase — inmutable) ──
       const generation_code = randomUUID().toUpperCase();
 
-      // ── 6. Construir numeroControl ───────────────────────────────
-      const control_number = buildControlNumber({
-        dte_type_code:      input.dte_type_code,
-        cod_estable_mh:     issuerConfig.cod_estable_mh,
-        cod_punto_venta_mh: issuerConfig.cod_punto_venta_mh,
-        sequence:           reservedSequence,
-      });
-
-      // ── 7. Crear DteOutgoingDocument ─────────────────────────────
+      // ── 6. Crear DteOutgoingDocument ─────────────────────────────
       return await tx.dteOutgoingDocument.create({
         data: {
           tenant_id,
@@ -192,6 +191,9 @@ export async function createPendingDteForSale(
           environment:      input.environment,
           generation_code,
           control_number,
+          transmission_type_code: transmission.data.transmission_type_code,
+          contingency_type_code:  transmission.data.contingency_type_code,
+          contingency_reason:     transmission.data.contingency_reason,
           dte_status:       "PENDING_GENERATION",
           retry_count:      0,
           created_by:       user_id,
@@ -209,6 +211,164 @@ export async function createPendingDteForSale(
     }
 
     // Colisión en generation_code @unique (probabilidad ínfima pero posible)
+    const code = (error as { code?: string }).code;
+    if (code === "P2002") {
+      return {
+        ok:    false,
+        error: "Error de concurrencia al reservar la identidad fiscal. Intente nuevamente.",
+      };
+    }
+
+    throw error;
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────
+// createPendingDteForPurchase — crea DteOutgoingDocument tipo "14"
+// (FSE) con purchase_id, sale_id = null. Función paralela y explícita
+// a createPendingDteForSale — no la reutiliza ni la deforma.
+//
+// Reglas:
+//   - Purchase debe existir, pertenecer a tenant/location y estar CONFIRMED.
+//   - Purchase.document_type debe estar marcado explícitamente para FSE
+//     (FSE_ELIGIBLE_DOCUMENT_TYPES) — una compra COV nunca habilita esto.
+//   - Supplier debe estar clasificado EXCLUDED_SUBJECT.
+//   - No permite un segundo FSE activo para la misma compra (mismo
+//     criterio que ventas: REJECTED/INVALIDATED/NOT_REQUIRED no bloquean).
+//   - Reserva correlativo tipo "14" de forma atómica (mismo mecanismo
+//     genérico que FE/CCFE/NC/FEX — dte-correlative.service.ts).
+// ─────────────────────────────────────────────────────────────────
+
+export async function createPendingDteForPurchase(
+  tenant_id:   string,
+  location_id: string,
+  user_id:     string,
+  input: {
+    purchase_id:      string;
+    issuer_config_id: string;
+    environment:      "TEST" | "PRODUCTION";
+  },
+): Promise<CreatePendingDteResult> {
+  try {
+    const doc = await prisma.$transaction(async (tx) => {
+
+      // ── 1. Cargar compra con proveedor ───────────────────────────
+      const purchase = await tx.purchase.findFirst({
+        where:  { id: input.purchase_id, tenant_id, location_id },
+        select: {
+          id:             true,
+          status:         true,
+          document_type:  true,
+          supplier: {
+            select: { id: true, taxpayer_type: true },
+          },
+          _count: { select: { items: true } },
+        },
+      });
+      if (!purchase) {
+        throw new DteBusinessError("La compra no existe o no pertenece a la location activa.");
+      }
+      if (purchase.status !== "CONFIRMED") {
+        throw new DteBusinessError("Solo se puede generar FSE para compras confirmadas.");
+      }
+      if (purchase._count.items === 0) {
+        throw new DteBusinessError("La compra no tiene líneas de detalle. No se puede generar FSE sin productos.");
+      }
+      if (!purchase.document_type || !FSE_ELIGIBLE_DOCUMENT_TYPES.includes(purchase.document_type)) {
+        throw new DteBusinessError(
+          "Esta compra no está marcada para emisión de FSE 14. Cambie el tipo de documento a FSE antes de emitir.",
+        );
+      }
+      if (purchase.supplier.taxpayer_type !== "EXCLUDED_SUBJECT") {
+        throw new DteBusinessError(
+          "El proveedor de esta compra no está clasificado como sujeto excluido (EXCLUDED_SUBJECT). Actualice la clasificación tributaria del proveedor.",
+        );
+      }
+
+      // ── 2. Verificar que no existe FSE activo duplicado ──────────
+      const activeDte = await tx.dteOutgoingDocument.findFirst({
+        where: {
+          purchase_id:   input.purchase_id,
+          tenant_id,
+          dte_type_code: "14",
+          dte_status:    { notIn: ["NOT_REQUIRED", "INVALIDATED", "REJECTED"] },
+        },
+        select: { id: true, dte_status: true },
+      });
+      if (activeDte) {
+        throw new DteBusinessError(
+          `Esta compra ya tiene un documento FSE 14 activo o en proceso (estado: ${activeDte.dte_status}).`,
+        );
+      }
+
+      // ── 3. Configuración del emisor ──────────────────────────────
+      const issuerConfig = await tx.dteIssuerConfig.findFirst({
+        where: {
+          id:          input.issuer_config_id,
+          tenant_id,
+          location_id,
+          environment: input.environment,
+          is_active:   true,
+        },
+        select: {
+          id:                 true,
+          cod_estable_mh:     true,
+          cod_punto_venta_mh: true,
+        },
+      });
+      if (!issuerConfig) {
+        throw new DteBusinessError(
+          "La configuración DTE del emisor no existe, está inactiva o no corresponde al ambiente indicado.",
+        );
+      }
+      if (!issuerConfig.cod_estable_mh || !issuerConfig.cod_punto_venta_mh) {
+        throw new DteBusinessError(
+          "Faltan códigos MH de establecimiento y punto de venta para este emisor/ambiente. " +
+          "Configure cod_estable_mh y cod_punto_venta_mh en la configuración del emisor DTE.",
+        );
+      }
+
+      // ── 4. Reservar correlativo tipo "14" ─────────────────────────
+      const { control_number } = await reserveDteControlNumber(tx, {
+        tenant_id,
+        location_id,
+        issuer_config_id:   issuerConfig.id,
+        environment:        input.environment,
+        dte_type_code:      "14",
+        cod_estable_mh:     issuerConfig.cod_estable_mh,
+        cod_punto_venta_mh: issuerConfig.cod_punto_venta_mh,
+      });
+
+      const generation_code = randomUUID().toUpperCase();
+
+      // ── 5. Crear DteOutgoingDocument — purchase_id, sale_id null ──
+      return await tx.dteOutgoingDocument.create({
+        data: {
+          tenant_id,
+          location_id,
+          purchase_id:      input.purchase_id,
+          issuer_config_id: input.issuer_config_id,
+          dte_type_code:    "14",
+          environment:      input.environment,
+          generation_code,
+          control_number,
+          transmission_type_code: "1",
+          dte_status:       "PENDING_GENERATION",
+          retry_count:      0,
+          created_by:       user_id,
+          updated_by:       user_id,
+        },
+        select: { id: true },
+      });
+    });
+
+    return { ok: true, dte_document_id: doc.id };
+
+  } catch (error) {
+    if (error instanceof DteBusinessError) {
+      return { ok: false, error: error.message };
+    }
+
     const code = (error as { code?: string }).code;
     if (code === "P2002") {
       return {

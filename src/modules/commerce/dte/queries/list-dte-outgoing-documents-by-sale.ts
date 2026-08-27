@@ -18,6 +18,7 @@ export async function listDteOutgoingDocumentsBySale(
       tenant_id:        true,
       location_id:      true,
       sale_id:          true,
+      purchase_id:      true,
       issuer_config_id: true,
       dte_type_code:    true,
       generation_code:  true,

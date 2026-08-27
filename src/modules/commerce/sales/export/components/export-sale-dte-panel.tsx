@@ -20,9 +20,18 @@ import {
   transmitExportDteAction,
   deliverExportDteAction,
   getExportDteStateAction,
+  regenerateExportDteAction,
   type ExportDteState,
   type ExportDteActionResult,
 } from "../actions/export-sale-dte.actions";
+import { isFiscallyReceivedByMh } from "@/modules/commerce/dte/utils/dte-fiscal-receipt.utils";
+
+// ExportDteState solo expone has_reception_stamp (boolean), no el sello
+// crudo — isFiscallyReceivedByMh solo necesita distinguir presente/ausente,
+// así que un booleano se adapta a string|null sin perder semántica.
+function receivedByMh(state: ExportDteState): boolean {
+  return isFiscallyReceivedByMh(state.dte_status, state.has_reception_stamp ? "present" : null);
+}
 
 function Pill({ ok, label }: { ok: boolean; label: string }) {
   return (
@@ -91,8 +100,21 @@ export function ExportSaleDtePanel({ initialState }: { initialState: ExportDteSt
       </div>
 
       {error && (
-        <div className="rounded border border-red-700/50 bg-red-950/30 px-2 py-1.5 text-[11px] text-red-300">
+        <div className="rounded border border-red-700/50 bg-red-950/30 px-2 py-1.5 text-[11px] text-red-300 whitespace-pre-wrap break-words">
           {error}
+        </div>
+      )}
+
+      {state.dte_status === "REJECTED" && (
+        <div className="rounded border border-red-700/50 bg-red-950/30 px-2 py-2 text-[11px] text-red-300 space-y-1.5">
+          <p className="font-semibold">Rechazado por Hacienda</p>
+          {state.last_log?.message && (
+            <p className="whitespace-pre-wrap break-words text-red-300/90">{state.last_log.message}</p>
+          )}
+          <p className="text-red-300/70">
+            Este documento no se puede retransmitir ni modificar. Genera un nuevo DTE con número de
+            control nuevo para reintentar — el documento rechazado queda como registro histórico.
+          </p>
         </div>
       )}
 
@@ -167,8 +189,7 @@ export function ExportSaleDtePanel({ initialState }: { initialState: ExportDteSt
           type="button"
           disabled={
             pending ||
-            state.dte_status !== "ACCEPTED" ||
-            !state.has_reception_stamp ||
+            !receivedByMh(state) ||
             state.has_external_delivery_log
           }
           onClick={() => runAction("deliver", () => deliverExportDteAction(state.dte_document_id))}
@@ -177,6 +198,18 @@ export function ExportSaleDtePanel({ initialState }: { initialState: ExportDteSt
           {pending && activeAction === "deliver" && <Loader2 className="h-3 w-3 animate-spin" />}
           Enviar a MariaDB
         </button>
+
+        {state.dte_status === "REJECTED" && (
+          <button
+            type="button"
+            disabled={pending}
+            onClick={() => runAction("regenerate", () => regenerateExportDteAction(state.dte_document_id))}
+            className={`${btnBase} bg-amber-700 hover:bg-amber-600 text-white`}
+          >
+            {pending && activeAction === "regenerate" && <Loader2 className="h-3 w-3 animate-spin" />}
+            Generar nuevo DTE (nuevo número de control)
+          </button>
+        )}
       </div>
     </div>
   );

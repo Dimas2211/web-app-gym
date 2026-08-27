@@ -25,7 +25,12 @@ import type { ExportProductLookup } from "../queries/search-export-products";
 
 interface Props {
   onAdd: (product: ExportProductLookup) => void;
+  onConfigureUnit?: (product: ExportProductLookup) => void;
   disabled?: boolean;
+  // F3-C23E — cambia cuando una unidad se configuró desde el modal de
+  // MH, para forzar un refetch y reflejar el mh_unit_code recién
+  // asignado sin que el usuario tenga que re-escribir el filtro.
+  refreshToken?: number;
 }
 
 export interface ExportProductSearchHandle {
@@ -33,7 +38,7 @@ export interface ExportProductSearchHandle {
 }
 
 export const ExportProductSearchPanel = forwardRef<ExportProductSearchHandle, Props>(
-function ExportProductSearchPanel({ onAdd, disabled }, ref) {
+function ExportProductSearchPanel({ onAdd, onConfigureUnit, disabled, refreshToken }, ref) {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<ExportProductLookup[]>([]);
   const [isSearching, setIsSearching] = useState(false);
@@ -65,7 +70,7 @@ function ExportProductSearchPanel({ onAdd, disabled }, ref) {
       }
     }, delay);
     return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
-  }, [query]);
+  }, [query, refreshToken]);
 
   // Mantener la fila activa visible al navegar con flechas.
   useEffect(() => {
@@ -193,13 +198,24 @@ function ExportProductSearchPanel({ onAdd, disabled }, ref) {
                       <div className="flex items-center gap-1.5">
                         <span className="truncate">{p.name}</span>
                         {!p.mh_unit_code && (
-                          <span
-                            title="Sin código MH (CAT-014) — no se puede usar en FEX 11"
-                            className="inline-flex items-center gap-0.5 rounded-full bg-amber-900/30 px-1.5 py-0.5 text-[9px] font-medium text-amber-400 border border-amber-700/50 flex-none"
-                          >
-                            <AlertTriangle className="h-2.5 w-2.5" />
-                            sin MH
-                          </span>
+                          <>
+                            <span
+                              title="Requiere unidad MH (CAT-014) para generar el DTE de exportación"
+                              className="inline-flex items-center gap-0.5 rounded-full bg-amber-900/30 px-1.5 py-0.5 text-[9px] font-medium text-amber-400 border border-amber-700/50 flex-none"
+                            >
+                              <AlertTriangle className="h-2.5 w-2.5" />
+                              Requiere unidad MH
+                            </span>
+                            {onConfigureUnit && (
+                              <button
+                                type="button"
+                                onClick={(e) => { e.stopPropagation(); onConfigureUnit(p); }}
+                                className="flex-none rounded border border-zinc-600 px-1.5 py-0.5 text-[9px] font-medium text-zinc-300 hover:border-zinc-400 hover:text-white transition-colors"
+                              >
+                                Configurar
+                              </button>
+                            )}
+                          </>
                         )}
                       </div>
                     </td>

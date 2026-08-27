@@ -42,6 +42,8 @@ export const MODULE_GROUPS: ModuleGroup[] = [
       { label: "Exportaciones", href: "/dashboard/sales/export", roles: ["super_admin", "branch_admin"] },
       { label: "Caja", href: "/dashboard/cash", roles: ["super_admin", "branch_admin", "reception"] },
       { label: "DTE emitidos", href: "/dashboard/dte/outgoing", roles: ["super_admin", "branch_admin"] },
+      { label: "Facturación Electrónica", href: "/dashboard/settings/dte", roles: ["super_admin", "branch_admin"] },
+      { label: "Correlativos DTE", href: "/dashboard/dte/correlatives", roles: ["super_admin"] },
       { label: "Consultas y reportes", href: "/dashboard/reports/commerce", roles: ["super_admin", "branch_admin"] },
     ],
   },

@@ -74,9 +74,10 @@ async function main() {
   for (const dte_type_code of ["01", "03", "05"]) {
     await prisma.dteCorrelative.upsert({
       where: {
-        tenant_id_location_id_environment_dte_type_code_year: {
+        tenant_id_location_id_issuer_config_id_environment_dte_type_code_year: {
           tenant_id: tenant.id,
           location_id: location.id,
+          issuer_config_id: issuer.id,
           environment: "TEST",
           dte_type_code,
           year,
@@ -86,8 +87,11 @@ async function main() {
       create: {
         tenant_id: tenant.id,
         location_id: location.id,
+        issuer_config_id: issuer.id,
         environment: "TEST",
         dte_type_code,
+        cod_estable_mh: issuer.cod_estable_mh,
+        cod_punto_venta_mh: issuer.cod_punto_venta_mh,
         year,
         last_sequence: 0,
       },

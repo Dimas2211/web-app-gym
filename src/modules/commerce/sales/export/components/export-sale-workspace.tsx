@@ -18,6 +18,7 @@ import { ExportTopBar } from "./export-top-bar";
 import { ExportCustomerModal } from "./export-customer-modal";
 import { ExportFiscalModal, type FiscalData } from "./export-fiscal-modal";
 import { ExportProductSearchPanel, type ExportProductSearchHandle } from "./export-product-search-panel";
+import { ExportConfigureMhUnitModal } from "./export-configure-mh-unit-modal";
 import { ExportLinesTable, type ExportLineDraft, type ExportLinesTableHandle } from "./export-lines-table";
 import { ExportTotalsPanel } from "./export-totals-panel";
 import { createExportSaleAction } from "../actions/export-sale.actions";
@@ -35,7 +36,7 @@ interface CreatedSale {
 export function ExportSaleWorkspace({
   catalogCAT016,
   catalogCAT017,
-  catalogCAT020,
+  catalogFexCountries,
   catalogCAT022,
   catalogCAT027,
   catalogCAT028,
@@ -46,7 +47,7 @@ export function ExportSaleWorkspace({
 }: {
   catalogCAT016: DteCatalogItem[];
   catalogCAT017: DteCatalogItem[];
-  catalogCAT020: DteCatalogItem[];
+  catalogFexCountries: DteCatalogItem[]; // País — catálogo compatibilidad FEX v1 (F3-C23D)
   catalogCAT022: DteCatalogItem[];
   catalogCAT027: DteCatalogItem[];
   catalogCAT028: DteCatalogItem[];
@@ -85,6 +86,12 @@ export function ExportSaleWorkspace({
   // Líneas
   const [lines, setLines] = useState<ExportLineDraft[]>([]);
 
+  // F3-C23E — modal de configuración de unidad MH (CAT-014) para
+  // productos/servicios sin mh_unit_code, y token para forzar refetch
+  // del buscador de productos tras asignarla.
+  const [configureUnitProduct, setConfigureUnitProduct] = useState<ExportProductLookup | null>(null);
+  const [productsRefreshToken, setProductsRefreshToken] = useState(0);
+
   // Venta creada + DTE
   const [created, setCreated] = useState<CreatedSale | null>(null);
   const [dteState, setDteState] = useState<ExportDteState | null>(null);
@@ -108,7 +115,12 @@ export function ExportSaleWorkspace({
 
   function addLine(product: ExportProductLookup) {
     if (!product.mh_unit_code) {
-      setError(`El producto "${product.name}" no tiene unidad con código MH (CAT-014) configurado. No se puede usar en FEX 11.`);
+      setError(
+        `"${product.name}" requiere unidad MH (CAT-014) antes de agregarse a una FEX 11. ` +
+        `Usa el botón "Configurar" en la fila del producto para asignarle una unidad válida — ` +
+        `no es necesario que sea producto físico, los servicios también pueden usarse en cuanto tengan unidad MH.`,
+      );
+      setConfigureUnitProduct(product);
       return;
     }
     setError(null);
@@ -214,7 +226,9 @@ export function ExportSaleWorkspace({
     setFieldErrors([]);
   }
 
-  const combinedError = error ? [error, ...fieldErrors].join(" ") : null;
+  // F3-C23E — el contenedor del top bar ya no trunca (whitespace-pre-wrap),
+  // así que varios errores se listan uno por línea en vez de concatenados.
+  const combinedError = error ? [error, ...fieldErrors].join("\n") : null;
   const isReadOnly = !!created;
 
   return (
@@ -270,7 +284,13 @@ export function ExportSaleWorkspace({
                 </p>
               </div>
             ) : (
-              <ExportProductSearchPanel ref={productSearchRef} onAdd={addLine} disabled={pending} />
+              <ExportProductSearchPanel
+                ref={productSearchRef}
+                onAdd={addLine}
+                onConfigureUnit={setConfigureUnitProduct}
+                refreshToken={productsRefreshToken}
+                disabled={pending}
+              />
             )}
           </div>
 
@@ -295,7 +315,7 @@ export function ExportSaleWorkspace({
 
       {showCustomerModal && (
         <ExportCustomerModal
-          catalogCAT020={catalogCAT020}
+          catalogFexCountries={catalogFexCountries}
           catalogCAT022={catalogCAT022}
           catalogCAT029={catalogCAT029}
           onClose={() => {
@@ -309,6 +329,19 @@ export function ExportSaleWorkspace({
             setError(null);
             // A → B: receptor confirmado, el foco avanza a Fecha.
             document.getElementById("export-date-input")?.focus();
+          }}
+        />
+      )}
+
+      {configureUnitProduct && (
+        <ExportConfigureMhUnitModal
+          product={configureUnitProduct}
+          onClose={() => setConfigureUnitProduct(null)}
+          onConfigured={() => {
+            setConfigureUnitProduct(null);
+            setProductsRefreshToken((n) => n + 1);
+            setError(null);
+            productSearchRef.current?.focusSearch();
           }}
         />
       )}

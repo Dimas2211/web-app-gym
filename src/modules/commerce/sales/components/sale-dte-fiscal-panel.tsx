@@ -18,6 +18,7 @@
 import { useState } from "react";
 import type { SaleDetail } from "../types/sale.types";
 import { getDteShortCode } from "../utils/dte-type-labels";
+import { isFiscallyReceivedByMh } from "@/modules/commerce/dte/utils/dte-fiscal-receipt.utils";
 
 // ── Props ─────────────────────────────────────────────────────────
 
@@ -150,9 +151,8 @@ export function SaleDteFiscalPanel({
   const extInvDel = detail.external_invalidation_delivery;
 
   const canDeliverExternal =
-    dte.dte_status === "ACCEPTED"
+    isFiscallyReceivedByMh(dte.dte_status, dte.reception_stamp)
     && EXTERNAL_DELIVERY_TYPES.has(dte.dte_type_code)
-    && !!dte.reception_stamp
     && !extDel.hasSuccessfulDelivery
     && !!onDeliverExternal;
 
@@ -402,7 +402,11 @@ export function SaleDteFiscalPanel({
                   </div>
                 )}
                 {!canDeliverExternal && !acceptedInvalidationEvent && !extDel.hasSuccessfulDelivery && extDel.attemptsCount === 0 && (
-                  <span className="text-[10px] text-zinc-600">DTE no aceptado aún. Entrega no disponible.</span>
+                  <span className="text-[10px] text-zinc-600">
+                    {isFiscallyReceivedByMh(dte.dte_status, dte.reception_stamp)
+                      ? "Tipo de DTE no admite entrega externa."
+                      : "DTE aún no recibido por MH. Entrega no disponible."}
+                  </span>
                 )}
               </div>
             )}

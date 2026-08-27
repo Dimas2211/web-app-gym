@@ -108,6 +108,9 @@ export async function generateSupportDteJsonRunner(
   if (!dteDoc.issuer_config_id) {
     return { ok: false, error: "El documento DTE no tiene configuración de emisor vinculada." };
   }
+  if (!dteDoc.sale_id) {
+    return { ok: false, error: "El documento DTE no está asociado a ninguna venta." };
+  }
 
   // ── 2. Cargar venta completa ──────────────────────────────────────
   const sale = await client.sale.findFirst({

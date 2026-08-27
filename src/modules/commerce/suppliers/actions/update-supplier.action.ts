@@ -48,6 +48,7 @@ export async function updateSupplierAction(
     // Obligatorios en update (no pueden quedar vacíos)
     name:          str(formData.get("name")),
     taxpayer_type: str(formData.get("taxpayer_type")),
+    person_type:   strNullable(formData.get("person_type")),
 
     // supplier_code excluido — clave de negocio inmutable
 

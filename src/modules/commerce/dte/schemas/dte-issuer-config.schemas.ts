@@ -168,6 +168,25 @@ export const createDteOutgoingDocumentDraftSchema = z.object({
   environment: z.enum(DTE_ENVIRONMENTS, {
     message: "El ambiente DTE debe ser TEST o PRODUCTION",
   }),
+
+  // Evento de Contingencia MH (Bloque A) — opcionales; si se omiten el DTE
+  // se crea como transmisión normal exactamente igual que antes de este
+  // bloque. La combinación se re-valida server-side en
+  // dte-transmission-validation.utils.ts (nunca se confía solo en zod).
+  transmission_type_code: z
+    .enum(["1", "2"])
+    .optional(),
+
+  contingency_type_code: z
+    .enum(["1", "2", "3", "4", "5"])
+    .nullable()
+    .optional(),
+
+  contingency_reason: z
+    .string()
+    .max(500, "El motivo de contingencia no puede exceder 500 caracteres")
+    .nullable()
+    .optional(),
 });
 
 export type CreateDteOutgoingDocumentDraftInput = z.infer<

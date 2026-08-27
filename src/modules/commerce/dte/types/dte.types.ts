@@ -58,7 +58,8 @@ export interface DteOutgoingDocumentDetail {
   id:               string;
   tenant_id:        string;
   location_id:      string;
-  sale_id:          string;
+  sale_id:          string | null;
+  purchase_id:      string | null;
   issuer_config_id: string | null;
   dte_type_code:    string;
   generation_code:  string | null;

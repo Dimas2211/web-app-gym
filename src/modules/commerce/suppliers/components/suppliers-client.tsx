@@ -305,6 +305,7 @@ export function SuppliersClient({
           <option value="SMALL_TAXPAYER">Pequeño contribuyente</option>
           <option value="NON_TAXPAYER">No contribuyente</option>
           <option value="FOREIGN">Extranjero</option>
+          <option value="EXCLUDED_SUBJECT">Sujeto excluido</option>
         </select>
 
         {/* Filtro por estado — instantáneo */}

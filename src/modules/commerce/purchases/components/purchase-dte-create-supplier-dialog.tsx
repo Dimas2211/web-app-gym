@@ -40,6 +40,7 @@ const TAXPAYER_TYPE_LABELS: Record<string, string> = {
   SMALL_TAXPAYER: "Pequeno contribuyente",
   NON_TAXPAYER:   "No contribuyente",
   FOREIGN:        "Extranjero",
+  EXCLUDED_SUBJECT: "Sujeto excluido",
 };
 
 const TAXPAYER_TYPE_OPTIONS = Object.entries(TAXPAYER_TYPE_LABELS).map(

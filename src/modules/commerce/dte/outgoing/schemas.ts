@@ -7,7 +7,7 @@
 
 import { z } from "zod";
 
-const DTE_TYPE_OPTIONS   = ["01", "03", "05", "ALL"] as const;
+const DTE_TYPE_OPTIONS   = ["01", "03", "05", "11", "14", "ALL"] as const;
 const ENVIRONMENT_OPTIONS = ["TEST", "PRODUCTION", "ALL"] as const;
 const SORT_FIELD_OPTIONS  = [
   "control_number",

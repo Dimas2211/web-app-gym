@@ -45,6 +45,8 @@
 import { prisma } from "@/lib/db/prisma";
 import { numeroALetras } from "../utils/numero-a-letras";
 import { normalizeNitForDte, normalizeNrcForDte } from "../utils/fiscal-id.utils";
+import { validateDteAddressCodes } from "../utils/dte-territory.resolver";
+import fexSchema from "../schemas/mh/fex-11.schema.json";
 import type {
   FexJsonDocument,
   FexCuerpoItem,
@@ -52,6 +54,44 @@ import type {
 } from "../types/fex-json.types";
 
 const TOLERANCE = 0.01;
+
+// ── F3-C23C/F3-C23D — bloqueo por conflicto CAT-020 (ISO alpha-2) vs schema MH ──
+//
+// El catálogo oficial CAT-020 v1.2 (10/2025, database/catalogs/Catálogos
+// del Sistema de Transmisión V 1.2.xlsx, hoja "CAT-020 País") usa códigos
+// ISO 3166-1 alpha-2 ("US", "SV", ...) — catálogo central del sistema
+// (modelo `Country`, ver get-countries.ts), vigente y sin cambios.
+//
+// El Ministerio publicó en julio 2026 schemas nuevos (FEX ahora aparece
+// como v3, con receptor.codPais alineado a CAT-020 ISO). Esta versión NO
+// migra a esos schemas nuevos — sigue operando sobre el schema local
+// vigente `fex-11.schema.json` (copia de `fe-fex-v1.json`, FEX v1,
+// fechado 03/2023), que define `receptor.codPais` como un enum cerrado de
+// 275 códigos numéricos de 4 dígitos y NO acepta códigos alfabéticos. Es
+// una contradicción real entre CAT-020 (fuente más reciente) y el schema
+// v1 local (fuente más vieja) — ver
+// docs/dte-official/extracts/fex11-catalogs-operational.md (§"F3-C23C"/"F3-C23D").
+//
+// F3-C23C bloqueaba aquí y dejaba FEX 11 sin forma de operar, porque la
+// UI solo ofrecía CAT-020. F3-C23D restaura la operación agregando un
+// catálogo de COMPATIBILIDAD separado para receptor.codPais de FEX v1
+// (catalog_code "FEX-11-V1-CODPAIS", derivado de este mismo enum — ver
+// prisma/seeds/data/fex11-catalog-rows.ts), que /dashboard/sales/export
+// ahora usa en vez de CAT-020 para este campo mientras sigamos en v1. La
+// guardia se mantiene sin cambios: sigue bloqueando cualquier
+// `country_code` fuera de este enum (p. ej. si llegara "US" por datos
+// heredados o un cliente creado antes de esta fase) — nunca convierte
+// silenciosamente ISO → numérico.
+const FEX_COD_PAIS_SCHEMA_ENUM = new Set<string>(
+  (fexSchema as unknown as {
+    properties: { receptor: { properties: { codPais: { enum: string[] } } } };
+  }).properties.receptor.properties.codPais.enum,
+);
+
+// Detección best-effort de un código con "forma" ISO alpha-2 (2 letras),
+// solo para dar un mensaje de error más claro cuando el valor bloqueado
+// viene evidentemente de CAT-020 — no valida que exista en CAT-020 real.
+const ISO_ALPHA2_LIKE = /^[A-Z]{2}$/;
 
 // ── Tipos de entrada para la función pura ──────────────────────────
 // Reflejan exactamente los campos que buildFexJsonFromLoadedData lee de
@@ -222,6 +262,9 @@ export async function generateFexJsonForSale(params: {
   if (!dteDoc.issuer_config_id) {
     return { ok: false, error: "El documento DTE no tiene configuración de emisor vinculada." };
   }
+  if (!dteDoc.sale_id) {
+    return { ok: false, error: "El documento DTE no está asociado a ninguna venta." };
+  }
 
   // ── 4. Cargar venta completa ──────────────────────────────────────
   const sale = await prisma.sale.findFirst({
@@ -329,6 +372,16 @@ export async function generateFexJsonForSale(params: {
     return { ok: false, error: "La configuración DTE del emisor no existe o no pertenece a esta location." };
   }
 
+  // ── Validación territorial del emisor (resolver único) ───────────
+  // FEX 11 no incluye dept/municipio en el receptor (extranjero, usa
+  // codPais/nombrePais) — solo el emisor requiere esta validación.
+  const emisorAddrCheck = await validateDteAddressCodes({
+    role:             "emisor",
+    deptCode:         issuerConfig.dept_code,
+    municipalityCode: issuerConfig.municipality_code,
+  });
+  if (!emisorAddrCheck.ok) return { ok: false, error: emisorAddrCheck.error };
+
   return buildFexJsonFromLoadedData({
     tenant_id,
     dteDoc: {
@@ -392,6 +445,25 @@ export function buildFexJsonFromLoadedData(loaded: FexLoadedData): GenerateFexJs
     return {
       ok:    false,
       error: `El cliente no está completo para emitir FEX 11. Campos faltantes o inválidos: ${missingCustomerFields.join(", ")}.`,
+    };
+  }
+
+  // F3-C23D — c.country_code debe venir del catálogo de compatibilidad
+  // FEX v1 (FEX-11-V1-CODPAIS, códigos numéricos legados), no de CAT-020
+  // (ISO alpha-2). Ver nota junto a FEX_COD_PAIS_SCHEMA_ENUM arriba.
+  if (!FEX_COD_PAIS_SCHEMA_ENUM.has(c.country_code!)) {
+    const isIsoAlpha2 = ISO_ALPHA2_LIKE.test(c.country_code!);
+    return {
+      ok: false,
+      error: isIsoAlpha2
+        ? `El país "${c.country_code}" pertenece al catálogo CAT-020 ISO actualizado, pero la ` +
+          `versión actual de FEX 11 usa códigos numéricos compatibles con el schema v1 ` +
+          `(catálogo de compatibilidad FEX-11-V1-CODPAIS, no CAT-020). Seleccione el país desde ` +
+          `el catálogo FEX v1 en /dashboard/sales/export.`
+        : `No se puede generar el JSON de FEX 11: el país del cliente ("${c.country_code}") ` +
+          `no es compatible con el schema de validación MH vigente (fex-11.schema.json). ` +
+          `Seleccione un país válido del catálogo de compatibilidad FEX v1 (FEX-11-V1-CODPAIS) ` +
+          `— ver docs/dte-official/extracts/fex11-catalogs-operational.md (sección F3-C23D).`,
     };
   }
 

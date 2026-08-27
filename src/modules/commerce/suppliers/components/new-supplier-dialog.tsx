@@ -56,6 +56,16 @@ const TAXPAYER_OPTIONS = [
   { value: "SMALL_TAXPAYER", label: "Pequeño contribuyente" },
   { value: "NON_TAXPAYER",   label: "No contribuyente"      },
   { value: "FOREIGN",        label: "Extranjero"             },
+  { value: "EXCLUDED_SUBJECT", label: "Sujeto excluido"      },
+] as const;
+
+// Persona natural/jurídica — independiente del tipo de contribuyente.
+// UNKNOWN es el default seguro; solo decide automatización de Retención
+// de Renta en compras FSE 14 (commerce/purchases).
+const PERSON_TYPE_OPTIONS = [
+  { value: "UNKNOWN",        label: "Sin clasificar"     },
+  { value: "NATURAL_PERSON", label: "Persona natural"    },
+  { value: "LEGAL_ENTITY",   label: "Persona jurídica"   },
 ] as const;
 
 // CAT-022 — Tipos de identificación DTE El Salvador
@@ -161,6 +171,23 @@ export function NewSupplierDialog({ onClose, onSuccess }: NewSupplierDialogProps
                   ))}
                 </select>
                 <FieldError errors={state?.errors?.taxpayer_type} />
+              </div>
+
+              <div>
+                <label htmlFor="ns-person_type" className={labelCls}>
+                  Clasificación persona
+                </label>
+                <select
+                  id="ns-person_type"
+                  name="person_type"
+                  defaultValue="UNKNOWN"
+                  className={inputCls}
+                >
+                  {PERSON_TYPE_OPTIONS.map((o) => (
+                    <option key={o.value} value={o.value}>{o.label}</option>
+                  ))}
+                </select>
+                <FieldError errors={state?.errors?.person_type} />
               </div>
 
               <div className="col-span-2">

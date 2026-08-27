@@ -6,6 +6,15 @@ export type DteMhEnvironment = "TEST" | "PRODUCTION";
 
 export interface DteMhAuthInput {
   environment?: DteMhEnvironment;
+  /**
+   * DteIssuerConfig.id del emisor que autentica. Determina qué
+   * DteCredential se usa y aísla el cache de token por emisor
+   * (ver dte-auth.adapter.ts). Opcional por compatibilidad con
+   * llamadas existentes (dev scripts, invalidación/contingencia)
+   * que todavía no lo pasan — en ese caso se usa el fallback TEST
+   * de .env (nunca en PRODUCTION).
+   */
+  issuerConfigId?: string;
   user?: string;
   password?: string;
 }

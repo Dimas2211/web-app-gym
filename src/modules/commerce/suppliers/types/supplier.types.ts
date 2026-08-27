@@ -19,10 +19,21 @@
  * Espejo del enum TaxpayerType del schema Prisma.
  */
 export type TaxpayerType =
-  | "LARGE_TAXPAYER"   // Gran contribuyente
-  | "SMALL_TAXPAYER"   // Pequeño contribuyente
-  | "NON_TAXPAYER"     // No contribuyente (persona natural sin NRC)
-  | "FOREIGN";         // Proveedor extranjero
+  | "LARGE_TAXPAYER"    // Gran contribuyente
+  | "SMALL_TAXPAYER"    // Pequeño contribuyente
+  | "NON_TAXPAYER"      // No contribuyente (persona natural sin NRC)
+  | "FOREIGN"           // Proveedor extranjero
+  | "EXCLUDED_SUBJECT"; // Sujeto excluido — habilita emisión de FSE 14
+
+/**
+ * Clasificación persona natural/jurídica — independiente de TaxpayerType.
+ * EXCLUDED_SUBJECT NO implica persona natural: un sujeto excluido puede
+ * ser persona natural o jurídica. Decide si la Retención de Renta
+ * automática de FSE 14 aplica (ver commerce/purchases). UNKNOWN es el
+ * default seguro para proveedores históricos — nunca se infiere.
+ * Espejo del enum SupplierPersonType del schema Prisma.
+ */
+export type SupplierPersonType = "NATURAL_PERSON" | "LEGAL_ENTITY" | "UNKNOWN";
 
 /**
  * Estados operativos del proveedor.
@@ -51,6 +62,9 @@ export interface SupplierListItem {
 
   // Clasificación tributaria
   taxpayer_type:  TaxpayerType;
+
+  // Clasificación persona natural/jurídica
+  person_type:    SupplierPersonType;
 
   // Identificación documental — columnas de la grilla
   id_type_code:   string | null;  // código CAT-022: "13", "03", etc.
@@ -144,6 +158,9 @@ export interface SupplierCreateInput {
   supplier_code:  string;
   name:           string;
   taxpayer_type:  TaxpayerType;
+
+  // Clasificación persona natural/jurídica — opcional, default UNKNOWN en el service
+  person_type?:   SupplierPersonType;
 
   // Identidad opcional
   account_code:   string | null;

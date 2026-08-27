@@ -58,7 +58,7 @@ export async function GET(req: NextRequest) {
   if (searchName?.trim()) filters.search_name = searchName.trim();
 
   const VALID_TAXPAYER_TYPES: TaxpayerType[] = [
-    "LARGE_TAXPAYER", "SMALL_TAXPAYER", "NON_TAXPAYER", "FOREIGN",
+    "LARGE_TAXPAYER", "SMALL_TAXPAYER", "NON_TAXPAYER", "FOREIGN", "EXCLUDED_SUBJECT",
   ];
   const taxpayerTypeParam = searchParams.get("taxpayer_type");
   if (taxpayerTypeParam && VALID_TAXPAYER_TYPES.includes(taxpayerTypeParam as TaxpayerType)) {

@@ -25,7 +25,7 @@ import addFormats from "ajv-formats";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db/prisma";
 import fexSchema from "../schemas/mh/fex-11.schema.json";
-import { buildControlNumber } from "../utils/dte-control-number";
+import { reserveDteControlNumber } from "../services/dte-correlative.service";
 import { generateFexJsonForSale } from "../services/generate-fex-json.service";
 import { previewFexJsonAction } from "../actions/preview-fex-json.action";
 
@@ -486,36 +486,13 @@ async function ensureDteDocument(
     return { id: existing.id, created: false };
   }
 
-  const year = new Date().getFullYear();
-
   const created = await prisma.$transaction(async (tx) => {
-    await tx.dteCorrelative.upsert({
-      where: {
-        tenant_id_location_id_environment_dte_type_code_year: {
-          tenant_id, location_id, environment: "TEST", dte_type_code: "11", year,
-        },
-      },
-      create: { tenant_id, location_id, environment: "TEST", dte_type_code: "11", year, last_sequence: 0 },
-      update: {},
-    });
-
-    const correlative = await tx.dteCorrelative.update({
-      where: {
-        tenant_id_location_id_environment_dte_type_code_year: {
-          tenant_id, location_id, environment: "TEST", dte_type_code: "11", year,
-        },
-      },
-      data: { last_sequence: { increment: 1 } },
-      select: { last_sequence: true },
+    const { control_number } = await reserveDteControlNumber(tx, {
+      tenant_id, location_id, issuer_config_id, environment: "TEST", dte_type_code: "11",
+      cod_estable_mh, cod_punto_venta_mh,
     });
 
     const generation_code = randomUUID().toUpperCase();
-    const control_number = buildControlNumber({
-      dte_type_code: "11",
-      cod_estable_mh,
-      cod_punto_venta_mh,
-      sequence: correlative.last_sequence,
-    });
 
     return tx.dteOutgoingDocument.create({
       data: {

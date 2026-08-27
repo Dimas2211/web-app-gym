@@ -23,6 +23,7 @@ import feSchema    from "../schemas/mh/fe-01.schema.json";
 import ccfeSchema  from "../schemas/mh/ccfe-03.schema.json";
 import ncSchema    from "../schemas/mh/fe-nc-v3.json";
 import fexSchema   from "../schemas/mh/fex-11.schema.json";
+import fseSchema   from "../schemas/mh/fse-14.schema.json";
 
 // ── Tipos públicos ────────────────────────────────────────────────
 
@@ -55,6 +56,7 @@ const SCHEMA_MAP: Record<string, object> = {
   "03": ccfeSchema as object,
   "05": ncSchema   as object,
   "11": fexSchema  as object,
+  "14": fseSchema  as object,
 };
 
 // ── Función principal ─────────────────────────────────────────────
@@ -101,7 +103,7 @@ export async function validateDteJsonSchema(
     const schema = SCHEMA_MAP[dteDoc.dte_type_code];
     if (!schema) {
       throw new DteValidationBusinessError(
-        `No existe schema oficial MH para el tipo DTE "${dteDoc.dte_type_code}". Solo se admiten "01" (FE), "03" (CCFE), "05" (NC) y "11" (FEX).`,
+        `No existe schema oficial MH para el tipo DTE "${dteDoc.dte_type_code}". Solo se admiten "01" (FE), "03" (CCFE), "05" (NC), "11" (FEX) y "14" (FSE).`,
       );
     }
 

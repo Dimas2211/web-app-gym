@@ -40,8 +40,10 @@ import { canUseFex11InServerFlow } from "../utils/fex11-feature-guard";
 export type { SignDteDocumentResult };
 
 // Tipos DTE con firma pública habilitada sin condiciones adicionales.
-// FEX 11 se evalúa aparte vía fex11-feature-guard.
-const SIGNABLE_TYPE_CODES = new Set(["01", "03", "05"]);
+// FEX 11 se evalúa aparte vía fex11-feature-guard. FSE 14 (origen Purchase)
+// reutiliza el mismo firmador agnóstico de dte_type_code — sin condiciones
+// especiales, igual que FE/CCFE/NC.
+const SIGNABLE_TYPE_CODES = new Set(["01", "03", "05", "14"]);
 
 export async function signDteDocumentAction(
   dteDocumentId: string,
@@ -91,6 +93,7 @@ export async function signDteDocumentAction(
 
   if (result.ok) {
     revalidatePath("/dashboard/sales");
+    revalidatePath("/dashboard/purchases");
     revalidatePath("/dashboard/dte/outgoing");
   }
 

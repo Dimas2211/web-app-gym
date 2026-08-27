@@ -7,6 +7,7 @@
 // ─────────────────────────────────────────────────────────────────
 
 import type { DteOutgoingDeliverySummary, DteOutgoingInvalidationSummary } from "../types";
+import { isFiscallyReceivedByMh } from "../../utils/dte-fiscal-receipt.utils";
 
 // ── Labels de estado DTE ──────────────────────────────────────────
 
@@ -77,6 +78,8 @@ export function dteTypeLabel(code: string): string {
     "01": "FE",
     "03": "CCFE",
     "05": "NC",
+    "11": "FEX",
+    "14": "FSE",
   };
   return map[code] ?? code;
 }
@@ -86,6 +89,8 @@ export function dteTypeLabelFull(code: string): string {
     "01": "Factura Electrónica",
     "03": "Comprobante de Crédito Fiscal",
     "05": "Nota de Crédito",
+    "11": "Factura de Exportación",
+    "14": "Factura de Sujeto Excluido",
   };
   return map[code] ?? `DTE ${code}`;
 }
@@ -107,7 +112,7 @@ export function isInvalidated(status: string): boolean {
 // ── Helpers de disponibilidad de acciones ────────────────────────
 // Calculados en servidor — el cliente solo los lee, no los recalcula.
 
-const EXTERNAL_DELIVERY_TYPES = new Set(["01", "03", "05"]);
+const EXTERNAL_DELIVERY_TYPES = new Set(["01", "03", "05", "14"]);
 
 export function canCreateCreditNote(
   dteStatus:    string,
@@ -132,9 +137,8 @@ export function canDeliverExternalDte(
   externalDelivery: DteOutgoingDeliverySummary,
 ): boolean {
   return (
-    dteStatus === "ACCEPTED" &&
+    isFiscallyReceivedByMh(dteStatus, receptionStamp) &&
     EXTERNAL_DELIVERY_TYPES.has(dteTypeCode) &&
-    receptionStamp !== null &&
     !externalDelivery.hasSuccessfulDelivery
   );
 }

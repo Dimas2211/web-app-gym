@@ -20,8 +20,13 @@ import { z } from "zod";
 // ── Enums exportados (reutilizables en otros schemas del módulo) ──
 
 export const taxpayerTypeEnum = z.enum(
-  ["LARGE_TAXPAYER", "SMALL_TAXPAYER", "NON_TAXPAYER", "FOREIGN"],
+  ["LARGE_TAXPAYER", "SMALL_TAXPAYER", "NON_TAXPAYER", "FOREIGN", "EXCLUDED_SUBJECT"],
   { errorMap: () => ({ message: "Tipo de contribuyente inválido." }) },
+);
+
+export const personTypeEnum = z.enum(
+  ["NATURAL_PERSON", "LEGAL_ENTITY", "UNKNOWN"],
+  { errorMap: () => ({ message: "Clasificación persona natural/jurídica inválida." }) },
 );
 
 export const idTypeCodeEnum = z.enum(
@@ -78,6 +83,9 @@ export const createSupplierSchema = z
 
     // ── Clasificación tributaria — obligatorio ─────────────────────
     taxpayer_type: taxpayerTypeEnum,
+
+    // ── Clasificación persona natural/jurídica — opcional (default UNKNOWN) ──
+    person_type: personTypeEnum.nullable().optional(),
 
     // ── Identificación documental ─────────────────────────────────
     id_type_code:   idTypeCodeEnum.nullable().optional(),

@@ -31,6 +31,7 @@ const TAXPAYER_LABELS: Record<TaxpayerType, string> = {
   SMALL_TAXPAYER: "Pequeño contrib.",
   NON_TAXPAYER:   "No contrib.",
   FOREIGN:        "Extranjero",
+  EXCLUDED_SUBJECT: "Sujeto excluido",
 };
 
 const STATUS_CONFIG = {

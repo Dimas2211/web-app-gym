@@ -26,6 +26,7 @@ import { Prisma }                                   from "@prisma/client";
 import { prisma }                                   from "@/lib/db/prisma";
 import { numeroALetras }                            from "../utils/numero-a-letras";
 import { normalizeNitForDte, normalizeNrcForDte }   from "../utils/fiscal-id.utils";
+import { validateDteAddressCodes }                  from "../utils/dte-territory.resolver";
 
 class NcJsonBusinessError extends Error {
   constructor(message: string) {
@@ -257,6 +258,17 @@ export async function generateNcJsonForDte(params: {
     if (!issuerConfig.name)          return { ok: false, message: "El emisor DTE no tiene nombre configurado." };
     if (!issuerConfig.activity_code) return { ok: false, message: "El emisor DTE no tiene código de actividad económica configurado." };
     if (!issuerConfig.activity_name) return { ok: false, message: "El emisor DTE no tiene descripción de actividad económica configurada." };
+
+    // ── 9b. Validación territorial del emisor (resolver único) ─────
+    // El receptor de NC 05 se copia del CCFE original ya ACCEPTED
+    // (su dirección ya fue validada al construir/transmitir ese CCFE),
+    // por eso aquí solo se revalida el emisor, que se recarga en vivo.
+    const emisorAddrCheck = await validateDteAddressCodes({
+      role:             "emisor",
+      deptCode:         issuerConfig.dept_code,
+      municipalityCode: issuerConfig.municipality_code,
+    });
+    if (!emisorAddrCheck.ok) return { ok: false, message: emisorAddrCheck.error };
 
     // ── 10. Construir identificacion ──────────────────────────────
     const now                            = new Date();

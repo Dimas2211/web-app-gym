@@ -22,7 +22,7 @@
 import { randomUUID }        from "crypto";
 import { Prisma }            from "@prisma/client";
 import { prisma }            from "@/lib/db/prisma";
-import { buildControlNumber } from "../utils/dte-control-number";
+import { reserveDteControlNumber } from "./dte-correlative.service";
 
 export interface CreateCreditNoteDteInput {
   sourceDteDocumentId: string;
@@ -123,12 +123,16 @@ export async function createCreditNoteDteFromAcceptedCcfe(
       }
 
       // ── 3. Bloquear duplicado: no permitir NC activa sobre el mismo CCFE ──
+      // F3-C24: REJECTED se excluye del bloqueo — permite emitir una NC
+      // nueva con numeroControl fresco si la anterior fue rechazada por
+      // Hacienda (p. ej. numeroControl duplicado). La NC rechazada queda
+      // intacta como registro histórico.
       const existingNcRelation = await tx.dteDocumentRelation.findFirst({
         where: {
           related_dte_document_id: sourceDteDocumentId,
           relation_type:           "CREDIT_NOTE_OF",
           source_document: {
-            dte_status: { notIn: ["INVALIDATED"] },
+            dte_status: { notIn: ["INVALIDATED", "REJECTED"] },
           },
         },
         select: {
@@ -181,42 +185,21 @@ export async function createCreditNoteDteFromAcceptedCcfe(
       }
 
       // ── 5. Reservar correlativo tipo "05" de forma atómica ───────
-      const year = new Date().getFullYear();
-
-      let correlative: { last_sequence: number };
-      try {
-        correlative = await tx.dteCorrelative.update({
-          where: {
-            tenant_id_location_id_environment_dte_type_code_year: {
-              tenant_id:     tenantId,
-              location_id:   locationId,
-              environment:   original.environment,
-              dte_type_code: "05",
-              year,
-            },
-          },
-          data:   { last_sequence: { increment: 1 } },
-          select: { last_sequence: true },
-        });
-      } catch (err) {
-        const code = (err as { code?: string }).code;
-        if (code === "P2025") {
-          throw new CreditNoteBusinessError(
-            `No existe correlativo DTE activo para tipo "05" en el año ${year}. ` +
-            `Configure el correlativo antes de generar la Nota de Crédito.`,
-          );
-        }
-        throw err;
-      }
-
-      // ── 6. Generar codigoGeneracion y construir numeroControl ─────
-      const generation_code = randomUUID().toUpperCase();
-      const control_number  = buildControlNumber({
+      // F3-C24: reserva genérica — considera correlativo interno, máximo
+      // ya usado en DteOutgoingDocument y baseline externo. Ver
+      // dte-correlative.service.ts.
+      const { control_number } = await reserveDteControlNumber(tx, {
+        tenant_id:          tenantId,
+        location_id:        locationId,
+        issuer_config_id:   issuerConfig.id,
+        environment:        original.environment,
         dte_type_code:      "05",
         cod_estable_mh:     issuerConfig.cod_estable_mh,
         cod_punto_venta_mh: issuerConfig.cod_punto_venta_mh,
-        sequence:           correlative.last_sequence,
       });
+
+      // ── 6. Generar codigoGeneracion ────────────────────────────────
+      const generation_code = randomUUID().toUpperCase();
 
       // ── 7. Extraer monto total del CCFE para la relación documental ──
       // El json_document del CCFE contiene resumen.totalPagar con el total

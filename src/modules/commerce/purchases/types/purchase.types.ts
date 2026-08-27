@@ -10,6 +10,19 @@
 
 export type PurchaseStatus = "DRAFT" | "CONFIRMED" | "CANCELLED";
 
+// Naturaleza del pago — relevante para Retención de Renta en FSE 14.
+// Espejo del enum PurchasePaymentNature del schema Prisma.
+export type PurchasePaymentNature =
+  | "GOODS"
+  | "SERVICES"
+  | "GOODS_AND_SERVICES"
+  | "LUMP_SUM_CONTRACT"
+  | "OTHER";
+
+// Clasificación persona natural/jurídica del proveedor.
+// Espejo del enum SupplierPersonType del schema Prisma.
+export type SupplierPersonType = "NATURAL_PERSON" | "LEGAL_ENTITY" | "UNKNOWN";
+
 // ── Línea de compra ───────────────────────────────────────────────
 
 export interface PurchaseItemDetail {
@@ -87,6 +100,26 @@ export interface PurchaseDetail extends Omit<PurchaseListItem, "item_count"> {
   retention_1pct_amount:  number;
   net_to_pay:             number;  // calculado: total_amount - retention_1pct_amount
 
+  // Naturaleza del pago — decide (junto a supplier_fiscal.person_type) si
+  // la Retención de Renta se calcula automáticamente. Null en histórico.
+  payment_nature: PurchasePaymentNature | null;
+
+  // Retención de Renta — relevante para FSE 14. NO se deriva automáticamente
+  // de Supplier.taxpayer_type — el usuario decide si aplica por compra.
+  income_tax_withholding_applies: boolean;
+  income_tax_withholding_rate:    number | null;
+  income_tax_withholding_amount:  number;
+  income_tax_withholding_base:    number;
+
+  // Fiscal DTE — presente solo cuando la compra tiene un DteOutgoingDocument
+  // tipo 14 (FSE) asociado (purchase_id).
+  dte_document:      PurchaseDteDocument | null;
+  external_delivery: PurchaseExternalDeliverySummary;
+  dte_transmission_logs: PurchaseDteTransmissionLogRow[];
+
+  // Snapshot fiscal del proveedor, solo relevante cuando document_type === "FSE".
+  supplier_fiscal: PurchaseSupplierFiscalSnapshot;
+
   // Auditoría de confirmación
   confirmed_at:       Date | null;
   confirmed_at_label: string | null;
@@ -108,6 +141,80 @@ export interface PurchaseDetail extends Omit<PurchaseListItem, "item_count"> {
   updated_by_name: string | null;
 
   items: PurchaseItemDetail[];
+}
+
+// ── Fiscal DTE (FSE 14) ────────────────────────────────────────────
+
+export interface PurchaseDteDocument {
+  id:               string;
+  dte_type_code:    string;
+  generation_code:  string | null;
+  control_number:   string | null;
+  reception_stamp:  string | null;
+  dte_status:       string;
+  environment:      string;
+  rejection_reason: string | null;
+  issued_at:        Date | null;
+  generated_at:     Date | null;
+  accepted_at:      Date | null;
+  rejected_at:      Date | null;
+  created_at:       Date;
+
+  // Diagnóstico / detalle técnico — F-UI-FSE14-1
+  issuer_config_id:       string | null;
+  transmission_type_code: string;
+  retry_count:            number;
+  json_document:          unknown; // JSON FSE pre-firma — nunca incluye signed_jws/credenciales
+  mh_estado:              string | null;
+  codigo_msg:             string | null;
+  descripcion_msg:        string | null;
+  observations:           unknown;
+  cod_estable_mh:         string | null;
+  cod_punto_venta_mh:     string | null;
+}
+
+export interface PurchaseExternalDeliverySummary {
+  hasSuccessfulDelivery: boolean;
+  lastAttemptAt:         Date | null;
+  lastErrorMessage:      string | null;
+  attemptsCount:         number;
+}
+
+// ── Historial de transmisión (DteTransmissionLog) — F-UI-FSE14-1 ──
+
+export interface PurchaseDteTransmissionLogRow {
+  id:              string;
+  operation_type:  string;
+  http_status:     number | null;
+  created_at:      Date;
+  mh_estado:       string | null;
+  codigo_msg:      string | null;
+  descripcion_msg: string | null;
+  error_message:   string | null;
+}
+
+// ── Validación fiscal del sujeto excluido (Supplier) — F-UI-FSE14-1 ──
+// Espejo de presentación de mapSupplierToSujetoExcluido — reutiliza esa
+// misma función (utils/supplier-to-sujeto-excluido.mapper.ts) para no
+// duplicar reglas fiscales en frontend.
+
+export interface PurchaseSupplierFiscalSnapshot {
+  is_excluded_subject:    boolean; // taxpayer_type === "EXCLUDED_SUBJECT"
+  taxpayer_type:          string;
+  person_type:            SupplierPersonType; // Persona natural/jurídica — decide automatización de Renta
+  id_type_code:           string | null;
+  masked_document_number: string | null;
+  name:                   string;
+  legal_name:             string | null;
+  activity_code:          string | null;
+  activity_name:          string | null;
+  dept_name:              string | null;
+  municipality_name:      string | null;
+  address_complement:     string | null;
+  phone:                  string | null;
+  email:                  string | null;
+  validation_ok:          boolean;
+  missing_fields:         string[];
 }
 
 // ── Lookups para formularios ──────────────────────────────────────

@@ -11,18 +11,9 @@
  */
 
 import { PrismaClient } from "@prisma/client";
+import { FEX11_CATALOG_ROWS, type CatalogRow } from "./data/fex11-catalog-rows";
 
 const prisma = new PrismaClient();
-
-interface CatalogRow {
-  catalog_code: string;
-  item_code:    string;
-  item_label:   string;
-  description?: string;
-  applies_to?:  string;
-  version?:     string;
-  sort_order?:  number;
-}
 
 const CATALOG_ITEMS: CatalogRow[] = [
   // ── CAT-001: Ambiente de destino ──────────────────────────────
@@ -76,83 +67,31 @@ const CATALOG_ITEMS: CatalogRow[] = [
   { catalog_code: "CAT-024", item_code: "2", item_label: "Rechazado por el receptor",             description: "Documento rechazado por el receptor",       sort_order: 2 },
   { catalog_code: "CAT-024", item_code: "3", item_label: "Otro",                                  description: "Otro motivo de invalidación",               sort_order: 3 },
 
-  // ── CAT-015: Tributos ─────────────────────────────────────────
-  // Subset operativo: solo el tributo usado por FEX 11 (exportación 0%).
-  // Fuente: Catálogo - Sistema de Transmisión v1.2. No catálogo completo.
-  { catalog_code: "CAT-015", item_code: "C3", item_label: "Impuesto al Valor Agregado exportaciones 0%", description: "Tributo fijo usado por líneas FEX 11", applies_to: "FEX-11", sort_order: 1 },
-
-  // ── CAT-020: País ──────────────────────────────────────────────
-  // Subset operativo: solo el país confirmado en pruebas MH TEST para FEX 11.
-  // Fuente: Catálogo - Sistema de Transmisión v1.2. No catálogo completo.
-  { catalog_code: "CAT-020", item_code: "9540", item_label: "ESTADOS UNIDOS", description: "Confirmado ACCEPTED en MH TEST (FEX 11)", applies_to: "FEX-11", sort_order: 1 },
-
-  // ── CAT-027: Recinto fiscal ─────────────────────────────────────
-  // Fuente: Catálogo - Sistema de Transmisión v1.2.
-  { catalog_code: "CAT-027", item_code: "01", item_label: "Terrestre San Bartolo",     applies_to: "FEX-11", sort_order: 1 },
-  { catalog_code: "CAT-027", item_code: "02", item_label: "Marítima de Acajutla",      description: "Confirmado ACCEPTED en MH TEST (FEX 11)", applies_to: "FEX-11", sort_order: 2 },
-  { catalog_code: "CAT-027", item_code: "03", item_label: "Aérea De Comalapa",         applies_to: "FEX-11", sort_order: 3 },
-  { catalog_code: "CAT-027", item_code: "04", item_label: "Terrestre Las Chinamas",    applies_to: "FEX-11", sort_order: 4 },
-  { catalog_code: "CAT-027", item_code: "05", item_label: "Terrestre La Hachadura",    applies_to: "FEX-11", sort_order: 5 },
-  { catalog_code: "CAT-027", item_code: "06", item_label: "Terrestre Santa Ana",       applies_to: "FEX-11", sort_order: 6 },
-  { catalog_code: "CAT-027", item_code: "07", item_label: "Terrestre San Cristóbal",   applies_to: "FEX-11", sort_order: 7 },
-  { catalog_code: "CAT-027", item_code: "08", item_label: "Terrestre Anguiatú",        applies_to: "FEX-11", sort_order: 8 },
-  { catalog_code: "CAT-027", item_code: "09", item_label: "Terrestre El Amatillo",     applies_to: "FEX-11", sort_order: 9 },
-  { catalog_code: "CAT-027", item_code: "10", item_label: "Marítima La Unión",         description: "Valor válido documentado — no usado en el caso ACCEPTED de referencia", applies_to: "FEX-11", sort_order: 10 },
-  { catalog_code: "CAT-027", item_code: "11", item_label: "Terrestre El Poy",          applies_to: "FEX-11", sort_order: 11 },
-  { catalog_code: "CAT-027", item_code: "12", item_label: "Terrestre Metalío",         applies_to: "FEX-11", sort_order: 12 },
-  { catalog_code: "CAT-027", item_code: "15", item_label: "Fardos Postales",           applies_to: "FEX-11", sort_order: 13 },
-  { catalog_code: "CAT-027", item_code: "16", item_label: "Z.F. San Marcos",           applies_to: "FEX-11", sort_order: 14 },
-  { catalog_code: "CAT-027", item_code: "17", item_label: "Z.F. El Pedregal",          applies_to: "FEX-11", sort_order: 15 },
-  { catalog_code: "CAT-027", item_code: "18", item_label: "Z.F. San Bartolo",          applies_to: "FEX-11", sort_order: 16 },
-  { catalog_code: "CAT-027", item_code: "20", item_label: "Z.F. Exportsalva",          applies_to: "FEX-11", sort_order: 17 },
-  { catalog_code: "CAT-027", item_code: "21", item_label: "Z.F. American Park",        applies_to: "FEX-11", sort_order: 18 },
-  { catalog_code: "CAT-027", item_code: "23", item_label: "Z.F. Internacional",        applies_to: "FEX-11", sort_order: 19 },
-  { catalog_code: "CAT-027", item_code: "24", item_label: "Z.F. Diez",                 applies_to: "FEX-11", sort_order: 20 },
-  { catalog_code: "CAT-027", item_code: "26", item_label: "Z.F. Miramar",              applies_to: "FEX-11", sort_order: 21 },
-  { catalog_code: "CAT-027", item_code: "27", item_label: "Z.F. Santo Tomas",          applies_to: "FEX-11", sort_order: 22 },
-  { catalog_code: "CAT-027", item_code: "28", item_label: "Z.F. Santa Tecla",          applies_to: "FEX-11", sort_order: 23 },
-  { catalog_code: "CAT-027", item_code: "29", item_label: "Z.F. Santa Ana",            applies_to: "FEX-11", sort_order: 24 },
-  { catalog_code: "CAT-027", item_code: "30", item_label: "Z.F. La Concordia",         applies_to: "FEX-11", sort_order: 25 },
-  { catalog_code: "CAT-027", item_code: "31", item_label: "Aérea Ilopango",            applies_to: "FEX-11", sort_order: 26 },
-  { catalog_code: "CAT-027", item_code: "32", item_label: "Z.F. Pipil",                applies_to: "FEX-11", sort_order: 27 },
-  { catalog_code: "CAT-027", item_code: "33", item_label: "Puerto Barillas",           applies_to: "FEX-11", sort_order: 28 },
-  { catalog_code: "CAT-027", item_code: "34", item_label: "Z.F. Calvo Conservas",      applies_to: "FEX-11", sort_order: 29 },
-  { catalog_code: "CAT-027", item_code: "35", item_label: "Feria Internacional",       applies_to: "FEX-11", sort_order: 30 },
-  { catalog_code: "CAT-027", item_code: "36", item_label: "Aduana El Papalón",         applies_to: "FEX-11", sort_order: 31 },
-  { catalog_code: "CAT-027", item_code: "37", item_label: "Z.F. Sam-Li",               applies_to: "FEX-11", sort_order: 32 },
-  { catalog_code: "CAT-027", item_code: "38", item_label: "Z.F. San José",             applies_to: "FEX-11", sort_order: 33 },
-  { catalog_code: "CAT-027", item_code: "39", item_label: "Z.F. Las Mercedes",         applies_to: "FEX-11", sort_order: 34 },
-  { catalog_code: "CAT-027", item_code: "40", item_label: "Z.F. EMCO",                 applies_to: "FEX-11", sort_order: 35 },
-  { catalog_code: "CAT-027", item_code: "41", item_label: "Z.F. Gigante",              applies_to: "FEX-11", sort_order: 36 },
-  { catalog_code: "CAT-027", item_code: "71", item_label: "Aldesa",                    applies_to: "FEX-11", sort_order: 37 },
-  { catalog_code: "CAT-027", item_code: "72", item_label: "Agdosa Merliot",            applies_to: "FEX-11", sort_order: 38 },
-  { catalog_code: "CAT-027", item_code: "73", item_label: "Bodesa",                    applies_to: "FEX-11", sort_order: 39 },
-  { catalog_code: "CAT-027", item_code: "76", item_label: "Delegacion DHL",            applies_to: "FEX-11", sort_order: 40 },
-  { catalog_code: "CAT-027", item_code: "77", item_label: "Transauto",                 applies_to: "FEX-11", sort_order: 41 },
-  { catalog_code: "CAT-027", item_code: "80", item_label: "Nejapa",                    applies_to: "FEX-11", sort_order: 42 },
-  { catalog_code: "CAT-027", item_code: "81", item_label: "Almaconsa",                 applies_to: "FEX-11", sort_order: 43 },
-  { catalog_code: "CAT-027", item_code: "83", item_label: "Agdosa Apopa",              applies_to: "FEX-11", sort_order: 44 },
-  { catalog_code: "CAT-027", item_code: "85", item_label: "Gutiérrez Courier Y Cargo", applies_to: "FEX-11", sort_order: 45 },
-  { catalog_code: "CAT-027", item_code: "99", item_label: "San Bartolo Envío Hn/Gt",   applies_to: "FEX-11", sort_order: 46 },
-
-  // ── CAT-028: Régimen ──────────────────────────────────────────
-  // Subset operativo: solo el régimen confirmado en pruebas MH TEST para FEX 11.
-  // Fuente: Catálogo - Sistema de Transmisión v1.2. No catálogo completo.
-  { catalog_code: "CAT-028", item_code: "EX-1.1000.000", item_label: "Exportación Definitiva, Exportación Definitiva, Régimen Común", description: "Confirmado ACCEPTED en MH TEST (FEX 11)", applies_to: "FEX-11", sort_order: 1 },
-
-  // ── CAT-029: Tipo de persona ──────────────────────────────────
-  // Valores fijos del schema oficial fe-fex-v1.json (tipoPersona).
-  { catalog_code: "CAT-029", item_code: "1", item_label: "Persona jurídica", applies_to: "FEX-11", sort_order: 1 },
-  { catalog_code: "CAT-029", item_code: "2", item_label: "Persona natural",  description: "Confirmado ACCEPTED en MH TEST (FEX 11)", applies_to: "FEX-11", sort_order: 2 },
-
-  // ── CAT-031: INCOTERMS ────────────────────────────────────────
-  // Subset operativo: solo el INCOTERM confirmado en pruebas MH TEST para FEX 11.
-  // Fuente: Catálogo - Sistema de Transmisión v1.2. No catálogo completo.
-  { catalog_code: "CAT-031", item_code: "09", item_label: "FOB-Libre a bordo", description: "Confirmado ACCEPTED en MH TEST (FEX 11)", applies_to: "FEX-11", sort_order: 1 },
+  // ── CAT-015, CAT-027, CAT-028, CAT-029, CAT-030, CAT-031 ──────────
+  // FEX 11 (Factura de Exportación) — filas compartidas con el seed
+  // runner de plataforma. Ver ./data/fex11-catalog-rows.ts para el
+  // detalle completo de fuentes (auditoría F3-C23B).
+  //
+  // CAT-020 (País) NO está en esta lista a propósito: es exactamente
+  // el mismo catálogo que el modelo `Country` ya existente en el
+  // proyecto (ISO alpha-2). FEX 11 reutiliza `Country`/`getCountries()`
+  // en vez de duplicarlo aquí. Ver limpieza de filas obsoletas abajo.
+  ...FEX11_CATALOG_ROWS,
 ];
 
 export async function seedDteCatalogItems(prisma: PrismaClient): Promise<void> {
   console.log("\n📋 Catálogos DTE oficiales MH...");
+
+  // Limpieza: CAT-020 se cargó erróneamente como DteCatalogItem en un
+  // intento previo de F3-C23B (códigos numéricos legacy, ej. "9540") antes
+  // de confirmarse que el catálogo oficial v1.2 usa códigos ISO alpha-2 y
+  // ya existe como modelo `Country`. Se elimina para no dejar un catálogo
+  // duplicado/incorrecto disponible en /api/dte/catalogs?catalog_code=CAT-020.
+  const removedCat020 = await prisma.dteCatalogItem.deleteMany({ where: { catalog_code: "CAT-020" } });
+  if (removedCat020.count > 0) {
+    console.log(`  🧹 ${removedCat020.count} filas obsoletas de CAT-020 eliminadas de DteCatalogItem (ahora servido por Country).`);
+  }
+
   let upserted = 0;
 
   for (const row of CATALOG_ITEMS) {
@@ -183,6 +122,26 @@ export async function seedDteCatalogItems(prisma: PrismaClient): Promise<void> {
       },
     });
     upserted++;
+  }
+
+  // Limpieza de filas obsoletas dentro de los catálogos que gestiona FEX 11
+  // (CAT-015, CAT-027, CAT-028, CAT-029, CAT-030, CAT-031): elimina
+  // item_code que ya no están en la fuente actual (p. ej. placeholders del
+  // primer intento de F3-C23B, como el "7" de CAT-030 que no tiene nombre
+  // oficial en el catálogo v1.2). No toca CAT-001..024 (fuera del alcance
+  // de fex11-catalog-rows.ts).
+  const fex11CodesByCatalog = new Map<string, Set<string>>();
+  for (const row of FEX11_CATALOG_ROWS) {
+    if (!fex11CodesByCatalog.has(row.catalog_code)) fex11CodesByCatalog.set(row.catalog_code, new Set());
+    fex11CodesByCatalog.get(row.catalog_code)!.add(row.item_code);
+  }
+  for (const [catalog_code, validCodes] of fex11CodesByCatalog) {
+    const removed = await prisma.dteCatalogItem.deleteMany({
+      where: { catalog_code, item_code: { notIn: [...validCodes] } },
+    });
+    if (removed.count > 0) {
+      console.log(`  🧹 ${removed.count} fila(s) obsoleta(s) eliminada(s) de ${catalog_code}.`);
+    }
   }
 
   console.log(`  ✅ ${upserted} catálogos DTE insertados/actualizados.`);

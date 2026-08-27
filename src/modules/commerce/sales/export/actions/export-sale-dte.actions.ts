@@ -24,6 +24,7 @@ import { generateFexJsonForSaleAction } from "../../../dte/actions/generate-fex-
 import { signDteDocumentAction }        from "../../../dte/actions/sign-dte-document.action";
 import { transmitDteDocumentAction }    from "../../../dte/actions/transmit-dte-document.action";
 import { deliverDteToExternalDbAction } from "../../../dte/actions/deliver-dte-to-external-db.action";
+import { regenerateRejectedExportDte }  from "../services/export-sale.service";
 
 export interface ExportDteLastLog {
   operation_type: string;
@@ -167,6 +168,20 @@ export async function transmitExportDteAction(dte_document_id: string): Promise<
   if (!result.ok) return { ok: false, error: result.error };
 
   return loadExportDteStateOrError(session.tenant_id, session.location_id, dte_document_id);
+}
+
+// F3-C23E — Acción segura tras rechazo por numeroControl duplicado (u
+// otro motivo): crea un DteOutgoingDocument NUEVO (numeroControl y
+// codigoGeneracion frescos) para la misma venta. Nunca retransmite ni
+// modifica el documento RECHAZADO original — queda intacto.
+export async function regenerateExportDteAction(dte_document_id: string): Promise<ExportDteActionResult> {
+  const session = await requireExportDteSession();
+  if (!isSession(session)) return { ok: false, error: session.error };
+
+  const result = await regenerateRejectedExportDte(session.tenant_id, session.location_id, dte_document_id);
+  if (!result.ok) return { ok: false, error: result.error };
+
+  return loadExportDteStateOrError(session.tenant_id, session.location_id, result.dte_document_id);
 }
 
 export async function deliverExportDteAction(dte_document_id: string): Promise<ExportDteActionResult> {

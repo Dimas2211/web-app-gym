@@ -33,6 +33,7 @@ if (typeof window !== "undefined") {
 import { randomUUID } from "crypto";
 import { PrismaClient } from "@prisma/client";
 import { buildControlNumber } from "../../../../commerce/dte/utils/dte-control-number";
+import { reserveDteControlNumber } from "../../../../commerce/dte/services/dte-correlative.service";
 import { SUPPORT_DTE_ACTIVE_TYPE_CODES } from "./support-dte.constants";
 import type {
   CreateSupportDtePendingInput,
@@ -181,25 +182,38 @@ export async function previewCreateSupportDtePending(
 
   const correlative = await client.dteCorrelative.findUnique({
     where: {
-      tenant_id_location_id_environment_dte_type_code_year: {
-        tenant_id:     tenantId,
-        location_id:   data.location_id,
-        environment:   DTE_ENVIRONMENT,
-        dte_type_code: data.dte_type_code,
+      tenant_id_location_id_issuer_config_id_environment_dte_type_code_year: {
+        tenant_id:        tenantId,
+        location_id:      data.location_id,
+        issuer_config_id: data.issuer_config_id,
+        environment:      DTE_ENVIRONMENT,
+        dte_type_code:    data.dte_type_code,
         year,
       },
     },
-    select: { last_sequence: true },
+    select: { last_sequence: true, external_baseline_last_used_sequence: true },
   });
 
-  if (!correlative) {
-    return {
-      ok: false,
-      error: `No existe correlativo DTE activo para tipo "${data.dte_type_code}" en el año ${year}. Configure el correlativo antes de generar DTE.`,
-    };
-  }
+  // Preview de solo lectura — no crea la fila si no existe (a diferencia de
+  // la ejecución real, que usa reserveDteControlNumber). Refleja la misma
+  // regla: máximo entre correlativo local, máximo ya usado en
+  // DteOutgoingDocument y baseline externo alineado (F3-C24).
+  const prefix = `DTE-${data.dte_type_code.padStart(2, "0")}-${data.cod_estable_mh.toUpperCase()}${data.cod_punto_venta_mh.toUpperCase()}-`;
+  const existingDocs = await client.dteOutgoingDocument.findMany({
+    where: {
+      tenant_id: tenantId, location_id: data.location_id, environment: DTE_ENVIRONMENT,
+      dte_type_code: data.dte_type_code, control_number: { startsWith: prefix },
+    },
+    select: { control_number: true },
+  });
+  const maxUsedInOutgoing = existingDocs.reduce((max, doc) => {
+    const seq = Number.parseInt(doc.control_number?.slice(prefix.length) ?? "", 10);
+    return Number.isFinite(seq) && seq > max ? seq : max;
+  }, 0);
 
-  const nextSequence = correlative.last_sequence + 1;
+  const localLastSequence = correlative?.last_sequence ?? 0;
+  const baselineFloor     = correlative?.external_baseline_last_used_sequence ?? 0;
+  const nextSequence = Math.max(localLastSequence, maxUsedInOutgoing, baselineFloor) + 1;
   const controlNumberPreview = buildControlNumber({
     dte_type_code:      data.dte_type_code,
     cod_estable_mh:     data.cod_estable_mh,
@@ -239,41 +253,20 @@ export async function createSupportDtePendingRunner(
 
   try {
     const result = await client.$transaction(async (tx) => {
-      const year = new Date().getFullYear();
-
-      let correlative: { last_sequence: number };
-      try {
-        correlative = await tx.dteCorrelative.update({
-          where: {
-            tenant_id_location_id_environment_dte_type_code_year: {
-              tenant_id:     tenantId,
-              location_id:   data.location_id,
-              environment:   DTE_ENVIRONMENT,
-              dte_type_code: data.dte_type_code,
-              year,
-            },
-          },
-          data:   { last_sequence: { increment: 1 } },
-          select: { last_sequence: true },
-        });
-      } catch (err) {
-        const code = (err as { code?: string }).code;
-        if (code === "P2025") {
-          throw new Error(
-            `No existe correlativo DTE activo para tipo "${data.dte_type_code}" en el año ${year}. Configure el correlativo antes de generar DTE.`,
-          );
-        }
-        throw err;
-      }
-
-      const reservedSequence = correlative.last_sequence;
-      const generation_code  = randomUUID().toUpperCase();
-      const control_number   = buildControlNumber({
+      // F3-C24: reserva genérica — mismo camino que producción
+      // (dte-correlative.service.ts), considera correlativo local, máximo
+      // ya usado en DteOutgoingDocument y baseline externo alineado.
+      const { control_number } = await reserveDteControlNumber(tx, {
+        tenant_id:          tenantId,
+        location_id:        data.location_id,
+        issuer_config_id:   data.issuer_config_id,
+        environment:        DTE_ENVIRONMENT,
         dte_type_code:      data.dte_type_code,
         cod_estable_mh:     data.cod_estable_mh,
         cod_punto_venta_mh: data.cod_punto_venta_mh,
-        sequence:           reservedSequence,
       });
+
+      const generation_code  = randomUUID().toUpperCase();
 
       const doc = await tx.dteOutgoingDocument.create({
         data: {

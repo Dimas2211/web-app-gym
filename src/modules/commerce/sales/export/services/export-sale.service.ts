@@ -26,10 +26,11 @@ import { randomUUID } from "crypto";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db/prisma";
 import { createSaleDraft, addSaleItemToDraft, confirmSale } from "../../services/sale.service";
-import { buildControlNumber } from "../../../dte/utils/dte-control-number";
+import { reserveDteControlNumber } from "../../../dte/services/dte-correlative.service";
 import { isFex11Enabled } from "../../../dte/utils/fex11-feature-guard";
 import { listDteCatalogItems } from "../../../dte/queries/list-dte-catalog-items";
 import { DTE_CATALOG_CODES } from "../../../dte/types/dte-catalog.types";
+import { CAT014_UNITS } from "../../../../../../prisma/seeds/data/cat014-units";
 import {
   validateExportSaleBusinessRules,
   validateForeignCustomerCatalogs,
@@ -67,13 +68,15 @@ export async function createForeignCustomer(
   user_id:   string,
   input:     CreateForeignCustomerInput,
 ): Promise<CreateForeignCustomerResult> {
-  const [countries, personTypes, idTypes] = await Promise.all([
-    listDteCatalogItems({ catalog_code: DTE_CATALOG_CODES.CAT_020_PAIS }),
+  const [fexCountries, personTypes, idTypes] = await Promise.all([
+    // F3-C23D — catálogo de compatibilidad FEX v1 para receptor.codPais,
+    // NO CAT-020 (ISO alpha-2). Ver fex-validation.ts.
+    listDteCatalogItems({ catalog_code: DTE_CATALOG_CODES.FEX_V1_CODPAIS }),
     listDteCatalogItems({ catalog_code: DTE_CATALOG_CODES.CAT_029_TIPO_PERSONA }),
     listDteCatalogItems({ catalog_code: DTE_CATALOG_CODES.CAT_022_TIPO_IDENTIFICACION }),
   ]);
 
-  const catalogErrors = validateForeignCustomerCatalogs(input, { countries, personTypes, idTypes });
+  const catalogErrors = validateForeignCustomerCatalogs(input, { fexCountries, personTypes, idTypes });
   if (catalogErrors.length > 0) {
     return { ok: false, error: catalogErrors[0] };
   }
@@ -176,44 +179,77 @@ async function loadActiveTestIssuerConfigOrError(
   };
 }
 
-// ── Crear DteOutgoingDocument tipo 11 (PENDING_GENERATION) ────────
+// ── Configurar unidad MH (CAT-014) para un producto/servicio ─────
+//
+// F3-C23E — Salida operativa para productos/servicios sin
+// UnitOfMeasure.mh_unit_code: en vez de bloquear el ítem para
+// siempre, el usuario puede asignarle un código CAT-014 válido desde
+// el propio flujo de venta de exportación. UnitOfMeasure es un
+// catálogo global compartido (sin tenant_id) — no se toca ningún
+// otro campo ni se reasignan productos, solo se completa
+// mh_unit_code de la unidad ya usada por el producto. No aplica solo
+// a servicios: cualquier producto/servicio sin código MH puede
+// resolverse por esta vía.
 
+export type ConfigureUnitMhCodeResult =
+  | { ok: true; unit_id: string; mh_unit_code: string }
+  | { ok: false; error: string };
+
+export async function configureUnitMhCode(
+  unit_id: string,
+  mh_code:  string,
+): Promise<ConfigureUnitMhCodeResult> {
+  const normalized = mh_code.trim();
+  const numeric = Number(normalized);
+
+  if (!normalized || !Number.isInteger(numeric) || !CAT014_UNITS.some((u) => u.mh_code === numeric)) {
+    return {
+      ok:    false,
+      error: "El código indicado no existe en el catálogo oficial CAT-014 (Unidad de Medida). Seleccione uno de la lista.",
+    };
+  }
+
+  const unit = await prisma.unitOfMeasure.findUnique({ where: { id: unit_id }, select: { id: true } });
+  if (!unit) {
+    return { ok: false, error: "La unidad de medida no existe." };
+  }
+
+  const updated = await prisma.unitOfMeasure.update({
+    where:  { id: unit_id },
+    data:   { mh_unit_code: String(numeric) },
+    select: { mh_unit_code: true },
+  });
+
+  return { ok: true, unit_id, mh_unit_code: updated.mh_unit_code! };
+}
+
+// ── Crear DteOutgoingDocument tipo 11 (PENDING_GENERATION) ────────
+//
+// F3-C23E introdujo aquí el hardening contra numeroControl duplicado
+// ("YA EXISTE UN REGISTRO CON ESE VALOR" en Hacienda TEST) — tomar el
+// máximo entre el correlativo local y la mayor secuencia ya usada en
+// DteOutgoingDocument. F3-C24 generaliza esa lógica a TODOS los tipos
+// DTE (01/03/05/11/...) y le agrega el baseline externo (empresas que
+// migran desde otro sistema y ya tienen numeroControl usados que esta
+// base nunca vio). Ver dte-correlative.service.ts — reserveDteControlNumber.
 async function createPendingExportDte(
   tenant_id:   string,
   location_id: string,
   sale_id:     string,
   issuer:      ActiveTestIssuer,
 ): Promise<string> {
-  const year = new Date().getFullYear();
-
   const created = await prisma.$transaction(async (tx) => {
-    await tx.dteCorrelative.upsert({
-      where: {
-        tenant_id_location_id_environment_dte_type_code_year: {
-          tenant_id, location_id, environment: "TEST", dte_type_code: "11", year,
-        },
-      },
-      create: { tenant_id, location_id, environment: "TEST", dte_type_code: "11", year, last_sequence: 0 },
-      update: {},
-    });
-
-    const correlative = await tx.dteCorrelative.update({
-      where: {
-        tenant_id_location_id_environment_dte_type_code_year: {
-          tenant_id, location_id, environment: "TEST", dte_type_code: "11", year,
-        },
-      },
-      data:   { last_sequence: { increment: 1 } },
-      select: { last_sequence: true },
-    });
-
-    const generation_code = randomUUID().toUpperCase();
-    const control_number  = buildControlNumber({
+    const { control_number } = await reserveDteControlNumber(tx, {
+      tenant_id,
+      location_id,
+      issuer_config_id:   issuer.id,
+      environment:        "TEST",
       dte_type_code:      "11",
       cod_estable_mh:     issuer.cod_estable_mh,
       cod_punto_venta_mh: issuer.cod_punto_venta_mh,
-      sequence:           correlative.last_sequence,
     });
+
+    const generation_code = randomUUID().toUpperCase();
 
     return tx.dteOutgoingDocument.create({
       data: {
@@ -233,6 +269,66 @@ async function createPendingExportDte(
   });
 
   return created.id;
+}
+
+// ── Regenerar DTE tras rechazo por numeroControl duplicado (u otro
+//    motivo) ──────────────────────────────────────────────────────
+//
+// F3-C23E — Acción segura pedida explícitamente: nunca se retransmite
+// ni se edita el JSON/firma de un documento ya REJECTED. En vez de
+// eso, se crea un DteOutgoingDocument NUEVO para la misma venta, con
+// codigoGeneracion y numeroControl frescos (vía el mismo camino
+// endurecido de arriba). El documento rechazado original queda
+// intacto como registro histórico.
+
+export type RegenerateExportDteResult =
+  | { ok: true; dte_document_id: string }
+  | { ok: false; error: string };
+
+export async function regenerateRejectedExportDte(
+  tenant_id:   string,
+  location_id: string,
+  dte_document_id: string,
+): Promise<RegenerateExportDteResult> {
+  if (!isFex11Enabled()) {
+    return { ok: false, error: "FEX 11 no está habilitada. Active DTE_FEX11_ENABLED o DTE_FEX11_TEST_ENABLED en ambiente TEST." };
+  }
+
+  const rejected = await prisma.dteOutgoingDocument.findFirst({
+    where:  { id: dte_document_id, tenant_id, location_id, dte_type_code: "11" },
+    select: { id: true, sale_id: true, dte_status: true, issuer_config_id: true },
+  });
+  if (!rejected) {
+    return { ok: false, error: "El documento DTE de exportación no existe o no pertenece a la location activa." };
+  }
+  if (rejected.dte_status !== "REJECTED") {
+    return {
+      ok:    false,
+      error: `Solo se puede generar un nuevo DTE a partir de un documento RECHAZADO. Estado actual: ${rejected.dte_status}.`,
+    };
+  }
+  if (!rejected.issuer_config_id) {
+    return { ok: false, error: "El documento rechazado no tiene configuración de emisor vinculada. No se puede regenerar." };
+  }
+  if (!rejected.sale_id) {
+    return { ok: false, error: "El documento rechazado no está asociado a ninguna venta." };
+  }
+
+  const issuerConfig = await prisma.dteIssuerConfig.findFirst({
+    where:  { id: rejected.issuer_config_id, tenant_id, location_id },
+    select: { id: true, cod_estable_mh: true, cod_punto_venta_mh: true },
+  });
+  if (!issuerConfig?.cod_estable_mh || !issuerConfig?.cod_punto_venta_mh) {
+    return { ok: false, error: "No se pudo resolver la configuración del emisor original para generar el nuevo DTE." };
+  }
+
+  const newDteId = await createPendingExportDte(tenant_id, location_id, rejected.sale_id, {
+    id:                 issuerConfig.id,
+    cod_estable_mh:     issuerConfig.cod_estable_mh,
+    cod_punto_venta_mh: issuerConfig.cod_punto_venta_mh,
+  });
+
+  return { ok: true, dte_document_id: newDteId };
 }
 
 // ── Crear venta de exportación completa ───────────────────────────

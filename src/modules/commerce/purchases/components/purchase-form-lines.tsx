@@ -29,6 +29,13 @@ interface Props {
   onItemAdded:     (detail: PurchaseDetail) => void;
 }
 
+// FSE (compra a sujeto excluido) nunca genera crédito fiscal IVA — el
+// servidor ya lo fuerza a 0 (purchase.service.ts), pero la UI no debe
+// ni siquiera sugerir un IVA que luego será descartado.
+function isFse(documentType: string | null | undefined): boolean {
+  return documentType === "FSE";
+}
+
 interface LineForm {
   product_id:   string;
   product_code: string;
@@ -85,8 +92,9 @@ export function PurchaseFormLines({
   // Pre-fill strip when product selected from Zone D; auto-focus quantity
   useEffect(() => {
     if (!selectedProduct) return;
+    const fse     = isFse(detail?.document_type);
     const cost    = selectedProduct.cost_price ?? 0;
-    const ratePct = selectedProduct.tax_rate   ?? 13;   // tasa desde TaxRate en la base
+    const ratePct = fse ? 0 : (selectedProduct.tax_rate ?? 13);   // FSE: sin IVA, sin importar Product.tax_rate
     setLine({
       product_id:   selectedProduct.id,
       product_code: selectedProduct.product_code,
@@ -95,11 +103,11 @@ export function PurchaseFormLines({
       quantity:     "1",
       unit_cost:    cost > 0 ? String(cost) : "",
       tax_rate_pct: ratePct,
-      tax_amount:   cost > 0 ? computeTax("1", String(cost), ratePct) : "",
+      tax_amount:   fse ? "0.00" : (cost > 0 ? computeTax("1", String(cost), ratePct) : ""),
     });
     setAddError(null);
     setTimeout(() => quantityRef.current?.focus(), 0);
-  }, [selectedProduct]);
+  }, [selectedProduct, detail?.document_type]);
 
   const handleAddLine = useCallback(async () => {
     if (!purchaseId || addPending) return;
@@ -215,7 +223,7 @@ export function PurchaseFormLines({
                 setLine((l) => ({
                   ...l,
                   quantity:   e.target.value,
-                  tax_amount: computeTax(e.target.value, l.unit_cost, l.tax_rate_pct),
+                  tax_amount: isFse(detail?.document_type) ? "0.00" : computeTax(e.target.value, l.unit_cost, l.tax_rate_pct),
                 }))
               }
               onFocus={(e) => e.currentTarget.select()}
@@ -240,7 +248,7 @@ export function PurchaseFormLines({
                 setLine((l) => ({
                   ...l,
                   unit_cost:  e.target.value,
-                  tax_amount: computeTax(l.quantity, e.target.value, l.tax_rate_pct),
+                  tax_amount: isFse(detail?.document_type) ? "0.00" : computeTax(l.quantity, e.target.value, l.tax_rate_pct),
                 }))
               }
               onFocus={(e) => e.currentTarget.select()}
@@ -250,12 +258,12 @@ export function PurchaseFormLines({
             />
           </div>
 
-          {/* IVA — calculado automáticamente, no editable */}
+          {/* IVA — calculado automáticamente, no editable. FSE: siempre 0 (sin crédito fiscal). */}
           <div className="w-20 shrink-0">
-            <span className="block text-[10px] text-zinc-500 mb-0.5">IVA</span>
+            <span className="block text-[10px] text-zinc-500 mb-0.5">{isFse(detail?.document_type) ? "IVA (FSE)" : "IVA"}</span>
             <input
               type="text"
-              value={line.tax_amount ? `$${Number(line.tax_amount).toFixed(2)}` : "—"}
+              value={isFse(detail?.document_type) ? "$0.00" : (line.tax_amount ? `$${Number(line.tax_amount).toFixed(2)}` : "—")}
               readOnly
               tabIndex={-1}
               placeholder="IVA"

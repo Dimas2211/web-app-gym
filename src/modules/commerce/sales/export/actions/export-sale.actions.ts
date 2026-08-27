@@ -23,11 +23,14 @@ import { getEffectiveLocationId } from "@/lib/location/active-location";
 import { isFex11Enabled }         from "../../../dte/utils/fex11-feature-guard";
 import { searchForeignCustomers, type ForeignCustomerLookup } from "../queries/search-foreign-customers";
 import { searchExportProducts, type ExportProductLookup }     from "../queries/search-export-products";
+import { getUnitMhContext, type UnitMhContext }                from "../queries/get-unit-mh-context";
 import {
   createForeignCustomer,
   createExportSale,
+  configureUnitMhCode,
   type CreateForeignCustomerResult,
   type CreateExportSaleResult,
+  type ConfigureUnitMhCodeResult,
 } from "../services/export-sale.service";
 import { createForeignCustomerSchema, createExportSaleSchema } from "../schemas/export-sale.schemas";
 import type { CreateForeignCustomerInput, CreateExportSaleInput } from "../schemas/export-sale.schemas";
@@ -74,6 +77,36 @@ export async function searchExportProductsAction(
 
   const items = await searchExportProducts(session.tenant_id, session.location_id, search);
   return { ok: true, items };
+}
+
+// ── Configurar unidad MH (CAT-014) para un producto/servicio ──────
+//
+// F3-C23E — Salida operativa desde el propio flujo de venta cuando
+// un producto/servicio no tiene UnitOfMeasure.mh_unit_code: el
+// usuario elige un código válido de CAT-014 y queda asignado sin
+// salir de /dashboard/sales/export.
+
+export async function getUnitMhContextAction(
+  unit_id: string,
+): Promise<{ ok: true; context: UnitMhContext } | { ok: false; error: string }> {
+  const session = await requireExportSession();
+  if (!isSession(session)) return { ok: false, error: session.error };
+
+  const context = await getUnitMhContext(session.tenant_id, unit_id);
+  if (!context) return { ok: false, error: "La unidad de medida no existe." };
+  return { ok: true, context };
+}
+
+export async function configureExportUnitMhCodeAction(
+  unit_id: string,
+  mh_code: string,
+): Promise<ConfigureUnitMhCodeResult> {
+  const session = await requireExportSession();
+  if (!isSession(session)) return { ok: false, error: session.error };
+
+  const result = await configureUnitMhCode(unit_id, mh_code);
+  if (result.ok) revalidatePath("/dashboard/sales/export");
+  return result;
 }
 
 // ── Crear cliente extranjero (alta rápida) ────────────────────────

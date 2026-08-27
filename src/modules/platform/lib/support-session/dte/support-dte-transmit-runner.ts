@@ -151,6 +151,9 @@ async function validateTransmitSupportDte(
   }
 
   // 9-11. Venta relacionada debe existir, estar CONFIRMED y con inventario aplicado
+  if (!dteDoc.sale_id) {
+    return { ok: false, error: "El documento DTE no está asociado a ninguna venta." };
+  }
   const sale = await client.sale.findFirst({
     where:  { id: dteDoc.sale_id, tenant_id: tenantId, location_id: dteDoc.location_id },
     select: { id: true, sale_code: true, status: true, inventory_moved: true },

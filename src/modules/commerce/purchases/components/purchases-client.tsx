@@ -411,12 +411,30 @@ export function PurchasesClient({ initialItems, initialTotal }: PurchasesClientP
       {selectedItem?.status === "CONFIRMED" && (
         <div className="flex-none border-b border-zinc-800 bg-zinc-900/60 px-3 py-1 flex items-center gap-2">
           <button
+            onClick={() => router.push(`/dashboard/purchases/${selectedItem.id}`)}
+            className="h-6 px-2 text-xs text-sky-400 hover:text-sky-200 border border-sky-800/50 hover:border-sky-600 rounded transition-colors"
+          >
+            Ver detalle
+          </button>
+          <button
             onClick={() => { setCancelAuthEmail(""); setCancelAuthPassword(""); setCancelAuthOpen(true); }}
             className="h-6 px-2 text-xs text-orange-400 hover:text-orange-200 border border-orange-800/50 hover:border-orange-600 rounded transition-colors"
           >
             Anular compra
           </button>
           <span className="text-xs text-zinc-600">La anulación revierte el inventario y requiere autorización.</span>
+        </div>
+      )}
+
+      {/* ── Acción contextual: Ver detalle (solo CANCELLED seleccionado) ── */}
+      {selectedItem?.status === "CANCELLED" && (
+        <div className="flex-none border-b border-zinc-800 bg-zinc-900/60 px-3 py-1 flex items-center gap-2">
+          <button
+            onClick={() => router.push(`/dashboard/purchases/${selectedItem.id}`)}
+            className="h-6 px-2 text-xs text-sky-400 hover:text-sky-200 border border-sky-800/50 hover:border-sky-600 rounded transition-colors"
+          >
+            Ver detalle
+          </button>
         </div>
       )}
 

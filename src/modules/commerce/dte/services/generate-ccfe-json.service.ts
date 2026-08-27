@@ -32,6 +32,11 @@ import { Prisma }                               from "@prisma/client";
 import { prisma }                               from "@/lib/db/prisma";
 import { numeroALetras }                        from "../utils/numero-a-letras";
 import { normalizeNitForDte, normalizeNrcForDte } from "../utils/fiscal-id.utils";
+import { buildContingencyIdentificationBlock }   from "../utils/dte-contingency-identification.utils";
+import { validateDteAddressCodes }               from "../utils/dte-territory.resolver";
+
+// CCFE 03: identificacion.motivoContin exige minLength 1 cuando aplica (tipoContingencia === 5).
+const CCFE03_MOTIVO_CONTIN_MIN_LENGTH = 1;
 
 const TOLERANCE = 0.01;
 
@@ -83,14 +88,17 @@ export async function generateCcfeJsonForDte(
     const dteDoc = await prisma.dteOutgoingDocument.findFirst({
       where: { id: dte_document_id, tenant_id, location_id },
       select: {
-        id:               true,
-        dte_type_code:    true,
-        dte_status:       true,
-        generation_code:  true,
-        control_number:   true,
-        environment:      true,
-        sale_id:          true,
-        issuer_config_id: true,
+        id:                     true,
+        dte_type_code:          true,
+        dte_status:             true,
+        generation_code:        true,
+        control_number:         true,
+        environment:            true,
+        sale_id:                true,
+        issuer_config_id:       true,
+        transmission_type_code: true,
+        contingency_type_code:  true,
+        contingency_reason:     true,
       },
     });
 
@@ -123,6 +131,9 @@ export async function generateCcfeJsonForDte(
     }
     if (!dteDoc.issuer_config_id) {
       return { ok: false, error: "El documento DTE no tiene configuración de emisor vinculada." };
+    }
+    if (!dteDoc.sale_id) {
+      return { ok: false, error: "El documento DTE no está asociado a ninguna venta." };
     }
 
     // ── 5. Cargar venta completa ──────────────────────────────────
@@ -227,6 +238,14 @@ export async function generateCcfeJsonForDte(
       };
     }
 
+    // ── 8b. Validación territorial del receptor (resolver único) ───
+    const receptorAddrCheck = await validateDteAddressCodes({
+      role:             "receptor",
+      deptCode:         c.dept_code,
+      municipalityCode: c.municipality_code,
+    });
+    if (!receptorAddrCheck.ok) return { ok: false, error: receptorAddrCheck.error };
+
     const totalAmount    = Number(sale.total_amount);
     const taxAmount      = Number(sale.tax_amount);
     const discountAmount = Number(sale.discount_amount);
@@ -277,6 +296,14 @@ export async function generateCcfeJsonForDte(
     if (!issuerConfig.name)          return { ok: false, error: "El emisor DTE no tiene nombre configurado." };
     if (!issuerConfig.activity_code) return { ok: false, error: "El emisor DTE no tiene código de actividad económica configurado." };
     if (!issuerConfig.activity_name) return { ok: false, error: "El emisor DTE no tiene descripción de actividad económica configurada." };
+
+    // ── 10b. Validación territorial del emisor (resolver único) ────
+    const emisorAddrCheck = await validateDteAddressCodes({
+      role:             "emisor",
+      deptCode:         issuerConfig.dept_code,
+      municipalityCode: issuerConfig.municipality_code,
+    });
+    if (!emisorAddrCheck.ok) return { ok: false, error: emisorAddrCheck.error };
 
     // ── 11. Construir cuerpoDocumento ─────────────────────────────
 
@@ -432,7 +459,20 @@ export async function generateCcfeJsonForDte(
       correo:   c.email ?? null,
     };
 
-    // ── 15. Construir identificacion ──────────────────────────────
+    // ── 15. Derivar bloque de contingencia (CAT-004 / CAT-023) ─────
+
+    const contingencyBlock = buildContingencyIdentificationBlock({
+      transmission_type_code: dteDoc.transmission_type_code,
+      contingency_type_code:  dteDoc.contingency_type_code,
+      contingency_reason:     dteDoc.contingency_reason,
+      motivoContinMinLength:  CCFE03_MOTIVO_CONTIN_MIN_LENGTH,
+    });
+
+    if (!contingencyBlock.ok) {
+      return { ok: false, error: contingencyBlock.error };
+    }
+
+    // ── 16. Construir identificacion ──────────────────────────────
     const now                          = new Date();
     const { date: fecEmi, time: horEmi } = svDateTime(now);
     const condicion = sale.condition_operation_code
@@ -445,16 +485,16 @@ export async function generateCcfeJsonForDte(
       tipoDte:          "03",
       numeroControl:    dteDoc.control_number,
       codigoGeneracion: dteDoc.generation_code,
-      tipoModelo:       1,    // CAT-003: Modelo Facturación Normal
-      tipoOperacion:    1,    // CAT-004: Transmisión Normal
-      tipoContingencia: null,
-      motivoContin:     null,
+      tipoModelo:       contingencyBlock.data.tipoModelo,        // CAT-003
+      tipoOperacion:    contingencyBlock.data.tipoOperacion,     // CAT-004
+      tipoContingencia: contingencyBlock.data.tipoContingencia,  // CAT-023
+      motivoContin:     contingencyBlock.data.motivoContin,
       fecEmi,
       horEmi,
       tipoMoneda:       "USD",
     };
 
-    // ── 16. Construir emisor ──────────────────────────────────────
+    // ── 17. Construir emisor ──────────────────────────────────────
     const hasDireccionEmisor =
       issuerConfig.dept_code || issuerConfig.municipality_code || issuerConfig.address_complement;
 
@@ -481,7 +521,7 @@ export async function generateCcfeJsonForDte(
       codPuntoVenta:   issuerConfig.point_of_sale_code  ?? null,
     };
 
-    // ── 17. Construir resumen ─────────────────────────────────────
+    // ── 18. Construir resumen ─────────────────────────────────────
     const resumen = {
       totalNoSuj:           totalNoSuj,
       totalExenta:          totalExenta,
@@ -509,7 +549,7 @@ export async function generateCcfeJsonForDte(
       numPagoElectronico:   null,
     };
 
-    // ── 18. Ensamblar json_document completo ──────────────────────
+    // ── 19. Ensamblar json_document completo ──────────────────────
     const jsonDocument = {
       identificacion,
       documentoRelacionado: null,
@@ -523,7 +563,7 @@ export async function generateCcfeJsonForDte(
       apendice:   null,
     };
 
-    // ── 19. Persistir: guardar JSON y cambiar estado ──────────────
+    // ── 20. Persistir: guardar JSON y cambiar estado ──────────────
     await prisma.dteOutgoingDocument.update({
       where: { id: dte_document_id },
       data:  {

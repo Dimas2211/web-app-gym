@@ -6,13 +6,15 @@
 // ─────────────────────────────────────────────────────────────────
 
 import type { DteOutgoingActionAvailability } from "../types";
+import { isFiscallyReceivedByMh } from "../../utils/dte-fiscal-receipt.utils";
 
 // ── Tipo de entrada mínima ────────────────────────────────────────
 // No acepta DteOutgoingDetail completo para evitar dependencia circular.
 
 export interface ActionAvailabilityInput {
-  dte_status:    string;
-  dte_type_code: string;
+  dte_status:      string;
+  dte_type_code:   string;
+  reception_stamp: string | null;
   related_nc:           { dte_status: string } | null;
   latest_invalidation:  { status: string } | null;
   delivery:             { hasSuccessfulDelivery: boolean };
@@ -60,7 +62,7 @@ export function computeDteOutgoingActionAvailability(
     !hasAcceptedNc;
 
   const canDeliverExternal =
-    status === "ACCEPTED" &&
+    isFiscallyReceivedByMh(status, d.reception_stamp) &&
     !d.delivery.hasSuccessfulDelivery;
 
   // Requires DTE_STATUS=INVALIDATED (implica invalidación aceptada) +
@@ -117,8 +119,8 @@ export function computeDteOutgoingActionAvailability(
   }
 
   if (!canDeliverExternal) {
-    if (status !== "ACCEPTED") {
-      reasons.sendExternalDte = `Requiere estado ACCEPTED — actual: ${status}`;
+    if (!isFiscallyReceivedByMh(status, d.reception_stamp)) {
+      reasons.sendExternalDte = `El DTE aún no ha sido recibido fiscalmente por MH (requiere ACCEPTED u OBSERVED con sello de recepción) — actual: ${status}`;
     } else if (d.delivery.hasSuccessfulDelivery) {
       reasons.sendExternalDte = "DTE ya fue entregado exitosamente al sistema externo";
     }

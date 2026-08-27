@@ -194,7 +194,9 @@ async function findAcceptedFex11(): Promise<TestDteCandidate> {
     abort(`El documento (${doc.id}) no tiene reception_stamp.`);
   }
 
-  return doc;
+  // doc.sale_id ya fue validado no-null arriba — se afirma explícitamente
+  // aquí porque TS no propaga la narrowing de una propiedad al objeto completo.
+  return { ...doc, sale_id: doc.sale_id! };
 }
 
 // ── 3. Verificar que no exista ya un log EXTERNAL_DELIVERY previo ──

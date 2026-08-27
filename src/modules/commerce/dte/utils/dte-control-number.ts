@@ -25,6 +25,31 @@ export interface ControlNumberParams {
   sequence:           number;
 }
 
+// Prefijo fijo de un numeroControl para un tipo DTE + emisor dado, sin la
+// secuencia. Usado para detectar la secuencia máxima ya usada (local o
+// heredada de Hacienda) filtrando DteOutgoingDocument.control_number por
+// startsWith. Ver dte-correlative.service.ts.
+export function buildControlNumberPrefix(p: {
+  dte_type_code:      string;
+  cod_estable_mh:     string | null;
+  cod_punto_venta_mh: string | null;
+}): string {
+  if (!p.dte_type_code?.trim()) {
+    throw new Error("buildControlNumberPrefix: dte_type_code es requerido.");
+  }
+  if (!p.cod_estable_mh || !p.cod_punto_venta_mh) {
+    throw new Error(
+      "buildControlNumberPrefix: faltan cod_estable_mh y/o cod_punto_venta_mh.",
+    );
+  }
+
+  const estab = p.cod_estable_mh.trim().toUpperCase();
+  const pos   = p.cod_punto_venta_mh.trim().toUpperCase();
+  const type  = p.dte_type_code.trim().toUpperCase().padStart(2, "0").slice(0, 2);
+
+  return `DTE-${type}-${estab}${pos}-`;
+}
+
 export function buildControlNumber(p: ControlNumberParams): string {
   if (!p.dte_type_code?.trim()) {
     throw new Error("buildControlNumber: dte_type_code es requerido.");

@@ -1,0 +1,2 @@
+-- RenameIndex
+ALTER INDEX "dte_correlatives_tenant_id_location_id_issuer_config_id_e_key" RENAME TO "dte_correlatives_tenant_id_location_id_issuer_config_id_env_key";

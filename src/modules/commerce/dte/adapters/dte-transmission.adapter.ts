@@ -11,7 +11,7 @@
 //   - rawResponse no incluye datos sensibles del request.
 //   - No escribe en DB. No actualiza estados. No toca Prisma.
 
-import { getDteMhConfig } from "../config/dte-mh.config";
+import { getDteMhConfig, resolveDteMhUrls } from "../config/dte-mh.config";
 import { MhAuthAdapter } from "./dte-auth.adapter";
 import type {
   DteTransmissionAdapterError,
@@ -93,18 +93,18 @@ export class MhDteTransmissionAdapter {
     const config = getDteMhConfig();
     const env = input.environment ?? config.environment;
 
-    // 1. Obtener token MH (cache o autenticación nueva)
-    const authResult = await this.authAdapter.getCachedToken(env);
+    // 1. Obtener token MH (cache o autenticación nueva) — aislado por
+    // issuerConfigId además de environment (ver dte-auth.adapter.ts).
+    const authResult = await this.authAdapter.getCachedToken(env, input.issuerConfigId);
     if (!authResult.ok) {
       return makeError("MH_TRANSMISSION_AUTH_FAILED", authResult.message);
     }
     const authorizationHeader = authResult.authorizationHeader;
 
-    // 2. Construir URL y body
-    const receptionUrl =
-      env === "PRODUCTION"
-        ? (process.env["DTE_MH_RECEPTION_URL_PROD"] ?? config.receptionUrl)
-        : (process.env["DTE_MH_RECEPTION_URL_TEST"] ?? config.receptionUrl);
+    // 2. Construir URL y body — resolución centralizada (evita el bug
+    // latente donde el fallback dependía de DTE_ENVIRONMENT global en
+    // vez del `env` real del documento; ver dte-mh.config.ts).
+    const { receptionUrl } = resolveDteMhUrls(env);
 
     const ambiente = toAmbienteCode(env);
     const idEnvio  = input.idEnvio ?? generateIdEnvio();
@@ -157,7 +157,7 @@ export class MhDteTransmissionAdapter {
 
     // 4. Reintento único en 401
     if (raw.status === 401 && !isRetry) {
-      this.authAdapter.clearTokenCache(env);
+      this.authAdapter.clearTokenCache(env, input.issuerConfigId);
       return this._transmitWithRetry(input, true);
     }
 

@@ -27,7 +27,20 @@ import { prisma } from "@/lib/db/prisma";
 import type { CreatePurchaseInput } from "../schemas/create-purchase.schema";
 import type { AddPurchaseItemInput, UpdatePurchaseItemInput } from "../schemas/purchase-item.schema";
 import { getNextPurchaseCode } from "../queries/get-next-purchase-code";
-import { RETENTION_1PCT_APPLICABLE_DOCTYPES } from "../constants/purchase-document.constants";
+import { RETENTION_1PCT_APPLICABLE_DOCTYPES, isFseDocumentType } from "../constants/purchase-document.constants";
+import {
+  computeIncomeTaxWithholding,
+  type PaymentNature,
+  type SupplierPersonType,
+} from "./income-tax-withholding.util";
+
+// Estados del DTE de la compra a partir de los cuales los datos fiscales
+// de Renta ya no pueden editarse por esta vía — mismo corte que "canSign"
+// en el Panel Fiscal DTE (dte-status.utils / purchase-dte-fiscal-panel.tsx).
+// Antes de SIGNED, el JSON aún no se firmó: es seguro recalcular.
+const DTE_STATUSES_ALLOWING_NATURE_EDIT: readonly string[] = [
+  "PENDING_GENERATION", "GENERATED", "SCHEMA_VALIDATED",
+];
 
 // ── Tipos de resultado ────────────────────────────────────────────
 
@@ -104,6 +117,55 @@ async function recalcPurchaseTotals(
 
   const { applies, amount } = await evalRetention1pct(tx, purchaseId, subtotal);
 
+  // ── Renta: re-seguir el totalCompra (subtotal) si ya hay una naturaleza
+  //    de pago declarada. Nunca se infiere una naturaleza nueva aquí —
+  //    solo se recalcula el monto sobre la base vigente, para que Purchase
+  //    nunca conserve una retención vieja calculada sobre un subtotal
+  //    distinto (ver "Recalculo" en el flujo FSE 14).
+  const purchase = await tx.purchase.findFirst({
+    where:  { id: purchaseId },
+    select: {
+      payment_nature:                 true,
+      income_tax_withholding_applies: true,
+      income_tax_withholding_base:    true,
+      supplier: { select: { person_type: true } },
+    },
+  });
+
+  let incomeTaxUpdate: Partial<{
+    income_tax_withholding_applies: boolean;
+    income_tax_withholding_rate:    Prisma.Decimal | null;
+    income_tax_withholding_amount:  Prisma.Decimal;
+    income_tax_withholding_base:    Prisma.Decimal;
+  }> = {};
+
+  if (purchase?.payment_nature) {
+    const nature = purchase.payment_nature as PaymentNature;
+    const manualBase = nature === "GOODS_AND_SERVICES"
+      ? Number(purchase.income_tax_withholding_base)
+      : undefined;
+
+    const calc = computeIncomeTaxWithholding({
+      paymentNature:      nature,
+      supplierPersonType: purchase.supplier.person_type as SupplierPersonType,
+      totalCompra:        subtotal,
+      manualBase,
+    });
+
+    // Si el recálculo ya no es válido (p.ej. GOODS_AND_SERVICES cuya base
+    // manual quedó por encima del nuevo subtotal más bajo), no se bloquea
+    // el guardado de líneas — se conserva el último estado fiscal válido
+    // y el usuario debe revisar la Naturaleza del pago manualmente.
+    if (calc.ok) {
+      incomeTaxUpdate = {
+        income_tax_withholding_applies: calc.result.applies,
+        income_tax_withholding_rate:    calc.result.rate == null ? null : new Prisma.Decimal(calc.result.rate),
+        income_tax_withholding_amount:  new Prisma.Decimal(calc.result.amount),
+        income_tax_withholding_base:    new Prisma.Decimal(calc.result.base),
+      };
+    }
+  }
+
   await tx.purchase.update({
     where: { id: purchaseId },
     data: {
@@ -112,6 +174,7 @@ async function recalcPurchaseTotals(
       total_amount:           new Prisma.Decimal(total_amount),
       retention_1pct_applies: applies,
       retention_1pct_amount:  new Prisma.Decimal(amount),
+      ...incomeTaxUpdate,
       updated_by:             updatedBy,
     },
   });
@@ -199,7 +262,7 @@ export async function addPurchaseItem(
   // Verificar que la compra existe, pertenece al tenant+location y está en DRAFT
   const purchase = await prisma.purchase.findFirst({
     where: { id: purchase_id, tenant_id, location_id },
-    select: { id: true, status: true },
+    select: { id: true, status: true, document_type: true },
   });
   if (!purchase) {
     return { ok: false, error: "La compra no existe o no pertenece a la location activa." };
@@ -226,9 +289,15 @@ export async function addPurchaseItem(
     };
   }
 
+  // FSE (compra a sujeto excluido) nunca genera crédito fiscal IVA — el
+  // servidor ignora cualquier tax_amount enviado por el cliente y fuerza 0,
+  // sin importar Product.tax_rate. No basta con ocultarlo en la UI.
+  const isFse    = isFseDocumentType(purchase.document_type);
+  const taxInput = isFse ? 0 : input.tax_amount;
+
   // Calcular totales de línea
   const line_subtotal = input.quantity * input.unit_cost;
-  const line_total    = line_subtotal + input.tax_amount;
+  const line_total    = line_subtotal + taxInput;
 
   try {
     await prisma.$transaction(async (tx) => {
@@ -238,7 +307,7 @@ export async function addPurchaseItem(
           product_id:    input.product_id,
           quantity:      input.quantity,
           unit_cost:     input.unit_cost,
-          tax_amount:    input.tax_amount,
+          tax_amount:    taxInput,
           line_subtotal: new Prisma.Decimal(line_subtotal),
           line_total:    new Prisma.Decimal(line_total),
           notes:         input.notes ?? null,
@@ -275,7 +344,7 @@ export async function updatePurchaseItem(
   // Verificar compra en DRAFT
   const purchase = await prisma.purchase.findFirst({
     where: { id: purchase_id, tenant_id, location_id },
-    select: { id: true, status: true },
+    select: { id: true, status: true, document_type: true },
   });
   if (!purchase) {
     return { ok: false, error: "La compra no existe o no pertenece a la location activa." };
@@ -298,9 +367,12 @@ export async function updatePurchaseItem(
     return { ok: false, error: "La línea de compra no existe en este documento." };
   }
 
-  const quantity   = input.quantity   ?? Number(item.quantity);
-  const unit_cost  = input.unit_cost  ?? Number(item.unit_cost);
-  const tax_amount = input.tax_amount ?? Number(item.tax_amount);
+  // FSE nunca genera crédito fiscal IVA — se ignora cualquier tax_amount
+  // enviado, sin importar Product.tax_rate. Ver isFseDocumentType.
+  const isFse      = isFseDocumentType(purchase.document_type);
+  const quantity    = input.quantity   ?? Number(item.quantity);
+  const unit_cost   = input.unit_cost  ?? Number(item.unit_cost);
+  const tax_amount  = isFse ? 0 : (input.tax_amount ?? Number(item.tax_amount));
 
   const line_subtotal = quantity * unit_cost;
   const line_total    = line_subtotal + tax_amount;
@@ -372,9 +444,11 @@ export async function confirmPurchase(
   const purchase = await prisma.purchase.findFirst({
     where: { id: purchase_id, tenant_id, location_id },
     select: {
-      id:            true,
-      status:        true,
-      purchase_code: true,
+      id:             true,
+      status:         true,
+      purchase_code:  true,
+      document_type:  true,
+      payment_nature: true,
       items: {
         select: {
           id:         true,
@@ -410,6 +484,15 @@ export async function confirmPurchase(
 
   if (purchase.items.length === 0) {
     return { ok: false, error: "La compra no tiene líneas. Agrega al menos un producto antes de confirmar." };
+  }
+
+  // FSE: la Naturaleza del pago debe quedar decidida ANTES de confirmar —
+  // no es una configuración post-confirmación. Ver updatePurchasePaymentNature.
+  if (isFseDocumentType(purchase.document_type) && !purchase.payment_nature) {
+    return {
+      ok:    false,
+      error: "Define la Naturaleza del pago antes de confirmar esta compra FSE (bloque 'Naturaleza del pago y Retención de Renta').",
+    };
   }
 
   // 2. Validar que todos los productos siguen siendo elegibles.
@@ -573,6 +656,51 @@ export async function confirmPurchase(
 
 // ── Editar cabecera de compra en DRAFT ───────────────────────────
 
+// ── Resincronizar impuesto de líneas al cruzar la frontera FSE ─────
+//
+// Solo actúa cuando isFseDocumentType() cambia de valor (gravado↔FSE).
+// Cambiar entre dos tipos NO-FSE (ej. CCF → FAC) no toca las líneas.
+//
+//   gravado → FSE: tax_amount = 0, line_total = line_subtotal en todas
+//                  las líneas existentes (sin importar Product.tax_rate).
+//   FSE → gravado: se restaura tax_amount = line_subtotal * (Product.tax_rate/100),
+//                  usando la tasa vigente del catálogo — misma lógica que
+//                  ya usa el cliente para prellenar líneas nuevas.
+async function resyncLineTaxesForFseTransition(
+  tx:          Prisma.TransactionClient,
+  purchaseId:  string,
+  wasFse:      boolean,
+  isFseNow:    boolean,
+): Promise<void> {
+  if (wasFse === isFseNow) return;
+
+  const items = await tx.purchaseItem.findMany({
+    where:  { purchase_id: purchaseId },
+    select: {
+      id:            true,
+      line_subtotal: true,
+      product: { select: { tax_rate: { select: { rate: true } } } },
+    },
+  });
+
+  for (const item of items) {
+    const lineSubtotal = Number(item.line_subtotal);
+    const tax_amount = isFseNow
+      ? 0
+      : Math.round(lineSubtotal * (Number(item.product.tax_rate?.rate ?? 0) / 100) * 100) / 100;
+    // Redondeo a 2 decimales — evita arrastrar binarios tipo 376.65999999999997.
+    const line_total = Math.round((lineSubtotal + tax_amount) * 100) / 100;
+
+    await tx.purchaseItem.update({
+      where: { id: item.id },
+      data: {
+        tax_amount: new Prisma.Decimal(tax_amount),
+        line_total: new Prisma.Decimal(line_total),
+      },
+    });
+  }
+}
+
 export interface UpdatePurchaseHeaderInput {
   supplier_id?:      string;
   purchase_date?:    string;       // YYYY-MM-DD
@@ -594,7 +722,7 @@ export async function updatePurchaseHeader(
 ): Promise<PurchaseResult> {
   const purchase = await prisma.purchase.findFirst({
     where:  { id: purchase_id, tenant_id, location_id },
-    select: { id: true, status: true, purchase_date: true },
+    select: { id: true, status: true, purchase_date: true, document_type: true },
   });
 
   if (!purchase) {
@@ -603,6 +731,11 @@ export async function updatePurchaseHeader(
   if (purchase.status !== "DRAFT") {
     return { ok: false, error: "Solo se pueden editar compras en estado DRAFT." };
   }
+
+  const wasFse = isFseDocumentType(purchase.document_type);
+  const isFseNow = isFseDocumentType(
+    input.document_type !== undefined ? input.document_type : purchase.document_type,
+  );
 
   if (input.supplier_id) {
     const supplier = await prisma.supplier.findFirst({
@@ -642,9 +775,23 @@ export async function updatePurchaseHeader(
           ...(input.document_number  !== undefined && { document_number:  input.document_number  }),
           ...(input.payment_condition !== undefined && { payment_condition: input.payment_condition }),
           ...(input.cancellation_type !== undefined && { cancellation_type: input.cancellation_type }),
+          // Al salir de FSE, la naturaleza del pago y el snapshot de Renta dejan
+          // de tener sentido — se limpian explícitamente en vez de dejarlos
+          // stale. Al entrar a FSE no se toca payment_nature: debe ser una
+          // decisión explícita nueva del usuario (nunca se infiere).
+          ...(wasFse && !isFseNow && {
+            payment_nature:                 null,
+            income_tax_withholding_applies: false,
+            income_tax_withholding_rate:    null,
+            income_tax_withholding_amount:  0,
+            income_tax_withholding_base:    0,
+          }),
           updated_by: user_id,
         },
       });
+      // Cruce de frontera FSE↔gravado: recalcular tax_amount de todas las
+      // líneas existentes ANTES de recalcular los totales de cabecera.
+      await resyncLineTaxesForFseTransition(tx, purchase_id, wasFse, isFseNow);
       // Re-evaluate retention after any header change (doc_type or supplier may have changed)
       await recalcPurchaseTotals(tx, purchase_id, user_id);
     });
@@ -662,6 +809,91 @@ export async function updatePurchaseHeader(
     }
     throw e;
   }
+}
+
+// ── Naturaleza del pago + Retención de Renta (FSE 14) ─────────────
+//
+// El servidor es la única fuente de verdad: el cliente nunca envía
+// rate/amount calculados, solo payment_nature y (para GOODS_AND_SERVICES)
+// manual_base. Este service recalcula todo con computeIncomeTaxWithholding
+// y persiste el snapshot fiscal en Purchase. El builder FSE 14
+// (generate-fse-json.service.ts) solo LEE income_tax_withholding_amount —
+// nunca vuelve a decidir el 10% por sí mismo.
+
+export interface UpdatePurchasePaymentNatureInput {
+  payment_nature: PaymentNature;
+  manual_base?:    number | null;
+}
+
+export type UpdatePurchasePaymentNatureResult =
+  | { ok: true }
+  | { ok: false; error: string; field?: string };
+
+export async function updatePurchasePaymentNature(
+  purchase_id: string,
+  tenant_id:   string,
+  location_id: string,
+  user_id:     string,
+  input:       UpdatePurchasePaymentNatureInput,
+): Promise<UpdatePurchasePaymentNatureResult> {
+  const purchase = await prisma.purchase.findFirst({
+    where: { id: purchase_id, tenant_id, location_id },
+    select: {
+      id:       true,
+      status:   true,
+      subtotal: true,
+      supplier: { select: { person_type: true } },
+      dte_documents: {
+        orderBy: { created_at: "desc" },
+        take:    1,
+        select:  { dte_status: true },
+      },
+    },
+  });
+
+  if (!purchase) {
+    return { ok: false, error: "La compra no existe o no pertenece a la location activa." };
+  }
+  if (purchase.status === "CANCELLED") {
+    return { ok: false, error: "No se puede editar una compra anulada." };
+  }
+
+  // Documento fiscal ya firmado/transmitido/aceptado → los datos fiscales
+  // de Renta quedan congelados. No se recalcula ni se modifica silenciosamente
+  // un DTE que ya salió del sistema. Ver DTE_STATUSES_ALLOWING_NATURE_EDIT.
+  const latestDteStatus = purchase.dte_documents[0]?.dte_status ?? null;
+  if (latestDteStatus && !DTE_STATUSES_ALLOWING_NATURE_EDIT.includes(latestDteStatus)) {
+    return {
+      ok:    false,
+      error: `Esta compra ya tiene un documento fiscal en estado ${latestDteStatus}. ` +
+             "No se pueden modificar los datos de Retención de Renta de un DTE ya firmado o transmitido.",
+    };
+  }
+
+  const calc = computeIncomeTaxWithholding({
+    paymentNature:      input.payment_nature,
+    supplierPersonType: purchase.supplier.person_type as SupplierPersonType,
+    totalCompra:        Number(purchase.subtotal),
+    manualBase:         input.manual_base,
+  });
+
+  if (!calc.ok) {
+    return { ok: false, error: calc.error, field: calc.field };
+  }
+
+  await prisma.purchase.update({
+    where: { id: purchase_id },
+    data: {
+      payment_nature:                 input.payment_nature,
+      income_tax_withholding_applies: calc.result.applies,
+      income_tax_withholding_rate:    calc.result.rate == null ? null : new Prisma.Decimal(calc.result.rate),
+      income_tax_withholding_amount:  new Prisma.Decimal(calc.result.amount),
+      income_tax_withholding_base:    new Prisma.Decimal(calc.result.base),
+      updated_by:                     user_id,
+    },
+  });
+
+  return { ok: true };
 }
 
 // ── Eliminar compra en DRAFT (borrado físico) ─────────────────────

@@ -17,6 +17,7 @@
 import { z } from "zod";
 import {
   taxpayerTypeEnum,
+  personTypeEnum,
   idTypeCodeEnum,
 } from "./create-supplier.schema";
 
@@ -53,6 +54,9 @@ export const updateSupplierSchema = z
 
     // Clasificación tributaria — requerido (puede cambiar, ej. de pequeño a gran contribuyente)
     taxpayer_type: taxpayerTypeEnum,
+
+    // Clasificación persona natural/jurídica — opcional
+    person_type: personTypeEnum.nullable().optional(),
 
     // Identidad opcional
     account_code: optionalText(50),

@@ -17,11 +17,18 @@ import {
 import type { ForeignCustomerLookup } from "../queries/search-foreign-customers";
 import type { CreateForeignCustomerInput } from "../schemas/export-sale.schemas";
 import type { DteCatalogItem } from "@/modules/commerce/dte/types/dte-catalog.types";
+import { CatalogSearchSelect } from "./catalog-search-select";
 
 interface Props {
   onClose: () => void;
   onSelect: (customer: ForeignCustomerLookup) => void;
-  catalogCAT020: DteCatalogItem[]; // País
+  // País (F3-C23D): catálogo de compatibilidad FEX v1 para receptor.codPais
+  // (catalog_code "FEX-11-V1-CODPAIS", códigos numéricos legados) — NO
+  // CAT-020 (ISO alpha-2, modelo `Country`). Mientras FEX 11 siga sobre el
+  // schema v1 local, este campo debe guardar un código de este catálogo
+  // (ej. "9540"), nunca un código ISO como "US". Ver
+  // docs/dte-official/extracts/fex11-catalogs-operational.md.
+  catalogFexCountries: DteCatalogItem[];
   catalogCAT022: DteCatalogItem[]; // Tipo de documento de identificación
   catalogCAT029: DteCatalogItem[]; // Tipo de persona
 }
@@ -37,15 +44,15 @@ function receiverIdTypes(catalogCAT022: DteCatalogItem[]): DteCatalogItem[] {
   return catalogCAT022.filter((t) => t.item_code !== "00");
 }
 
-function emptyDraft(catalogCAT020: DteCatalogItem[]): CreateForeignCustomerInput {
+function emptyDraft(catalogFexCountries: DteCatalogItem[]): CreateForeignCustomerInput {
   return {
     name: "", legal_name: "", id_type_code: "03", document_number: "",
-    country_code: catalogCAT020[0]?.item_code ?? "", country_name: catalogCAT020[0]?.item_label ?? "",
+    country_code: catalogFexCountries[0]?.item_code ?? "", country_name: catalogFexCountries[0]?.item_label ?? "",
     customer_person_type: "2", activity_name: "", address_complement: "", phone: "", email: "",
   };
 }
 
-export function ExportCustomerModal({ onClose, onSelect, catalogCAT020, catalogCAT022, catalogCAT029 }: Props) {
+export function ExportCustomerModal({ onClose, onSelect, catalogFexCountries, catalogCAT022, catalogCAT029 }: Props) {
   const [mode, setMode] = useState<"search" | "create">("search");
   const idTypes = receiverIdTypes(catalogCAT022);
 
@@ -56,7 +63,7 @@ export function ExportCustomerModal({ onClose, onSelect, catalogCAT020, catalogC
   const [hasSearched, setHasSearched] = useState(false);
 
   // Alta rápida
-  const [draft, setDraft] = useState<CreateForeignCustomerInput>(() => emptyDraft(catalogCAT020));
+  const [draft, setDraft] = useState<CreateForeignCustomerInput>(() => emptyDraft(catalogFexCountries));
   const [isCreating, setIsCreating] = useState(false);
 
   const [error, setError] = useState<string | null>(null);
@@ -233,14 +240,21 @@ export function ExportCustomerModal({ onClose, onSelect, catalogCAT020, catalogC
                   onChange={(e) => setDraft((s) => ({ ...s, document_number: e.target.value }))} />
               </div>
               <div>
-                <label className={labelCls}>País (CAT-020)</label>
-                <select className={inputCls} value={draft.country_code}
-                  onChange={(e) => {
-                    const country = catalogCAT020.find((c) => c.item_code === e.target.value);
-                    setDraft((s) => ({ ...s, country_code: e.target.value, country_name: country?.item_label ?? s.country_name }));
-                  }}>
-                  {catalogCAT020.map((c) => <option key={c.item_code} value={c.item_code}>{c.item_label}</option>)}
-                </select>
+                <label className={labelCls}>País (FEX v1)</label>
+                <CatalogSearchSelect
+                  items={catalogFexCountries.map((c) => ({ code: c.item_code, label: c.item_label }))}
+                  value={draft.country_code}
+                  placeholder="Buscar país…"
+                  onSelect={(country) =>
+                    setDraft((s) => ({ ...s, country_code: country.code, country_name: country.label }))
+                  }
+                />
+                <p className="mt-1 text-[10px] text-zinc-600">
+                  Catálogo de compatibilidad FEX v1 (no CAT-020 ISO) — código numérico. Países confirmados
+                  aparecen primero (ej. Estados Unidos = 9540); el resto muestra &quot;nombre no
+                  confirmado&quot; porque el repo no tiene una fuente oficial con nombres reales para esos
+                  códigos legados — verifique el código correcto con el catálogo del MH antes de transmitir.
+                </p>
               </div>
               <div>
                 <label className={labelCls}>Tipo de persona (CAT-029)</label>

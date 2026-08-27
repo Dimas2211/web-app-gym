@@ -10,7 +10,8 @@
 //
 // Seguridad: password, token completo y Authorization nunca se loguean.
 
-import { getDteMhConfig } from "../config/dte-mh.config";
+import { getDteMhConfig, resolveDteMhUrls } from "../config/dte-mh.config";
+import { resolveMhAuthCredentials } from "../services/dte-credential.service";
 import type {
   DteMhAuthInput,
   DteMhAuthResult,
@@ -21,9 +22,23 @@ import type {
 } from "../types/dte-mh-auth.types";
 
 // ── Token cache in-memory ─────────────────────────────────────────
-// Key: environment string. Lost on Vercel cold-start — acceptable for V1.
+// Key: `${issuerConfigId ?? "env"}:${environment}`.
+//
+// F-DTE-ENV — Auditoría TEST/PROD (sección 6): la plataforma es
+// multi-tenant/multi-location (cada location puede tener su propio
+// DteIssuerConfig incluso dentro del mismo ambiente). Un cache keyed
+// únicamente por `environment` permitiría que dos locations distintas
+// del mismo tenant — o, en un despliegue futuro donde un solo proceso
+// sirva más de un tenant, dos contribuyentes distintos — reutilicen
+// accidentalmente el mismo token PROD/TEST. Incluir issuerConfigId en
+// la key aísla el token exactamente al emisor que autenticó.
+// Lost on Vercel cold-start — acceptable for V1 (documentado desde antes).
 
 const tokenCache = new Map<string, DteMhTokenCacheEntry>();
+
+function buildCacheKey(issuerConfigId: string | undefined, environment: string): string {
+  return `${issuerConfigId ?? "env"}:${environment}`;
+}
 
 function isCacheValid(entry: DteMhTokenCacheEntry): boolean {
   return Date.now() < entry.expiresAt;
@@ -65,10 +80,14 @@ export class MhAuthAdapter {
    * Returns a valid cached token or authenticates against MH.
    * Input fields override env config when provided.
    */
-  async getCachedToken(environment?: DteMhEnvironment): Promise<DteMhAuthResult> {
+  async getCachedToken(
+    environment?: DteMhEnvironment,
+    issuerConfigId?: string,
+  ): Promise<DteMhAuthResult> {
     const config = getDteMhConfig();
     const env = environment ?? config.environment;
-    const cached = tokenCache.get(env);
+    const cacheKey = buildCacheKey(issuerConfigId, env);
+    const cached = tokenCache.get(cacheKey);
 
     if (cached && isCacheValid(cached)) {
       return {
@@ -80,7 +99,7 @@ export class MhAuthAdapter {
       };
     }
 
-    return this.authenticate({ environment: env });
+    return this.authenticate({ environment: env, issuerConfigId });
   }
 
   /**
@@ -89,9 +108,31 @@ export class MhAuthAdapter {
    */
   async authenticate(input: DteMhAuthInput = {}): Promise<DteMhAuthResult> {
     const config = getDteMhConfig();
-    const env      = input.environment ?? config.environment;
-    const user     = input.user     ?? config.user;
-    const password = input.password ?? config.password;
+    const env    = input.environment ?? config.environment;
+
+    // Resolución de credenciales:
+    //   1. Las pasadas explícitamente en `input` (uso interno/tests).
+    //   2. DteCredential del issuer_config_id, si se recibió uno.
+    //   3. Fallback .env — SOLO para TEST. PRODUCTION nunca cae aquí
+    //      silenciosamente (F-DTE-ENV — Auditoría TEST/PROD, sección 5).
+    let user     = input.user;
+    let password = input.password;
+
+    if (!user || !password) {
+      const resolved = await resolveMhAuthCredentials({
+        issuerConfigId: input.issuerConfigId,
+        environment:    env,
+      });
+      if (!resolved.ok) {
+        return {
+          ok: false,
+          errorCode: "MH_AUTH_CONFIG_ERROR",
+          message: resolved.error,
+        };
+      }
+      user     = user     ?? resolved.user;
+      password = password ?? resolved.password;
+    }
 
     if (!user || !password) {
       return {
@@ -101,10 +142,7 @@ export class MhAuthAdapter {
       };
     }
 
-    const authUrl =
-      env === "PRODUCTION"
-        ? (process.env["DTE_MH_AUTH_URL_PROD"] ?? "https://api.dtes.mh.gob.sv/seguridad/auth")
-        : (process.env["DTE_MH_AUTH_URL_TEST"] ?? "https://apitest.dtes.mh.gob.sv/seguridad/auth");
+    const { authUrl } = resolveDteMhUrls(env);
 
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), config.timeoutMs);
@@ -161,7 +199,7 @@ export class MhAuthAdapter {
       const { clean, header } = normalizeAuthHeader(parsed.body.token);
       const expiresAt = Date.now() + config.tokenCacheTtlMs;
 
-      tokenCache.set(env, {
+      tokenCache.set(buildCacheKey(input.issuerConfigId, env), {
         token: clean,
         authorizationHeader: header,
         expiresAt,
@@ -190,9 +228,9 @@ export class MhAuthAdapter {
    * Invalidates the token cache for the given environment (or current env).
    * Call this when MH returns 401 during document transmission.
    */
-  clearTokenCache(environment?: DteMhEnvironment): void {
+  clearTokenCache(environment?: DteMhEnvironment, issuerConfigId?: string): void {
     const config = getDteMhConfig();
     const env = environment ?? config.environment;
-    tokenCache.delete(env);
+    tokenCache.delete(buildCacheKey(issuerConfigId, env));
   }
 }

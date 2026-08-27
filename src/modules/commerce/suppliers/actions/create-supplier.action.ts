@@ -46,6 +46,7 @@ export async function createSupplierAction(
     supplier_code: str(formData.get("supplier_code")),
     name:          str(formData.get("name")),
     taxpayer_type: str(formData.get("taxpayer_type")),
+    person_type:   strNullable(formData.get("person_type")),
 
     // Identidad — opcionales
     account_code: strNullable(formData.get("account_code")),

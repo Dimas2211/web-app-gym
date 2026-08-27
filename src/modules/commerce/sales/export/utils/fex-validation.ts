@@ -14,6 +14,11 @@ import { isValidItemTypeExport } from "./fex-catalogs";
 import type { CreateExportSaleInput, CreateForeignCustomerInput } from "../schemas/export-sale.schemas";
 import type { DteCatalogItem } from "@/modules/commerce/dte/types/dte-catalog.types";
 
+// Forma best-effort de un código ISO alpha-2 (CAT-020), solo para dar un
+// mensaje de error más claro cuando el valor rechazado viene evidentemente
+// de CAT-020 en vez del catálogo de compatibilidad FEX v1 (F3-C23D).
+const ISO_ALPHA2_LIKE = /^[A-Z]{2}$/;
+
 export interface ExportProductForValidation {
   id:           string;
   name:         string;
@@ -88,7 +93,12 @@ export function validateExportSaleBusinessRules(
 }
 
 export interface FexCustomerCatalogItems {
-  countries:    DteCatalogItem[]; // CAT-020
+  // País (F3-C23D): catálogo de COMPATIBILIDAD FEX v1 para
+  // receptor.codPais (catalog_code "FEX-11-V1-CODPAIS", códigos numéricos
+  // legados) — NO CAT-020 (ISO alpha-2, modelo `Country`). CAT-020 sigue
+  // vigente en el sistema central, pero FEX 11 v1 no lo usa para este
+  // campo. Ver docs/dte-official/extracts/fex11-catalogs-operational.md.
+  fexCountries: DteCatalogItem[];
   personTypes:  DteCatalogItem[]; // CAT-029
   idTypes:      DteCatalogItem[]; // CAT-022
 }
@@ -99,8 +109,16 @@ export function validateForeignCustomerCatalogs(
 ): string[] {
   const errors: string[] = [];
 
-  if (!existsInCatalog(catalogs.countries, input.country_code)) {
-    errors.push("El país indicado no existe en el catálogo DTE (CAT-020).");
+  if (!input.country_code) {
+    errors.push("El país es requerido.");
+  } else if (!existsInCatalog(catalogs.fexCountries, input.country_code)) {
+    errors.push(
+      ISO_ALPHA2_LIKE.test(input.country_code)
+        ? `El país "${input.country_code}" pertenece al catálogo CAT-020 ISO actualizado, pero la ` +
+          `versión actual de FEX 11 usa códigos numéricos compatibles con el schema v1. Seleccione ` +
+          `el país desde el catálogo FEX v1 (FEX-11-V1-CODPAIS).`
+        : `El país indicado no existe en el catálogo de compatibilidad FEX v1 (FEX-11-V1-CODPAIS).`,
+    );
   }
   if (!existsInCatalog(catalogs.personTypes, input.customer_person_type)) {
     errors.push("El tipo de persona indicado no existe en el catálogo DTE (CAT-029).");

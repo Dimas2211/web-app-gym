@@ -26,6 +26,7 @@ export const DOCUMENT_TYPE_LABELS: Record<string, string> = {
   COV: "Comprobante de Venta",
   NCI: "Nota de Crédito Interna",
   COP: "Comprobante de Pago",
+  FSE: "Factura de Sujeto Excluido (DTE 14)",
 };
 
 export const DOCUMENT_TYPE_OPTIONS = [
@@ -35,13 +36,30 @@ export const DOCUMENT_TYPE_OPTIONS = [
   { value: "COV", label: "COV — Comprobante de Venta" },
   { value: "NCI", label: "NCI — Nota de Crédito Interna" },
   { value: "COP", label: "COP — Comprobante de Pago" },
+  { value: "FSE", label: "FSE — Factura de Sujeto Excluido (DTE 14)" },
 ] as const;
 
+// FSE marca explícitamente una compra cuya documentación fiscal saliente
+// será un DTE 14 (Factura de Sujeto Excluido Electrónica). No reemplaza COV
+// (registro interno/no fiscal) — una compra COV existente nunca se convierte
+// automáticamente en FSE; el usuario debe elegir FSE explícitamente al
+// capturar o editar la compra.
 export const VALID_DOCUMENT_TYPES = [
-  "CCF", "FAC", "NCR", "COV", "NCI", "COP",
+  "CCF", "FAC", "NCR", "COV", "NCI", "COP", "FSE",
 ] as const;
+
+// Tipos documentales de Purchase habilitados para emitir FSE 14.
+export const FSE_ELIGIBLE_DOCUMENT_TYPES: readonly string[] = ["FSE"];
 
 export type DocumentTypeCode = (typeof VALID_DOCUMENT_TYPES)[number];
+
+// La FSE (compra a sujeto excluido) nunca genera crédito fiscal IVA —
+// las líneas de una Purchase FSE siempre llevan tax_amount = 0, sin
+// importar el Product.tax_rate configurado (13% u otro). Esto es una
+// regla de la compra, no del catálogo — Product.tax_rate NO se toca.
+export function isFseDocumentType(documentType: string | null | undefined): boolean {
+  return documentType != null && FSE_ELIGIBLE_DOCUMENT_TYPES.includes(documentType);
+}
 
 // ── Formas de pago ────────────────────────────────────────────────
 
@@ -83,3 +101,36 @@ export const VALID_CANCELLATION_TYPES = ["EFE", "CHE", "TRN", "POS", "OTR"] as c
 // Solo documentos gravados de compra base. NDB excluido hasta verificación.
 
 export const RETENTION_1PCT_APPLICABLE_DOCTYPES: readonly string[] = ["CCF", "FAC"];
+
+// ── Naturaleza del pago — relevante para Retención de Renta (FSE 14) ──
+// La FSE es el documento fiscal; la retención depende de esta naturaleza
+// + la clasificación persona natural/jurídica del proveedor, nunca del
+// solo hecho de ser FSE. Ver income-tax-withholding.util.ts.
+
+export const PAYMENT_NATURE_LABELS: Record<string, string> = {
+  GOODS:               "Compra de bienes",
+  SERVICES:            "Prestación de servicios",
+  GOODS_AND_SERVICES:  "Bienes + servicios separados",
+  LUMP_SUM_CONTRACT:   "Contrato por precio alzado",
+  OTHER:               "Otro / no sujeto a retención automática",
+};
+
+export const PAYMENT_NATURE_OPTIONS = [
+  { value: "GOODS",              label: "Compra de bienes" },
+  { value: "SERVICES",           label: "Prestación de servicios" },
+  { value: "GOODS_AND_SERVICES", label: "Bienes + servicios separados" },
+  { value: "LUMP_SUM_CONTRACT",  label: "Contrato por precio alzado" },
+  { value: "OTHER",              label: "Otro / no sujeto a retención automática" },
+] as const;
+
+export const VALID_PAYMENT_NATURES = [
+  "GOODS", "SERVICES", "GOODS_AND_SERVICES", "LUMP_SUM_CONTRACT", "OTHER",
+] as const;
+
+// ── Clasificación persona natural/jurídica del proveedor ─────────
+
+export const SUPPLIER_PERSON_TYPE_LABELS: Record<string, string> = {
+  NATURAL_PERSON: "Persona natural",
+  LEGAL_ENTITY:   "Persona jurídica",
+  UNKNOWN:        "Sin clasificar",
+};

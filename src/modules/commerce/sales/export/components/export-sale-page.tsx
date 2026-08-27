@@ -20,7 +20,7 @@ interface Props {
   fex11Enabled: boolean;
   catalogCAT016: DteCatalogItem[];
   catalogCAT017: DteCatalogItem[];
-  catalogCAT020: DteCatalogItem[];
+  catalogFexCountries: DteCatalogItem[]; // País — catálogo compatibilidad FEX v1 (F3-C23D)
   catalogCAT022: DteCatalogItem[];
   catalogCAT027: DteCatalogItem[];
   catalogCAT028: DteCatalogItem[];
@@ -31,7 +31,7 @@ interface Props {
 
 export function ExportSalePage({
   fex11Enabled, catalogCAT016, catalogCAT017,
-  catalogCAT020, catalogCAT022, catalogCAT027, catalogCAT028, catalogCAT029, catalogCAT031,
+  catalogFexCountries, catalogCAT022, catalogCAT027, catalogCAT028, catalogCAT029, catalogCAT031,
   contextNote,
 }: Props) {
   const router = useRouter();
@@ -59,7 +59,7 @@ export function ExportSalePage({
     <ExportSaleWorkspace
       catalogCAT016={catalogCAT016}
       catalogCAT017={catalogCAT017}
-      catalogCAT020={catalogCAT020}
+      catalogFexCountries={catalogFexCountries}
       catalogCAT022={catalogCAT022}
       catalogCAT027={catalogCAT027}
       catalogCAT028={catalogCAT028}

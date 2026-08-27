@@ -9,6 +9,18 @@
 // de venta/cliente/emisor son un fixture in-memory que representa lo
 // que generateFexJsonForSale cargaría de Prisma.
 //
+// Actualización F3-C23D — restauración de transmisión FEX 11 (versión
+// actual, sin migrar a FEX v3): los Escenarios A/B/C usan "9540" porque
+// eso es exactamente lo que /dashboard/sales/export guarda hoy para
+// receptor.codPais (catálogo de compatibilidad FEX v1, catalog_code
+// "FEX-11-V1-CODPAIS" — ver prisma/seeds/data/fex11-catalog-rows.ts), NO
+// un valor de regresión histórica aislado. El Escenario D prueba el
+// código ISO alpha-2 de CAT-020 ("US") y espera que el builder lo
+// BLOQUEE — la UI ya no ofrece ni guarda ISO para este campo mientras
+// sigamos en FEX v1, pero la guardia server-side se mantiene como red de
+// seguridad. Ver docs/dte-official/extracts/fex11-catalogs-operational.md
+// (§F3-C23C/F3-C23D).
+//
 // Ejecutar:  npx tsx src/modules/commerce/dte/dev/verify-fex11-json.fixture.ts
 // ─────────────────────────────────────────────────────────────────
 
@@ -44,8 +56,19 @@ function makeBaseLoadedData(overrides: {
   customerEmail: string | null;
   insurance?: number;
   freight?: number;
+  countryCode?: string;
+  countryName?: string;
 }): FexLoadedData {
-  const { unitPrice, quantity, customerEmail, insurance = 0, freight = 0 } = overrides;
+  const {
+    unitPrice, quantity, customerEmail, insurance = 0, freight = 0,
+    // F3-C23D — "9540" es el código real que /dashboard/sales/export
+    // guarda hoy para receptor.codPais (catálogo de compatibilidad FEX v1
+    // "FEX-11-V1-CODPAIS", NO CAT-020 oficial ISO alpha-2). El caso ISO
+    // ("US", catálogo CAT-020) se prueba aparte en el Escenario D, donde
+    // se espera bloqueo explícito por el builder.
+    countryCode = "9540",
+    countryName = "ESTADOS UNIDOS",
+  } = overrides;
 
   const lineSubtotal = unitPrice * quantity;
   const lineTotal = lineSubtotal; // tax_rate_snapshot = 0, sin descuento
@@ -79,8 +102,8 @@ function makeBaseLoadedData(overrides: {
         phone: "+13051234567",
         email: customerEmail,
         is_foreign: true,
-        country_code: "9540",
-        country_name: "ESTADOS UNIDOS",
+        country_code: countryCode,
+        country_name: countryName,
         customer_person_type: "2",
       },
       export_details: {
@@ -225,18 +248,37 @@ function main() {
   const dataC = makeBaseLoadedData({ unitPrice: 1200, quantity: 10, customerEmail: null });
   results.push(runScenario("Escenario C (monto >= 10000, sin correo → debe fallar)", dataC, true));
 
+  // Escenario D — F3-C23D: codPais de CAT-020 (ISO alpha-2 "US"), que la
+  // UI ya NO ofrece ni guarda para este campo, pero que la guardia
+  // server-side (FEX_COD_PAIS_SCHEMA_ENUM en generate-fex-json.service.ts)
+  // debe seguir bloqueando ANTES de llegar a AJV como red de seguridad —
+  // p. ej. datos heredados de antes de esta fase. Así queda probado que
+  // ninguno de los tres (UI, validación server-side, AJV) acepta "US"
+  // mientras el schema fex-11.schema.json no lo soporte.
+  const dataD = makeBaseLoadedData({
+    unitPrice: 500, quantity: 10, customerEmail: "cliente@acme.com",
+    countryCode: "US", countryName: "ESTADOS UNIDOS",
+  });
+  results.push(runScenario(
+    "Escenario D (codPais real de UI: ISO 'US' → debe ser bloqueado por el builder)",
+    dataD,
+    true,
+  ));
+
   for (const r of results) printResult(r);
 
   const scenarioAOk = results[0].builderOk && results[0].ajvOk === true;
   const scenarioBOk = results[1].builderOk && results[1].ajvOk === true;
   const scenarioCOk = !results[2].builderOk; // debe fallar, con error claro
+  const scenarioDOk = !results[3].builderOk; // debe fallar, con error claro (bloqueo F3-C23C)
 
   console.log("\n── Resumen ──");
   console.log(`Escenario A: ${scenarioAOk ? "PASA" : "FALLA"}`);
   console.log(`Escenario B: ${scenarioBOk ? "PASA" : "FALLA"}`);
   console.log(`Escenario C (negativo esperado): ${scenarioCOk ? "PASA" : "FALLA"}`);
+  console.log(`Escenario D (negativo esperado, codPais UI real "US"): ${scenarioDOk ? "PASA" : "FALLA"}`);
 
-  const allOk = scenarioAOk && scenarioBOk && scenarioCOk;
+  const allOk = scenarioAOk && scenarioBOk && scenarioCOk && scenarioDOk;
   if (!allOk) {
     console.error("\nVERIFICACIÓN FALLIDA");
     process.exit(1);

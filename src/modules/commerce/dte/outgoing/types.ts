@@ -25,7 +25,7 @@ export interface DteOutgoingGlobalFilters {
   tenantId:     string;
   locationId:   string;
   search?:      string;
-  dteType?:     "01" | "03" | "05" | "ALL";
+  dteType?:     "01" | "03" | "05" | "11" | "14" | "ALL";
   status?:      DteOutgoingStatus | "ALL";
   environment?: "TEST" | "PRODUCTION" | "ALL";
   dateFrom?:    string;  // YYYY-MM-DD, filtra sobre issued_at
@@ -41,7 +41,8 @@ export interface DteOutgoingGlobalFilters {
 
 export interface DteOutgoingGlobalListItem {
   id:               string;
-  sale_id:          string;
+  sale_id:          string | null;
+  purchase_id:      string | null;
   dte_type_code:    string;
   dte_status:       DteOutgoingStatus;
   environment:      DteEnvironment;
@@ -148,7 +149,8 @@ export interface DteOutgoingInvalidationSummary {
 export interface DteOutgoingDetail {
   // 1. Identificación
   id:               string;
-  sale_id:          string;
+  sale_id:          string | null;
+  purchase_id:      string | null;
   dte_type_code:    string;
   dte_status:       DteOutgoingStatus;
   environment:      DteEnvironment;

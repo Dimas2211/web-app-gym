@@ -6,7 +6,11 @@
 //   campos DTE originales en la raíz + codigoEmpresa + responseMH + token.
 //
 // Reglas:
-//   - Solo construye si dte_status === "ACCEPTED".
+//   - Solo construye si el documento fue fiscalmente recibido por MH
+//     (ACCEPTED u OBSERVED, ambos con reception_stamp) — ver
+//     isFiscallyReceivedByMh en dte-fiscal-receipt.utils.ts, fuente
+//     única de esta regla. OBSERVED se entrega tal cual, sin forzarlo
+//     a ACCEPTED.
 //   - Requiere json_document, signed_jws, reception_stamp y mh_response.
 //   - codigoEmpresa se obtiene de jsonDocument.emisor.nrc.
 //   - token = signed_jws exactamente.
@@ -17,6 +21,7 @@ import type {
   ExternalDteResponseMH,
 } from "../types/external-dte-delivery.types";
 import { canUseFex11InServerFlow } from "../utils/fex11-feature-guard";
+import { isFiscallyReceivedByMh } from "../utils/dte-fiscal-receipt.utils";
 
 // ── Forma esperada del documento cargado ─────────────────────────
 
@@ -24,7 +29,8 @@ export interface DteDocumentForExternalPayload {
   id:               string;
   tenant_id:        string;
   location_id:      string;
-  sale_id:          string;
+  sale_id:          string | null;
+  purchase_id:      string | null;
   dte_type_code:    string;
   control_number:   string | null;
   generation_code:  string | null;
@@ -49,17 +55,17 @@ export type BuildExternalDtePayloadResult =
 // TEST mediante DTE_FEX11_TEST_ENABLED hasta que exista UI y validaciones
 // completas de catálogos.
 
-const SUPPORTED_TYPES = new Set(["01", "03", "05"]);
+const SUPPORTED_TYPES = new Set(["01", "03", "05", "14"]);
 
 // ── Función principal ─────────────────────────────────────────────
 
 export function buildExternalDtePayload(
   doc: DteDocumentForExternalPayload,
 ): BuildExternalDtePayloadResult {
-  if (doc.dte_status !== "ACCEPTED") {
+  if (!isFiscallyReceivedByMh(doc.dte_status, doc.reception_stamp)) {
     return {
       ok:    false,
-      error: `Solo se pueden entregar documentos ACCEPTED. Estado actual: ${doc.dte_status}.`,
+      error: `El documento no ha sido recibido fiscalmente por MH (requiere ACCEPTED u OBSERVED con sello de recepción). Estado actual: ${doc.dte_status}.`,
     };
   }
 
@@ -108,6 +114,9 @@ export function buildExternalDtePayload(
 
   if (doc.dte_type_code === "11" && identificacion?.["tipoDte"] !== "11") {
     return { ok: false, error: "El json_document no corresponde a un tipoDte 11 (FEX)." };
+  }
+  if (doc.dte_type_code === "14" && identificacion?.["tipoDte"] !== "14") {
+    return { ok: false, error: "El json_document no corresponde a un tipoDte 14 (FSE)." };
   }
 
   // Obtener NRC del emisor — nunca hardcodeado

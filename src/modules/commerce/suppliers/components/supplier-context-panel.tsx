@@ -37,6 +37,10 @@ const TAXPAYER_CONFIG: Record<
     label: "Extranjero",
     cls:   "bg-blue-900/40 text-blue-300 border border-blue-700/50",
   },
+  EXCLUDED_SUBJECT: {
+    label: "Sujeto excluido",
+    cls:   "bg-purple-900/40 text-purple-300 border border-purple-700/50",
+  },
 };
 
 // ── Props ─────────────────────────────────────────────────────────

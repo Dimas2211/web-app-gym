@@ -14,7 +14,7 @@ import type { DteMhEnvironment } from "./dte-mh-auth.types";
 export type DteMhAmbienteCode = "00" | "01";
 
 /** tipoDte aceptado por recepciondte */
-export type DteTypeCode = "01" | "03" | "05";
+export type DteTypeCode = "01" | "03" | "05" | "14";
 
 // Re-exportar para comodidad de consumers
 export type { DteMhEnvironment };
@@ -24,7 +24,13 @@ export type { DteMhEnvironment };
 export interface DteTransmissionInput {
   /** Ambiente destino. Si omite, usa DTE_ENVIRONMENT del config. */
   environment?: DteMhEnvironment;
-  /** "01" = FE, "03" = CCFE, "05" = NC */
+  /**
+   * DteIssuerConfig.id del documento que se transmite. Determina qué
+   * DteCredential se usa para autenticar y aísla el cache de token
+   * por emisor (ver dte-auth.adapter.ts). Opcional por compatibilidad.
+   */
+  issuerConfigId?: string;
+  /** "01" = FE, "03" = CCFE, "05" = NC, "14" = FSE */
   dteTypeCode: DteTypeCode;
   /** version del DTE: FE 01 → 1, CCFE 03 → 3 */
   version: number;

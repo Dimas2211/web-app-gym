@@ -71,6 +71,13 @@ export interface SaleDteDocument {
   rejected_at:      Date | null;
   invalidated_at:   Date | null;
   created_at:       Date;
+  /**
+   * true solo si dte_status === "REJECTED" Y el último log de envío MH
+   * registró codigoMsg "802" (firma no válida) — calculado en servidor
+   * a partir de DteTransmissionLog, nunca confiado al cliente. Habilita
+   * el botón "Reintentar firma" (reopen-rejected-dte-for-resign).
+   */
+  can_retry_signature: boolean;
 }
 
 // ── NC 05 relacionada con la venta (desde related_in_relations CREDIT_NOTE_OF) ──

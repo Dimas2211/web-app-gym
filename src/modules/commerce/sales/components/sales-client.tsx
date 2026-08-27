@@ -44,6 +44,10 @@ import {
   type SignDteDocumentResult,
 } from "@/modules/commerce/dte/actions/sign-dte-document.action";
 import {
+  reopenRejectedDteForResignAction,
+  type ReopenRejectedDteForResignActionResult,
+} from "@/modules/commerce/dte/actions/reopen-rejected-dte-for-resign.action";
+import {
   transmitDteDocumentAction,
   type TransmitDteDocumentResult,
 } from "@/modules/commerce/dte/actions/transmit-dte-document.action";
@@ -147,6 +151,12 @@ export function SalesClient({ initialItems, initialTotal, hasOpenCashSession = f
   const [isSigningDte,      setIsSigningDte]      = useState(false);
   const [signDteError,      setSignDteError]      = useState<string | null>(null);
   const [signDteSuccess,    setSignDteSuccess]    = useState<string | null>(null);
+
+  // ── Estado de reintento de firma (DTE REJECTED por MH 802) ────────
+  const [retrySignDialogOpen,   setRetrySignDialogOpen]   = useState(false);
+  const [isRetrySigning,        setIsRetrySigning]        = useState(false);
+  const [retrySignError,        setRetrySignError]        = useState<string | null>(null);
+  const [retrySignSuccess,      setRetrySignSuccess]      = useState<string | null>(null);
 
   // ── Estado de transmisión DTE a Hacienda ──────────────────────────
   const [transmitDteDialogOpen, setTransmitDteDialogOpen] = useState(false);
@@ -413,6 +423,28 @@ export function SalesClient({ initialItems, initialTotal, hasOpenCashSession = f
       }
     } finally {
       setIsSigningDte(false);
+    }
+  }
+
+  // ── Handler: reabrir DTE REJECTED (firma inválida MH 802) para re-firma ──
+  // No transmite. Solo REJECTED → SCHEMA_VALIDATED, mismo documento/correlativo.
+  async function handleRetrySignDte() {
+    const dteId = selectedDetail?.dte_document?.id;
+    if (!dteId || !selectedId) return;
+    setIsRetrySigning(true);
+    setRetrySignError(null);
+    setRetrySignSuccess(null);
+    try {
+      const result: ReopenRejectedDteForResignActionResult = await reopenRejectedDteForResignAction(dteId);
+      if (result.ok) {
+        setRetrySignSuccess("Documento reabierto para re-firma. Ahora puede usar “Firmar DTE”.");
+        fetchList();
+        refreshDetail();
+      } else {
+        setRetrySignError(result.error);
+      }
+    } finally {
+      setIsRetrySigning(false);
     }
   }
 
@@ -696,6 +728,19 @@ export function SalesClient({ initialItems, initialTotal, hasOpenCashSession = f
           >
             <FileText className="h-3 w-3" />
             Firmar DTE
+          </button>
+        )}
+
+        {/* Reintentar firma — solo REJECTED por MH 802 (firma no válida) */}
+        {selectedDetail?.dte_document?.dte_status === "REJECTED"
+          && selectedDetail.dte_document.can_retry_signature
+          && !detailLoading && (
+          <button
+            onClick={() => { setRetrySignError(null); setRetrySignSuccess(null); setRetrySignDialogOpen(true); }}
+            className="h-6 px-2 text-xs text-amber-400 hover:text-amber-200 border border-amber-800/50 hover:border-amber-600 rounded flex items-center gap-1 transition-colors"
+          >
+            <FileText className="h-3 w-3" />
+            Reintentar firma
           </button>
         )}
 
@@ -1240,6 +1285,73 @@ export function SalesClient({ initialItems, initialTotal, hasOpenCashSession = f
                   {isSchemaValidating
                     ? <><Loader2 className="h-3 w-3 animate-spin" />Validando…</>
                     : <><FileText className="h-3 w-3" />Validar JSON</>
+                  }
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Modal: Reintentar firma (DTE REJECTED por MH 802) ────────── */}
+      {retrySignDialogOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+          <div className="bg-zinc-900 border border-amber-900/50 rounded-lg p-6 w-96 shadow-xl">
+            <h2 className="text-sm font-semibold text-amber-300 mb-1 flex items-center gap-2">
+              <FileText className="h-4 w-4" />
+              Reintentar firma
+            </h2>
+
+            {!retrySignSuccess && !retrySignError && (
+              <p className="text-xs text-zinc-400 mb-4 leading-relaxed">
+                Este DTE fue rechazado por Hacienda con código{" "}
+                <span className="text-zinc-200 font-mono font-medium">802 — Firma no válida</span>.
+                Se reabrirá el <strong>mismo</strong> documento (mismo numeroControl, codigoGeneracion y venta)
+                para poder firmarlo de nuevo con el certificado actual. No se transmitirá nada todavía.
+              </p>
+            )}
+
+            <p className="text-[10px] text-zinc-500 mb-1">
+              Venta:{" "}
+              <span className="text-zinc-300 font-medium">{selectedItem?.sale_code ?? "—"}</span>
+              {" · "}
+              DTE:{" "}
+              <span className="text-zinc-300 font-mono font-medium">
+                {selectedDetail?.dte_document?.control_number ?? "—"}
+              </span>
+            </p>
+
+            {retrySignSuccess && (
+              <div className="mb-4 mt-3 text-xs text-amber-300 bg-amber-900/30 border border-amber-700/40 rounded px-3 py-2">
+                {retrySignSuccess}
+              </div>
+            )}
+
+            {retrySignError && (
+              <div className="mb-4 mt-3 text-xs text-red-400 bg-red-900/30 border border-red-700/40 rounded px-3 py-2">
+                {retrySignError}
+              </div>
+            )}
+
+            <div className="flex gap-2 mt-4">
+              <button
+                type="button"
+                onClick={() => setRetrySignDialogOpen(false)}
+                disabled={isRetrySigning}
+                className="flex-1 h-8 text-xs border border-zinc-700 rounded text-zinc-400 hover:text-zinc-100 transition-colors disabled:opacity-50"
+              >
+                {retrySignSuccess ? "Cerrar" : "Cancelar"}
+              </button>
+              {!retrySignSuccess && (
+                <button
+                  type="button"
+                  onClick={handleRetrySignDte}
+                  disabled={isRetrySigning}
+                  className="flex-1 h-8 text-xs bg-amber-700 hover:bg-amber-600 text-white rounded font-medium flex items-center justify-center gap-1 disabled:opacity-50 transition-colors"
+                >
+                  {isRetrySigning
+                    ? <><Loader2 className="h-3 w-3 animate-spin" />Reabriendo…</>
+                    : <><FileText className="h-3 w-3" />Reabrir para re-firma</>
                   }
                 </button>
               )}

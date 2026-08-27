@@ -174,6 +174,7 @@ export function PurchaseFormClient({
             onConfirm={handleConfirm}
             onBack={() => router.push("/dashboard/purchases")}
             onClear={handleClearPurchase}
+            onDetailUpdated={handleDetailUpdated}
           />
         </div>
 
