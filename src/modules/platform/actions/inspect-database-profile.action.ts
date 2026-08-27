@@ -4,29 +4,30 @@
 // platform — inspect-database-profile.action.ts
 //
 // Inspector read-only de base de datos cliente (C4).
-// Obtiene resumen operativo básico conectando via Prisma dinámico
-// temporal al perfil indicado.
+// Obtiene resumen operativo básico conectando vía el Runtime Database
+// Router (withRuntimePrismaForInspection) al perfil indicado.
 //
 // Reglas de seguridad:
 // - Solo super_admin.
 // - Nunca devuelve encrypted_password, DATABASE_URL ni credenciales.
-// - Construye la URL en memoria — no la persiste ni loguea.
-// - Siempre ejecuta $disconnect() vía withTemporaryPrismaClient.
+// - La conexión runtime la resuelve y desconecta el router — esta
+//   action nunca construye la URL ni maneja el password.
 // - Cada bloque tiene try/catch independiente — un bloque fallido
 //   no tumba el inspector; agrega warning y continúa.
 // - Solo lectura: count, findMany, findFirst. Sin writes.
 // - No ejecuta migraciones ni seeds.
 // - No modifica el Prisma singleton normal.
+//
+// Separación de capas (PASO 3 — Runtime Database Router):
+// - Control plane (metadata del perfil/organización): controlPlanePrisma.
+// - Client runtime (datos de la base cliente): withRuntimePrismaForInspection.
 // ─────────────────────────────────────────────────────────────────
 
 import { requireSuperAdmin }         from "@/lib/permissions/guards";
-import { prisma }                    from "@/lib/db/prisma";
 import { assertEncryptionAvailable } from "@/lib/security/encryption";
-import {
-  buildDatabaseUrlFromProfile,
-  sanitizeDatabaseError,
-}                                    from "../lib/database-profile-url";
-import { withTemporaryPrismaClient } from "../lib/client-prisma";
+import { sanitizeDatabaseError }     from "../lib/database-profile-url";
+import { controlPlanePrisma }        from "../runtime/control-plane-prisma";
+import { withRuntimePrismaForInspection } from "../runtime/runtime-database-router";
 import type {
   DatabaseProfileInspectionResult,
   DatabaseInspectionSummary,
@@ -99,18 +100,13 @@ export async function inspectDatabaseProfileAction(
     };
   }
 
-  // Buscar perfil + organización desde el control plane
-  const profile = await prisma.platformDatabaseProfile.findUnique({
+  // Buscar perfil + organización desde el control plane (solo metadata —
+  // las credenciales de conexión las maneja internamente el router).
+  const profile = await controlPlanePrisma.platformDatabaseProfile.findUnique({
     where:  { id: profileId },
     select: {
-      id:                 true,
-      label:              true,
-      db_host:            true,
-      db_port:            true,
-      db_name:            true,
-      db_user:            true,
-      encrypted_password: true,
-      ssl_mode:           true,
+      id:    true,
+      label: true,
       organization: {
         select: {
           name:      true,
@@ -148,9 +144,7 @@ export async function inspectDatabaseProfileAction(
   let dteConfig:   DatabaseInspectionDteConfig | null    = null;
 
   try {
-    const databaseUrl = buildDatabaseUrlFromProfile(profile);
-
-    await withTemporaryPrismaClient(databaseUrl, async (client) => {
+    await withRuntimePrismaForInspection(profileId, async (client) => {
 
       // ── Bloque 1: Core — tenant (gym) y branches ─────────────────
       try {
@@ -354,7 +348,7 @@ export async function inspectDatabaseProfileAction(
         warnings.push(`Catalogs/tax-rates: ${sanitizeDatabaseError(err)}`);
       }
 
-    }); // withTemporaryPrismaClient — garantiza $disconnect()
+    }); // withRuntimePrismaForInspection — garantiza $disconnect()
 
   } catch (err) {
     // Error de conexión o error no manejado en el bloque raíz

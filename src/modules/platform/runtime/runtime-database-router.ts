@@ -275,6 +275,56 @@ export async function withOrganizationRuntimePrisma<T>(
   return withRuntimePrisma({ organizationId }, callback);
 }
 
+const INSPECTION_PROFILE_SELECT = {
+  id:                 true,
+  db_host:            true,
+  db_port:            true,
+  db_name:            true,
+  db_user:            true,
+  encrypted_password: true,
+  ssl_mode:           true,
+} as const;
+
+/**
+ * Ejecuta `callback` con un PrismaClient runtime resuelto por `profileId`,
+ * para uso EXCLUSIVO de inspección/diagnóstico read-only (Inspector de
+ * perfiles, C4).
+ *
+ * A diferencia de `withRuntimePrisma`, NO exige `is_active=true` en el
+ * perfil ni `tenant_id` vinculado en la organización — la inspección debe
+ * poder ejecutarse sobre perfiles recién creados, inactivos, o pendientes
+ * de Tenant Binding (C7). No usar esta función para operaciones runtime
+ * normales de Commerce/DTE; para eso usar `withRuntimePrisma` /
+ * `withOrganizationRuntimePrisma`.
+ *
+ * Garantiza `$disconnect()` en `finally` (vía `withTemporaryPrismaClient`).
+ */
+export async function withRuntimePrismaForInspection<T>(
+  profileId: string,
+  callback: (client: PrismaClient) => Promise<T>,
+): Promise<T> {
+  const row = await controlPlanePrisma.platformDatabaseProfile.findUnique({
+    where:  { id: profileId },
+    select: INSPECTION_PROFILE_SELECT,
+  });
+
+  if (!row) throw new ProfileNotFoundError(profileId);
+
+  let databaseUrl: string;
+  try {
+    assertEncryptionAvailable();
+    databaseUrl = buildDatabaseUrlFromProfile(row);
+  } catch (err) {
+    throw new ProfileConnectionInvalidError(profileId, sanitizeDatabaseError(err));
+  }
+
+  try {
+    return await withTemporaryPrismaClient(databaseUrl, callback);
+  } catch (err) {
+    throw new RuntimeDatabaseUnreachableError(profileId, sanitizeDatabaseError(err));
+  }
+}
+
 export type { RuntimeDatabaseProfile, RuntimeTarget } from "./runtime-database-router.types";
 export {
   RuntimeDatabaseRouterError,
