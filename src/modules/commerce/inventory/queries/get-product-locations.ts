@@ -15,6 +15,7 @@
 // ─────────────────────────────────────────────────────────────────
 
 import { prisma } from "@/lib/db/prisma";
+import type { PrismaClient } from "@prisma/client";
 import type { ProductLocationFilters } from "../types/inventory-filters.types";
 import type { ProductLocationItem } from "../types/inventory.types";
 import { deriveStockAlertLevel } from "../types/inventory.types";
@@ -154,9 +155,15 @@ function mapToProductLocationItem(
  *
  * @param filters - tenant_id y location_id son obligatorios.
  *                  El resto de filtros son opcionales.
+ * @param client  - Cliente Prisma a usar. Por defecto el Prisma global de la
+ *                  app. Los callers runtime-aware (PASO 4 — Plataforma
+ *                  Multiindustria) pueden pasar un PrismaClient resuelto vía
+ *                  withRuntimePrisma para leer una base cliente distinta.
+ *                  Nunca cambia el comportamiento de los callers existentes.
  */
 export async function getProductLocations(
   filters: ProductLocationFilters,
+  client: PrismaClient = prisma,
 ): Promise<ProductLocationListResult> {
   const pageSize = Math.min(
     MAX_PAGE_SIZE,
@@ -170,7 +177,7 @@ export async function getProductLocations(
   // porque Prisma no puede aplicar esa condición en WHERE directamente.
   const fetchLimit = filters.stock_alert ? ALERT_FETCH_LIMIT : pageSize;
 
-  const rows = await prisma.productLocation.findMany({
+  const rows = await client.productLocation.findMany({
     where,
     select: PRODUCT_LOCATION_LIST_SELECT,
     orderBy,

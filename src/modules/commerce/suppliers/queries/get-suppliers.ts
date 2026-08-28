@@ -17,6 +17,7 @@
 // ─────────────────────────────────────────────────────────────────
 
 import { prisma } from "@/lib/db/prisma";
+import type { PrismaClient } from "@prisma/client";
 import type { SupplierListItem } from "../types/supplier.types";
 import type {
   SupplierFilters,
@@ -94,9 +95,15 @@ function buildWhere(filters: SupplierFilters) {
  * Patrón scroll: sin page, carga hasta page_size en un solo resultado.
  *
  * @param filters - Incluye tenant_id (requerido) + filtros opcionales.
+ * @param client  - Cliente Prisma a usar. Por defecto el Prisma global de la
+ *                  app. Los callers runtime-aware (PASO 4 — Plataforma
+ *                  Multiindustria) pueden pasar un PrismaClient resuelto vía
+ *                  withRuntimePrisma para leer una base cliente distinta.
+ *                  Nunca cambia el comportamiento de los callers existentes.
  */
 export async function getSuppliers(
   filters: SupplierFilters,
+  client: PrismaClient = prisma,
 ): Promise<SupplierListResult<SupplierListItem>> {
   const pageSize = Math.min(
     MAX_PAGE_SIZE,
@@ -110,14 +117,14 @@ export async function getSuppliers(
 
   const where = buildWhere(filters);
 
-  const [rows, total] = await prisma.$transaction([
-    prisma.supplier.findMany({
+  const [rows, total] = await client.$transaction([
+    client.supplier.findMany({
       where,
       select: SUPPLIER_LIST_SELECT,
       orderBy: buildOrderBy(sort),
       take: pageSize,
     }),
-    prisma.supplier.count({ where }),
+    client.supplier.count({ where }),
   ]);
 
   const items: SupplierListItem[] = rows.map((row) => ({

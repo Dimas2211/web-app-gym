@@ -3,6 +3,7 @@
 // ─────────────────────────────────────────────────────────────────
 
 import { Prisma } from "@prisma/client";
+import type { PrismaClient } from "@prisma/client";
 import { prisma } from "@/lib/db/prisma";
 import type { CustomerFilters } from "../schemas/customer.schemas";
 import type { CustomerListItem } from "../types/customer.types";
@@ -12,8 +13,17 @@ export interface CustomersPage {
   total: number;
 }
 
+/**
+ * @param filters - Filtros, ordenamiento y paginación.
+ * @param client  - Cliente Prisma a usar. Por defecto el Prisma global de la
+ *                  app. Los callers runtime-aware (PASO 4 — Plataforma
+ *                  Multiindustria) pueden pasar un PrismaClient resuelto vía
+ *                  withRuntimePrisma para leer una base cliente distinta.
+ *                  Nunca cambia el comportamiento de los callers existentes.
+ */
 export async function listCustomers(
   filters: CustomerFilters,
+  client: PrismaClient = prisma,
 ): Promise<CustomersPage> {
   const {
     tenant_id,
@@ -52,7 +62,7 @@ export async function listCustomers(
   const skip = (page - 1) * page_size;
 
   const [rows, total] = await Promise.all([
-    prisma.customer.findMany({
+    client.customer.findMany({
       where,
       orderBy,
       skip,
@@ -73,7 +83,7 @@ export async function listCustomers(
         created_at:    true,
       },
     }),
-    prisma.customer.count({ where }),
+    client.customer.count({ where }),
   ]);
 
   const items: CustomerListItem[] = rows.map((r) => ({

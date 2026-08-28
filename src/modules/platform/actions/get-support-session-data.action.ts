@@ -7,13 +7,24 @@
 // Contenedor operativo read-only por perfil de base de datos.
 // No crea ventas, no emite DTE, no escribe en la base cliente.
 //
+// PASO 4 (Plataforma Multiindustria — Runtime Database Router):
+// Los bloques de Productos, Clientes, Proveedores e Inventario ya no
+// hacen su propio findMany/count inline — reutilizan las mismas
+// queries runtime-aware que usan las pantallas reales del dashboard
+// (getProducts, listCustomers, getSuppliers, getProductLocations),
+// pasándoles el PrismaClient runtime resuelto por el Router. Así la
+// sesión de soporte queda garantizado leyendo con la misma lógica de
+// negocio que el módulo real, sin duplicarla.
+//
 // Reglas de seguridad:
 // - Solo super_admin.
 // - Requiere organization.tenant_id — si falta, retorna error tipado
 //   MISSING_TENANT sin intentar abrir conexión.
 // - Nunca devuelve encrypted_password, DATABASE_URL, host ni puerto.
-// - Construye la URL en memoria — no la persiste ni loguea.
-// - Siempre ejecuta $disconnect() vía withTemporaryPrismaClient.
+// - La conexión a la base cliente se resuelve exclusivamente vía
+//   withRuntimePrisma (Runtime Database Router, PASO 2) — nunca se
+//   construye la URL ni se abre un PrismaClient manual en este archivo.
+// - Siempre ejecuta $disconnect() (garantizado por withRuntimePrisma).
 // - Cada bloque tiene try/catch independiente — fallo parcial no
 //   tumba toda la respuesta; agrega warning y continúa.
 // - Solo lectura: count, findMany, findFirst. Sin writes.
@@ -25,11 +36,12 @@
 import { requireSuperAdmin }         from "@/lib/permissions/guards";
 import { prisma }                    from "@/lib/db/prisma";
 import { assertEncryptionAvailable } from "@/lib/security/encryption";
-import {
-  buildDatabaseUrlFromProfile,
-  sanitizeDatabaseError,
-}                                    from "../lib/database-profile-url";
-import { withTemporaryPrismaClient } from "../lib/client-prisma";
+import { sanitizeDatabaseError }     from "../lib/database-profile-url";
+import { withRuntimePrisma }         from "../runtime/runtime-database-router";
+import { getProducts }               from "@/modules/commerce/products/queries/get-products";
+import { listCustomers }             from "@/modules/commerce/customers/queries/list-customers";
+import { getSuppliers }              from "@/modules/commerce/suppliers/queries/get-suppliers";
+import { getProductLocations }       from "@/modules/commerce/inventory/queries/get-product-locations";
 import type {
   PlatformSupportSessionData,
   PlatformSupportSessionHeader,
@@ -181,9 +193,7 @@ export async function getSupportSessionDataAction(
   };
 
   try {
-    const databaseUrl = buildDatabaseUrlFromProfile(profile);
-
-    await withTemporaryPrismaClient(databaseUrl, async (client) => {
+    await withRuntimePrisma({ profileId }, async (client) => {
 
       // ── Bloque 1: Core — tenant (gym) ────────────────────────────
       try {
@@ -221,102 +231,109 @@ export async function getSupportSessionDataAction(
         warnings.push(`Core/users: ${sanitizeDatabaseError(err)}`);
       }
 
-      // ── Bloque 4: Commerce — productos ────────────────────────────
+      // ── Bloque 4: Commerce — productos (runtime-aware getProducts) ─
+      // Reutiliza la misma query que /dashboard/products. tenant.id es
+      // el id del gym detectado dentro de ESTA base runtime (Bloque 1),
+      // no el tenant_id de sesión del super_admin.
       try {
-        summary.products = await client.product.count();
-        const rawProducts = await client.product.findMany({
-          select: {
-            id: true, product_code: true, name: true, status: true,
-            product_type: true, is_stockable: true, sale_price: true,
-            category: { select: { name: true } },
-            unit:     { select: { name: true } },
-          },
-          orderBy: { created_at: "desc" },
-          take:    20,
-        });
-        products = rawProducts.map((p) => ({
-          id:           p.id,
-          product_code: p.product_code,
-          name:         p.name,
-          status:       String(p.status),
-          product_type: String(p.product_type),
-          is_stockable: p.is_stockable,
-          sale_price:   safeDecimal(p.sale_price),
-          category:     p.category?.name ?? null,
-          unit:         p.unit?.name ?? null,
-        }));
+        if (tenant) {
+          const productsResult = await getProducts(
+            tenant.id,
+            { sort: { field: "created_at", direction: "desc" }, pagination: { page: 1, pageSize: 20 } },
+            client,
+          );
+          summary.products = productsResult.total;
+          products = productsResult.items.map((p) => ({
+            id:           p.id,
+            product_code: p.product_code,
+            name:         p.name,
+            status:       String(p.status),
+            product_type: String(p.product_type),
+            is_stockable: p.is_stockable,
+            sale_price:   safeDecimal(p.sale_price),
+            category:     p.category?.name ?? null,
+            unit:         p.unit?.name ?? null,
+          }));
+        }
       } catch (err) {
         warnings.push(`Commerce/products: ${sanitizeDatabaseError(err)}`);
       }
 
-      // ── Bloque 5: Commerce — clientes ─────────────────────────────
+      // ── Bloque 5: Commerce — clientes (runtime-aware listCustomers) ─
       try {
-        summary.customers = await client.customer.count();
-        const rawCustomers = await client.customer.findMany({
-          select: {
-            id: true, customer_code: true, name: true, nit: true, dui: true,
-            email: true, phone: true, status: true,
-          },
-          orderBy: { created_at: "desc" },
-          take:    20,
-        });
-        customers = rawCustomers.map((c) => ({
-          id:            c.id,
-          customer_code: c.customer_code,
-          name:          c.name,
-          tax_id_masked: maskTaxId(c.nit ?? c.dui),
-          email:         c.email ?? null,
-          phone:         c.phone ?? null,
-          status:        String(c.status),
-        }));
+        if (tenant) {
+          const customersResult = await listCustomers(
+            { tenant_id: tenant.id, page: 1, page_size: 20, sort_field: "created_at", sort_direction: "desc" },
+            client,
+          );
+          summary.customers = customersResult.total;
+          customers = customersResult.items.map((c) => ({
+            id:            c.id,
+            customer_code: c.customer_code,
+            name:          c.name,
+            tax_id_masked: maskTaxId(c.nit ?? c.dui),
+            email:         c.email ?? null,
+            phone:         c.phone ?? null,
+            status:        String(c.status),
+          }));
+        }
       } catch (err) {
         warnings.push(`Commerce/customers: ${sanitizeDatabaseError(err)}`);
       }
 
-      // ── Bloque 6: Commerce — proveedores ──────────────────────────
+      // ── Bloque 6: Commerce — proveedores (runtime-aware getSuppliers) ─
+      // SupplierListItem no proyecta email (grilla real tampoco lo muestra) —
+      // se deja null aquí en vez de ampliar el select del maestro cerrado.
       try {
-        summary.suppliers = await client.supplier.count();
-        const rawSuppliers = await client.supplier.findMany({
-          select: {
-            id: true, supplier_code: true, name: true, nit: true, dui: true,
-            email: true, status: true,
-          },
-          orderBy: { created_at: "desc" },
-          take:    20,
-        });
-        suppliers = rawSuppliers.map((s) => ({
-          id:            s.id,
-          supplier_code: s.supplier_code,
-          name:          s.name,
-          tax_id_masked: maskTaxId(s.nit ?? s.dui),
-          email:         s.email ?? null,
-          status:        String(s.status),
-        }));
+        if (tenant) {
+          const suppliersResult = await getSuppliers(
+            { tenant_id: tenant.id, page_size: 20, sort_field: "created_at", sort_direction: "desc" },
+            client,
+          );
+          summary.suppliers = suppliersResult.total;
+          suppliers = suppliersResult.items.map((s) => ({
+            id:            s.id,
+            supplier_code: s.supplier_code,
+            name:          s.name,
+            tax_id_masked: maskTaxId(s.nit ?? s.dui),
+            email:         null,
+            status:        String(s.status),
+          }));
+        }
       } catch (err) {
         warnings.push(`Commerce/suppliers: ${sanitizeDatabaseError(err)}`);
       }
 
-      // ── Bloque 7: Commerce — inventario (ProductLocation) ─────────
+      // ── Bloque 7: Commerce — inventario (runtime-aware getProductLocations) ─
+      // La query real opera por location_id único. Se usa la primera location
+      // detectada (Bloque 2, orden alfabético) — suficiente para el propósito
+      // de esta pestaña de soporte (muestra representativa, no consolidado
+      // multi-sede). Si no hay locations, se deja vacío con warning.
       try {
-        summary.inventoryRows = await client.productLocation.count();
-        const rawInventory = await client.productLocation.findMany({
-          select: {
-            id: true, location_id: true, current_stock: true,
-            reorder_quantity: true, is_active: true,
-            product: { select: { name: true, product_code: true } },
-          },
-          orderBy: { updated_at: "desc" },
-          take:    20,
-        });
-        inventory = rawInventory.map((i) => ({
-          id:               i.id,
-          product_name:     i.product.name,
-          product_code:     i.product.product_code,
-          location_name:    locationNameById.get(i.location_id) ?? i.location_id,
-          current_stock:    safeDecimal(i.current_stock),
-          reorder_quantity: safeDecimal(i.reorder_quantity),
-          is_active:        i.is_active,
-        }));
+        if (tenant && locations.length > 0) {
+          const inventoryResult = await getProductLocations(
+            {
+              tenant_id: tenant.id,
+              location_id: locations[0].id,
+              page_size: 20,
+              sort_field: "updated_at",
+              sort_direction: "desc",
+            },
+            client,
+          );
+          summary.inventoryRows = inventoryResult.total;
+          inventory = inventoryResult.items.map((i) => ({
+            id:               i.id,
+            product_name:     i.product_name,
+            product_code:     i.product_code,
+            location_name:    locationNameById.get(i.location_id) ?? i.location_id,
+            current_stock:    safeDecimal(i.current_stock),
+            reorder_quantity: safeDecimal(i.reorder_quantity),
+            is_active:        i.is_active,
+          }));
+        } else if (tenant) {
+          warnings.push("Commerce/inventory: no hay locations para mostrar stock.");
+        }
       } catch (err) {
         warnings.push(`Commerce/inventory: ${sanitizeDatabaseError(err)}`);
       }
@@ -443,7 +460,7 @@ export async function getSupportSessionDataAction(
       try { catalogSummary.dteCatalogItems     = await client.dteCatalogItem.count();     } catch (err) { warnings.push(`Catalogs/dte-catalog: ${sanitizeDatabaseError(err)}`); }
       try { catalogSummary.taxRates            = await client.taxRate.count();            } catch (err) { warnings.push(`Catalogs/tax-rates: ${sanitizeDatabaseError(err)}`); }
 
-    }); // withTemporaryPrismaClient — garantiza $disconnect()
+    }); // withRuntimePrisma — garantiza $disconnect()
 
   } catch (err) {
     return {

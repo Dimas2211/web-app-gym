@@ -15,6 +15,7 @@
 // ─────────────────────────────────────────────────────────────────
 
 import { prisma } from "@/lib/db/prisma";
+import type { PrismaClient } from "@prisma/client";
 import type { ProductListItem } from "../types/product.types";
 import type {
   ProductQueryParams,
@@ -104,10 +105,16 @@ function buildWhere(tenantId: string, params: ProductQueryParams) {
  *
  * @param tenantId - Extraído de session.tenantId. Nunca del body del cliente.
  * @param params   - Filtros, ordenamiento y paginación opcionales.
+ * @param client   - Cliente Prisma a usar. Por defecto el Prisma global de la
+ *                   app. Los callers runtime-aware (PASO 4 — Plataforma
+ *                   Multiindustria) pueden pasar un PrismaClient resuelto vía
+ *                   withRuntimePrisma para leer una base cliente distinta.
+ *                   Nunca cambia el comportamiento de los callers existentes.
  */
 export async function getProducts(
   tenantId: string,
-  params: ProductQueryParams = {}
+  params: ProductQueryParams = {},
+  client: PrismaClient = prisma
 ): Promise<ProductListResult<ProductListItem>> {
   const { sort, pagination } = params;
 
@@ -122,8 +129,8 @@ export async function getProducts(
   const where = buildWhere(tenantId, params);
 
   // Ejecutar count y findMany en la misma transacción para consistencia
-  const [rows, total] = await prisma.$transaction([
-    prisma.product.findMany({
+  const [rows, total] = await client.$transaction([
+    client.product.findMany({
       where,
       select: {
         id: true,
@@ -150,7 +157,7 @@ export async function getProducts(
       skip,
       take: pageSize,
     }),
-    prisma.product.count({ where }),
+    client.product.count({ where }),
   ]);
 
   // Mapper explícito campo por campo: evita que un Decimal nuevo en la tabla
