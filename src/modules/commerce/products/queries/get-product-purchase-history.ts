@@ -9,6 +9,7 @@
 // ─────────────────────────────────────────────────────────────────
 
 import { prisma } from "@/lib/db/prisma";
+import type { PrismaClient } from "@prisma/client";
 
 export interface ProductPurchaseHistoryRow {
   purchase_item_id: string;
@@ -30,8 +31,9 @@ export async function getProductPurchaseHistory(
   tenantId:   string,
   productId:  string,
   locationId?: string | null,
+  client: PrismaClient = prisma,
 ): Promise<ProductPurchaseHistoryRow[]> {
-  const rows = await prisma.purchaseItem.findMany({
+  const rows = await client.purchaseItem.findMany({
     where: {
       product_id: productId,
       purchase: {

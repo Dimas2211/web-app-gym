@@ -25,10 +25,14 @@ export async function GET(req: NextRequest) {
   const limit  = Number.isFinite(limitR) ? Math.min(50, Math.max(1, limitR)) : 20;
 
   if (q.length < 2) {
+    await ctx.dispose();
     return NextResponse.json({ ok: true, data: [] });
   }
 
-  const results = await searchCustomersForSale(ctx.tenant_id, q, limit);
-
-  return NextResponse.json({ ok: true, data: results });
+  try {
+    const results = await searchCustomersForSale(ctx.tenant_id, q, limit, ctx.client);
+    return NextResponse.json({ ok: true, data: results });
+  } finally {
+    await ctx.dispose();
+  }
 }

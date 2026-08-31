@@ -13,6 +13,7 @@ import { getEffectiveLocationId } from "@/lib/location/active-location";
 import { getSaleDetailById } from "@/modules/commerce/sales/queries/get-sale-detail-by-id";
 import { updateSaleDraftSchema } from "@/modules/commerce/sales/schemas/sale.schemas";
 import { updateSaleDraft } from "@/modules/commerce/sales/services/sale.service";
+import { isRuntimeReadOnlyActive, RUNTIME_READONLY_MESSAGE } from "@/modules/platform/runtime/runtime-session";
 import { getSaleApiContext } from "../sale-api-context";
 
 // ── GET — detalle ──────────────────────────────────────────────────
@@ -28,14 +29,18 @@ export async function GET(
     return NextResponse.json({ ok: false, error: ctx.error }, { status: ctx.status });
   }
 
-  const sale = await getSaleDetailById(id, ctx.tenant_id, ctx.location_id);
-  if (!sale) {
-    return NextResponse.json({ ok: false, error: "La venta no fue encontrada." }, { status: 404 });
-  }
+  try {
+    const sale = await getSaleDetailById(id, ctx.tenant_id, ctx.location_id, ctx.client);
+    if (!sale) {
+      return NextResponse.json({ ok: false, error: "La venta no fue encontrada." }, { status: 404 });
+    }
 
-  return NextResponse.json({ ok: true, data: sale }, {
-    headers: { "Cache-Control": "no-store, max-age=0" },
-  });
+    return NextResponse.json({ ok: true, data: sale }, {
+      headers: { "Cache-Control": "no-store, max-age=0" },
+    });
+  } finally {
+    await ctx.dispose();
+  }
 }
 
 // ── PATCH — actualizar cabecera ────────────────────────────────────
@@ -52,6 +57,11 @@ export async function PATCH(
 
   if (!tenant_id)   return NextResponse.json({ ok: false, error: "Sesión sin tenant activo." }, { status: 401 });
   if (!location_id) return NextResponse.json({ ok: false, error: "Selecciona una location activa." }, { status: 409 });
+
+  // PASO 6A: bloquear escritura bajo sesión runtime "Operar como cliente"
+  if (await isRuntimeReadOnlyActive()) {
+    return NextResponse.json({ ok: false, error: RUNTIME_READONLY_MESSAGE }, { status: 403 });
+  }
 
   const body = await req.json().catch(() => null);
   if (!body) {

@@ -3,13 +3,15 @@
 // ─────────────────────────────────────────────────────────────────
 
 import { prisma } from "@/lib/db/prisma";
+import type { PrismaClient } from "@prisma/client";
 import type { CustomerDetail } from "../types/customer.types";
 
 export async function getCustomerById(
   id:        string,
   tenant_id: string,
+  client: PrismaClient = prisma,
 ): Promise<CustomerDetail | null> {
-  const row = await prisma.customer.findFirst({
+  const row = await client.customer.findFirst({
     where: { id, tenant_id },
     select: {
       id:                 true,

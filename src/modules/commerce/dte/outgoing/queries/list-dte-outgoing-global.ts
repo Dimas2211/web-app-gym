@@ -8,6 +8,7 @@
 // ─────────────────────────────────────────────────────────────────
 
 import { prisma } from "@/lib/db/prisma";
+import type { PrismaClient } from "@prisma/client";
 import type {
   DteOutgoingGlobalFilters,
   DteOutgoingGlobalListItem,
@@ -30,6 +31,7 @@ const DEFAULT_PAGE_SIZE  = 50;
 
 export async function listDteOutgoingGlobal(
   filters: DteOutgoingGlobalFilters,
+  client: PrismaClient = prisma,
 ): Promise<DteOutgoingGlobalResult> {
   const {
     tenantId,
@@ -100,7 +102,7 @@ export async function listDteOutgoingGlobal(
   // ── Queries paralelas: listado + conteo ─────────────────────────
 
   const [rows, total] = await Promise.all([
-    prisma.dteOutgoingDocument.findMany({
+    client.dteOutgoingDocument.findMany({
       where,
       orderBy,
       skip,
@@ -172,7 +174,7 @@ export async function listDteOutgoingGlobal(
       },
     }),
 
-    prisma.dteOutgoingDocument.count({ where }),
+    client.dteOutgoingDocument.count({ where }),
   ]);
 
   // ── Mapeo a tipos seguros del frontend ──────────────────────────

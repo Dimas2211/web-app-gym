@@ -10,6 +10,7 @@
 // ─────────────────────────────────────────────────────────────────
 
 import { prisma } from "@/lib/db/prisma";
+import type { PrismaClient } from "@prisma/client";
 import type { DteOutgoingDetail, DteOutgoingRelationSummary } from "../types";
 import type { DteOutgoingStatus, DteEnvironment } from "../../types/dte.types";
 import type { DteInvalidationStatus } from "../../types/dte-invalidation.types";
@@ -22,13 +23,14 @@ export async function getDteOutgoingDetailById(params: {
   dteId:      string;
   tenantId:   string;
   locationId: string;
+  client?:    PrismaClient;
 }): Promise<DteOutgoingDetail | null> {
-  const { dteId, tenantId, locationId } = params;
+  const { dteId, tenantId, locationId, client = prisma } = params;
 
   // Queries paralelas: documento principal + todos los logs de transmisión
   const [row, allLogs] = await Promise.all([
 
-    prisma.dteOutgoingDocument.findFirst({
+    client.dteOutgoingDocument.findFirst({
       where: { id: dteId, tenant_id: tenantId, location_id: locationId },
       select: {
         id:               true,
@@ -151,7 +153,7 @@ export async function getDteOutgoingDetailById(params: {
     }),
 
     // Logs completos sin response_body — para sección de auditoría
-    prisma.dteTransmissionLog.findMany({
+    client.dteTransmissionLog.findMany({
       where:   { dte_document_id: dteId },
       orderBy: { created_at: "asc" },
       select: {

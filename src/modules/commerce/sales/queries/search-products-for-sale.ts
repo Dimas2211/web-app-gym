@@ -15,6 +15,7 @@
 // ─────────────────────────────────────────────────────────────────
 
 import { prisma } from "@/lib/db/prisma";
+import type { PrismaClient } from "@prisma/client";
 
 export interface ProductForSaleResult {
   id:                  string;
@@ -59,19 +60,21 @@ export async function searchProductsForSale({
   search,
   limit  = 50,
   offset = 0,
+  client = prisma,
 }: {
   tenant_id:   string;
   location_id: string;
   search?:     string;
   limit?:      number;
   offset?:     number;
+  client?:     PrismaClient;
 }): Promise<SearchProductsForSaleResult> {
   const trimmed   = search?.trim() ?? "";
   const safeLimit = Math.min(Math.max(limit, 1), 100);
   const safeSkip  = Math.max(offset, 0);
 
   // Fetch one extra row to detect hasMore without a COUNT query
-  const raw = await prisma.product.findMany({
+  const raw = await client.product.findMany({
     where: {
       tenant_id,
       allow_sale: true,

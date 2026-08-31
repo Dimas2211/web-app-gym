@@ -15,6 +15,7 @@ import {
   updateSaleItemInDraft,
   removeSaleItemFromDraft,
 } from "@/modules/commerce/sales/services/sale.service";
+import { isRuntimeReadOnlyActive, RUNTIME_READONLY_MESSAGE } from "@/modules/platform/runtime/runtime-session";
 
 type RouteParams = { params: Promise<{ id: string; itemId: string }> };
 
@@ -29,6 +30,11 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
 
   if (!tenant_id)   return NextResponse.json({ ok: false, error: "Sesión sin tenant activo." }, { status: 401 });
   if (!location_id) return NextResponse.json({ ok: false, error: "Selecciona una location activa." }, { status: 409 });
+
+  // PASO 6A: bloquear escritura bajo sesión runtime "Operar como cliente"
+  if (await isRuntimeReadOnlyActive()) {
+    return NextResponse.json({ ok: false, error: RUNTIME_READONLY_MESSAGE }, { status: 403 });
+  }
 
   const body = await req.json().catch(() => null);
   if (!body) {
@@ -63,6 +69,11 @@ export async function DELETE(_req: NextRequest, { params }: RouteParams) {
 
   if (!tenant_id)   return NextResponse.json({ ok: false, error: "Sesión sin tenant activo." }, { status: 401 });
   if (!location_id) return NextResponse.json({ ok: false, error: "Selecciona una location activa." }, { status: 409 });
+
+  // PASO 6A: bloquear escritura bajo sesión runtime "Operar como cliente"
+  if (await isRuntimeReadOnlyActive()) {
+    return NextResponse.json({ ok: false, error: RUNTIME_READONLY_MESSAGE }, { status: 403 });
+  }
 
   const result = await removeSaleItemFromDraft(item_id, sale_id, tenant_id, location_id, sessionUser.id);
 

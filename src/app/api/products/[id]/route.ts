@@ -7,6 +7,7 @@ export const runtime = "nodejs";
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth/auth";
 import type { SessionUser } from "@/lib/permissions/guards";
+import { resolveEffectiveApiContext } from "@/modules/platform/runtime/effective-tenant-context";
 import { getProductById } from "@/modules/commerce/products/queries/get-product-by-id";
 
 // Roles que pueden ver el catálogo
@@ -28,11 +29,16 @@ export async function GET(
     return NextResponse.json({ error: "Acceso denegado" }, { status: 403 });
   }
 
-  const product = await getProductById(user.tenant_id, id);
+  const { context, dispose } = await resolveEffectiveApiContext({ tenantId: user.tenant_id });
+  try {
+    const product = await getProductById(context.tenantId, id, context.client);
 
-  if (!product) {
-    return NextResponse.json({ error: "Producto no encontrado." }, { status: 404 });
+    if (!product) {
+      return NextResponse.json({ error: "Producto no encontrado." }, { status: 404 });
+    }
+
+    return NextResponse.json(product);
+  } finally {
+    await dispose();
   }
-
-  return NextResponse.json(product);
 }

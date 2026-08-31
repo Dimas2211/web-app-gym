@@ -17,6 +17,7 @@ import { requireAdmin } from "@/lib/permissions/guards";
 import { getEffectiveLocationId } from "@/lib/location/active-location";
 import { createPurchaseFromDteSchema } from "@/modules/commerce/purchases/schemas/dte-import.schema";
 import { createPurchaseDraftFromDteImport } from "@/modules/commerce/purchases/services/create-purchase-from-dte-import.service";
+import { isRuntimeReadOnlyActive, RUNTIME_READONLY_MESSAGE } from "@/modules/platform/runtime/runtime-session";
 
 export async function POST(
   req: NextRequest,
@@ -31,6 +32,11 @@ export async function POST(
       { error: "Sesión sin tenant o location activa." },
       { status: 401 },
     );
+  }
+
+  // PASO 6A: bloquear escritura bajo sesión runtime "Operar como cliente"
+  if (await isRuntimeReadOnlyActive()) {
+    return NextResponse.json({ error: RUNTIME_READONLY_MESSAGE }, { status: 403 });
   }
 
   const { id } = await params;

@@ -24,15 +24,19 @@ export async function GET(
     return NextResponse.json({ ok: false, error: ctx.error }, { status: ctx.status });
   }
 
-  const doc = await getDteOutgoingDocumentById(dte_document_id, ctx.tenant_id);
-  if (!doc) {
-    return NextResponse.json({ ok: false, error: "El documento DTE no fue encontrado." }, { status: 404 });
-  }
-  if (doc.location_id !== ctx.location_id) {
-    return NextResponse.json({ ok: false, error: "El documento DTE no pertenece a la location activa." }, { status: 403 });
-  }
+  try {
+    const doc = await getDteOutgoingDocumentById(dte_document_id, ctx.tenant_id, ctx.client);
+    if (!doc) {
+      return NextResponse.json({ ok: false, error: "El documento DTE no fue encontrado." }, { status: 404 });
+    }
+    if (doc.location_id !== ctx.location_id) {
+      return NextResponse.json({ ok: false, error: "El documento DTE no pertenece a la location activa." }, { status: 403 });
+    }
 
-  const logs = await listDteTransmissionLogs(dte_document_id);
+    const logs = await listDteTransmissionLogs(dte_document_id, ctx.client);
 
-  return NextResponse.json({ ok: true, data: logs });
+    return NextResponse.json({ ok: true, data: logs });
+  } finally {
+    await ctx.dispose();
+  }
 }

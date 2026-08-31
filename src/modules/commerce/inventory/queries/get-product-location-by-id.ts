@@ -10,6 +10,7 @@
 // ─────────────────────────────────────────────────────────────────
 
 import { prisma } from "@/lib/db/prisma";
+import type { PrismaClient } from "@prisma/client";
 import type { ProductLocationDetail } from "../types/inventory.types";
 import { deriveStockAlertLevel } from "../types/inventory.types";
 import { formatDateLabel } from "../utils/format-date-label";
@@ -122,8 +123,9 @@ export async function getProductLocationById(
   id: string,
   tenant_id: string,
   location_id: string,
+  client: PrismaClient = prisma,
 ): Promise<ProductLocationDetail | null> {
-  const row = await prisma.productLocation.findFirst({
+  const row = await client.productLocation.findFirst({
     where: { id, tenant_id, location_id },
     select: PRODUCT_LOCATION_DETAIL_SELECT,
   });

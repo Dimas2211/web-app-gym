@@ -25,6 +25,7 @@ import { getEffectiveLocationId }         from "@/lib/location/active-location";
 import { createInvalidationEvent }        from "../services/create-invalidation-event.service";
 import { signInvalidationEvent }          from "../services/sign-invalidation-event.service";
 import { transmitInvalidationEvent }      from "../services/transmit-invalidation-event.service";
+import { isRuntimeReadOnlyActive, RUNTIME_READONLY_MESSAGE } from "@/modules/platform/runtime/runtime-session";
 
 // ── Input ─────────────────────────────────────────────────────────
 
@@ -71,6 +72,14 @@ export async function createSignTransmitInvalidationAction(
 
   if (!tenant_id)   return { ok: false, error: "La sesión no tiene un tenant activo." };
   if (!location_id) return { ok: false, error: "La sesión no tiene una location activa." };
+
+  // PASO 6A: blindaje de solo lectura — bloquea ANTES de crear/firmar/
+  // transmitir cualquier evento de invalidación. No toca la lógica de
+  // invalidación en sí (createInvalidationEvent/signInvalidationEvent/
+  // transmitInvalidationEvent quedan intactos).
+  if (await isRuntimeReadOnlyActive()) {
+    return { ok: false, error: RUNTIME_READONLY_MESSAGE };
+  }
 
   const parsed = inputSchema.safeParse(rawInput);
   if (!parsed.success) {

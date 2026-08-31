@@ -6,6 +6,7 @@
 // ─────────────────────────────────────────────────────────────────
 
 import { Prisma } from "@prisma/client";
+import type { PrismaClient } from "@prisma/client";
 import { prisma } from "@/lib/db/prisma";
 import type { PurchaseFilters } from "../types/purchase-filters.types";
 import type { PurchaseListItem } from "../types/purchase.types";
@@ -21,6 +22,7 @@ function dateOnly(value: string): Date {
 
 export async function getPurchases(
   filters: PurchaseFilters,
+  client: PrismaClient = prisma,
 ): Promise<PurchasesPage> {
   const {
     tenant_id,
@@ -81,7 +83,7 @@ export async function getPurchases(
   const skip = (page - 1) * page_size;
 
   const [rows, total] = await Promise.all([
-    prisma.purchase.findMany({
+    client.purchase.findMany({
       where,
       orderBy,
       skip,
@@ -107,7 +109,7 @@ export async function getPurchases(
         _count:   { select: { items: true } },
       },
     }),
-    prisma.purchase.count({ where }),
+    client.purchase.count({ where }),
   ]);
 
   const items: PurchaseListItem[] = rows.map((r) => ({

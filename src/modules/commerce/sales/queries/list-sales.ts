@@ -3,6 +3,7 @@
 // ─────────────────────────────────────────────────────────────────
 
 import { Prisma } from "@prisma/client";
+import type { PrismaClient } from "@prisma/client";
 import { prisma } from "@/lib/db/prisma";
 import type { SaleFilters } from "../schemas/sale.schemas";
 import type { SaleListItem } from "../types/sale.types";
@@ -16,7 +17,10 @@ function dateOnly(value: string): Date {
   return new Date(`${value}T00:00:00`);
 }
 
-export async function listSales(filters: SaleFilters): Promise<SalesPage> {
+export async function listSales(
+  filters: SaleFilters,
+  client: PrismaClient = prisma,
+): Promise<SalesPage> {
   const {
     tenant_id,
     location_id,
@@ -67,7 +71,7 @@ export async function listSales(filters: SaleFilters): Promise<SalesPage> {
   const skip = (page - 1) * page_size;
 
   const [rows, total] = await Promise.all([
-    prisma.sale.findMany({
+    client.sale.findMany({
       where,
       orderBy,
       skip,
@@ -91,7 +95,7 @@ export async function listSales(filters: SaleFilters): Promise<SalesPage> {
         _count:   { select: { items: true } },
       },
     }),
-    prisma.sale.count({ where }),
+    client.sale.count({ where }),
   ]);
 
   const items: SaleListItem[] = rows.map((r) => ({

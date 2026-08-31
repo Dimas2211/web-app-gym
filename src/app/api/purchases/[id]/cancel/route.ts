@@ -8,6 +8,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/permissions/guards";
 import { getEffectiveLocationId } from "@/lib/location/active-location";
 import { cancelPurchase } from "@/modules/commerce/purchases/services/purchase.service";
+import { isRuntimeReadOnlyActive, RUNTIME_READONLY_MESSAGE } from "@/modules/platform/runtime/runtime-session";
 
 export async function POST(
   _req: NextRequest,
@@ -19,6 +20,11 @@ export async function POST(
 
   if (!tenant_id || !location_id) {
     return NextResponse.json({ error: "Sesión sin tenant o location activa." }, { status: 401 });
+  }
+
+  // PASO 6A: bloquear escritura bajo sesión runtime "Operar como cliente"
+  if (await isRuntimeReadOnlyActive()) {
+    return NextResponse.json({ error: RUNTIME_READONLY_MESSAGE }, { status: 403 });
   }
 
   const { id: purchase_id } = await params;

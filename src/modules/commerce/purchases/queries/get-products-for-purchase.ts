@@ -17,14 +17,16 @@
 // ─────────────────────────────────────────────────────────────────
 
 import { prisma } from "@/lib/db/prisma";
+import type { PrismaClient } from "@prisma/client";
 import type { ProductForPurchaseLookup } from "../types/purchase.types";
 
 export async function getProductsForPurchase(
   tenant_id:   string,
   location_id: string,
   search?:     string,
+  client: PrismaClient = prisma,
 ): Promise<ProductForPurchaseLookup[]> {
-  const rows = await prisma.product.findMany({
+  const rows = await client.product.findMany({
     where: {
       tenant_id,
       allow_purchase: true,

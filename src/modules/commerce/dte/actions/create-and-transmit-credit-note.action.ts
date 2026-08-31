@@ -24,6 +24,7 @@ import { generateNcJsonForDte }          from "../services/generate-nc-json.serv
 import { validateDteJsonSchema }         from "../services/validate-dte-json-schema.service";
 import { signDteDocument }               from "../services/sign-dte-document.service";
 import { transmitDteDocument }           from "../services/transmit-dte-document.service";
+import { isRuntimeReadOnlyActive, RUNTIME_READONLY_MESSAGE } from "@/modules/platform/runtime/runtime-session";
 
 // ── Input ─────────────────────────────────────────────────────────
 
@@ -60,6 +61,14 @@ export async function createAndTransmitCreditNoteAction(
 
   if (!tenant_id)   return { ok: false, error: "La sesión no tiene un tenant activo." };
   if (!location_id) return { ok: false, error: "La sesión no tiene una location activa." };
+
+  // PASO 6A: blindaje de solo lectura — bloquea ANTES de crear/generar/
+  // firmar/transmitir la nota de crédito. No toca la lógica de emisión
+  // (createCreditNoteDteFromAcceptedCcfe/generateNcJsonForDte/
+  // validateDteJsonSchema/signDteDocument/transmitDteDocument intactos).
+  if (await isRuntimeReadOnlyActive()) {
+    return { ok: false, error: RUNTIME_READONLY_MESSAGE };
+  }
 
   const parsed = inputSchema.safeParse(rawInput);
   if (!parsed.success) {

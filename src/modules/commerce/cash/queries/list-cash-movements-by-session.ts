@@ -8,6 +8,7 @@
 // ─────────────────────────────────────────────────────────────────
 
 import { prisma }   from "@/lib/db/prisma";
+import type { PrismaClient } from "@prisma/client";
 import type { CashMovementItem } from "../types/cash.types";
 
 type ListCashMovementsBySessionParams = {
@@ -18,18 +19,19 @@ type ListCashMovementsBySessionParams = {
 
 export async function listCashMovementsBySession(
   params: ListCashMovementsBySessionParams,
+  client: PrismaClient = prisma,
 ): Promise<CashMovementItem[]> {
   const { tenant_id, location_id, cash_session_id } = params;
 
   // Validar que la sesión pertenezca al tenant/location antes de listar.
-  const session = await prisma.cashSession.findFirst({
+  const session = await client.cashSession.findFirst({
     where: { id: cash_session_id, tenant_id, location_id },
     select: { id: true },
   });
 
   if (!session) return [];
 
-  const movements = await prisma.cashMovement.findMany({
+  const movements = await client.cashMovement.findMany({
     where: {
       cash_session_id: session.id,
       tenant_id,

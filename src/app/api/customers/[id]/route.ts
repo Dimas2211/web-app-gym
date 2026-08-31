@@ -12,6 +12,7 @@ import { requireAdmin } from "@/lib/permissions/guards";
 import { getCustomerById } from "@/modules/commerce/customers/queries/get-customer-by-id";
 import { updateCustomerSchema } from "@/modules/commerce/customers/schemas/customer.schemas";
 import { updateCustomer } from "@/modules/commerce/customers/services/customer.service";
+import { isRuntimeReadOnlyActive, RUNTIME_READONLY_MESSAGE } from "@/modules/platform/runtime/runtime-session";
 import { getCustomerApiContext } from "../customer-api-context";
 
 // ── GET — detalle ──────────────────────────────────────────────────
@@ -27,14 +28,18 @@ export async function GET(
     return NextResponse.json({ ok: false, error: ctx.error }, { status: ctx.status });
   }
 
-  const customer = await getCustomerById(id, ctx.tenant_id);
-  if (!customer) {
-    return NextResponse.json({ ok: false, error: "El cliente no fue encontrado." }, { status: 404 });
-  }
+  try {
+    const customer = await getCustomerById(id, ctx.tenant_id, ctx.client);
+    if (!customer) {
+      return NextResponse.json({ ok: false, error: "El cliente no fue encontrado." }, { status: 404 });
+    }
 
-  return NextResponse.json({ ok: true, data: customer }, {
-    headers: { "Cache-Control": "no-store, max-age=0" },
-  });
+    return NextResponse.json({ ok: true, data: customer }, {
+      headers: { "Cache-Control": "no-store, max-age=0" },
+    });
+  } finally {
+    await ctx.dispose();
+  }
 }
 
 // ── PATCH — actualizar ────────────────────────────────────────────
@@ -50,6 +55,11 @@ export async function PATCH(
 
   if (!tenant_id) {
     return NextResponse.json({ ok: false, error: "Sesión sin tenant activo." }, { status: 401 });
+  }
+
+  // PASO 6A: bloquear escritura bajo sesión runtime "Operar como cliente"
+  if (await isRuntimeReadOnlyActive()) {
+    return NextResponse.json({ ok: false, error: RUNTIME_READONLY_MESSAGE }, { status: 403 });
   }
 
   const body = await req.json().catch(() => null);

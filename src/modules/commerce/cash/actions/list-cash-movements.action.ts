@@ -12,6 +12,10 @@
 
 import { requireAdmin }           from "@/lib/permissions/guards";
 import { getEffectiveLocationId } from "@/lib/location/active-location";
+import {
+  resolveEffectiveTenantContext,
+  resolveRuntimeFirstLocationId,
+} from "@/modules/platform/runtime/effective-tenant-context";
 import { listCashMovementsInputSchema } from "../schemas/cash.schemas";
 import { listCashMovementsBySession }  from "../queries/list-cash-movements-by-session";
 import type { ListCashMovementsInput } from "../schemas/cash.schemas";
@@ -25,25 +29,32 @@ export async function listCashMovementsAction(
   input: ListCashMovementsInput,
 ): Promise<ListCashMovementsActionResult> {
   const sessionUser = await requireAdmin();
-  const tenant_id   = sessionUser.tenant_id;
-  const location_id = await getEffectiveLocationId(sessionUser);
 
-  if (!tenant_id)   return { ok: false, error: "La sesión no tiene un tenant activo." };
-  if (!location_id) return { ok: false, error: "La sesión no tiene una location activa." };
-
-  const parsed = listCashMovementsInputSchema.safeParse(input);
-  if (!parsed.success) {
-    return { ok: false, error: "Parámetros de consulta no válidos." };
-  }
+  const { context, dispose } = await resolveEffectiveTenantContext(sessionUser);
+  const { tenantId: tenant_id, client } = context;
 
   try {
+    const location_id = context.runtime
+      ? await resolveRuntimeFirstLocationId(context)
+      : await getEffectiveLocationId(sessionUser);
+
+    if (!tenant_id)   return { ok: false, error: "La sesión no tiene un tenant activo." };
+    if (!location_id) return { ok: false, error: "La sesión no tiene una location activa." };
+
+    const parsed = listCashMovementsInputSchema.safeParse(input);
+    if (!parsed.success) {
+      return { ok: false, error: "Parámetros de consulta no válidos." };
+    }
+
     const data = await listCashMovementsBySession({
       tenant_id,
       location_id,
       cash_session_id: parsed.data.cash_session_id,
-    });
+    }, client);
     return { ok: true, data };
   } catch {
     return { ok: false, error: "No se pudieron cargar los movimientos de caja." };
+  } finally {
+    await dispose();
   }
 }

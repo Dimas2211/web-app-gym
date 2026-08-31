@@ -11,6 +11,8 @@ import type { SessionUser } from "@/lib/permissions/guards";
 import { getSuppliers } from "@/modules/commerce/suppliers/queries/get-suppliers";
 import { createSupplierSchema } from "@/modules/commerce/suppliers/schemas/create-supplier.schema";
 import { createSupplier } from "@/modules/commerce/suppliers/services/supplier.service";
+import { resolveEffectiveApiContext } from "@/modules/platform/runtime/effective-tenant-context";
+import { isRuntimeReadOnlyActive, RUNTIME_READONLY_MESSAGE } from "@/modules/platform/runtime/runtime-session";
 import type {
   SupplierFilters,
   SupplierSortField,
@@ -46,10 +48,14 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Acceso denegado" }, { status: 403 });
   }
 
+  // PASO 6A: si hay sesión runtime "Operar como cliente" activa, leer de
+  // la base del perfil runtime en vez de la del tenant del super_admin.
+  const { context, dispose } = await resolveEffectiveApiContext({ tenantId: user.tenant_id });
+
   const { searchParams } = req.nextUrl;
 
   // ── Filtros ─────────────────────────────────────────────────────
-  const filters: SupplierFilters = { tenant_id: user.tenant_id };
+  const filters: SupplierFilters = { tenant_id: context.tenantId };
 
   const searchCode = searchParams.get("search_code");
   if (searchCode?.trim()) filters.search_code = searchCode.trim();
@@ -91,8 +97,12 @@ export async function GET(req: NextRequest) {
     filters.page_size = pageSizeParam;
   }
 
-  const result = await getSuppliers(filters);
-  return NextResponse.json(result);
+  try {
+    const result = await getSuppliers(filters, context.client);
+    return NextResponse.json(result);
+  } finally {
+    await dispose();
+  }
 }
 
 // ── POST /api/suppliers ───────────────────────────────────────────
@@ -106,6 +116,11 @@ export async function POST(req: NextRequest) {
   const user = session.user as SessionUser;
   if (!ADMIN_ROLES.includes(user.role)) {
     return NextResponse.json({ error: "Acceso denegado" }, { status: 403 });
+  }
+
+  // PASO 6A: bloquear escritura bajo sesión runtime "Operar como cliente"
+  if (await isRuntimeReadOnlyActive()) {
+    return NextResponse.json({ error: RUNTIME_READONLY_MESSAGE }, { status: 403 });
   }
 
   let body: unknown;

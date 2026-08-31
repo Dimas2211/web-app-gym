@@ -10,6 +10,7 @@
 // ─────────────────────────────────────────────────────────────────
 
 import { prisma } from "@/lib/db/prisma";
+import type { PrismaClient } from "@prisma/client";
 import {
   deriveStockAlertLevel,
   type StockAlertLevel,
@@ -46,8 +47,9 @@ export async function getProductInventorySummary(
   tenant_id: string,
   location_id: string,
   product_id: string,
+  client: PrismaClient = prisma,
 ): Promise<ProductInventorySummary | null> {
-  const row = await prisma.productLocation.findFirst({
+  const row = await client.productLocation.findFirst({
     where: { tenant_id, location_id, product_id },
     select: {
       id:               true,

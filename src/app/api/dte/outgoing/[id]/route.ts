@@ -31,21 +31,26 @@ export async function GET(
     return NextResponse.json({ ok: false, error: ctx.error }, { status: ctx.status });
   }
 
-  // Query con scoping completo: id + tenant_id + location_id
-  const detail = await getDteOutgoingDetailById({
-    dteId:      id,
-    tenantId:   ctx.tenant_id,
-    locationId: ctx.location_id,
-  });
+  try {
+    // Query con scoping completo: id + tenant_id + location_id
+    const detail = await getDteOutgoingDetailById({
+      dteId:      id,
+      tenantId:   ctx.tenant_id,
+      locationId: ctx.location_id,
+      client:     ctx.client,
+    });
 
-  if (!detail) {
-    return NextResponse.json(
-      { ok: false, error: "El documento DTE no fue encontrado." },
-      { status: 404 },
-    );
+    if (!detail) {
+      return NextResponse.json(
+        { ok: false, error: "El documento DTE no fue encontrado." },
+        { status: 404 },
+      );
+    }
+
+    return NextResponse.json({ ok: true, data: detail }, {
+      headers: { "Cache-Control": "no-store, max-age=0" },
+    });
+  } finally {
+    await ctx.dispose();
   }
-
-  return NextResponse.json({ ok: true, data: detail }, {
-    headers: { "Cache-Control": "no-store, max-age=0" },
-  });
 }

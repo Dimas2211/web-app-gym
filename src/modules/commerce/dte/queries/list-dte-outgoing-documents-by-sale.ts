@@ -3,14 +3,16 @@
 // ─────────────────────────────────────────────────────────────────
 
 import { prisma } from "@/lib/db/prisma";
+import type { PrismaClient } from "@prisma/client";
 import type { DteOutgoingDocumentDetail, DteEnvironment, DteOutgoingStatus } from "../types/dte.types";
 
 export async function listDteOutgoingDocumentsBySale(
   sale_id:     string,
   tenant_id:   string,
   location_id: string,
+  client: PrismaClient = prisma,
 ): Promise<DteOutgoingDocumentDetail[]> {
-  const rows = await prisma.dteOutgoingDocument.findMany({
+  const rows = await client.dteOutgoingDocument.findMany({
     where: { sale_id, tenant_id, location_id },
     orderBy: { created_at: "desc" },
     select: {

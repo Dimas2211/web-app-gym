@@ -14,6 +14,8 @@ import {
   updateSupplier,
   type SupplierErrorCode,
 } from "@/modules/commerce/suppliers/services/supplier.service";
+import { resolveEffectiveApiContext } from "@/modules/platform/runtime/effective-tenant-context";
+import { isRuntimeReadOnlyActive, RUNTIME_READONLY_MESSAGE } from "@/modules/platform/runtime/runtime-session";
 
 const ADMIN_ROLES = ["super_admin", "branch_admin"];
 
@@ -43,13 +45,18 @@ export async function GET(
     return NextResponse.json({ error: "Acceso denegado" }, { status: 403 });
   }
 
-  const supplier = await getSupplierById(user.tenant_id, id);
+  const { context, dispose } = await resolveEffectiveApiContext({ tenantId: user.tenant_id });
+  try {
+    const supplier = await getSupplierById(context.tenantId, id, context.client);
 
-  if (!supplier) {
-    return NextResponse.json({ error: "Proveedor no encontrado." }, { status: 404 });
+    if (!supplier) {
+      return NextResponse.json({ error: "Proveedor no encontrado." }, { status: 404 });
+    }
+
+    return NextResponse.json(supplier);
+  } finally {
+    await dispose();
   }
-
-  return NextResponse.json(supplier);
 }
 
 // ── PATCH /api/suppliers/[id] ─────────────────────────────────────
@@ -68,6 +75,11 @@ export async function PATCH(
   const user = session.user as SessionUser;
   if (!ADMIN_ROLES.includes(user.role)) {
     return NextResponse.json({ error: "Acceso denegado" }, { status: 403 });
+  }
+
+  // PASO 6A: bloquear escritura bajo sesión runtime "Operar como cliente"
+  if (await isRuntimeReadOnlyActive()) {
+    return NextResponse.json({ error: RUNTIME_READONLY_MESSAGE }, { status: 403 });
   }
 
   let body: unknown;

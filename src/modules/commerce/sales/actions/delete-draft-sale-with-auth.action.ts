@@ -16,6 +16,7 @@ import { revalidatePath } from "next/cache";
 import { requireAdmin } from "@/lib/permissions/guards";
 import { getEffectiveLocationId } from "@/lib/location/active-location";
 import { verifyAdminDeleteCredentials } from "@/lib/permissions/delete-authorization";
+import { isRuntimeReadOnlyActive, RUNTIME_READONLY_MESSAGE } from "@/modules/platform/runtime/runtime-session";
 import { discardDraftSale } from "../services/sale.service";
 
 export type DeleteDraftSaleWithAuthState =
@@ -33,6 +34,11 @@ export async function deleteDraftSaleWithAuthAction(
 
   if (!tenant_id)   return { ok: false, error: "La sesión no tiene un tenant activo." };
   if (!location_id) return { ok: false, error: "La sesión no tiene una location activa." };
+
+  // PASO 6A: bloquear escritura bajo sesión runtime "Operar como cliente"
+  if (await isRuntimeReadOnlyActive()) {
+    return { ok: false, error: RUNTIME_READONLY_MESSAGE };
+  }
 
   const sale_id  = (formData.get("sale_id")      as string ?? "").trim();
   const email    = (formData.get("auth_email")    as string ?? "").trim();

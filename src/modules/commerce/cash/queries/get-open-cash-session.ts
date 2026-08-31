@@ -8,24 +8,26 @@
 // ─────────────────────────────────────────────────────────────────
 
 import { prisma } from "@/lib/db/prisma";
+import type { PrismaClient } from "@prisma/client";
 import type { CashOpenSessionInfo } from "../types/cash.types";
 
 export async function getOpenCashSession(
   cash_register_id: string,
   tenant_id:        string,
   location_id:      string,
+  client: PrismaClient = prisma,
 ): Promise<CashOpenSessionInfo | null> {
   // Validar que la caja exista y pertenezca al scope antes de buscar su sesión.
   // Se usa findFirst con los tres campos para que el scope quede garantizado
   // en una sola query, sin riesgo de que cash_register_id baste por sí solo.
-  const register = await prisma.cashRegister.findFirst({
+  const register = await client.cashRegister.findFirst({
     where: { id: cash_register_id, tenant_id, location_id },
     select: { id: true },
   });
 
   if (!register) return null;
 
-  const session = await prisma.cashSession.findFirst({
+  const session = await client.cashSession.findFirst({
     where:   { cash_register_id: register.id, tenant_id, location_id, status: "OPEN" },
     orderBy: { opened_at: "desc" },
     select: {

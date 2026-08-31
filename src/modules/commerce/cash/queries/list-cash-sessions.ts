@@ -8,6 +8,7 @@
 // ─────────────────────────────────────────────────────────────────
 
 import { prisma } from "@/lib/db/prisma";
+import type { PrismaClient } from "@prisma/client";
 import { deriveCashCutStatus } from "../utils/derive-cash-cut-status";
 import type { CashSessionHistoryItem } from "../types/cash.types";
 
@@ -24,6 +25,7 @@ type ListCashSessionsParams = {
 
 export async function listCashSessions(
   params: ListCashSessionsParams,
+  client: PrismaClient = prisma,
 ): Promise<CashSessionHistoryItem[]> {
   const {
     tenant_id,
@@ -38,7 +40,7 @@ export async function listCashSessions(
 
   const safeLimit = Math.min(Math.max(limit, 1), 100);
 
-  const sessions = await prisma.cashSession.findMany({
+  const sessions = await client.cashSession.findMany({
     where: {
       tenant_id,
       location_id,

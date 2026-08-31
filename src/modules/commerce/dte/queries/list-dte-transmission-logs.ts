@@ -3,12 +3,14 @@
 // ─────────────────────────────────────────────────────────────────
 
 import { prisma } from "@/lib/db/prisma";
+import type { PrismaClient } from "@prisma/client";
 import type { DteTransmissionLogEntry } from "../types/dte.types";
 
 export async function listDteTransmissionLogs(
   dte_document_id: string,
+  client: PrismaClient = prisma,
 ): Promise<DteTransmissionLogEntry[]> {
-  const rows = await prisma.dteTransmissionLog.findMany({
+  const rows = await client.dteTransmissionLog.findMany({
     where:   { dte_document_id },
     orderBy: { created_at: "asc" },
     select: {

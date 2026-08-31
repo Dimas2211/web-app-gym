@@ -22,6 +22,7 @@ import { revalidatePath } from "next/cache";
 import { requireAdmin } from "@/lib/permissions/guards";
 import { getEffectiveLocationId } from "@/lib/location/active-location";
 import { prisma } from "@/lib/db/prisma";
+import { isRuntimeReadOnlyActive, RUNTIME_READONLY_MESSAGE } from "@/modules/platform/runtime/runtime-session";
 import { createPendingDteForSale } from "../services/dte-outgoing.service";
 import { DTE_MVP_TYPE_CODES } from "../types/dte.types";
 
@@ -38,6 +39,11 @@ export async function createPendingDteSimpleAction(
 
   if (!tenant_id)   return { ok: false, error: "La sesión no tiene un tenant activo." };
   if (!location_id) return { ok: false, error: "La sesión no tiene una location activa." };
+
+  // PASO 6A: bloquear escritura bajo sesión runtime "Operar como cliente"
+  if (await isRuntimeReadOnlyActive()) {
+    return { ok: false, error: RUNTIME_READONLY_MESSAGE };
+  }
   if (!sale_id)     return { ok: false, error: "El ID de venta es requerido." };
 
   // Cargar la venta y validar precondiciones de negocio

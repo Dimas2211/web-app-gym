@@ -22,6 +22,7 @@
 // ─────────────────────────────────────────────────────────────────
 
 import { prisma } from "@/lib/db/prisma";
+import type { PrismaClient } from "@prisma/client";
 import { deriveCashCutStatus } from "../utils/derive-cash-cut-status";
 import { formatMhPaymentForm, getMhPaymentFormLabel } from "../utils/cash-payment-method-labels";
 import type {
@@ -50,11 +51,12 @@ const MOVEMENT_TYPE_LABELS: Record<string, string> = {
 
 export async function getCashSessionCutReport(
   params: GetCashSessionCutReportParams,
+  client: PrismaClient = prisma,
 ): Promise<CashSessionCutReport | null> {
   const { tenant_id, location_id, cash_session_id } = params;
 
   // 1. Buscar y validar la sesión en el scope del tenant/location.
-  const session = await prisma.cashSession.findFirst({
+  const session = await client.cashSession.findFirst({
     where: { id: cash_session_id, tenant_id, location_id },
     select: {
       id:                   true,
@@ -86,7 +88,7 @@ export async function getCashSessionCutReport(
   if (!session) return null;
 
   // 2. Movimientos manuales ordenados por fecha asc.
-  const rawMovements = await prisma.cashMovement.findMany({
+  const rawMovements = await client.cashMovement.findMany({
     where: { cash_session_id: session.id, tenant_id, location_id },
     orderBy: { performed_at: "asc" },
     select: {
@@ -158,7 +160,7 @@ export async function getCashSessionCutReport(
   let payment_details:  CashPaymentDetail[]        = [];
   let total_paid_from_payments = 0;
   try {
-    const rawPayments = await prisma.salePayment.findMany({
+    const rawPayments = await client.salePayment.findMany({
       where: { cash_session_id: session.id },
       orderBy: [{ paid_at: "asc" }, { created_at: "asc" }],
       select: {
@@ -252,7 +254,7 @@ export async function getCashSessionCutReport(
     unpaid_amount: 0,
   };
   try {
-    const rawSales = await prisma.sale.findMany({
+    const rawSales = await client.sale.findMany({
       where: {
         tenant_id,
         location_id,

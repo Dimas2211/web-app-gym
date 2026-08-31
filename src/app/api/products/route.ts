@@ -10,6 +10,8 @@ import { Prisma } from "@prisma/client";
 import { auth } from "@/lib/auth/auth";
 import type { SessionUser } from "@/lib/permissions/guards";
 import { prisma } from "@/lib/db/prisma";
+import { resolveEffectiveApiContext } from "@/modules/platform/runtime/effective-tenant-context";
+import { isRuntimeReadOnlyActive, RUNTIME_READONLY_MESSAGE } from "@/modules/platform/runtime/runtime-session";
 import { getProducts } from "@/modules/commerce/products/queries/get-products";
 import { createProductSchema } from "@/modules/commerce/products/schemas/create-product.schema";
 import type {
@@ -110,13 +112,20 @@ export async function GET(req: NextRequest) {
   const page     = Math.max(1, parseInt(searchParams.get("page")      ?? "1",  10) || 1);
   const pageSize = Math.max(1, parseInt(searchParams.get("page_size") ?? "20", 10) || 20);
 
-  const result = await getProducts(user.tenant_id, {
-    filters,
-    sort,
-    pagination: { page, pageSize },
-  });
+  // PASO 6A: si hay sesión runtime "Operar como cliente" activa, leer de
+  // la base del perfil runtime en vez de la del tenant del super_admin.
+  const { context, dispose } = await resolveEffectiveApiContext({ tenantId: user.tenant_id });
+  try {
+    const result = await getProducts(context.tenantId, {
+      filters,
+      sort,
+      pagination: { page, pageSize },
+    }, context.client);
 
-  return NextResponse.json(result);
+    return NextResponse.json(result);
+  } finally {
+    await dispose();
+  }
 }
 
 // ── POST /api/products ────────────────────────────────────────────
@@ -130,6 +139,11 @@ export async function POST(req: NextRequest) {
   const user = session.user as SessionUser;
   if (!ADMIN_ROLES.includes(user.role)) {
     return NextResponse.json({ error: "Acceso denegado" }, { status: 403 });
+  }
+
+  // PASO 6A: bloquear escritura bajo sesión runtime "Operar como cliente"
+  if (await isRuntimeReadOnlyActive()) {
+    return NextResponse.json({ error: RUNTIME_READONLY_MESSAGE }, { status: 403 });
   }
 
   // ── Parseo del body ─────────────────────────────────────────────

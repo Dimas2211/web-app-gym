@@ -12,6 +12,7 @@ import {
   updatePurchaseItem,
   removePurchaseItem,
 } from "@/modules/commerce/purchases/services/purchase.service";
+import { isRuntimeReadOnlyActive, RUNTIME_READONLY_MESSAGE } from "@/modules/platform/runtime/runtime-session";
 
 type RouteParams = { params: Promise<{ id: string; itemId: string }> };
 
@@ -24,6 +25,11 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
 
   if (!tenant_id || !location_id) {
     return NextResponse.json({ error: "Sesión sin tenant o location activa." }, { status: 401 });
+  }
+
+  // PASO 6A: bloquear escritura bajo sesión runtime "Operar como cliente"
+  if (await isRuntimeReadOnlyActive()) {
+    return NextResponse.json({ error: RUNTIME_READONLY_MESSAGE }, { status: 403 });
   }
 
   const { id: purchase_id, itemId: item_id } = await params;
@@ -69,6 +75,11 @@ export async function DELETE(
 
   if (!tenant_id || !location_id) {
     return NextResponse.json({ error: "Sesión sin tenant o location activa." }, { status: 401 });
+  }
+
+  // PASO 6A: bloquear escritura bajo sesión runtime "Operar como cliente"
+  if (await isRuntimeReadOnlyActive()) {
+    return NextResponse.json({ error: RUNTIME_READONLY_MESSAGE }, { status: 403 });
   }
 
   const { id: purchase_id, itemId: item_id } = await params;

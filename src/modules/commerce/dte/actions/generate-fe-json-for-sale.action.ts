@@ -22,6 +22,7 @@
 import { revalidatePath } from "next/cache";
 import { requireAdmin }   from "@/lib/permissions/guards";
 import { getEffectiveLocationId } from "@/lib/location/active-location";
+import { isRuntimeReadOnlyActive, RUNTIME_READONLY_MESSAGE } from "@/modules/platform/runtime/runtime-session";
 import { generateFeJsonForDte } from "../services/generate-fe-json.service";
 
 export type GenerateFeJsonForSaleActionResult =
@@ -38,6 +39,11 @@ export async function generateFeJsonForSaleAction(
   if (!tenant_id)         return { ok: false, error: "La sesión no tiene un tenant activo." };
   if (!location_id)       return { ok: false, error: "La sesión no tiene una location activa." };
   if (!dte_document_id)   return { ok: false, error: "El ID del documento DTE es requerido." };
+
+  // PASO 6A: bloquear escritura bajo sesión runtime "Operar como cliente"
+  if (await isRuntimeReadOnlyActive()) {
+    return { ok: false, error: RUNTIME_READONLY_MESSAGE };
+  }
 
   const result = await generateFeJsonForDte(
     dte_document_id,

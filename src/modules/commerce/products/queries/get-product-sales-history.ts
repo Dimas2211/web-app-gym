@@ -9,6 +9,7 @@
 // ─────────────────────────────────────────────────────────────────
 
 import { prisma } from "@/lib/db/prisma";
+import type { PrismaClient } from "@prisma/client";
 
 export interface ProductSalesHistoryRow {
   sale_item_id:          string;
@@ -30,8 +31,9 @@ export async function getProductSalesHistory(
   tenantId:   string,
   productId:  string,
   locationId?: string | null,
+  client: PrismaClient = prisma,
 ): Promise<ProductSalesHistoryRow[]> {
-  const rows = await prisma.saleItem.findMany({
+  const rows = await client.saleItem.findMany({
     where: {
       product_id: productId,
       sale: {

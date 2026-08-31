@@ -38,6 +38,7 @@ export async function GET(req: NextRequest) {
       search:      q,
       limit,
       offset,
+      client: ctx.client,
     });
     return NextResponse.json({ ok: true, items: result.items, pagination: result.pagination });
   } catch {
@@ -45,5 +46,7 @@ export async function GET(req: NextRequest) {
       { ok: false, error: "No se pudieron buscar productos para venta." },
       { status: 500 },
     );
+  } finally {
+    await ctx.dispose();
   }
 }

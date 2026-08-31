@@ -3,15 +3,17 @@
 // ─────────────────────────────────────────────────────────────────
 
 import { prisma } from "@/lib/db/prisma";
+import type { PrismaClient } from "@prisma/client";
 import type { DteIssuerConfigDetail, DteEnvironment } from "../types/dte.types";
 import type { DteIssuerConfigFilters } from "../schemas/dte-issuer-config.schemas";
 
 export async function listDteIssuerConfigs(
   filters: DteIssuerConfigFilters,
+  client: PrismaClient = prisma,
 ): Promise<DteIssuerConfigDetail[]> {
   const { tenant_id, location_id, environment, is_active } = filters;
 
-  const rows = await prisma.dteIssuerConfig.findMany({
+  const rows = await client.dteIssuerConfig.findMany({
     where: {
       tenant_id,
       location_id,

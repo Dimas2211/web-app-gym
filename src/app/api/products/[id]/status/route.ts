@@ -16,6 +16,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth/auth";
 import type { SessionUser } from "@/lib/permissions/guards";
 import { prisma } from "@/lib/db/prisma";
+import { isRuntimeReadOnlyActive, RUNTIME_READONLY_MESSAGE } from "@/modules/platform/runtime/runtime-session";
 import { updateProductStatusSchema } from "@/modules/commerce/products/schemas/update-product-status.schema";
 import { isValidTransition } from "@/modules/commerce/products/utils/product-status.utils";
 import type { ProductStatus } from "@/modules/commerce/products/types/product.types";
@@ -37,6 +38,11 @@ export async function PATCH(
   const user = session.user as SessionUser;
   if (!ADMIN_ROLES.includes(user.role)) {
     return NextResponse.json({ error: "Acceso denegado" }, { status: 403 });
+  }
+
+  // PASO 6A: bloquear escritura bajo sesión runtime "Operar como cliente"
+  if (await isRuntimeReadOnlyActive()) {
+    return NextResponse.json({ error: RUNTIME_READONLY_MESSAGE }, { status: 403 });
   }
 
   // ── Parseo del body ─────────────────────────────────────────────

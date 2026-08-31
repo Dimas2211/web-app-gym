@@ -13,6 +13,7 @@ import { getEffectiveLocationId } from "@/lib/location/active-location";
 import { listDteIssuerConfigs } from "@/modules/commerce/dte/queries/list-dte-issuer-configs";
 import { createDteIssuerConfigSchema } from "@/modules/commerce/dte/schemas/dte-issuer-config.schemas";
 import { createDteIssuerConfig } from "@/modules/commerce/dte/services/dte-issuer-config.service";
+import { isRuntimeReadOnlyActive, RUNTIME_READONLY_MESSAGE } from "@/modules/platform/runtime/runtime-session";
 import { getDteApiContext } from "../dte-api-context";
 
 const VALID_ENVIRONMENTS = ["TEST", "PRODUCTION"] as const;
@@ -34,14 +35,18 @@ export async function GET(req: NextRequest) {
   const isActiveRaw = sp.get("is_active");
   const is_active   = isActiveRaw === "true" ? true : isActiveRaw === "false" ? false : undefined;
 
-  const configs = await listDteIssuerConfigs({
-    tenant_id:   ctx.tenant_id,
-    location_id: ctx.location_id,
-    environment,
-    is_active,
-  });
+  try {
+    const configs = await listDteIssuerConfigs({
+      tenant_id:   ctx.tenant_id,
+      location_id: ctx.location_id,
+      environment,
+      is_active,
+    }, ctx.client);
 
-  return NextResponse.json({ ok: true, data: configs });
+    return NextResponse.json({ ok: true, data: configs });
+  } finally {
+    await ctx.dispose();
+  }
 }
 
 // ── POST — crear config ────────────────────────────────────────────
@@ -53,6 +58,11 @@ export async function POST(req: NextRequest) {
 
   if (!tenant_id)   return NextResponse.json({ ok: false, error: "Sesión sin tenant activo." }, { status: 401 });
   if (!location_id) return NextResponse.json({ ok: false, error: "Selecciona una location activa para configurar el emisor DTE." }, { status: 409 });
+
+  // PASO 6A: bloquear escritura bajo sesión runtime "Operar como cliente"
+  if (await isRuntimeReadOnlyActive()) {
+    return NextResponse.json({ ok: false, error: RUNTIME_READONLY_MESSAGE }, { status: 403 });
+  }
 
   const body = await req.json().catch(() => null);
   if (!body) {

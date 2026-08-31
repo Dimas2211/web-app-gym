@@ -8,14 +8,16 @@
 // ─────────────────────────────────────────────────────────────────
 
 import { prisma } from "@/lib/db/prisma";
+import type { PrismaClient } from "@prisma/client";
 import type { CashRegisterDetail, CashOpenSessionInfo } from "../types/cash.types";
 
 export async function getCashRegisterById(
   id:          string,
   tenant_id:   string,
   location_id: string,
+  client: PrismaClient = prisma,
 ): Promise<CashRegisterDetail | null> {
-  const row = await prisma.cashRegister.findFirst({
+  const row = await client.cashRegister.findFirst({
     where: { id, tenant_id, location_id },
     select: {
       id:          true,

@@ -12,6 +12,10 @@
 
 import { requireAdmin }           from "@/lib/permissions/guards";
 import { getEffectiveLocationId } from "@/lib/location/active-location";
+import {
+  resolveEffectiveTenantContext,
+  resolveRuntimeFirstLocationId,
+} from "@/modules/platform/runtime/effective-tenant-context";
 import { getCashSessionCutReportInputSchema } from "../schemas/cash.schemas";
 import { getCashSessionCutReport }            from "../queries/get-cash-session-cut-report";
 import type { GetCashSessionCutReportInput }  from "../schemas/cash.schemas";
@@ -25,28 +29,35 @@ export async function getCashSessionCutReportAction(
   input: GetCashSessionCutReportInput,
 ): Promise<GetCashSessionCutReportActionResult> {
   const sessionUser = await requireAdmin();
-  const tenant_id   = sessionUser.tenant_id;
-  const location_id = await getEffectiveLocationId(sessionUser);
 
-  if (!tenant_id)   return { ok: false, error: "La sesión no tiene un tenant activo." };
-  if (!location_id) return { ok: false, error: "La sesión no tiene una location activa." };
-
-  const parsed = getCashSessionCutReportInputSchema.safeParse(input);
-  if (!parsed.success) {
-    return { ok: false, error: "Parámetros de consulta no válidos." };
-  }
+  const { context, dispose } = await resolveEffectiveTenantContext(sessionUser);
+  const { tenantId: tenant_id, client } = context;
 
   try {
+    const location_id = context.runtime
+      ? await resolveRuntimeFirstLocationId(context)
+      : await getEffectiveLocationId(sessionUser);
+
+    if (!tenant_id)   return { ok: false, error: "La sesión no tiene un tenant activo." };
+    if (!location_id) return { ok: false, error: "La sesión no tiene una location activa." };
+
+    const parsed = getCashSessionCutReportInputSchema.safeParse(input);
+    if (!parsed.success) {
+      return { ok: false, error: "Parámetros de consulta no válidos." };
+    }
+
     const data = await getCashSessionCutReport({
       tenant_id,
       location_id,
       cash_session_id: parsed.data.cash_session_id,
-    });
+    }, client);
     if (!data) {
       return { ok: false, error: "La sesión no existe o no pertenece a esta sucursal." };
     }
     return { ok: true, data };
   } catch {
     return { ok: false, error: "No se pudo cargar el reporte de corte." };
+  } finally {
+    await dispose();
   }
 }

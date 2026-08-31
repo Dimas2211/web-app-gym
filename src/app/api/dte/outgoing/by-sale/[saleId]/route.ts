@@ -23,7 +23,10 @@ export async function GET(
     return NextResponse.json({ ok: false, error: ctx.error }, { status: ctx.status });
   }
 
-  const docs = await listDteOutgoingDocumentsBySale(saleId, ctx.tenant_id, ctx.location_id);
-
-  return NextResponse.json({ ok: true, data: docs });
+  try {
+    const docs = await listDteOutgoingDocumentsBySale(saleId, ctx.tenant_id, ctx.location_id, ctx.client);
+    return NextResponse.json({ ok: true, data: docs });
+  } finally {
+    await ctx.dispose();
+  }
 }

@@ -19,7 +19,10 @@ export async function GET(req: NextRequest) {
 
   const search = req.nextUrl.searchParams.get("search")?.trim() || undefined;
 
-  const products = await getProductsForPurchase(ctx.tenant_id, ctx.location_id, search);
-
-  return NextResponse.json(products);
+  try {
+    const products = await getProductsForPurchase(ctx.tenant_id, ctx.location_id, search, ctx.client);
+    return NextResponse.json(products);
+  } finally {
+    await ctx.dispose();
+  }
 }

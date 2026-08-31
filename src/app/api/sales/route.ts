@@ -13,6 +13,7 @@ import { getEffectiveLocationId } from "@/lib/location/active-location";
 import { listSales } from "@/modules/commerce/sales/queries/list-sales";
 import { createSaleDraftSchema } from "@/modules/commerce/sales/schemas/sale.schemas";
 import { createSaleDraft } from "@/modules/commerce/sales/services/sale.service";
+import { isRuntimeReadOnlyActive, RUNTIME_READONLY_MESSAGE } from "@/modules/platform/runtime/runtime-session";
 import { getSaleApiContext } from "./sale-api-context";
 import type { SaleStatus, SalePaymentStatus } from "@/modules/commerce/sales/types/sale.types";
 
@@ -50,22 +51,26 @@ export async function GET(req: NextRequest) {
   const dateFrom    = sp.get("date_from")   ?? undefined;
   const dateTo      = sp.get("date_to")     ?? undefined;
 
-  const data = await listSales({
-    tenant_id:      ctx.tenant_id,
-    location_id:    ctx.location_id,
-    status,
-    payment_status,
-    customer_id,
-    date_from:   dateFrom,
-    date_to:     dateTo,
-    search:      sp.get("search") ?? undefined,
-    sort_field,
-    sort_direction,
-    page,
-    page_size,
-  });
+  try {
+    const data = await listSales({
+      tenant_id:      ctx.tenant_id,
+      location_id:    ctx.location_id,
+      status,
+      payment_status,
+      customer_id,
+      date_from:   dateFrom,
+      date_to:     dateTo,
+      search:      sp.get("search") ?? undefined,
+      sort_field,
+      sort_direction,
+      page,
+      page_size,
+    }, ctx.client);
 
-  return NextResponse.json({ ok: true, data });
+    return NextResponse.json({ ok: true, data });
+  } finally {
+    await ctx.dispose();
+  }
 }
 
 // ── POST — crear venta DRAFT ───────────────────────────────────────
@@ -77,6 +82,11 @@ export async function POST(req: NextRequest) {
 
   if (!tenant_id)   return NextResponse.json({ ok: false, error: "Sesión sin tenant activo." }, { status: 401 });
   if (!location_id) return NextResponse.json({ ok: false, error: "Selecciona una location activa para crear una venta." }, { status: 409 });
+
+  // PASO 6A: bloquear escritura bajo sesión runtime "Operar como cliente"
+  if (await isRuntimeReadOnlyActive()) {
+    return NextResponse.json({ ok: false, error: RUNTIME_READONLY_MESSAGE }, { status: 403 });
+  }
 
   const body = await req.json().catch(() => null);
   if (!body) {

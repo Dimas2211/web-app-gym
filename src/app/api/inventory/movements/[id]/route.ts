@@ -10,7 +10,8 @@ export const runtime = "nodejs";
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth/auth";
 import type { SessionUser } from "@/lib/permissions/guards";
-import { prisma } from "@/lib/db/prisma";
+import { getEffectiveLocationId } from "@/lib/location/active-location";
+import { resolveEffectiveApiContext } from "@/modules/platform/runtime/effective-tenant-context";
 import { getMovementDirection } from "@/modules/commerce/inventory/utils/movement-direction.utils";
 import type { MovementType } from "@/modules/commerce/inventory/types/inventory-movement.types";
 
@@ -30,9 +31,22 @@ export async function GET(
     return NextResponse.json({ error: "Acceso denegado" }, { status: 403 });
   }
 
-  const tenant_id   = user.tenant_id;
-  const location_id = user.location_id;
-  if (!tenant_id || !location_id) {
+  const tenant_id = user.tenant_id;
+  if (!tenant_id) {
+    return NextResponse.json(
+      { error: "La sesión no tiene tenant activo." },
+      { status: 400 },
+    );
+  }
+
+  const baseLocationId = await getEffectiveLocationId(user);
+  const { context, dispose } = await resolveEffectiveApiContext({
+    tenantId:   tenant_id,
+    locationId: baseLocationId,
+  });
+
+  if (!context.locationId) {
+    await dispose();
     return NextResponse.json(
       { error: "La sesión no tiene tenant o location activos." },
       { status: 400 },
@@ -40,12 +54,15 @@ export async function GET(
   }
 
   const { id } = await params;
+  const { tenantId: scoped_tenant_id, locationId: scoped_location_id, client } = context;
+
+  try {
 
   // Consulta directa con select mínimo — no hay query reutilizable de detalle
   // individual en el módulo (get-inventory-movements devuelve lista).
   // Los campos Decimal se convierten a number antes de serializar.
-  const row = await prisma.inventoryMovement.findFirst({
-    where: { id, tenant_id, location_id },
+  const row = await client.inventoryMovement.findFirst({
+    where: { id, tenant_id: scoped_tenant_id, location_id: scoped_location_id },
     select: {
       id:                  true,
       tenant_id:           true,
@@ -105,4 +122,7 @@ export async function GET(
       : null,
     created_at:          row.created_at,
   });
+  } finally {
+    await dispose();
+  }
 }

@@ -6,6 +6,7 @@
 // ─────────────────────────────────────────────────────────────────
 
 import { prisma } from "@/lib/db/prisma";
+import type { PrismaClient } from "@prisma/client";
 import type { PurchaseDetail } from "../types/purchase.types";
 import { buildDeliverySummary } from "@/modules/commerce/dte/outgoing/utils/dte-delivery-summary.utils";
 import { mapSupplierToSujetoExcluido } from "@/modules/commerce/dte/utils/supplier-to-sujeto-excluido.mapper";
@@ -15,8 +16,9 @@ export async function getPurchaseById(
   id:          string,
   tenant_id:   string,
   location_id: string,
+  client: PrismaClient = prisma,
 ): Promise<PurchaseDetail | null> {
-  const row = await prisma.purchase.findFirst({
+  const row = await client.purchase.findFirst({
     where: { id, tenant_id, location_id },
     select: {
       id:            true,

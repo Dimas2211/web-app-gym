@@ -37,6 +37,7 @@ if (typeof window !== "undefined") {
 }
 
 import type { PrismaClient } from "@prisma/client";
+import { prisma } from "@/lib/db/prisma";
 import type { SessionUser } from "@/lib/permissions/guards";
 import {
   resolveRuntimeDatabaseProfileById,
@@ -47,6 +48,8 @@ import {
   clearRuntimeSession,
   type RuntimeSessionPayload,
 } from "./runtime-session";
+
+export type { RuntimeSessionPayload } from "./runtime-session";
 
 export interface EffectiveTenantContext {
   tenantId: string;
@@ -112,4 +115,74 @@ export async function resolveRuntimeFirstLocationId(
     orderBy: { name: "asc" },
   });
   return branch?.id ?? null;
+}
+
+// ─────────────────────────────────────────────────────────────────
+// Variante para Route Handlers (app/api/**) — PASO 6A (corrección de
+// alcance): las páginas del dashboard real re-consultan casi todo su
+// detalle/paginación/filtros vía fetch(`/api/...`) desde el cliente,
+// no solo en el render inicial del Server Component. Esas rutas
+// necesitan la misma resolución runtime, pero:
+//   - reciben un tenantId/locationId "base" ya resueltos por su propio
+//     *-api-context.ts (sesión normal del usuario), en vez de un
+//     SessionUser completo;
+//   - `client` SIEMPRE es un PrismaClient definido (nunca undefined) —
+//     así el route handler no necesita ramificar entre "con runtime" y
+//     "sin runtime" al construir sus queries, solo usar `context.client`.
+//   - exponen `runtime` para que el propio handler bloquee escrituras
+//     (POST/PATCH/DELETE) con `if (context.runtime?.readOnly) ...`.
+// ─────────────────────────────────────────────────────────────────
+
+export interface EffectiveApiContext {
+  tenantId:   string;
+  locationId: string | null;
+  client:     PrismaClient;
+  runtime:    RuntimeSessionPayload | null;
+}
+
+export interface EffectiveApiContextHandle {
+  context: EffectiveApiContext;
+  dispose: () => Promise<void>;
+}
+
+/**
+ * Resuelve el contexto efectivo para un Route Handler. `base` es el
+ * tenant_id/location_id ya resueltos por la sesión normal del usuario
+ * (ej. el `*-api-context.ts` de cada módulo) — se usan tal cual si no
+ * hay sesión runtime activa, o se reemplazan por los del perfil
+ * runtime si la hay.
+ */
+export async function resolveEffectiveApiContext(base: {
+  tenantId:   string;
+  locationId?: string | null;
+}): Promise<EffectiveApiContextHandle> {
+  const normal: EffectiveApiContextHandle = {
+    context: {
+      tenantId:   base.tenantId,
+      locationId: base.locationId ?? null,
+      client:     prisma,
+      runtime:    null,
+    },
+    dispose: NOOP_DISPOSE,
+  };
+
+  const runtime = await getRuntimeSession();
+  if (!runtime) return normal;
+
+  try {
+    const profile = await resolveRuntimeDatabaseProfileById(runtime.profileId);
+    const { client, disconnect } = createRuntimePrismaClient(profile);
+    const locationId = await resolveRuntimeFirstLocationId({
+      tenantId: profile.tenantId,
+      client,
+      runtime,
+    });
+    return {
+      context: { tenantId: profile.tenantId, locationId, client, runtime },
+      dispose:  disconnect,
+    };
+  } catch {
+    await clearRuntimeSession();
+    return normal;
+  }
 }

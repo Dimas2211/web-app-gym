@@ -13,6 +13,7 @@
 // ─────────────────────────────────────────────────────────────────
 
 import { requireAdmin } from "@/lib/permissions/guards";
+import { isRuntimeReadOnlyActive, RUNTIME_READONLY_MESSAGE } from "@/modules/platform/runtime/runtime-session";
 import { verifyAdminDeleteCredentials } from "@/lib/permissions/delete-authorization";
 
 export type EditSaleAuthState =
@@ -27,6 +28,11 @@ export async function editSaleAuthAction(
   const sessionUser = await requireAdmin();
   if (!sessionUser.tenant_id) {
     return { ok: false, error: "Sesión sin tenant activo." };
+  }
+
+  // PASO 6A: bloquear escritura bajo sesión runtime "Operar como cliente"
+  if (await isRuntimeReadOnlyActive()) {
+    return { ok: false, error: RUNTIME_READONLY_MESSAGE };
   }
 
   const email    = (formData.get("auth_email")    as string ?? "").trim();

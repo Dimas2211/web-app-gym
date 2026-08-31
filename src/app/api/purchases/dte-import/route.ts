@@ -14,6 +14,7 @@ import { requireAdmin } from "@/lib/permissions/guards";
 import { getEffectiveLocationId } from "@/lib/location/active-location";
 import { dteImportBodySchema } from "@/modules/commerce/purchases/schemas/dte-import.schema";
 import { createPurchaseDteImport } from "@/modules/commerce/purchases/services/purchase-dte-import.service";
+import { isRuntimeReadOnlyActive, RUNTIME_READONLY_MESSAGE } from "@/modules/platform/runtime/runtime-session";
 
 export async function POST(req: NextRequest) {
   const sessionUser = await requireAdmin();
@@ -25,6 +26,11 @@ export async function POST(req: NextRequest) {
       { error: "Sesión sin tenant o location activa." },
       { status: 401 },
     );
+  }
+
+  // PASO 6A: bloquear escritura bajo sesión runtime "Operar como cliente"
+  if (await isRuntimeReadOnlyActive()) {
+    return NextResponse.json({ error: RUNTIME_READONLY_MESSAGE }, { status: 403 });
   }
 
   // Parsear body — falla controlada si JSON inválido o vacío

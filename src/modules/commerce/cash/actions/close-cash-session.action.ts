@@ -15,6 +15,7 @@ import { requireAdmin }            from "@/lib/permissions/guards";
 import { getEffectiveLocationId }  from "@/lib/location/active-location";
 import { closeCashSessionInputSchema } from "../schemas/cash.schemas";
 import { closeCashSession }            from "../services/cash-session.service";
+import { isRuntimeReadOnlyActive, RUNTIME_READONLY_MESSAGE } from "@/modules/platform/runtime/runtime-session";
 import type { CloseCashSessionInput }  from "../schemas/cash.schemas";
 import type { CashOpenSessionInfo }    from "../types/cash.types";
 
@@ -31,6 +32,11 @@ export async function closeCashSessionAction(
 
   if (!tenant_id)   return { ok: false, error: "La sesión no tiene un tenant activo." };
   if (!location_id) return { ok: false, error: "La sesión no tiene una location activa." };
+
+  // PASO 6A: bloquear escritura bajo sesión runtime "Operar como cliente"
+  if (await isRuntimeReadOnlyActive()) {
+    return { ok: false, error: RUNTIME_READONLY_MESSAGE };
+  }
 
   const parsed = closeCashSessionInputSchema.safeParse(input);
   if (!parsed.success) {

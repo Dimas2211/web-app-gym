@@ -16,6 +16,7 @@
 // ─────────────────────────────────────────────────────────────────
 
 import { prisma } from "@/lib/db/prisma";
+import type { PrismaClient } from "@prisma/client";
 import { formatDateLabel } from "@/lib/utils/format-date-label";
 import type { SupplierDetail } from "../types/supplier.types";
 
@@ -153,8 +154,9 @@ function mapToSupplierDetail(row: NonNullable<RawSupplierRow>): SupplierDetail {
 export async function getSupplierById(
   tenantId: string,
   id: string,
+  client: PrismaClient = prisma,
 ): Promise<SupplierDetail | null> {
-  const row = await prisma.supplier.findFirst({
+  const row = await client.supplier.findFirst({
     where:  { id, tenant_id: tenantId },
     select: SUPPLIER_FULL_SELECT,
   });

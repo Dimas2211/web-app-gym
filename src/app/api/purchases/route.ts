@@ -15,6 +15,7 @@ import { createPurchaseSchema } from "@/modules/commerce/purchases/schemas/creat
 import { createPurchase } from "@/modules/commerce/purchases/services/purchase.service";
 import type { PurchaseStatus } from "@/modules/commerce/purchases/types/purchase.types";
 import type { PurchaseSortField } from "@/modules/commerce/purchases/types/purchase-filters.types";
+import { isRuntimeReadOnlyActive, RUNTIME_READONLY_MESSAGE } from "@/modules/platform/runtime/runtime-session";
 import { getPurchaseApiContext } from "./purchase-api-context";
 
 // ── Constantes de validación ───────────────────────────────────────
@@ -51,23 +52,27 @@ export async function GET(req: NextRequest) {
   const sort_field:     PurchaseSortField | undefined = sortFieldRaw && (VALID_SORT_FIELDS as readonly string[]).includes(sortFieldRaw) ? sortFieldRaw as PurchaseSortField : undefined;
   const sort_direction: "asc" | "desc"   | undefined = sortDirRaw   && (VALID_SORT_DIRS   as readonly string[]).includes(sortDirRaw)   ? sortDirRaw   as "asc" | "desc"   : undefined;
 
-  const data = await getPurchases({
-    tenant_id: ctx.tenant_id,
-    location_id: ctx.location_id,
-    status,
-    supplier_id:     sp.get("supplier_id")     ?? undefined,
-    supplier_search: sp.get("supplier_search") ?? undefined,
-    date_from:       sp.get("date_from")       ?? undefined,
-    date_to:         sp.get("date_to")         ?? undefined,
-    search:                  sp.get("search")                  ?? undefined,
-    document_number_search:  sp.get("document_number_search")  ?? undefined,
-    sort_field,
-    sort_direction,
-    page,
-    page_size,
-  });
+  try {
+    const data = await getPurchases({
+      tenant_id: ctx.tenant_id,
+      location_id: ctx.location_id,
+      status,
+      supplier_id:     sp.get("supplier_id")     ?? undefined,
+      supplier_search: sp.get("supplier_search") ?? undefined,
+      date_from:       sp.get("date_from")       ?? undefined,
+      date_to:         sp.get("date_to")         ?? undefined,
+      search:                  sp.get("search")                  ?? undefined,
+      document_number_search:  sp.get("document_number_search")  ?? undefined,
+      sort_field,
+      sort_direction,
+      page,
+      page_size,
+    }, ctx.client);
 
-  return NextResponse.json(data);
+    return NextResponse.json(data);
+  } finally {
+    await ctx.dispose();
+  }
 }
 
 // ── POST — crear compra ────────────────────────────────────────────
@@ -79,6 +84,11 @@ export async function POST(req: NextRequest) {
 
   if (!tenant_id || !location_id) {
     return NextResponse.json({ error: "Sesión sin tenant o location activa." }, { status: 401 });
+  }
+
+  // PASO 6A: bloquear escritura bajo sesión runtime "Operar como cliente"
+  if (await isRuntimeReadOnlyActive()) {
+    return NextResponse.json({ error: RUNTIME_READONLY_MESSAGE }, { status: 403 });
   }
 
   const body = await req.json().catch(() => null);

@@ -12,6 +12,7 @@ import { requireAdmin } from "@/lib/permissions/guards";
 import { listCustomers } from "@/modules/commerce/customers/queries/list-customers";
 import { createCustomerSchema } from "@/modules/commerce/customers/schemas/customer.schemas";
 import { createCustomer } from "@/modules/commerce/customers/services/customer.service";
+import { isRuntimeReadOnlyActive, RUNTIME_READONLY_MESSAGE } from "@/modules/platform/runtime/runtime-session";
 import { getCustomerApiContext } from "./customer-api-context";
 import type { CustomerStatus } from "@/modules/commerce/customers/types/customer.types";
 
@@ -45,18 +46,22 @@ export async function GET(req: NextRequest) {
   const sort_field    = sortFieldRaw && (VALID_SORT_FIELDS as readonly string[]).includes(sortFieldRaw) ? sortFieldRaw as typeof VALID_SORT_FIELDS[number] : "customer_code";
   const sort_direction = sortDirRaw && (VALID_SORT_DIRS as readonly string[]).includes(sortDirRaw) ? sortDirRaw as "asc" | "desc" : "asc";
 
-  const data = await listCustomers({
-    tenant_id:      ctx.tenant_id,
-    status,
-    taxpayer_type,
-    search:         sp.get("search") ?? undefined,
-    sort_field,
-    sort_direction,
-    page,
-    page_size,
-  });
+  try {
+    const data = await listCustomers({
+      tenant_id:      ctx.tenant_id,
+      status,
+      taxpayer_type,
+      search:         sp.get("search") ?? undefined,
+      sort_field,
+      sort_direction,
+      page,
+      page_size,
+    }, ctx.client);
 
-  return NextResponse.json({ ok: true, data });
+    return NextResponse.json({ ok: true, data });
+  } finally {
+    await ctx.dispose();
+  }
 }
 
 // ── POST — crear cliente ───────────────────────────────────────────
@@ -67,6 +72,11 @@ export async function POST(req: NextRequest) {
 
   if (!tenant_id) {
     return NextResponse.json({ ok: false, error: "Sesión sin tenant activo." }, { status: 401 });
+  }
+
+  // PASO 6A: bloquear escritura bajo sesión runtime "Operar como cliente"
+  if (await isRuntimeReadOnlyActive()) {
+    return NextResponse.json({ ok: false, error: RUNTIME_READONLY_MESSAGE }, { status: 403 });
   }
 
   const body = await req.json().catch(() => null);

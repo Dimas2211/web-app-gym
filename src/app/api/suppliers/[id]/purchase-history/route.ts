@@ -15,7 +15,6 @@ export const runtime = "nodejs";
 
 import { NextRequest, NextResponse } from "next/server";
 import { getPurchaseApiContext } from "@/app/api/purchases/purchase-api-context";
-import { prisma } from "@/lib/db/prisma";
 
 export async function GET(
   req: NextRequest,
@@ -28,10 +27,11 @@ export async function GET(
     return NextResponse.json({ error: ctx.error }, { status: ctx.status });
   }
 
-  const { tenant_id, location_id } = ctx;
+  const { tenant_id, location_id, client } = ctx;
 
+  try {
   // Validar que el proveedor pertenece al tenant antes de devolver compras
-  const supplierExists = await prisma.supplier.findFirst({
+  const supplierExists = await client.supplier.findFirst({
     where: { id: supplierId, tenant_id },
     select: { id: true },
   });
@@ -40,7 +40,7 @@ export async function GET(
     return NextResponse.json({ error: "Proveedor no encontrado." }, { status: 404 });
   }
 
-  const rows = await prisma.purchase.findMany({
+  const rows = await client.purchase.findMany({
     where: {
       tenant_id,
       location_id,
@@ -94,4 +94,7 @@ export async function GET(
   });
 
   return NextResponse.json({ items, total: items.length });
+  } finally {
+    await ctx.dispose();
+  }
 }

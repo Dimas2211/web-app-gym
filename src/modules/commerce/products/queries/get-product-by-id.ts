@@ -10,6 +10,7 @@
 // ─────────────────────────────────────────────────────────────────
 
 import { prisma } from "@/lib/db/prisma";
+import type { PrismaClient } from "@prisma/client";
 import type { Product } from "../types/product.types";
 
 // ── Select reutilizable ──────────────────────────────────────────
@@ -121,12 +122,14 @@ function mapToProduct(row: NonNullable<RawProductRow>): Product {
  *
  * @param tenantId - Extraído de session.tenantId. Nunca del body del cliente.
  * @param id       - UUID del producto.
+ * @param client   - PrismaClient opcional (Runtime Database Router, PASO 6A).
  */
 export async function getProductById(
   tenantId: string,
-  id: string
+  id: string,
+  client: PrismaClient = prisma,
 ): Promise<Product | null> {
-  const row = await prisma.product.findFirst({
+  const row = await client.product.findFirst({
     where: { id, tenant_id: tenantId },
     select: PRODUCT_FULL_SELECT,
   });

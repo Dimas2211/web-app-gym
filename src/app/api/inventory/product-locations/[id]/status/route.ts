@@ -12,6 +12,7 @@ import { auth } from "@/lib/auth/auth";
 import type { SessionUser } from "@/lib/permissions/guards";
 import { updateProductLocationFields } from "@/modules/commerce/inventory/services/product-location.service";
 import { getEffectiveLocationId } from "@/lib/location/active-location";
+import { isRuntimeReadOnlyActive, RUNTIME_READONLY_MESSAGE } from "@/modules/platform/runtime/runtime-session";
 
 const ADMIN_ROLES = ["super_admin", "branch_admin"];
 
@@ -41,6 +42,11 @@ export async function PATCH(
       { error: "La sesión no tiene tenant o location activos." },
       { status: 400 },
     );
+  }
+
+  // PASO 6A: bloquear escritura bajo sesión runtime "Operar como cliente"
+  if (await isRuntimeReadOnlyActive()) {
+    return NextResponse.json({ error: RUNTIME_READONLY_MESSAGE }, { status: 403 });
   }
 
   let body: unknown;

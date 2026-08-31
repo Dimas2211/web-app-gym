@@ -10,6 +10,8 @@ import { auth } from "@/lib/auth/auth";
 import type { SessionUser } from "@/lib/permissions/guards";
 import { getProductLocations } from "@/modules/commerce/inventory/queries/get-product-locations";
 import { getEffectiveLocationId } from "@/lib/location/active-location";
+import { resolveEffectiveApiContext } from "@/modules/platform/runtime/effective-tenant-context";
+import { isRuntimeReadOnlyActive, RUNTIME_READONLY_MESSAGE } from "@/modules/platform/runtime/runtime-session";
 import { createProductLocationSchema } from "@/modules/commerce/inventory/schemas/create-product-location.schema";
 import { createProductLocation } from "@/modules/commerce/inventory/services/product-location.service";
 import type {
@@ -35,9 +37,24 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Acceso denegado" }, { status: 403 });
   }
 
-  const tenant_id   = user.tenant_id;
-  const location_id = await getEffectiveLocationId(user);
-  if (!tenant_id || !location_id) {
+  const tenant_id = user.tenant_id;
+  if (!tenant_id) {
+    return NextResponse.json(
+      { error: "La sesión no tiene tenant activo." },
+      { status: 400 },
+    );
+  }
+
+  // PASO 6A: bajo sesión runtime, la location efectiva es la primera
+  // sucursal activa del tenant runtime, no la del selector del super_admin.
+  const baseLocationId = await getEffectiveLocationId(user);
+  const { context, dispose } = await resolveEffectiveApiContext({
+    tenantId:   tenant_id,
+    locationId: baseLocationId,
+  });
+
+  if (!context.locationId) {
+    await dispose();
     return NextResponse.json(
       { error: "La sesión no tiene tenant o location activos." },
       { status: 400 },
@@ -47,7 +64,10 @@ export async function GET(req: NextRequest) {
   const { searchParams } = req.nextUrl;
 
   // ── Filtros ─────────────────────────────────────────────────────
-  const filters: ProductLocationFilters = { tenant_id, location_id };
+  const filters: ProductLocationFilters = {
+    tenant_id:   context.tenantId,
+    location_id: context.locationId,
+  };
 
   const searchCode = searchParams.get("search_code");
   if (searchCode?.trim()) filters.search_code = searchCode.trim();
@@ -86,8 +106,12 @@ export async function GET(req: NextRequest) {
   const pageSizeParam = parseInt(searchParams.get("page_size") ?? "150", 10);
   if (!isNaN(pageSizeParam) && pageSizeParam > 0) filters.page_size = pageSizeParam;
 
-  const result = await getProductLocations(filters);
-  return NextResponse.json(result);
+  try {
+    const result = await getProductLocations(filters, context.client);
+    return NextResponse.json(result);
+  } finally {
+    await dispose();
+  }
 }
 
 // ── POST /api/inventory/product-locations ─────────────────────────
@@ -101,6 +125,11 @@ export async function POST(req: NextRequest) {
   const user = session.user as SessionUser;
   if (!ADMIN_ROLES.includes(user.role)) {
     return NextResponse.json({ error: "Acceso denegado" }, { status: 403 });
+  }
+
+  // PASO 6A: bloquear escritura bajo sesión runtime "Operar como cliente"
+  if (await isRuntimeReadOnlyActive()) {
+    return NextResponse.json({ error: RUNTIME_READONLY_MESSAGE }, { status: 403 });
   }
 
   const tenant_id   = user.tenant_id;

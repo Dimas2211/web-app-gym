@@ -6,14 +6,16 @@
 // ─────────────────────────────────────────────────────────────────
 
 import { prisma } from "@/lib/db/prisma";
+import type { PrismaClient } from "@prisma/client";
 import type { CustomerForSaleLookup } from "../types/customer.types";
 
 export async function searchCustomersForSale(
   tenant_id: string,
   search:    string,
   limit      = 20,
+  client: PrismaClient = prisma,
 ): Promise<CustomerForSaleLookup[]> {
-  const rows = await prisma.customer.findMany({
+  const rows = await client.customer.findMany({
     where: {
       tenant_id,
       status: "active",

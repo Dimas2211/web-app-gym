@@ -6,6 +6,7 @@
 // ─────────────────────────────────────────────────────────────────
 
 import { prisma } from "@/lib/db/prisma";
+import type { PrismaClient } from "@prisma/client";
 import type { CashRegisterListItem, CashOpenSessionInfo } from "../types/cash.types";
 
 // ── Helper interno de mapeo de sesión ─────────────────────────────
@@ -54,8 +55,9 @@ export async function listCashRegisters(
   tenant_id:        string,
   location_id:      string,
   include_inactive  = false,
+  client: PrismaClient = prisma,
 ): Promise<CashRegisterListItem[]> {
-  const rows = await prisma.cashRegister.findMany({
+  const rows = await client.cashRegister.findMany({
     where: {
       tenant_id,
       location_id,

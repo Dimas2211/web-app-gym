@@ -18,6 +18,8 @@
 //   - No toca ventas, pagos, DTE ni inventario.
 // ─────────────────────────────────────────────────────────────────
 
+import type { PrismaClient } from "@prisma/client";
+import { prisma } from "@/lib/db/prisma";
 import { listCashRegisters }    from "../queries/list-cash-registers";
 import { getCashRegisterById }  from "../queries/get-cash-register-by-id";
 import { getOpenCashSession }   from "../queries/get-open-cash-session";
@@ -33,8 +35,9 @@ import type {
 export async function getActiveCashRegistersForCurrentLocation(
   tenant_id:   string,
   location_id: string,
+  client: PrismaClient = prisma,
 ): Promise<CashRegisterListItem[]> {
-  return listCashRegisters(tenant_id, location_id, false);
+  return listCashRegisters(tenant_id, location_id, false, client);
 }
 
 // ── Obtiene una caja validando scope — null si fuera de scope ─────
@@ -43,8 +46,9 @@ export async function ensureCashRegisterInScope(
   cash_register_id: string,
   tenant_id:        string,
   location_id:      string,
+  client: PrismaClient = prisma,
 ): Promise<CashRegisterDetail | null> {
-  return getCashRegisterById(cash_register_id, tenant_id, location_id);
+  return getCashRegisterById(cash_register_id, tenant_id, location_id, client);
 }
 
 // ── Obtiene la sesión OPEN de una caja ───────────────────────────
@@ -53,8 +57,9 @@ export async function getOpenSessionForRegister(
   cash_register_id: string,
   tenant_id:        string,
   location_id:      string,
+  client: PrismaClient = prisma,
 ): Promise<CashOpenSessionInfo | null> {
-  return getOpenCashSession(cash_register_id, tenant_id, location_id);
+  return getOpenCashSession(cash_register_id, tenant_id, location_id, client);
 }
 
 // ── Estado completo del workspace de caja ────────────────────────
@@ -68,11 +73,12 @@ export async function getCashWorkspaceState(
   tenant_id:              string,
   location_id:            string,
   selected_register_id?: string,
+  client: PrismaClient = prisma,
 ): Promise<CashWorkspaceState> {
   const [registers, selected_register] = await Promise.all([
-    listCashRegisters(tenant_id, location_id, false),
+    listCashRegisters(tenant_id, location_id, false, client),
     selected_register_id
-      ? getCashRegisterById(selected_register_id, tenant_id, location_id)
+      ? getCashRegisterById(selected_register_id, tenant_id, location_id, client)
       : Promise.resolve(null),
   ]);
 

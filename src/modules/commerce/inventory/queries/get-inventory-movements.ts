@@ -12,6 +12,7 @@
 // ─────────────────────────────────────────────────────────────────
 
 import { prisma } from "@/lib/db/prisma";
+import type { PrismaClient } from "@prisma/client";
 import type { InventoryMovementFilters } from "../types/inventory-filters.types";
 import type { InventoryMovementItem } from "../types/inventory-movement.types";
 import { getMovementDirection } from "../utils/movement-direction.utils";
@@ -147,6 +148,7 @@ function mapToInventoryMovementItem(
  */
 export async function getInventoryMovements(
   filters: InventoryMovementFilters,
+  client: PrismaClient = prisma,
 ): Promise<InventoryMovementListResult> {
   const pageSize = Math.min(
     MAX_PAGE_SIZE,
@@ -160,14 +162,14 @@ export async function getInventoryMovements(
   // coincide con los filtros activos, independientemente del límite de fetch.
   // Útil para el footer "X de Y movimientos" en la grilla de historial.
   // Sin post-filtro en memoria: todos los filtros de esta query son Prisma-nativos.
-  const [rows, total] = await prisma.$transaction([
-    prisma.inventoryMovement.findMany({
+  const [rows, total] = await client.$transaction([
+    client.inventoryMovement.findMany({
       where,
       select: INVENTORY_MOVEMENT_SELECT,
       orderBy,
       take: pageSize,
     }),
-    prisma.inventoryMovement.count({ where }),
+    client.inventoryMovement.count({ where }),
   ]);
 
   return {
