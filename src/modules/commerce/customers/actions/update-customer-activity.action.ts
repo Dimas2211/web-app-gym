@@ -17,6 +17,7 @@
 
 import { revalidatePath } from "next/cache";
 import { requireAdmin } from "@/lib/permissions/guards";
+import { isRuntimeReadOnlyActive, RUNTIME_READONLY_MESSAGE } from "@/modules/platform/runtime/runtime-session";
 import { str, strNullable } from "@/lib/utils/form-data-parsers";
 import { updateCustomer } from "../services/customer.service";
 
@@ -31,6 +32,9 @@ export async function updateCustomerActivityAction(
   const sessionUser = await requireAdmin();
   const tenantId    = sessionUser.tenant_id;
   if (!tenantId) return { error: "La sesión no tiene un tenant activo." };
+
+  // PASO 6A: bloquear escritura bajo sesión runtime "Operar como cliente"
+  if (await isRuntimeReadOnlyActive()) return { error: RUNTIME_READONLY_MESSAGE };
 
   const id            = str(formData.get("id"));
   const activity_code = strNullable(formData.get("activity_code"));

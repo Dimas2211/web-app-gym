@@ -25,6 +25,7 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/db/prisma";
 import { requireAdmin } from "@/lib/permissions/guards";
+import { isRuntimeReadOnlyActive, RUNTIME_READONLY_MESSAGE } from "@/modules/platform/runtime/runtime-session";
 import { updateProductStatusSchema } from "../schemas/update-product-status.schema";
 import type { ProductStatus } from "../types/product.types";
 // Lógica de transiciones en utils para que cliente y servidor compartan
@@ -46,6 +47,11 @@ export async function updateProductStatusAction(
   // 1. Sesión y permisos
   const sessionUser = await requireAdmin();
   const tenantId = sessionUser.tenant_id;
+
+  // PASO 6A: bloquear escritura bajo sesión runtime "Operar como cliente"
+  if (await isRuntimeReadOnlyActive()) {
+    return { error: RUNTIME_READONLY_MESSAGE };
+  }
 
   // 2. Validación Zod
   const raw = {

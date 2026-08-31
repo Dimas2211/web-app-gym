@@ -16,6 +16,7 @@
 
 import { revalidatePath } from "next/cache";
 import { requireAdmin } from "@/lib/permissions/guards";
+import { isRuntimeReadOnlyActive, RUNTIME_READONLY_MESSAGE } from "@/modules/platform/runtime/runtime-session";
 import { str, strNullable } from "@/lib/utils/form-data-parsers";
 import { createSupplierSchema } from "../schemas/create-supplier.schema";
 import { createSupplier } from "../services/supplier.service";
@@ -39,6 +40,9 @@ export async function createSupplierAction(
   // Guard defensivo: tenant_id es string en el contrato de sesión,
   // pero un JWT malformado podría producir string vacío.
   if (!tenantId) return { error: "La sesión no tiene un tenant activo." };
+
+  // PASO 6A: bloquear escritura bajo sesión runtime "Operar como cliente"
+  if (await isRuntimeReadOnlyActive()) return { error: RUNTIME_READONLY_MESSAGE };
 
   // 2. Parseo de FormData
   const raw = {

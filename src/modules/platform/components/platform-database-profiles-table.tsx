@@ -10,7 +10,8 @@
 // ─────────────────────────────────────────────────────────────────
 
 import Link from "next/link";
-import { Pencil, Power, PlugZap, Loader2, ShieldCheck, Search, ExternalLink, FileSpreadsheet, Link2, LifeBuoy } from "lucide-react";
+import { Pencil, Power, PlugZap, Loader2, ShieldCheck, Search, ExternalLink, FileSpreadsheet, Link2, LifeBuoy, LogIn } from "lucide-react";
+import { enterClientRuntimeAction } from "../actions/enter-client-runtime.action";
 import type {
   PlatformDatabaseProfileItem,
   PlatformDatabaseConnectionTestStatus,
@@ -292,6 +293,24 @@ export function PlatformDatabaseProfilesTable({
                       <ExternalLink size={11} />
                       Abrir visor
                     </Link>
+
+                    {/* Operar como cliente — sesión runtime en el dashboard real (PASO 6A) */}
+                    <form action={enterClientRuntimeAction.bind(null, p.id)}>
+                      <button
+                        type="submit"
+                        disabled={!p.is_active}
+                        className="inline-flex items-center gap-1 text-xs px-2.5 py-1.5
+                                   border border-amber-300 rounded-lg text-amber-700
+                                   hover:bg-amber-50 transition-colors disabled:opacity-40
+                                   disabled:cursor-not-allowed whitespace-nowrap"
+                        title={p.is_active
+                          ? "Entrar al dashboard real operando temporalmente como esta organización (solo lectura)"
+                          : "El perfil debe estar activo para operar como cliente"}
+                      >
+                        <LogIn size={11} />
+                        Operar como cliente
+                      </button>
+                    </form>
 
                     {/* Data Onboarding Center (E0) */}
                     <Link

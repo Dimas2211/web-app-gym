@@ -17,6 +17,7 @@
 // ─────────────────────────────────────────────────────────────────
 
 import { prisma } from "@/lib/db/prisma";
+import type { PrismaClient } from "@prisma/client";
 
 export interface UnitLookupItem {
   id: string;
@@ -28,9 +29,12 @@ export interface UnitLookupItem {
  * Devuelve todas las unidades de medida activas.
  * No filtra por tenant porque son datos de referencia global.
  * Ordenadas por nombre para el select del formulario.
+ *
+ * @param client - PrismaClient opcional (Runtime Database Router, PASO 6A) —
+ *                 cada base cliente tiene su propia copia sembrada de este catálogo.
  */
-export async function getUnitsLookup(): Promise<UnitLookupItem[]> {
-  return prisma.unitOfMeasure.findMany({
+export async function getUnitsLookup(client: PrismaClient = prisma): Promise<UnitLookupItem[]> {
+  return client.unitOfMeasure.findMany({
     where: {
       status: "active",
     },

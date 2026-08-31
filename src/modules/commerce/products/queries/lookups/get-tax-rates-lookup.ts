@@ -8,6 +8,7 @@
 // ─────────────────────────────────────────────────────────────────
 
 import { prisma } from "@/lib/db/prisma";
+import type { PrismaClient } from "@prisma/client";
 
 export interface TaxRateLookupItem {
   id: string;
@@ -25,11 +26,13 @@ export interface TaxRateLookupItem {
  * (ej. "IVA — 19%").
  *
  * @param tenantId - Extraído de session.tenantId.
+ * @param client   - PrismaClient opcional (Runtime Database Router, PASO 6A).
  */
 export async function getTaxRatesLookup(
-  tenantId: string
+  tenantId: string,
+  client: PrismaClient = prisma,
 ): Promise<TaxRateLookupItem[]> {
-  const rows = await prisma.taxRate.findMany({
+  const rows = await client.taxRate.findMany({
     where: {
       tenant_id: tenantId,
       status: "active",

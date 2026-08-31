@@ -16,12 +16,25 @@
 //
 // Requiere tenant_id + location_id en sesión.
 // Si falta alguno, redirige a /dashboard (sesión sin location activa).
+//
+// PASO 6A (Runtime Database Router): página runtime-aware. Con sesión
+// "Operar como cliente" activa, lee tenant_id + PrismaClient del
+// perfil runtime, y la location efectiva ya no viene del selector del
+// super_admin (pertenece a SU tenant, no al del cliente) sino de la
+// primera sucursal activa del tenant runtime
+// (resolveRuntimeFirstLocationId — mismo criterio pragmático que
+// Support Session: muestra representativa, no consolidado multi-sede).
+// canManage se fuerza a false en modo runtime.
 // ─────────────────────────────────────────────────────────────────
 
 import { redirect } from "next/navigation";
 import { getSessionOrRedirect } from "@/lib/permissions/guards";
 import { getEffectiveLocationId } from "@/lib/location/active-location";
 import { getCapabilities } from "@/core/permissions/role-capabilities";
+import {
+  resolveEffectiveTenantContext,
+  resolveRuntimeFirstLocationId,
+} from "@/modules/platform/runtime/effective-tenant-context";
 import { getProductLocations } from "@/modules/commerce/inventory/queries/get-product-locations";
 import { InventoryClient } from "@/modules/commerce/inventory/components/inventory-client";
 import { MapPin } from "lucide-react";
@@ -66,47 +79,56 @@ export default async function InventoryPage() {
     redirect("/dashboard");
   }
 
-  const tenantId = user.tenant_id;
+  const { context, dispose } = await resolveEffectiveTenantContext(user);
+  const { tenantId, client } = context;
   if (!tenantId) {
     // Sesión sin tenant — no debería ocurrir en producción.
     // Si ocurre, es un problema de sesión, no de location.
+    await dispose();
     redirect("/dashboard");
   }
 
-  // Resolver la location efectiva para este usuario:
-  //   - branch_admin / reception: viene del JWT directamente
-  //   - super_admin: viene de la cookie active_location_id (si fue seleccionada)
-  const locationId = await getEffectiveLocationId(user);
+  try {
+    // Resolver la location efectiva:
+    //   - modo runtime: primera sucursal activa del tenant runtime.
+    //   - modo normal, branch_admin / reception: viene del JWT directamente.
+    //   - modo normal, super_admin: cookie active_location_id (si fue seleccionada).
+    const locationId = context.runtime
+      ? await resolveRuntimeFirstLocationId(context)
+      : await getEffectiveLocationId(user);
 
-  // Si no hay location efectiva y el usuario es global (super_admin):
-  // mostrar mensaje claro en lugar de rebotar al dashboard.
-  if (!locationId) {
-    const caps = getCapabilities(user.role);
-    if (caps.isGlobal) {
-      return <NoLocationSelected />;
+    // Si no hay location efectiva y el usuario es global (super_admin) o
+    // está en modo runtime: mostrar mensaje claro en lugar de rebotar.
+    if (!locationId) {
+      const caps = getCapabilities(user.role);
+      if (caps.isGlobal || context.runtime) {
+        return <NoLocationSelected />;
+      }
+      // Usuario no-global sin location_id en JWT — sesión corrupta.
+      redirect("/dashboard");
     }
-    // Usuario no-global sin location_id en JWT — sesión corrupta.
-    redirect("/dashboard");
+
+    const canManage = !context.runtime && (user.role === "super_admin" || user.role === "branch_admin");
+
+    // Carga inicial: registros activos, ordenados por código.
+    // page_size=150 coincide con PAGE_SIZE del cliente (grilla única sin paginación visual).
+    const initialResult = await getProductLocations({
+      tenant_id:      tenantId,
+      location_id:    locationId,
+      is_active:      true,
+      sort_field:     "product_code",
+      sort_direction: "asc",
+      page_size:      150,
+    }, client);
+
+    return (
+      <InventoryClient
+        initialItems={initialResult.items}
+        initialTotal={initialResult.total}
+        canManage={canManage}
+      />
+    );
+  } finally {
+    await dispose();
   }
-
-  const canManage = user.role === "super_admin" || user.role === "branch_admin";
-
-  // Carga inicial: registros activos, ordenados por código.
-  // page_size=150 coincide con PAGE_SIZE del cliente (grilla única sin paginación visual).
-  const initialResult = await getProductLocations({
-    tenant_id:      tenantId,
-    location_id:    locationId,
-    is_active:      true,
-    sort_field:     "product_code",
-    sort_direction: "asc",
-    page_size:      150,
-  });
-
-  return (
-    <InventoryClient
-      initialItems={initialResult.items}
-      initialTotal={initialResult.total}
-      canManage={canManage}
-    />
-  );
 }

@@ -8,6 +8,7 @@
 // ─────────────────────────────────────────────────────────────────
 
 import { prisma } from "@/lib/db/prisma";
+import type { PrismaClient } from "@prisma/client";
 
 export interface SupplierLookupItem {
   id: string;
@@ -21,11 +22,13 @@ export interface SupplierLookupItem {
  * proveedor principal opcional.
  *
  * @param tenantId - Extraído de session.tenantId.
+ * @param client   - PrismaClient opcional (Runtime Database Router, PASO 6A).
  */
 export async function getSuppliersLookup(
-  tenantId: string
+  tenantId: string,
+  client: PrismaClient = prisma,
 ): Promise<SupplierLookupItem[]> {
-  return prisma.supplier.findMany({
+  return client.supplier.findMany({
     where: {
       tenant_id: tenantId,
       status: "active",

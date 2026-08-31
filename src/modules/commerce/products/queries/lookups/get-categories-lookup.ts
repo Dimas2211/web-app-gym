@@ -13,6 +13,7 @@
 // ─────────────────────────────────────────────────────────────────
 
 import { prisma } from "@/lib/db/prisma";
+import type { PrismaClient } from "@prisma/client";
 
 export interface CategoryLookupItem {
   id: string;
@@ -25,11 +26,14 @@ export interface CategoryLookupItem {
  * Ordenadas por nombre para el select del formulario.
  *
  * @param tenantId - Extraído de session.tenantId, nunca del body del cliente.
+ * @param client   - PrismaClient opcional (Runtime Database Router, PASO 6A).
+ *                   Por defecto usa el Prisma singleton normal.
  */
 export async function getCategoriesLookup(
-  tenantId: string
+  tenantId: string,
+  client: PrismaClient = prisma,
 ): Promise<CategoryLookupItem[]> {
-  return prisma.productCategory.findMany({
+  return client.productCategory.findMany({
     where: {
       tenant_id: tenantId,
       status: "active",

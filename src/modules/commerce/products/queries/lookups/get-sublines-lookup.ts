@@ -8,6 +8,7 @@
 // ─────────────────────────────────────────────────────────────────
 
 import { prisma } from "@/lib/db/prisma";
+import type { PrismaClient } from "@prisma/client";
 
 export interface SublineLookupItem {
   id: string;
@@ -26,12 +27,14 @@ export interface SublineLookupItem {
  *
  * @param tenantId - Extraído de session.tenantId.
  * @param lineId   - ID de la línea ya seleccionada.
+ * @param client   - PrismaClient opcional (Runtime Database Router, PASO 6A).
  */
 export async function getSublineLookup(
   tenantId: string,
-  lineId: string
+  lineId: string,
+  client: PrismaClient = prisma,
 ): Promise<SublineLookupItem[]> {
-  return prisma.productSubline.findMany({
+  return client.productSubline.findMany({
     where: {
       tenant_id: tenantId,
       line_id: lineId,

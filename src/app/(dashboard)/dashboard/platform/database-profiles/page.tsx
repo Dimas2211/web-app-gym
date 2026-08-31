@@ -15,12 +15,19 @@ export const metadata = {
   title: "Perfiles de BD — Platform Admin",
 };
 
-export default async function PlatformDatabaseProfilesPage() {
+export default async function PlatformDatabaseProfilesPage({
+  searchParams,
+}: {
+  // PASO 6A: enterClientRuntimeAction redirige aquí con ?runtimeError=
+  // cuando "Operar como cliente" falla (perfil inactivo, sin tenant, etc.)
+  searchParams: Promise<{ runtimeError?: string }>;
+}) {
   await requireSuperAdmin();
 
-  const [orgsResult, profiles] = await Promise.all([
+  const [orgsResult, profiles, params] = await Promise.all([
     listPlatformOrganizationsQuery({ page_size: 500 }),
     listDatabaseProfiles({}),
+    searchParams,
   ]);
 
   // Verificación server-side de la clave de cifrado
@@ -34,10 +41,17 @@ export default async function PlatformDatabaseProfilesPage() {
   }));
 
   return (
-    <PlatformDatabaseProfilesClient
-      profiles={organizations.length > 0 ? profiles : []}
-      organizations={organizations}
-      encryptionKeyMissing={encryptionKeyMissing}
-    />
+    <>
+      {params.runtimeError && (
+        <div className="mb-4 flex items-start gap-2 bg-red-50 border border-red-100 rounded-lg px-4 py-3 text-sm text-red-700">
+          <span>No se pudo abrir &quot;Operar como cliente&quot;: {params.runtimeError}</span>
+        </div>
+      )}
+      <PlatformDatabaseProfilesClient
+        profiles={organizations.length > 0 ? profiles : []}
+        organizations={organizations}
+        encryptionKeyMissing={encryptionKeyMissing}
+      />
+    </>
   );
 }

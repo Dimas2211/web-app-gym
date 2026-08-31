@@ -8,6 +8,7 @@
 // ─────────────────────────────────────────────────────────────────
 
 import { prisma } from "@/lib/db/prisma";
+import type { PrismaClient } from "@prisma/client";
 
 export interface LineLookupItem {
   id: string;
@@ -26,12 +27,14 @@ export interface LineLookupItem {
  *
  * @param tenantId    - Extraído de session.tenantId.
  * @param categoryId  - ID de la categoría ya seleccionada.
+ * @param client      - PrismaClient opcional (Runtime Database Router, PASO 6A).
  */
 export async function getLinesLookup(
   tenantId: string,
-  categoryId: string
+  categoryId: string,
+  client: PrismaClient = prisma,
 ): Promise<LineLookupItem[]> {
-  return prisma.productLine.findMany({
+  return client.productLine.findMany({
     where: {
       tenant_id: tenantId,
       category_id: categoryId,

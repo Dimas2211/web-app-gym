@@ -23,6 +23,7 @@
 
 import { revalidatePath } from "next/cache";
 import { requireAdmin } from "@/lib/permissions/guards";
+import { isRuntimeReadOnlyActive, RUNTIME_READONLY_MESSAGE } from "@/modules/platform/runtime/runtime-session";
 import { str } from "@/lib/utils/form-data-parsers";
 import { quickCreateSupplierSchema } from "../schemas/quick-create-supplier.schema";
 import { quickCreateSupplier } from "../services/supplier.service";
@@ -44,6 +45,9 @@ export async function quickCreateSupplierAction(
   const sessionUser = await requireAdmin();
   const tenantId    = sessionUser.tenant_id;
   if (!tenantId) return { error: "La sesión no tiene un tenant activo." };
+
+  // PASO 6A: bloquear escritura bajo sesión runtime "Operar como cliente"
+  if (await isRuntimeReadOnlyActive()) return { error: RUNTIME_READONLY_MESSAGE };
 
   // 2. Parseo de FormData (solo los 2 campos del usuario)
   const raw = {

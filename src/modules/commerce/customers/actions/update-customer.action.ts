@@ -11,6 +11,7 @@
 
 import { revalidatePath } from "next/cache";
 import { requireAdmin } from "@/lib/permissions/guards";
+import { isRuntimeReadOnlyActive, RUNTIME_READONLY_MESSAGE } from "@/modules/platform/runtime/runtime-session";
 import { updateCustomerSchema } from "../schemas/customer.schemas";
 import { updateCustomer } from "../services/customer.service";
 import type { UpdateCustomerInput } from "../schemas/customer.schemas";
@@ -32,6 +33,11 @@ export async function updateCustomerAction(
 
   if (!customer_id?.trim()) {
     return { ok: false, error: "El ID del cliente es requerido." };
+  }
+
+  // PASO 6A: bloquear escritura bajo sesión runtime "Operar como cliente"
+  if (await isRuntimeReadOnlyActive()) {
+    return { ok: false, error: RUNTIME_READONLY_MESSAGE };
   }
 
   const parsed = updateCustomerSchema.safeParse(input);

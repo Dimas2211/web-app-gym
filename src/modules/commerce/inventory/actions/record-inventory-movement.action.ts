@@ -31,6 +31,7 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { requireAdmin } from "@/lib/permissions/guards";
+import { isRuntimeReadOnlyActive, RUNTIME_READONLY_MESSAGE } from "@/modules/platform/runtime/runtime-session";
 import { ACTIVE_MOVEMENT_TYPES } from "../schemas/record-movement.schema";
 import { recordInventoryMovement } from "../services/inventory-movement.service";
 
@@ -88,6 +89,9 @@ export async function recordInventoryMovementAction(
 
   if (!tenant_id)   return { error: "La sesión no tiene un tenant activo." };
   if (!location_id) return { error: "La sesión no tiene una location activa." };
+
+  // PASO 6A: bloquear escritura bajo sesión runtime "Operar como cliente"
+  if (await isRuntimeReadOnlyActive()) return { error: RUNTIME_READONLY_MESSAGE };
 
   const raw = {
     product_location_id: str(formData.get("product_location_id")),

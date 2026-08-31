@@ -14,6 +14,7 @@
 
 import { revalidatePath } from "next/cache";
 import { requireAdmin } from "@/lib/permissions/guards";
+import { isRuntimeReadOnlyActive, RUNTIME_READONLY_MESSAGE } from "@/modules/platform/runtime/runtime-session";
 import { createProductLocationSchema } from "../schemas/create-product-location.schema";
 import { createProductLocation } from "../services/product-location.service";
 
@@ -64,6 +65,9 @@ export async function createProductLocationAction(
 
   if (!tenant_id)   return { error: "La sesión no tiene un tenant activo." };
   if (!location_id) return { error: "La sesión no tiene una location activa." };
+
+  // PASO 6A: bloquear escritura bajo sesión runtime "Operar como cliente"
+  if (await isRuntimeReadOnlyActive()) return { error: RUNTIME_READONLY_MESSAGE };
 
   const raw = {
     tenant_id,

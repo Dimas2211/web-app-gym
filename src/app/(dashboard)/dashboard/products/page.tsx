@@ -12,10 +12,19 @@
 //   ProductFilters filtra client-side por categoría/línea seleccionada.
 //   Evita round-trips extra al cambiar selección en los selects.
 //   Aceptable para catálogos de decenas a pocos miles de entradas.
+//
+// PASO 6A (Plataforma Multiindustria — Runtime Database Router):
+// Página runtime-aware. Si el super_admin tiene una sesión "Operar
+// como cliente" activa (ver RuntimeSessionBanner), resolveEffectiveTenantContext
+// devuelve el tenant_id y el PrismaClient del perfil runtime en vez de
+// los del propio super_admin — todas las queries de esta página
+// (getProducts + los 6 lookups) los reciben como parámetro. canManage
+// se fuerza a false en modo runtime: la sesión es siempre solo lectura.
 // ─────────────────────────────────────────────────────────────────
 
 import { redirect } from "next/navigation";
 import { getSessionOrRedirect } from "@/lib/permissions/guards";
+import { resolveEffectiveTenantContext } from "@/modules/platform/runtime/effective-tenant-context";
 import { getProducts } from "@/modules/commerce/products/queries/get-products";
 import { getCategoriesLookup } from "@/modules/commerce/products/queries/lookups/get-categories-lookup";
 import { getLinesLookup } from "@/modules/commerce/products/queries/lookups/get-lines-lookup";
@@ -42,49 +51,55 @@ export default async function ProductsPage() {
     redirect("/dashboard");
   }
 
-  const canManage = user.role === "super_admin" || user.role === "branch_admin";
-  const tenantId = user.tenant_id;
+  const { context, dispose } = await resolveEffectiveTenantContext(user);
+  const { tenantId, client } = context;
+  const canManage =
+    !context.runtime && (user.role === "super_admin" || user.role === "branch_admin");
 
-  // Carga inicial en paralelo: primera página + todos los lookups.
-  // allLines/allSublines se cargan completos para que ProductFilters
-  // pueda filtrarlos client-side sin round-trips adicionales.
-  // pageSize 150 coincide con PAGE_SIZE del cliente (grilla única sin paginación visual)
-  const [initialResult, categories, units, taxRates, suppliers] = await Promise.all([
-    getProducts(tenantId, {
-      sort: { field: "name", direction: "asc" },
-      pagination: { page: 1, pageSize: 150 },
-    }),
-    getCategoriesLookup(tenantId),
-    getUnitsLookup(),
-    getTaxRatesLookup(tenantId),
-    getSuppliersLookup(tenantId),
-  ]);
+  try {
+    // Carga inicial en paralelo: primera página + todos los lookups.
+    // allLines/allSublines se cargan completos para que ProductFilters
+    // pueda filtrarlos client-side sin round-trips adicionales.
+    // pageSize 150 coincide con PAGE_SIZE del cliente (grilla única sin paginación visual)
+    const [initialResult, categories, units, taxRates, suppliers] = await Promise.all([
+      getProducts(tenantId, {
+        sort: { field: "name", direction: "asc" },
+        pagination: { page: 1, pageSize: 150 },
+      }, client),
+      getCategoriesLookup(tenantId, client),
+      getUnitsLookup(client),
+      getTaxRatesLookup(tenantId, client),
+      getSuppliersLookup(tenantId, client),
+    ]);
 
-  // Cargar líneas de todas las categorías en paralelo
-  const allLines = categories.length > 0
-    ? (await Promise.all(
-        categories.map((cat) => getLinesLookup(tenantId, cat.id))
-      )).flat()
-    : [];
+    // Cargar líneas de todas las categorías en paralelo
+    const allLines = categories.length > 0
+      ? (await Promise.all(
+          categories.map((cat) => getLinesLookup(tenantId, cat.id, client))
+        )).flat()
+      : [];
 
-  // Cargar sublíneas de todas las líneas en paralelo
-  const allSublines = allLines.length > 0
-    ? (await Promise.all(
-        allLines.map((line) => getSublineLookup(tenantId, line.id))
-      )).flat()
-    : [];
+    // Cargar sublíneas de todas las líneas en paralelo
+    const allSublines = allLines.length > 0
+      ? (await Promise.all(
+          allLines.map((line) => getSublineLookup(tenantId, line.id, client))
+        )).flat()
+      : [];
 
-  return (
-    <ProductsClient
-      initialItems={initialResult.items}
-      initialTotal={initialResult.total}
-      categories={categories}
-      allLines={allLines}
-      allSublines={allSublines}
-      units={units}
-      taxRates={taxRates}
-      suppliers={suppliers}
-      canManage={canManage}
-    />
-  );
+    return (
+      <ProductsClient
+        initialItems={initialResult.items}
+        initialTotal={initialResult.total}
+        categories={categories}
+        allLines={allLines}
+        allSublines={allSublines}
+        units={units}
+        taxRates={taxRates}
+        suppliers={suppliers}
+        canManage={canManage}
+      />
+    );
+  } finally {
+    await dispose();
+  }
 }

@@ -12,6 +12,7 @@
 
 import { revalidatePath } from "next/cache";
 import { requireAdmin } from "@/lib/permissions/guards";
+import { isRuntimeReadOnlyActive, RUNTIME_READONLY_MESSAGE } from "@/modules/platform/runtime/runtime-session";
 import { createCustomerSchema } from "../schemas/customer.schemas";
 import { createCustomer } from "../services/customer.service";
 import type { CreateCustomerInput } from "../schemas/customer.schemas";
@@ -28,6 +29,11 @@ export async function createCustomerAction(
 
   if (!tenant_id) {
     return { ok: false, error: "La sesión no tiene un tenant activo." };
+  }
+
+  // PASO 6A: bloquear escritura bajo sesión runtime "Operar como cliente"
+  if (await isRuntimeReadOnlyActive()) {
+    return { ok: false, error: RUNTIME_READONLY_MESSAGE };
   }
 
   const parsed = createCustomerSchema.safeParse(input);

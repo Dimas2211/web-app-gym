@@ -8,6 +8,7 @@ import { LocationSwitcher } from "@/core/components/ui/location-switcher";
 import { SidebarProvider } from "@/components/ui/sidebar-context";
 import { SidebarToggle } from "@/components/ui/sidebar-toggle";
 import { DashboardSidebar } from "@/components/ui/dashboard-sidebar";
+import { RuntimeSessionBanner } from "@/modules/platform/components/runtime-session-banner";
 import type { SessionUser } from "@/lib/permissions/guards";
 import type { UserRole } from "@prisma/client";
 
@@ -52,6 +53,9 @@ export default async function DashboardLayout({
   return (
     <SidebarProvider>
       <div className="h-screen flex flex-col bg-zinc-50">
+        {/* Banner de sesión runtime "Operar como cliente" (PASO 6A) */}
+        <RuntimeSessionBanner />
+
         {/* Top bar compartida */}
         <header className="bg-zinc-900 text-white px-4 sm:px-6 h-14 flex items-center justify-between gap-4 sticky top-0 z-30 shrink-0">
           {/* Logo + sidebar toggle + nav */}

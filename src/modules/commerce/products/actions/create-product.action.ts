@@ -16,6 +16,7 @@ import { revalidatePath } from "next/cache";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db/prisma";
 import { requireAdmin } from "@/lib/permissions/guards";
+import { isRuntimeReadOnlyActive, RUNTIME_READONLY_MESSAGE } from "@/modules/platform/runtime/runtime-session";
 import { createProductSchema } from "../schemas/create-product.schema";
 
 // ── Estado de retorno ─────────────────────────────────────────────
@@ -65,6 +66,11 @@ export async function createProductAction(
   // 1. Sesión y permisos
   const sessionUser = await requireAdmin();
   const tenantId = sessionUser.tenant_id;
+
+  // PASO 6A: bloquear escritura bajo sesión runtime "Operar como cliente"
+  if (await isRuntimeReadOnlyActive()) {
+    return { error: RUNTIME_READONLY_MESSAGE };
+  }
 
   // 2. Parseo y validación Zod
   const raw = {

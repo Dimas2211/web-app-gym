@@ -13,6 +13,7 @@
 
 import { revalidatePath } from "next/cache";
 import { requireAdmin } from "@/lib/permissions/guards";
+import { isRuntimeReadOnlyActive, RUNTIME_READONLY_MESSAGE } from "@/modules/platform/runtime/runtime-session";
 import { updateProductLocationSchema } from "../schemas/update-product-location.schema";
 import { updateProductLocationFields } from "../services/product-location.service";
 
@@ -57,6 +58,9 @@ export async function updateProductLocationAction(
 
   if (!tenant_id)   return { error: "La sesión no tiene un tenant activo." };
   if (!location_id) return { error: "La sesión no tiene una location activa." };
+
+  // PASO 6A: bloquear escritura bajo sesión runtime "Operar como cliente"
+  if (await isRuntimeReadOnlyActive()) return { error: RUNTIME_READONLY_MESSAGE };
 
   const id = (formData.get("id") as string | null)?.trim();
   if (!id) return { error: "Falta el identificador del registro a actualizar." };
