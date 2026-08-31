@@ -3,15 +3,22 @@
 // ─────────────────────────────────────────────────────────────────
 // platform — get-client-view-data.action.ts
 //
-// Visor read-only de base de datos cliente (C6).
-// Carga datos paginados/limitados por sección usando Prisma
-// dinámico temporal apuntando al perfil indicado.
+// Visor read-only de base de datos cliente (C6 — "Entrar como cliente").
+// Carga datos paginados/limitados por sección conectando vía el
+// Runtime Database Router (withRuntimePrismaForInspection) al perfil
+// indicado.
+//
+// PASO 6A (Plataforma Multiindustria — Runtime Database Router):
+// Alinea C6 con la migración ya aplicada a C4 (Inspector de perfiles,
+// PASO 3) y a Support Session (PASO 2/4) — la conexión a la base
+// cliente ya no se construye a mano en esta action; la resuelve y
+// desconecta el router.
 //
 // Reglas de seguridad:
 // - Solo super_admin.
 // - Nunca devuelve encrypted_password, DATABASE_URL ni credenciales.
-// - Construye la URL en memoria — no la persiste ni loguea.
-// - Siempre ejecuta $disconnect() vía withTemporaryPrismaClient.
+// - La conexión runtime la resuelve y desconecta el router — esta
+//   action nunca construye la URL ni maneja el password.
 // - Cada bloque tiene try/catch independiente — fallo parcial no
 //   tumba toda la respuesta; agrega warning y continúa.
 // - Solo lectura: count, findMany, findFirst. Sin writes.
@@ -20,16 +27,17 @@
 // - No expone: password, encrypted_password, DATABASE_URL,
 //   password_hash, signed_jws, json_document, mh_response,
 //   encrypted_payload, tokens.
+//
+// Separación de capas:
+// - Control plane (metadata del perfil/organización): prisma (control plane).
+// - Client runtime (datos de la base cliente): withRuntimePrismaForInspection.
 // ─────────────────────────────────────────────────────────────────
 
 import { requireSuperAdmin }         from "@/lib/permissions/guards";
 import { prisma }                    from "@/lib/db/prisma";
 import { assertEncryptionAvailable } from "@/lib/security/encryption";
-import {
-  buildDatabaseUrlFromProfile,
-  sanitizeDatabaseError,
-}                                    from "../lib/database-profile-url";
-import { withTemporaryPrismaClient } from "../lib/client-prisma";
+import { sanitizeDatabaseError }     from "../lib/database-profile-url";
+import { withRuntimePrismaForInspection } from "../runtime/runtime-database-router";
 import type {
   ClientViewData,
   ClientViewProduct,
@@ -109,19 +117,18 @@ export async function getClientViewDataAction(
     };
   }
 
-  // Cargar perfil desde el control plane — solo campos necesarios
+  // Cargar perfil desde el control plane — solo metadata para mostrar en
+  // el header del visor. Las credenciales de conexión las maneja
+  // internamente el router (withRuntimePrismaForInspection).
   const profile = await prisma.platformDatabaseProfile.findUnique({
     where:  { id: profileId },
     select: {
-      id:                 true,
-      label:              true,
-      db_host:            true,
-      db_port:            true,
-      db_name:            true,
-      db_user:            true,
-      encrypted_password: true,
-      ssl_mode:           true,
-      environment:        true,
+      id:          true,
+      label:       true,
+      db_host:     true,
+      db_port:     true,
+      db_name:     true,
+      environment: true,
       organization: {
         select: {
           name:      true,
@@ -166,9 +173,7 @@ export async function getClientViewDataAction(
   let dteConfig:     DatabaseInspectionDteConfig | null = null;
 
   try {
-    const databaseUrl = buildDatabaseUrlFromProfile(profile);
-
-    await withTemporaryPrismaClient(databaseUrl, async (client) => {
+    await withRuntimePrismaForInspection(profileId, async (client) => {
 
       // ── Bloque 1: Core — tenant (gym) ─────────────────────────────
       try {
@@ -438,7 +443,7 @@ export async function getClientViewDataAction(
         warnings.push(`Catalogs/tax-rates: ${sanitizeDatabaseError(err)}`);
       }
 
-    }); // withTemporaryPrismaClient — garantiza $disconnect()
+    }); // withRuntimePrismaForInspection — garantiza $disconnect()
 
   } catch (err) {
     // Error de conexión o error no manejado en el bloque raíz
