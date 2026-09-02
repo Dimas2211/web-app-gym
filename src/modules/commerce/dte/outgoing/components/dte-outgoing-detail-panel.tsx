@@ -23,9 +23,13 @@
 // ─────────────────────────────────────────────────────────────────
 
 import { useState, useRef } from "react";
-import { Loader2, AlertCircle } from "lucide-react";
+import { Loader2, AlertCircle, ShieldAlert } from "lucide-react";
 import type { DteOutgoingDetail, DteOutgoingInvalidationFormData } from "../types";
 import type { CreateSignTransmitInvalidationResult } from "@/modules/commerce/dte/actions/create-sign-transmit-invalidation.action";
+import type {
+  DteOutgoingRuntimeWriteInfo,
+  DteOutgoingExternalDeliveryTarget,
+} from "./dte-outgoing-client";
 import {
   dteStatusLabel,
   dteStatusCls,
@@ -524,11 +528,62 @@ function LogsSection({ d }: { d: DteOutgoingDetail }) {
   );
 }
 
+// ── Aviso de escritura runtime — PASO 6B ──────────────────────────
+// Se muestra en diálogos de confirmación de acciones runtime-aware
+// cuando hay sesión "Operar como cliente" activa. Nunca muestra
+// credenciales — solo organización/perfil y, si aplica, el destino
+// de delivery externo (host/base/tabla, sin password).
+
+function RuntimeWriteNotice({
+  runtimeWriteInfo,
+  externalDeliveryTarget,
+  environment,
+}: {
+  runtimeWriteInfo:        DteOutgoingRuntimeWriteInfo | null;
+  externalDeliveryTarget?: DteOutgoingExternalDeliveryTarget | null;
+  environment:             string;
+}) {
+  if (!runtimeWriteInfo) return null;
+
+  const isProduction = environment === "PRODUCTION";
+
+  return (
+    <div className="mb-4 space-y-2">
+      <div className="flex items-start gap-2 rounded border border-amber-700/50 bg-amber-950/40 px-3 py-2 text-[11px] text-amber-200">
+        <ShieldAlert className="h-3.5 w-3.5 shrink-0 mt-0.5" aria-hidden="true" />
+        <span>
+          Modo <strong>&quot;Operar como cliente&quot;</strong> activo — esta acción escribirá
+          contra la base de <strong>{runtimeWriteInfo.organizationName}</strong> (perfil{" "}
+          <strong>{runtimeWriteInfo.profileLabel}</strong>), no contra tu propio tenant.
+        </span>
+      </div>
+
+      {isProduction && (
+        <div className="flex items-start gap-2 rounded border border-red-700/60 bg-red-950/50 px-3 py-2 text-[11px] text-red-200">
+          <AlertCircle className="h-3.5 w-3.5 shrink-0 mt-0.5" aria-hidden="true" />
+          <span>
+            Este documento está en ambiente <strong>PRODUCTION</strong>. Esta acción puede
+            tener efecto fiscal real. Verifica dos veces antes de continuar.
+          </span>
+        </div>
+      )}
+
+      {externalDeliveryTarget && (externalDeliveryTarget.host || externalDeliveryTarget.database || externalDeliveryTarget.table) && (
+        <div className="rounded border border-zinc-700/50 bg-zinc-800/40 px-3 py-2 text-[10px] text-zinc-400 font-mono">
+          Destino: {externalDeliveryTarget.host ?? "—"} / {externalDeliveryTarget.database ?? "—"} / {externalDeliveryTarget.table ?? "—"}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Diálogo de confirmación — Enviar DTE externo (Fase 5B) ───────
 
 interface DeliveryConfirmDialogProps {
   detail:      DteOutgoingDetail;
   isDelivering: boolean;
+  runtimeWriteInfo?:        DteOutgoingRuntimeWriteInfo | null;
+  externalDeliveryTarget?:  DteOutgoingExternalDeliveryTarget | null;
   onConfirm:   () => void;
   onCancel:    () => void;
 }
@@ -536,6 +591,8 @@ interface DeliveryConfirmDialogProps {
 function DeliveryConfirmDialog({
   detail,
   isDelivering,
+  runtimeWriteInfo = null,
+  externalDeliveryTarget = null,
   onConfirm,
   onCancel,
 }: DeliveryConfirmDialogProps) {
@@ -564,6 +621,12 @@ function DeliveryConfirmDialog({
           Esta acción registrará un intento de delivery externo.
           ¿Desea continuar?
         </p>
+
+        <RuntimeWriteNotice
+          runtimeWriteInfo={runtimeWriteInfo}
+          externalDeliveryTarget={externalDeliveryTarget}
+          environment={detail.environment}
+        />
 
         {/* Datos del DTE para revisión */}
         <div className="bg-zinc-800/50 rounded p-3 mb-4 text-xs space-y-1.5 border border-zinc-700/30">
@@ -1300,6 +1363,8 @@ export interface DteOutgoingDetailPanelProps {
   detail:                          DteOutgoingDetail | null;
   loading:                         boolean;
   error:                           string | null;
+  runtimeWriteInfo?:               DteOutgoingRuntimeWriteInfo | null;
+  externalDeliveryTarget?:         DteOutgoingExternalDeliveryTarget | null;
   onDeliverExternal?:              () => Promise<void>;
   isDelivering?:                   boolean;
   onDeliverExternalInvalidation?:  () => Promise<void>;
@@ -1315,6 +1380,8 @@ export function DteOutgoingDetailPanel({
   detail,
   loading,
   error,
+  runtimeWriteInfo = null,
+  externalDeliveryTarget = null,
   onDeliverExternal,
   isDelivering = false,
   onDeliverExternalInvalidation,
@@ -1360,6 +1427,8 @@ export function DteOutgoingDetailPanel({
         <DeliveryConfirmDialog
           detail={detail}
           isDelivering={isDelivering}
+          runtimeWriteInfo={runtimeWriteInfo}
+          externalDeliveryTarget={externalDeliveryTarget}
           onConfirm={handleConfirmDelivery}
           onCancel={() => { if (!isDelivering) setShowDeliveryDialog(false); }}
         />

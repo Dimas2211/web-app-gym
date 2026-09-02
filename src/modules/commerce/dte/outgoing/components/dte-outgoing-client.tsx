@@ -42,9 +42,23 @@ import {
 
 // ── Props ─────────────────────────────────────────────────────────
 
+export interface DteOutgoingRuntimeWriteInfo {
+  organizationName: string;
+  profileLabel:     string;
+}
+
+export interface DteOutgoingExternalDeliveryTarget {
+  host:     string | null;
+  database: string | null;
+  table:    string | null;
+}
+
 export interface DteOutgoingClientProps {
   initialResult:  DteOutgoingGlobalResult;
   initialFilters: DteOutgoingFiltersOutput;
+  /** Presente solo si hay sesión "Operar como cliente" activa. Nunca incluye credenciales. */
+  runtimeWriteInfo?:       DteOutgoingRuntimeWriteInfo | null;
+  externalDeliveryTarget?: DteOutgoingExternalDeliveryTarget | null;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────
@@ -80,6 +94,8 @@ function stateToSearchParams(
 export function DteOutgoingClient({
   initialResult,
   initialFilters,
+  runtimeWriteInfo = null,
+  externalDeliveryTarget = null,
 }: DteOutgoingClientProps) {
   const router   = useRouter();
   const pathname = usePathname();
@@ -223,7 +239,10 @@ export function DteOutgoingClient({
     setDeliveryTargetTable(null);
 
     try {
-      const result = await deliverDteToExternalDbAction(selectedId);
+      // confirmed:true — el usuario ya pasó por DeliveryConfirmDialog.
+      // En modo normal (sin runtime) este flag no cambia el comportamiento;
+      // en modo "Operar como cliente" es obligatorio (ver requireRuntimeDteWriteAccess).
+      const result = await deliverDteToExternalDbAction(selectedId, { confirmed: true });
 
       // Éxito si ok === true (INSERT + affectedRows >= 1 + commit). No se requiere SELECT.
       if (result.ok) {
@@ -617,6 +636,8 @@ export function DteOutgoingClient({
             detail={detail}
             loading={detailLoading}
             error={detailError}
+            runtimeWriteInfo={runtimeWriteInfo}
+            externalDeliveryTarget={externalDeliveryTarget}
             onDeliverExternal={handleDeliverExternal}
             isDelivering={isDelivering}
             onDeliverExternalInvalidation={handleDeliverExternalInvalidation}

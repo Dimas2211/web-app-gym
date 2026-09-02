@@ -29,11 +29,18 @@
  *
  * ESTE SCRIPT NO FIRMA NINGÚN DTE. NO TRANSMITE A HACIENDA. NO ENTREGA A
  * MARIADB. NO SE CONECTA AL FIRMADOR REMOTO (no hace checkHealth ni POST
- * de firma). NO TOCA PRODUCTION (--environment PRODUCTION se rechaza
- * explícitamente en este bloque — requiere revisión aparte). NO IMPRIME
- * secrets, signerPrivateKeyPassword, signerApiKey, ni encrypted_payload
- * completo. NO modifica .env. NO toca schema.prisma. NO genera migración.
- * NO usa db push. NO hace reset. NO corre seeds.
+ * de firma). NO IMPRIME secrets, signerPrivateKeyPassword, signerApiKey,
+ * ni encrypted_payload completo. NO modifica .env. NO toca schema.prisma.
+ * NO genera migración. NO usa db push. NO hace reset. NO corre seeds.
+ *
+ * ── TRUSTME-PRODUCTION-READINESS — soporte PRODUCTION ────────────────
+ * --environment PRODUCTION está soportado para --step INSPECT (siempre)
+ * y --step REGISTER --mode DRY_RUN (nunca escribe). --step REGISTER
+ * --mode EXECUTE contra PRODUCTION exige una confirmación textual
+ * DISTINTA a la de TEST — "REGISTER DTE SIGNER CREDENTIAL PRODUCTION" —
+ * y esa confirmación es rechazada si se usa contra --environment TEST
+ * (y viceversa: la de TEST se rechaza contra PRODUCTION). No hay
+ * fallback ni normalización entre las dos frases.
  *
  * ── Pasos (--step) ──────────────────────────────────────────────────
  *   INSPECT  — solo lectura. Resuelve organización + runtime, valida el
@@ -96,6 +103,26 @@
  *     --environment TEST --step REGISTER --mode EXECUTE `
  *     --confirm "REGISTER DTE SIGNER CREDENTIAL TEST"
  *
+ *   # 4. PRODUCTION — INSPECT (solo lectura, siempre permitido)
+ *   npx tsx prisma/scripts/register-dte-signer-credential.ts `
+ *     --org "TRUSTME-0001" --issuer "584ae9dc-a3f1-4ca8-bcee-e9ad3b9749ad" `
+ *     --environment PRODUCTION --step INSPECT
+ *
+ *   # 5. PRODUCTION — REGISTER dry-run (no escribe nada)
+ *   $env:DTE_CREDENTIAL_SIGNER_URL = "https://<host-real-produccion>/firmardocumento/"
+ *   $env:DTE_CREDENTIAL_SIGNER_NIT = "..."
+ *   $env:DTE_CREDENTIAL_SIGNER_PRIVATE_KEY_PASSWORD = "..."
+ *   npx tsx prisma/scripts/register-dte-signer-credential.ts `
+ *     --org "TRUSTME-0001" --issuer "584ae9dc-a3f1-4ca8-bcee-e9ad3b9749ad" `
+ *     --environment PRODUCTION --step REGISTER --mode DRY_RUN
+ *
+ *   # 6. PRODUCTION — EXECUTE — NO EJECUTAR SIN APROBACIÓN EXPLÍCITA.
+ *   # Confirmación distinta a la de TEST, no intercambiable:
+ *   npx tsx prisma/scripts/register-dte-signer-credential.ts `
+ *     --org "TRUSTME-0001" --issuer "584ae9dc-a3f1-4ca8-bcee-e9ad3b9749ad" `
+ *     --environment PRODUCTION --step REGISTER --mode EXECUTE `
+ *     --confirm "REGISTER DTE SIGNER CREDENTIAL PRODUCTION"
+ *
  * --actor <userId> es opcional — igual que fse14-test-purchase-runner.ts,
  * atribuye created_by/updated_by a un User real del tenant runtime. Si se
  * omite, quedan NULL (permitido por schema).
@@ -131,8 +158,9 @@ const CREDENTIAL_TYPE = "MH_CREDENTIALS";
 type Step = "INSPECT" | "REGISTER";
 type Mode = "DRY_RUN" | "EXECUTE";
 
-const CONFIRMATION_TEXT: Record<"TEST", string> = {
-  TEST: "REGISTER DTE SIGNER CREDENTIAL TEST",
+const CONFIRMATION_TEXT: Record<"TEST" | "PRODUCTION", string> = {
+  TEST:       "REGISTER DTE SIGNER CREDENTIAL TEST",
+  PRODUCTION: "REGISTER DTE SIGNER CREDENTIAL PRODUCTION",
 };
 
 function argValue(flag: string): string | undefined {
@@ -367,8 +395,11 @@ async function stepRegister(client: PrismaClient, tenantId: string, mode: Mode) 
     return;
   }
 
-  if (CONFIRM !== CONFIRMATION_TEXT.TEST) {
-    throw new RunnerInputError(`Confirmación textual incorrecta. Se esperaba exactamente: "${CONFIRMATION_TEXT.TEST}"`);
+  // La frase de confirmación es específica por ambiente y no es
+  // intercambiable: TEST nunca desbloquea PRODUCTION ni viceversa.
+  const expectedConfirm = CONFIRMATION_TEXT[ENVIRONMENT as "TEST" | "PRODUCTION"];
+  if (CONFIRM !== expectedConfirm) {
+    throw new RunnerInputError(`Confirmación textual incorrecta. Se esperaba exactamente: "${expectedConfirm}"`);
   }
 
   // Preservar apiUser/apiPassword (credenciales MH) si ya existían — este
@@ -433,13 +464,21 @@ async function main() {
   if (MODE !== "DRY_RUN" && MODE !== "EXECUTE") {
     throw new RunnerInputError(`--mode inválido: "${MODE}". Valores válidos: DRY_RUN, EXECUTE.`);
   }
-  // Guardia dura de este bloque — PRODUCTION queda fuera de alcance
-  // explícitamente (ver restricciones del encargo). Requiere una revisión
-  // aparte antes de habilitarse, no un simple cambio de flag.
-  if (ENVIRONMENT !== "TEST") {
+  if (ENVIRONMENT !== "TEST" && ENVIRONMENT !== "PRODUCTION") {
     throw new RunnerInputError(
-      `--environment "${ENVIRONMENT}" no soportado en este script. Solo "TEST" está habilitado — ` +
-      `PRODUCTION queda fuera de alcance de este bloque, requiere revisión y aprobación separadas.`,
+      `--environment "${ENVIRONMENT}" inválido. Valores válidos: TEST, PRODUCTION.`,
+    );
+  }
+  // TRUSTME-PRODUCTION-READINESS — PRODUCTION está soportado, pero solo
+  // hasta REGISTER/DRY_RUN. REGISTER/EXECUTE contra PRODUCTION exige su
+  // propia confirmación textual (ver CONFIRMATION_TEXT.PRODUCTION,
+  // validada más abajo en stepRegister) — este bloque es una advertencia
+  // adicional en consola, no reemplaza esa validación.
+  if (ENVIRONMENT === "PRODUCTION" && STEP === "REGISTER" && MODE === "EXECUTE") {
+    console.log(
+      "\n⚠️  --environment PRODUCTION --step REGISTER --mode EXECUTE: esto escribe un DteCredential " +
+      "PRODUCTION real. No firma ni transmite nada, pero deja el credential activo para uso futuro. " +
+      "Continúa solo si tienes aprobación explícita para este registro.",
     );
   }
 

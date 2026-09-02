@@ -21,6 +21,7 @@ import {
 import { listDteOutgoingGlobal } from "@/modules/commerce/dte/outgoing/queries/list-dte-outgoing-global";
 import { dteOutgoingFiltersSchema } from "@/modules/commerce/dte/outgoing/schemas";
 import { DteOutgoingClient } from "@/modules/commerce/dte/outgoing/components/dte-outgoing-client";
+import { getExternalDteMariaDbConfig } from "@/modules/commerce/dte/config/external-dte-mariadb.config";
 
 export const metadata = {
   title: "DTE Emitidos",
@@ -80,11 +81,29 @@ export default async function DteOutgoingPage({ searchParams }: PageProps) {
       ...filters,
     }, client);
 
+    // Metadata segura para el diálogo de confirmación de acciones runtime-aware
+    // (deliver-dte-to-external-db.action.ts). Nunca incluye credenciales.
+    const runtimeWriteInfo = context.runtime
+      ? {
+          organizationName: context.runtime.organizationName,
+          profileLabel:     context.runtime.profileLabel,
+        }
+      : null;
+
+    const externalConfig = getExternalDteMariaDbConfig();
+    const externalDeliveryTarget = {
+      host:     externalConfig.host || null,
+      database: externalConfig.database || null,
+      table:    externalConfig.table || null,
+    };
+
     return (
       <div className="-mx-4 sm:-mx-6 -mt-8 -mb-8 h-[calc(100vh-3.5rem)] overflow-hidden flex flex-col">
         <DteOutgoingClient
           initialResult={initialResult}
           initialFilters={filters}
+          runtimeWriteInfo={runtimeWriteInfo}
+          externalDeliveryTarget={externalDeliveryTarget}
         />
       </div>
     );

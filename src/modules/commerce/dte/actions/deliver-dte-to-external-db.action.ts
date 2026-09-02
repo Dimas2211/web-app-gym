@@ -5,15 +5,24 @@
 // Server Action: entrega un DteOutgoingDocument ACCEPTED a la base MariaDB externa.
 //
 // Reglas:
-//   - Sesión requerida (requireAdmin).
-//   - tenant_id y location_id siempre desde sesión.
+//   - Sin sesión runtime activa: comportamiento sin cambios — requireAdmin(),
+//     tenant_id/location_id de la sesión normal, Prisma global.
+//   - Con sesión runtime "Operar como cliente" activa: runtime-aware vía
+//     requireRuntimeDteWriteAccess("DELIVER_EXTERNAL") — exige super_admin +
+//     `confirmed: true` explícito desde el diálogo de confirmación en UI, y
+//     lee/escribe el documento DTE contra la base del cliente runtime
+//     (nunca contra Prisma global). Registra auditoría en control plane.
+//   - El delivery externo (MariaDB) en sí es siempre el mismo, configurado
+//     por variables de entorno — no cambia con el modo runtime.
 //   - No devuelve payload externo completo al cliente.
 //   - No expone signed_jws, json_document completo ni credenciales MariaDB.
 //   - Revalida /dashboard/sales al completar.
 
-import { revalidatePath }         from "next/cache";
-import { requireAdmin }           from "@/lib/permissions/guards";
-import { getEffectiveLocationId } from "@/lib/location/active-location";
+import { revalidatePath } from "next/cache";
+import {
+  requireRuntimeDteWriteAccess,
+  recordRuntimeDteWriteAudit,
+} from "../runtime/require-runtime-dte-write-access";
 import {
   deliverDteToExternalDb,
   type DeliverDteToExternalDbParams,
@@ -24,33 +33,54 @@ export type { DeliverDteToExternalDbResult };
 
 export async function deliverDteToExternalDbAction(
   dteDocumentId: string,
+  options?: { confirmed?: boolean },
 ): Promise<DeliverDteToExternalDbResult> {
-  const sessionUser = await requireAdmin();
-  const tenant_id   = sessionUser.tenant_id;
-  const location_id = await getEffectiveLocationId(sessionUser);
+  if (!dteDocumentId) return { ok: false, error: "El ID del documento DTE es requerido.", targetTable: null };
 
-  if (!tenant_id)     return { ok: false, error: "La sesión no tiene un tenant activo.",    targetTable: null };
-  if (!location_id)   return { ok: false, error: "La sesión no tiene una location activa.", targetTable: null };
-  if (!dteDocumentId) return { ok: false, error: "El ID del documento DTE es requerido.",   targetTable: null };
+  const access = await requireRuntimeDteWriteAccess({
+    action:    "DELIVER_EXTERNAL",
+    confirmed: options?.confirmed ?? false,
+  });
 
-  const params: DeliverDteToExternalDbParams = {
-    dteDocumentId,
-    userId:     sessionUser.id,
-    tenantId:   tenant_id,
-    locationId: location_id,
-  };
+  if (!access.ok) {
+    return { ok: false, error: access.error, targetTable: null };
+  }
 
-  const result = await deliverDteToExternalDb(params);
+  const { tenantId, locationId, client, userId, isRuntimeWrite, runtimeInfo, dispose } = access.context;
+
+  let result: DeliverDteToExternalDbResult;
+  try {
+    const params: DeliverDteToExternalDbParams = {
+      dteDocumentId,
+      userId,
+      tenantId,
+      locationId,
+      client,
+    };
+
+    result = await deliverDteToExternalDb(params);
+  } finally {
+    await dispose();
+  }
+
+  if (isRuntimeWrite && runtimeInfo) {
+    await recordRuntimeDteWriteAudit({
+      organizationId: runtimeInfo.organizationId,
+      triggeredBy:    userId,
+      action:         "DELIVER_EXTERNAL",
+      dteDocumentId,
+      ok:             result.ok,
+      detail:         result.ok ? undefined : result.error,
+    });
+  }
 
   if (result.ok) {
     revalidatePath("/dashboard/sales");
     revalidatePath("/dashboard/purchases");
     revalidatePath("/dashboard/dte/outgoing");
-  }
 
-  // Devolver solo metadatos seguros — nunca payload externo completo.
-  // ok: true confirma INSERT + affectedRows >= 1 + commit. No se requiere SELECT.
-  if (result.ok) {
+    // Devolver solo metadatos seguros — nunca payload externo completo.
+    // ok: true confirma INSERT + affectedRows >= 1 + commit. No se requiere SELECT.
     return {
       ok:           true,
       insertId:     result.insertId,

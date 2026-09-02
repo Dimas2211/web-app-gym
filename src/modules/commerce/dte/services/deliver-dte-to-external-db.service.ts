@@ -15,6 +15,7 @@
 //   - El log en Prisma solo guarda metadatos del resultado, nunca el payload completo.
 
 import { prisma }                      from "@/lib/db/prisma";
+import type { PrismaClient }           from "@prisma/client";
 import { getExternalDteMariaDbConfig } from "../config/external-dte-mariadb.config";
 import { ExternalDteMariaDbAdapter }   from "../adapters/external-dte-mariadb.adapter";
 import {
@@ -30,6 +31,16 @@ export interface DeliverDteToExternalDbParams {
   userId:        string;
   tenantId:      string;
   locationId:    string;
+  /**
+   * PrismaClient contra el que se lee/escribe el documento DTE.
+   * Por defecto el singleton global — cuando hay sesión runtime
+   * "Operar como cliente" activa, el caller pasa el PrismaClient
+   * temporal resuelto por el Runtime Database Router en vez del
+   * singleton global. El delivery externo (MariaDB) es siempre el
+   * mismo, configurado por variables de entorno — nunca depende de
+   * este client.
+   */
+  client?: PrismaClient;
 }
 
 // ── Error de negocio interno ──────────────────────────────────────
@@ -46,7 +57,7 @@ class DeliverDteBusinessError extends Error {
 export async function deliverDteToExternalDb(
   params: DeliverDteToExternalDbParams,
 ): Promise<DeliverDteToExternalDbResult> {
-  const { dteDocumentId, userId, tenantId, locationId } = params;
+  const { dteDocumentId, userId, tenantId, locationId, client = prisma } = params;
 
   // Config leída antes del try para que esté disponible en todos los paths de retorno,
   // incluidas las excepciones de negocio que ocurren antes de la llamada al adapter.
@@ -55,7 +66,7 @@ export async function deliverDteToExternalDb(
   try {
     // 1. Cargar documento con scope tenant/location
     //    Seleccionamos campos sensibles solo aquí — no se exponen al frontend.
-    const dteDoc = await prisma.dteOutgoingDocument.findFirst({
+    const dteDoc = await client.dteOutgoingDocument.findFirst({
       where:  { id: dteDocumentId, tenant_id: tenantId, location_id: locationId },
       select: {
         id:               true,
@@ -116,7 +127,7 @@ export async function deliverDteToExternalDb(
     // 4. Registrar resultado en DteTransmissionLog
     //    response_body contiene solo metadatos — sin payload completo ni signed_jws.
     if (deliveryResult.ok) {
-      await prisma.dteTransmissionLog.create({
+      await client.dteTransmissionLog.create({
         data: {
           dte_document_id: dteDocumentId,
           attempt_number:  attemptNumber,
@@ -147,7 +158,7 @@ export async function deliverDteToExternalDb(
     }
 
     // Delivery fallido — registrar error sanitizado.
-    await prisma.dteTransmissionLog.create({
+    await client.dteTransmissionLog.create({
       data: {
         dte_document_id: dteDocumentId,
         attempt_number:  attemptNumber,
