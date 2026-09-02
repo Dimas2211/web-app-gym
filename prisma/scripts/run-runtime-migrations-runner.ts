@@ -56,23 +56,29 @@
  * funcionan de forma confiable a través de un pooler en modo
  * transacción** (documentado por Prisma: requieren conexión directa).
  *
- * `PlatformDatabaseProfile` (schema actual) solo guarda UN host/puerto
- * por perfil — no existe un campo separado "direct host/port" distinto
- * del de la app. Si `db_port === 6543`, este runner NO PUEDE construir de
- * forma segura una URL directa real (el host del Transaction Pooler de
- * Supabase típicamente ni siquiera es el mismo host que la conexión
- * directa `db.<project>.supabase.co:5432` — cambiar solo el puerto sobre
- * el host del pooler no es una suposición segura). Por diseño, este
- * runner **se detiene** para STATUS/DEPLOY si detecta `db_port === 6543`
- * y reporta la brecha explícitamente — no inventa una URL directa. Un
- * perfil así necesita, en un bloque futuro, un campo explícito de
- * conexión directa en `PlatformDatabaseProfile` (fuera de alcance aquí:
- * no se modifica `schema.prisma` en este bloque). INSPECT sigue
- * funcionando siempre (no requiere ejecutar Prisma CLI).
- *
- * Si `db_port !== 6543` (conexión directa o session pooler 5432), se usa
- * la MISMA URL construida para `DATABASE_URL` y `DIRECT_URL` del proceso
- * hijo — es una conexión ya compatible con advisory locks.
+ * ACTUALIZACIÓN (bloque "direct connection"): `PlatformDatabaseProfile`
+ * ahora soporta una conexión directa opcional (`direct_db_host`,
+ * `direct_db_port`, `direct_db_name`, `direct_db_user`,
+ * `direct_encrypted_password`, `direct_ssl_mode` — ver schema.prisma y
+ * database-profile-url.ts). Prioridad de resolución en
+ * `resolveMigrationUrl()`:
+ *   1. Si el perfil tiene conexión directa configurada
+ *      (`hasDirectConnectionConfigured`), STATUS/DEPLOY SIEMPRE la usan
+ *      — sin importar el puerto de la conexión normal (app/runtime). Si
+ *      la conexión directa configurada también fuera puerto 6543, eso
+ *      es un error de configuración del operador y se reporta como
+ *      brecha (nunca cae de vuelta a la conexión normal en silencio).
+ *   2. Si NO hay conexión directa configurada y la conexión normal usa
+ *      el Transaction Pooler (`db_port === 6543`), persiste la brecha
+ *      original: este runner se detiene y pide configurar la sección
+ *      "Conexión directa para migraciones" del perfil en Platform Admin
+ *      — no inventa una URL directa a partir del host del pooler.
+ *   3. Si NO hay conexión directa configurada y la conexión normal NO es
+ *      pooler, se usa la normal (mismo comportamiento que antes de este
+ *      bloque).
+ * La conexión directa es EXCLUSIVA de este runner: la app y el Runtime
+ * Database Router nunca leen `direct_*` — siguen usando siempre la
+ * conexión normal, sin cambio de comportamiento.
  *
  * ── Pasos (--step) ───────────────────────────────────────────────────
  *   INSPECT — solo lectura, sin ejecutar Prisma CLI. Resuelve org/perfil,
@@ -150,6 +156,8 @@ import { assertEncryptionAvailable } from "../../src/lib/security/encryption";
 import {
   buildDatabaseUrlFromProfile,
   sanitizeDatabaseError,
+  hasDirectConnectionConfigured,
+  toDirectConnectionFields,
 } from "../../src/modules/platform/lib/database-profile-url";
 import { evaluateDatabaseExecutionSafety } from "../../src/modules/platform/lib/database-execution-safety";
 import type {
@@ -217,6 +225,17 @@ interface ResolvedProfile {
   encrypted_password: string;
   ssl_mode: string;
   last_test_status: string;
+  // Conexión directa opcional para migraciones — ver
+  // database-profile-url.ts (hasDirectConnectionConfigured /
+  // toDirectConnectionFields) y el schema.prisma (direct_* en
+  // PlatformDatabaseProfile). Nunca la usa la app ni el Runtime
+  // Database Router — solo este runner.
+  direct_db_host: string | null;
+  direct_db_port: number | null;
+  direct_db_name: string | null;
+  direct_db_user: string | null;
+  direct_encrypted_password: string | null;
+  direct_ssl_mode: string | null;
 }
 
 const PROFILE_SELECT = {
@@ -224,6 +243,8 @@ const PROFILE_SELECT = {
   db_host: true, db_port: true, db_name: true, db_user: true,
   encrypted_password: true, ssl_mode: true, last_test_status: true,
   organization_id: true, is_active: true,
+  direct_db_host: true, direct_db_port: true, direct_db_name: true,
+  direct_db_user: true, direct_encrypted_password: true, direct_ssl_mode: true,
 } as const;
 
 async function resolveOrganization(orgQuery: string) {
@@ -291,7 +312,7 @@ function maskUser(user: string): string {
 }
 
 function describeProfileSafely(profile: ResolvedProfile): string[] {
-  return [
+  const lines = [
     `label:             ${profile.label}`,
     `environment:       ${profile.environment}`,
     `provider:          ${profile.provider}`,
@@ -302,6 +323,19 @@ function describeProfileSafely(profile: ResolvedProfile): string[] {
     `ssl_mode:          ${profile.ssl_mode}`,
     `last_test_status:  ${profile.last_test_status}`,
   ];
+  if (hasDirectConnectionConfigured(profile)) {
+    lines.push(
+      "── conexión directa (migraciones) ──",
+      `direct_db_host:    ${profile.direct_db_host}`,
+      `direct_db_port:    ${profile.direct_db_port ?? 5432}`,
+      `direct_db_name:    ${profile.direct_db_name}`,
+      `direct_db_user:    ${maskUser(profile.direct_db_user ?? "")}`,
+      `direct_ssl_mode:   ${profile.direct_ssl_mode ?? "PREFER"}`,
+    );
+  } else {
+    lines.push("conexión directa (migraciones): NO configurada");
+  }
+  return lines;
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -312,26 +346,60 @@ interface MigrationUrlResolution {
   ok: boolean;
   url?: string; // NUNCA loguear — solo pasar a env del proceso hijo
   gapReason?: string;
+  usedDirectConnection?: boolean; // solo informativo, para los logs de STATUS/DEPLOY
 }
 
+/**
+ * Resuelve la URL a usar para `migrate status`/`migrate deploy`:
+ *   1. Si el perfil tiene conexión directa configurada (direct_db_host),
+ *      SIEMPRE se usa esa — sin importar el puerto de la conexión normal.
+ *      Si el operador configuró mal la conexión directa (ej. también
+ *      puerto 6543), se reporta como brecha igual — no se cae de vuelta
+ *      a la conexión normal (evita usar silenciosamente un pooler).
+ *   2. Si no hay conexión directa y la normal usa el Transaction Pooler
+ *      (6543), es la brecha original documentada — se detiene.
+ *   3. Si no hay conexión directa y la normal no es pooler, se usa la
+ *      normal (sin cambios respecto al bloque anterior).
+ */
 function resolveMigrationUrl(profile: ResolvedProfile): MigrationUrlResolution {
+  if (hasDirectConnectionConfigured(profile)) {
+    const directPort = profile.direct_db_port ?? 5432;
+    if (directPort === TRANSACTION_POOLER_PORT) {
+      return {
+        ok: false,
+        gapReason:
+          `La conexión directa configurada también usa el puerto ${TRANSACTION_POOLER_PORT} ` +
+          "(Transaction Pooler) — eso no es una conexión directa real. Corregir direct_db_port en " +
+          "Platform Admin antes de continuar con STATUS/DEPLOY.",
+      };
+    }
+    try {
+      assertEncryptionAvailable();
+      const url = buildDatabaseUrlFromProfile(toDirectConnectionFields(profile));
+      return { ok: true, url, usedDirectConnection: true };
+    } catch (err) {
+      return { ok: false, gapReason: sanitizeDatabaseError(err) };
+    }
+  }
+
   const port = profile.db_port ?? 5432;
   if (port === TRANSACTION_POOLER_PORT) {
     return {
       ok: false,
       gapReason:
-        `db_port=${TRANSACTION_POOLER_PORT} (Transaction Pooler). PlatformDatabaseProfile no tiene un campo ` +
-        "separado de conexión directa, y no es seguro asumir que el mismo host expone un puerto 5432 " +
-        "directo válido (Supabase suele usar un host DISTINTO para la conexión directa). " +
-        "`prisma migrate status`/`migrate deploy` necesitan advisory locks que no funcionan de forma " +
-        "confiable a través de un pooler en modo transacción. Brecha real — no se inventa una URL. " +
-        "Registrar un perfil/campo con la conexión directa antes de continuar con STATUS/DEPLOY.",
+        `db_port=${TRANSACTION_POOLER_PORT} (Transaction Pooler) y este perfil no tiene conexión directa ` +
+        "configurada. No es seguro asumir que el mismo host expone un puerto 5432 directo válido " +
+        "(Supabase suele usar un host DISTINTO para la conexión directa). `prisma migrate status`/" +
+        "`migrate deploy` necesitan advisory locks que no funcionan de forma confiable a través de un " +
+        "pooler en modo transacción. Brecha real — no se inventa una URL. Configurar la sección " +
+        "\"Conexión directa para migraciones\" de este perfil en Platform Admin antes de continuar " +
+        "con STATUS/DEPLOY.",
     };
   }
   try {
     assertEncryptionAvailable();
     const url = buildDatabaseUrlFromProfile(profile);
-    return { ok: true, url };
+    return { ok: true, url, usedDirectConnection: false };
   } catch (err) {
     return { ok: false, gapReason: sanitizeDatabaseError(err) };
   }
@@ -401,11 +469,20 @@ function stepInspect(profile: ResolvedProfile) {
   console.log("\n[INSPECT] Solo lectura. No se ejecuta Prisma CLI. No se escribe nada.\n");
   for (const line of describeProfileSafely(profile)) console.log(`[INSPECT] ${line}`);
 
+  const isPoolerNormal = (profile.db_port ?? 5432) === TRANSACTION_POOLER_PORT;
+  console.log(
+    `\n[INSPECT] conexión directa configurada: ${hasDirectConnectionConfigured(profile) ? "SÍ" : "NO"}`,
+  );
+  console.log(`[INSPECT] conexión normal usa Transaction Pooler (6543): ${isPoolerNormal ? "SÍ" : "NO"}`);
+
   const resolution = resolveMigrationUrl(profile);
   if (resolution.ok) {
-    console.log("\n[INSPECT] Se puede construir una URL de migración compatible con advisory locks (no se imprime).");
+    console.log(
+      `\n[INSPECT] STATUS/DEPLOY podrán ejecutarse usando la conexión ` +
+      `${resolution.usedDirectConnection ? "DIRECTA" : "normal"} (URL no se imprime).`,
+    );
   } else {
-    console.log(`\n[INSPECT] ⚠ Brecha detectada — STATUS/DEPLOY no podrán ejecutarse: ${resolution.gapReason}`);
+    console.log(`\n[INSPECT] ⚠ Brecha detectada — STATUS/DEPLOY quedarán BLOQUEADOS: ${resolution.gapReason}`);
   }
   console.log("\n[INSPECT] No se imprimió ningún secret. No se escribió nada.");
 }
@@ -422,6 +499,7 @@ function stepStatus(profile: ResolvedProfile): MigrateStatusReport {
   if (!resolution.ok) {
     throw new RunnerInputError(`No se puede ejecutar STATUS: ${resolution.gapReason}`);
   }
+  console.log(`\n[STATUS] Usando conexión ${resolution.usedDirectConnection ? "DIRECTA" : "normal"} para migrate status.`);
 
   const result = runPrismaCli(["migrate", "status"], resolution.url!);
   console.log("\n[STATUS] Salida (sanitizada) de `prisma migrate status`:\n");
@@ -529,6 +607,7 @@ async function stepDeploy(
   if (!resolution.ok) {
     throw new RunnerInputError(`No se puede ejecutar DEPLOY: ${resolution.gapReason}`);
   }
+  console.log(`\n[DEPLOY][EXECUTE] Usando conexión ${resolution.usedDirectConnection ? "DIRECTA" : "normal"} para migrate deploy.`);
 
   console.log("\n[DEPLOY][EXECUTE] Ejecutando `npx prisma migrate deploy` contra la runtime DB...");
   const result = runPrismaCli(["migrate", "deploy"], resolution.url!);

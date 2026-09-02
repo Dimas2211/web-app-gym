@@ -21,11 +21,13 @@ import type {
 interface Props {
   items:           PlatformDatabaseProfileItem[];
   testingId:       string | null;
+  testingDirectId: string | null;
   togglingId:      string | null;
   preflightingId:  string | null;
   onEdit:          (p: PlatformDatabaseProfileItem) => void;
   onToggleActive:  (p: PlatformDatabaseProfileItem) => void;
   onTest:          (p: PlatformDatabaseProfileItem) => void;
+  onTestDirect:    (p: PlatformDatabaseProfileItem) => void;
   onPreflight:     (p: PlatformDatabaseProfileItem) => void;
   onInspect:       (p: PlatformDatabaseProfileItem) => void;
   onDetectTenant:  (p: PlatformDatabaseProfileItem) => void;
@@ -63,11 +65,13 @@ function EnvBadge({ env }: { env: PlatformDatabaseProfileEnvironment }) {
 export function PlatformDatabaseProfilesTable({
   items,
   testingId,
+  testingDirectId,
   togglingId,
   preflightingId,
   onEdit,
   onToggleActive,
   onTest,
+  onTestDirect,
   onPreflight,
   onInspect,
   onDetectTenant,
@@ -99,9 +103,11 @@ export function PlatformDatabaseProfilesTable({
         </thead>
         <tbody className="divide-y divide-zinc-50">
           {items.map((p) => {
-            const isTesting      = testingId      === p.id;
-            const isToggling     = togglingId     === p.id;
-            const isPreflighting = preflightingId === p.id;
+            const isTesting       = testingId       === p.id;
+            const isTestingDirect = testingDirectId === p.id;
+            const isToggling      = togglingId      === p.id;
+            const isPreflighting  = preflightingId  === p.id;
+            const hasDirect       = !!p.direct_db_host?.trim();
 
             return (
               <tr key={p.id} className="hover:bg-zinc-50/70 transition-colors">
@@ -211,7 +217,7 @@ export function PlatformDatabaseProfilesTable({
                       {p.is_active ? "Desactivar" : "Activar"}
                     </button>
 
-                    {/* Probar conexión */}
+                    {/* Probar conexión runtime/app */}
                     <button
                       type="button"
                       onClick={() => onTest(p)}
@@ -219,13 +225,33 @@ export function PlatformDatabaseProfilesTable({
                       className="inline-flex items-center gap-1 text-xs px-2.5 py-1.5
                                  border border-blue-200 rounded-lg text-blue-600
                                  hover:bg-blue-50 transition-colors disabled:opacity-50"
+                      title="Probar la conexión runtime/app (usada por la app y el Runtime Database Router)"
                     >
                       {isTesting
                         ? <Loader2 size={11} className="animate-spin" />
                         : <PlugZap size={11} />
                       }
-                      {isTesting ? "Probando…" : "Probar"}
+                      {isTesting ? "Probando…" : "Probar runtime"}
                     </button>
+
+                    {/* Probar conexión directa/migraciones — solo si está configurada */}
+                    {hasDirect && (
+                      <button
+                        type="button"
+                        onClick={() => onTestDirect(p)}
+                        disabled={isTestingDirect}
+                        className="inline-flex items-center gap-1 text-xs px-2.5 py-1.5
+                                   border border-purple-200 rounded-lg text-purple-600
+                                   hover:bg-purple-50 transition-colors disabled:opacity-50 whitespace-nowrap"
+                        title="Probar la conexión directa usada solo por RUN_MIGRATIONS (prisma migrate status/deploy)"
+                      >
+                        {isTestingDirect
+                          ? <Loader2 size={11} className="animate-spin" />
+                          : <PlugZap size={11} />
+                        }
+                        {isTestingDirect ? "Probando…" : "Probar directa"}
+                      </button>
+                    )}
 
                     {/* Preflight de base de datos */}
                     <button

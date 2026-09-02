@@ -23,6 +23,7 @@ import { PlatformDatabaseProfileInspectorModal }   from "./platform-database-pro
 import { PlatformTenantBindingModal }              from "./platform-tenant-binding-modal";
 import { setDatabaseProfileActiveAction }          from "../actions/set-database-profile-active.action";
 import { testDatabaseProfileConnectionAction }     from "../actions/test-database-profile-connection.action";
+import { testDatabaseProfileDirectConnectionAction } from "../actions/test-database-profile-direct-connection.action";
 
 import type { PlatformDatabaseProfileItem } from "../types/platform.types";
 
@@ -52,6 +53,7 @@ export function PlatformDatabaseProfilesClient({
   const [showDialog,        setShowDialog]        = useState(false);
   const [editingProfile,    setEditingProfile]    = useState<PlatformDatabaseProfileItem | null>(null);
   const [testingId,         setTestingId]         = useState<string | null>(null);
+  const [testingDirectId,   setTestingDirectId]   = useState<string | null>(null);
   const [togglingId,        setTogglingId]        = useState<string | null>(null);
   const [feedback,          setFeedback]          = useState<Feedback | null>(null);
   const [preflightProfile,  setPreflightProfile]  = useState<PlatformDatabaseProfileItem | null>(null);
@@ -110,6 +112,18 @@ export function PlatformDatabaseProfilesClient({
       // El mensaje devuelto por la action ya está sanitizado (sanitizeDatabaseError)
       const result = await testDatabaseProfileConnectionAction(p.id);
       setTestingId(null);
+      setFeedback({
+        type:    result.success ? "success" : "error",
+        message: result.message,
+      });
+    });
+  }
+
+  function handleTestDirectConnection(p: PlatformDatabaseProfileItem) {
+    setTestingDirectId(p.id);
+    startTransition(async () => {
+      const result = await testDatabaseProfileDirectConnectionAction(p.id);
+      setTestingDirectId(null);
       setFeedback({
         type:    result.success ? "success" : "error",
         message: result.message,
@@ -214,11 +228,13 @@ export function PlatformDatabaseProfilesClient({
         <PlatformDatabaseProfilesTable
           items={filteredProfiles}
           testingId={testingId}
+          testingDirectId={testingDirectId}
           togglingId={togglingId}
           preflightingId={null}
           onEdit={handleOpenEdit}
           onToggleActive={handleToggleActive}
           onTest={handleTestConnection}
+          onTestDirect={handleTestDirectConnection}
           onPreflight={handleOpenPreflight}
           onInspect={handleOpenInspector}
           onDetectTenant={handleOpenTenantBinding}

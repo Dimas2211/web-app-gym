@@ -2937,6 +2937,23 @@ model PlatformDatabaseProfile {
   ssl_mode           PlatformDatabaseSslMode @default(PREFER)
   connection_options Json? // opciones extra, ej: { "schema": "public" }
 
+  // ── Conexión directa opcional para migraciones (RUN_MIGRATIONS) ──
+  // Todos los campos son opcionales — un perfil sin esta sección
+  // configurada sigue funcionando exactamente igual que antes: la app y
+  // el Runtime Database Router NUNCA leen estos campos, solo los
+  // componentes de conexión normales de arriba (db_host/db_port/...).
+  // Uso exclusivo: prisma/scripts/run-runtime-migrations-runner.ts
+  // (`prisma migrate status`/`migrate deploy`), que necesita una
+  // conexión compatible con advisory locks — no un connection pooler en
+  // modo transacción (ej. Supabase puerto 6543). Ver
+  // docs/modules/platform-phase-7-multiclient-provisioning.md.
+  direct_db_host            String? // host de conexión directa (puede diferir del host del pooler)
+  direct_db_port            Int? // ej: 5432 — normalmente NO 6543
+  direct_db_name            String?
+  direct_db_user            String?
+  direct_encrypted_password String? // igual que encrypted_password — AES-256-GCM, nunca texto plano
+  direct_ssl_mode           PlatformDatabaseSslMode?
+
   // Estado de la última prueba de conexión (Microfase C en adelante)
   last_tested_at    DateTime?
   last_test_status  PlatformDatabaseConnectionTestStatus @default(UNTESTED)

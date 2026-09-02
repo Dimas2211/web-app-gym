@@ -572,6 +572,15 @@ export interface PlatformDatabaseProfileItem {
   db_user:          string;
   ssl_mode:         PlatformDatabaseSslMode;
   connection_options: Record<string, unknown> | null;
+  // Conexión directa opcional para migraciones (RUN_MIGRATIONS) — nunca
+  // usada por la app ni el Runtime Database Router. Sin
+  // direct_encrypted_password, igual que el password principal nunca se
+  // expone. `direct_db_host` no vacío indica que está configurada.
+  direct_db_host:   string | null;
+  direct_db_port:   number | null;
+  direct_db_name:   string | null;
+  direct_db_user:   string | null;
+  direct_ssl_mode:  PlatformDatabaseSslMode | null;
   last_tested_at:   Date | null;
   last_test_status: PlatformDatabaseConnectionTestStatus;
   last_test_message: string | null;

@@ -85,6 +85,66 @@ export function buildDatabaseUrlFromProfile(
   return `postgresql://${user}:${pass}@${profile.db_host}:${port}/${db}?${params.toString()}`;
 }
 
+// ── Conexión directa opcional para migraciones (RUN_MIGRATIONS) ──────
+// Ver PlatformDatabaseProfile.direct_* en schema.prisma. Estos campos
+// NUNCA los lee la app ni el Runtime Database Router — solo
+// prisma/scripts/run-runtime-migrations-runner.ts.
+
+export interface DirectConnectionProfileFields {
+  direct_db_host:            string | null;
+  direct_db_port:            number | null;
+  direct_db_name:            string | null;
+  direct_db_user:            string | null;
+  direct_encrypted_password: string | null;
+  direct_ssl_mode:           string | null;
+}
+
+/**
+ * true si el perfil tiene una conexión directa configurada. Regla
+ * "todo o nada": basta con verificar `direct_db_host` porque las
+ * actions de creación/edición garantizan que si hay conexión directa,
+ * los cuatro campos (host/db/user/password) están presentes juntos —
+ * nunca una configuración parcial.
+ */
+export function hasDirectConnectionConfigured(
+  profile: Pick<DirectConnectionProfileFields, "direct_db_host">,
+): boolean {
+  return !!profile.direct_db_host?.trim();
+}
+
+/**
+ * Adapta los campos `direct_*` de un perfil al shape genérico
+ * `DatabaseProfileConnectionFields` para reutilizar
+ * `buildDatabaseUrlFromProfile` sin duplicar la lógica de construcción
+ * de URL (incluida la detección de Transaction Pooler por puerto).
+ * Lanza si la conexión directa no está configurada — verificar primero
+ * con `hasDirectConnectionConfigured`.
+ */
+export function toDirectConnectionFields(
+  profile: DirectConnectionProfileFields,
+): DatabaseProfileConnectionFields {
+  if (!hasDirectConnectionConfigured(profile)) {
+    throw new Error(
+      "[database-profile-url] toDirectConnectionFields: el perfil no tiene conexión directa configurada.",
+    );
+  }
+  if (!profile.direct_db_name?.trim() || !profile.direct_db_user?.trim() || !profile.direct_encrypted_password) {
+    throw new Error(
+      "[database-profile-url] toDirectConnectionFields: conexión directa incompleta " +
+      "(faltan direct_db_name/direct_db_user/direct_encrypted_password). " +
+      "Esto no debería ocurrir si la action de guardado aplicó la regla todo-o-nada.",
+    );
+  }
+  return {
+    db_host:            profile.direct_db_host!,
+    db_port:            profile.direct_db_port,
+    db_name:            profile.direct_db_name,
+    db_user:            profile.direct_db_user,
+    encrypted_password: profile.direct_encrypted_password,
+    ssl_mode:           profile.direct_ssl_mode ?? "PREFER",
+  };
+}
+
 /**
  * Limpia mensajes de error que pudieran contener connection strings,
  * passwords o tokens embebidos antes de devolverlos al cliente.

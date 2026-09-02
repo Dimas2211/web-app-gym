@@ -10,7 +10,7 @@
 // ─────────────────────────────────────────────────────────────────
 
 import { revalidatePath } from "next/cache";
-import { Prisma } from "@prisma/client";
+import { Prisma, type PlatformDatabaseSslMode } from "@prisma/client";
 import { requireSuperAdmin } from "@/lib/permissions/guards";
 import { prisma } from "@/lib/db/prisma";
 import { encryptText, assertEncryptionAvailable } from "@/lib/security/encryption";
@@ -33,7 +33,10 @@ export async function updateDatabaseProfileAction(
 
   const existing = await prisma.platformDatabaseProfile.findUnique({
     where:  { id: profileId },
-    select: { id: true, organization_id: true, encrypted_password: true },
+    select: {
+      id: true, organization_id: true, encrypted_password: true,
+      direct_encrypted_password: true, direct_ssl_mode: true,
+    },
   });
   if (!existing) {
     return { error: "Perfil de base de datos no encontrado." };
@@ -42,8 +45,12 @@ export async function updateDatabaseProfileAction(
   const rawPassword = formData.get("password") as string | null;
   const hasNewPassword = rawPassword !== null && rawPassword.trim() !== "";
 
-  // Si llega password nuevo, verificar que la clave de cifrado esté disponible
-  if (hasNewPassword) {
+  const rawDirectPassword = formData.get("direct_password") as string | null;
+  const hasNewDirectPassword = rawDirectPassword !== null && rawDirectPassword.trim() !== "";
+
+  // Si llega password nuevo (principal o directo), verificar que la
+  // clave de cifrado esté disponible antes de continuar.
+  if (hasNewPassword || hasNewDirectPassword) {
     try {
       assertEncryptionAvailable();
     } catch (err) {
@@ -67,6 +74,14 @@ export async function updateDatabaseProfileAction(
     password:           hasNewPassword ? rawPassword : undefined,
     ssl_mode:           formData.get("ssl_mode")    || undefined,
     connection_options: undefined,
+    // Conexión directa — se envían siempre (aunque vacíos) para que el
+    // schema pueda aplicar la regla todo-o-nada; ver superRefine.
+    direct_db_host:     formData.get("direct_db_host")  ?? "",
+    direct_db_port:     formData.get("direct_db_port")  || null,
+    direct_db_name:     formData.get("direct_db_name")  ?? "",
+    direct_db_user:     formData.get("direct_db_user")  ?? "",
+    direct_password:    hasNewDirectPassword ? rawDirectPassword : undefined,
+    direct_ssl_mode:    formData.get("direct_ssl_mode") || undefined,
   };
 
   const parsed = updateDatabaseProfileSchema.safeParse(raw);
@@ -97,6 +112,47 @@ export async function updateDatabaseProfileAction(
     ? encryptText(data.password)
     : existing.encrypted_password;
 
+  // ── Conexión directa opcional para migraciones ────────────────────
+  // Regla todo-o-nada (host+db+usuario), ya garantizada por el schema:
+  //   - los tres vacíos  → limpiar conexión directa (null en los 6 campos).
+  //   - los tres presentes → configurar/actualizar; password vacío =
+  //     conservar el direct_encrypted_password existente, salvo que sea
+  //     la primera vez que se configura (ahí si es obligatorio).
+  const directHostSet = !!data.direct_db_host?.trim();
+  const directNameSet = !!data.direct_db_name?.trim();
+  const directUserSet = !!data.direct_db_user?.trim();
+  const directConfigured = directHostSet && directNameSet && directUserSet;
+
+  let direct_db_host:            string | null = null;
+  let direct_db_port:            number | null = null;
+  let direct_db_name:            string | null = null;
+  let direct_db_user:            string | null = null;
+  let direct_encrypted_password: string | null = null;
+  let direct_ssl_mode:           PlatformDatabaseSslMode | null = null;
+
+  if (directConfigured) {
+    if (hasNewDirectPassword && data.direct_password) {
+      direct_encrypted_password = encryptText(data.direct_password);
+    } else if (existing.direct_encrypted_password) {
+      direct_encrypted_password = existing.direct_encrypted_password;
+    } else {
+      return {
+        errors: {
+          direct_db_host: [
+            "Se requiere un password directo para configurar la conexión directa por primera vez.",
+          ],
+        },
+      };
+    }
+    direct_db_host  = data.direct_db_host!.trim();
+    direct_db_port  = data.direct_db_port ?? null;
+    direct_db_name  = data.direct_db_name!.trim();
+    direct_db_user  = data.direct_db_user!.trim();
+    direct_ssl_mode = data.direct_ssl_mode ?? existing.direct_ssl_mode ?? "PREFER";
+  }
+  // directConfigured === false → todos los direct_* quedan en null
+  // (limpia una conexión directa previamente configurada, si existía).
+
   await prisma.platformDatabaseProfile.update({
     where: { id: profileId },
     data: {
@@ -114,6 +170,12 @@ export async function updateDatabaseProfileAction(
             ? (data.connection_options as Prisma.InputJsonValue)
             : Prisma.JsonNull)
         : undefined,
+      direct_db_host,
+      direct_db_port,
+      direct_db_name,
+      direct_db_user,
+      direct_encrypted_password,
+      direct_ssl_mode,
       updated_by:         sessionUser.id,
     },
   });

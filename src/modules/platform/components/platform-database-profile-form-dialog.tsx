@@ -93,6 +93,15 @@ export function PlatformDatabaseProfileFormDialog({ profile, organizations, onCl
 
           <div className="grid grid-cols-2 gap-4">
 
+            <div className="col-span-2 pt-1">
+              <h3 className="text-xs font-bold text-zinc-500 uppercase tracking-wide">
+                Conexión runtime / app
+              </h3>
+              <p className="text-xs text-zinc-400 mt-0.5">
+                Usada por la aplicación y el Runtime Database Router para todo el tráfico normal.
+              </p>
+            </div>
+
             {/* Organización — solo en creación */}
             {!isEdit ? (
               <div className="col-span-2">
@@ -294,6 +303,101 @@ export function PlatformDatabaseProfileFormDialog({ profile, organizations, onCl
               {state?.errors?.password && (
                 <p className="text-xs text-red-600 mt-0.5">{state.errors.password[0]}</p>
               )}
+            </div>
+
+            {/* ── Conexión directa opcional para migraciones ─────────────── */}
+            <div className="col-span-2 pt-3 border-t border-zinc-100">
+              <h3 className="text-xs font-bold text-zinc-500 uppercase tracking-wide">
+                Conexión directa para migraciones (opcional)
+              </h3>
+              <p className="text-xs text-zinc-400 mt-0.5">
+                Usada SOLO por el runner RUN_MIGRATIONS (`prisma migrate status`/`migrate deploy`) — nunca
+                por la app en tráfico normal. Necesaria cuando la conexión de arriba es un connection
+                pooler en modo transacción (ej. Supabase puerto 6543), que no soporta migraciones. Deja
+                estos campos vacíos si no aplica.
+              </p>
+            </div>
+
+            <div className="col-span-2 sm:col-span-1">
+              <label className="block text-xs font-semibold text-zinc-600 mb-1">Host directo</label>
+              <input
+                name="direct_db_host"
+                type="text"
+                defaultValue={profile?.direct_db_host ?? ""}
+                placeholder="db.xxxx.supabase.co"
+                className="w-full h-9 px-3 text-sm font-mono border border-zinc-200 rounded-lg
+                           focus:outline-none focus:ring-2 focus:ring-zinc-900"
+              />
+              {state?.errors?.direct_db_host && (
+                <p className="text-xs text-red-600 mt-0.5">{state.errors.direct_db_host[0]}</p>
+              )}
+            </div>
+
+            <div className="col-span-2 sm:col-span-1">
+              <label className="block text-xs font-semibold text-zinc-600 mb-1">Puerto directo</label>
+              <input
+                name="direct_db_port"
+                type="number"
+                defaultValue={profile?.direct_db_port ?? 5432}
+                min={1}
+                max={65535}
+                className="w-full h-9 px-3 text-sm font-mono border border-zinc-200 rounded-lg
+                           focus:outline-none focus:ring-2 focus:ring-zinc-900"
+              />
+            </div>
+
+            <div className="col-span-2 sm:col-span-1">
+              <label className="block text-xs font-semibold text-zinc-600 mb-1">Base de datos directa</label>
+              <input
+                name="direct_db_name"
+                type="text"
+                defaultValue={profile?.direct_db_name ?? ""}
+                placeholder="postgres"
+                className="w-full h-9 px-3 text-sm font-mono border border-zinc-200 rounded-lg
+                           focus:outline-none focus:ring-2 focus:ring-zinc-900"
+              />
+            </div>
+
+            <div className="col-span-2 sm:col-span-1">
+              <label className="block text-xs font-semibold text-zinc-600 mb-1">Usuario directo</label>
+              <input
+                name="direct_db_user"
+                type="text"
+                defaultValue={profile?.direct_db_user ?? ""}
+                placeholder="postgres"
+                className="w-full h-9 px-3 text-sm font-mono border border-zinc-200 rounded-lg
+                           focus:outline-none focus:ring-2 focus:ring-zinc-900"
+              />
+            </div>
+
+            <div className="col-span-2 sm:col-span-1">
+              <label className="block text-xs font-semibold text-zinc-600 mb-1">Modo SSL directo</label>
+              <select
+                name="direct_ssl_mode"
+                defaultValue={profile?.direct_ssl_mode ?? "PREFER"}
+                className="w-full h-9 px-3 text-sm border border-zinc-200 rounded-lg
+                           focus:outline-none focus:ring-2 focus:ring-zinc-900 bg-white text-zinc-700"
+              >
+                {SSL_MODES.map((s) => (
+                  <option key={s} value={s}>{s}</option>
+                ))}
+              </select>
+            </div>
+
+            <div className="col-span-2 sm:col-span-1">
+              <label className="block text-xs font-semibold text-zinc-600 mb-1">Password directo</label>
+              <input
+                name="direct_password"
+                type="password"
+                autoComplete="new-password"
+                placeholder={
+                  profile?.direct_db_host
+                    ? "Dejar vacío para conservar el password directo actual"
+                    : "Password de la conexión directa"
+                }
+                className="w-full h-9 px-3 text-sm border border-zinc-200 rounded-lg
+                           focus:outline-none focus:ring-2 focus:ring-zinc-900"
+              />
             </div>
 
           </div>

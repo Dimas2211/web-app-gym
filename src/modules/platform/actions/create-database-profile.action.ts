@@ -49,6 +49,12 @@ export async function createDatabaseProfileAction(
     password:           formData.get("password")           as string,
     ssl_mode:           formData.get("ssl_mode")           || "PREFER",
     connection_options: null,
+    direct_db_host:     formData.get("direct_db_host")     as string,
+    direct_db_port:     formData.get("direct_db_port")     || null,
+    direct_db_name:     formData.get("direct_db_name")     as string,
+    direct_db_user:     formData.get("direct_db_user")     as string,
+    direct_password:    formData.get("direct_password")    as string,
+    direct_ssl_mode:    formData.get("direct_ssl_mode")    || undefined,
   };
 
   const parsed = createDatabaseProfileSchema.safeParse(raw);
@@ -84,6 +90,12 @@ export async function createDatabaseProfileAction(
   // Cifrar el password antes de persistir — nunca en texto plano
   const encrypted_password = encryptText(data.password);
 
+  // Conexión directa opcional para migraciones — todo-o-nada, ya validado
+  // por el .superRefine del schema (host/db/usuario/password juntos o
+  // los cuatro ausentes).
+  const directConfigured = !!data.direct_db_host?.trim();
+  const direct_encrypted_password = directConfigured ? encryptText(data.direct_password!) : null;
+
   await prisma.platformDatabaseProfile.create({
     data: {
       organization_id:    data.organization_id,
@@ -99,6 +111,12 @@ export async function createDatabaseProfileAction(
       connection_options: data.connection_options
         ? (data.connection_options as Prisma.InputJsonValue)
         : Prisma.JsonNull,
+      direct_db_host:            directConfigured ? data.direct_db_host!.trim() : null,
+      direct_db_port:            directConfigured ? (data.direct_db_port ?? null) : null,
+      direct_db_name:            directConfigured ? data.direct_db_name!.trim() : null,
+      direct_db_user:            directConfigured ? data.direct_db_user!.trim() : null,
+      direct_encrypted_password,
+      direct_ssl_mode:           directConfigured ? (data.direct_ssl_mode ?? "PREFER") : null,
       is_active:          true,
       created_by:         sessionUser.id,
     },

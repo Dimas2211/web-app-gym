@@ -78,6 +78,65 @@ export const updateDatabaseProfileSchema = z.object({
   ssl_mode: z.enum(DATABASE_SSL_MODES).optional(),
 
   connection_options: z.record(z.unknown()).nullable().optional(),
+
+  // ── Conexión directa opcional para migraciones (RUN_MIGRATIONS) ──
+  // Todo-o-nada entre host/db/usuario (validado abajo). El password
+  // directo es opcional aquí igual que el password principal: vacío =
+  // conservar el direct_encrypted_password existente (resuelto en la
+  // action, que sí conoce el estado previo). Si host/db/usuario quedan
+  // los tres vacíos, la action interpreta "limpiar conexión directa".
+  direct_db_host: z
+    .string()
+    .max(253, "El host directo no puede superar 253 caracteres.")
+    .trim()
+    .optional(),
+
+  direct_db_port: z.coerce
+    .number()
+    .int("El puerto directo debe ser un número entero.")
+    .min(1, "El puerto mínimo es 1.")
+    .max(65535, "El puerto máximo es 65535.")
+    .nullable()
+    .optional(),
+
+  direct_db_name: z
+    .string()
+    .max(63, "El nombre de la base directa no puede superar 63 caracteres.")
+    .trim()
+    .optional(),
+
+  direct_db_user: z
+    .string()
+    .max(63, "El usuario directo no puede superar 63 caracteres.")
+    .trim()
+    .optional(),
+
+  direct_password: z
+    .string()
+    .max(500, "El password directo no puede superar 500 caracteres.")
+    .optional(),
+
+  direct_ssl_mode: z.enum(DATABASE_SSL_MODES).optional(),
+}).superRefine((data, ctx) => {
+  const hostSet = !!data.direct_db_host?.trim();
+  const nameSet = !!data.direct_db_name?.trim();
+  const userSet = !!data.direct_db_user?.trim();
+
+  // A diferencia de creación, el password NO entra en el todo-o-nada
+  // aquí — vacío puede significar "conservar el existente" y solo la
+  // action lo sabe. Pero host/db/usuario sí deben ir juntos o los tres
+  // vacíos (limpiar).
+  const anySet = hostSet || nameSet || userSet;
+  const allSet = hostSet && nameSet && userSet;
+
+  if (anySet && !allSet) {
+    ctx.addIssue({
+      code:    z.ZodIssueCode.custom,
+      path:    ["direct_db_host"],
+      message: "Para configurar la conexión directa de migraciones, completa host, base y usuario " +
+               "directos — o deja los tres campos vacíos para limpiarla.",
+    });
+  }
 });
 
 export type UpdateDatabaseProfileInput = z.infer<typeof updateDatabaseProfileSchema>;
