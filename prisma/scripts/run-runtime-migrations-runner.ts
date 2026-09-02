@@ -414,28 +414,110 @@ const REPO_ROOT = path.resolve(__dirname, "../..");
 
 interface PrismaCliResult {
   code: number | null;
+  signal: string | null;
+  spawnError: string | null; // spawnSync-level error (ENOENT, EINVAL, etc.) — Prisma nunca llegó a correr
   stdout: string;
   stderr: string;
 }
 
-function runPrismaCli(args: string[], runtimeUrl: string): PrismaCliResult {
-  const child = spawnSync(
-    process.platform === "win32" ? "npx.cmd" : "npx",
-    ["prisma", ...args],
-    {
-      cwd: REPO_ROOT,
-      encoding: "utf-8",
-      env: {
-        ...process.env,
-        DATABASE_URL: runtimeUrl,
-        DIRECT_URL: runtimeUrl,
-      },
-    },
+// sanitizeDatabaseError (database-profile-url.ts) trunca a 500 caracteres
+// — pensado para mensajes de error cortos, no para la salida completa de
+// `prisma migrate status`/`migrate deploy`, que el operador necesita ver
+// entera para diagnosticar. Reutiliza exactamente las mismas reglas de
+// redacción (connection strings, segmento user:password@host, password=
+// en query strings) pero sin el corte a 500 — solo un tope generoso para
+// evitar payloads absurdos.
+function sanitizeCliOutput(raw: string): string {
+  return raw
+    .replace(/postgresql:\/\/[^\s"']*/gi, "[connection-string-redacted]")
+    .replace(/postgres:\/\/[^\s"']*/gi,   "[connection-string-redacted]")
+    .replace(/:[^@\s]{1,256}@/g, ":[redacted]@")
+    .replace(/password=[^\s&"']*/gi, "password=[redacted]")
+    .substring(0, 20000);
+}
+
+// Único conjunto de subcomandos que este runner puede invocar. Ningún
+// input de usuario (--org, --profile, etc.) llega jamás a `args` — es
+// siempre uno de estos dos arrays literales, pasados internamente por
+// stepStatus/stepDeploy. Se valida en tiempo de ejecución igual (defensa
+// en profundidad): si algún día un caller pasara otra cosa, se rechaza
+// antes de construir ningún comando.
+const ALLOWED_PRISMA_ARGS: readonly (readonly string[])[] = [
+  ["migrate", "status"],
+  ["migrate", "deploy"],
+];
+
+function assertAllowedPrismaArgs(args: string[]): void {
+  const isAllowed = ALLOWED_PRISMA_ARGS.some(
+    (allowed) => allowed.length === args.length && allowed.every((v, i) => v === args[i]),
   );
+  if (!isAllowed) {
+    throw new Error(
+      `[runPrismaCli] Subcomando no permitido: ${JSON.stringify(args)}. ` +
+      `Solo se permite 'migrate status' o 'migrate deploy'.`,
+    );
+  }
+}
+
+/**
+ * Ejecuta Prisma CLI contra la runtime DB. Fail-closed por diseño:
+ * NUNCA lanza por sí mismo el resultado de Prisma — devuelve siempre
+ * code/signal/spawnError/stdout/stderr reales para que el caller decida,
+ * pero el caller (stepStatus/stepDeploy) está obligado a tratar
+ * spawnError, code!==0 o salida vacía como fallo explícito — nunca como
+ * éxito silencioso. (Si lanza, es por `assertAllowedPrismaArgs` — un
+ * error de programación interno, no un resultado de Prisma.)
+ *
+ * En Windows, `npx` es en realidad `npx.cmd` (un batch file, no un
+ * ejecutable) — spawnSync no puede invocarlo directamente sin pasar por
+ * el shell del SO (sin eso, Node reporta el fallo en `result.error`,
+ * nunca lo lanza, y el proceso hijo NUNCA llega a correr: stdout/stderr
+ * quedan vacíos con exit code null — el bug original de este bloque).
+ *
+ * La primera corrección usó `spawnSync(..., { shell: true })`, que sí
+ * arregla el spawn pero dispara DEP0190 (Node concatena los args del
+ * array en una sola línea de shell SIN escaparlos cuando `shell: true`).
+ * Es seguro en este caso puntual porque `args` es siempre uno de los dos
+ * arrays literales de `ALLOWED_PRISMA_ARGS` — ningún input de usuario se
+ * concatena — pero para no depender de esa garantía y evitar el warning,
+ * en Windows se invoca `cmd.exe /d /s /c "<comando fijo>"` con
+ * `shell: false`: el comando es una única string construida SOLO a
+ * partir de literales controlados (nunca `--org`/`--profile`/etc.), y
+ * `cmd.exe` se llama directamente como ejecutable (no como shell de
+ * spawnSync), así que no aplica el aviso de Node. En POSIX, `npx` es un
+ * ejecutable real — se sigue invocando sin shell en absoluto.
+ */
+function runPrismaCli(args: string[], runtimeUrl: string): PrismaCliResult {
+  assertAllowedPrismaArgs(args);
+
+  const isWin = process.platform === "win32";
+  const env = {
+    ...process.env,
+    DATABASE_URL: runtimeUrl,
+    DIRECT_URL: runtimeUrl,
+  };
+
+  const child = isWin
+    ? spawnSync(
+        "cmd.exe",
+        // Comando fijo — construido solo a partir de `args` (uno de los
+        // dos arrays literales permitidos) y la ruta constante del
+        // schema. Nunca interpola --org/--profile ni ningún otro input.
+        ["/d", "/s", "/c", `npx prisma ${args.join(" ")} --schema prisma/schema.prisma`],
+        { cwd: REPO_ROOT, encoding: "utf-8", shell: false, env },
+      )
+    : spawnSync(
+        "npx",
+        ["prisma", ...args, "--schema", "prisma/schema.prisma"],
+        { cwd: REPO_ROOT, encoding: "utf-8", shell: false, env },
+      );
+
   return {
-    code: child.status,
-    stdout: sanitizeDatabaseError(child.stdout ?? ""),
-    stderr: sanitizeDatabaseError(child.stderr ?? ""),
+    code:       child.status,
+    signal:     child.signal ?? null,
+    spawnError: child.error ? sanitizeDatabaseError(child.error) : null,
+    stdout:     sanitizeCliOutput(child.stdout ?? ""),
+    stderr:     sanitizeCliOutput(child.stderr ?? ""),
   };
 }
 
@@ -502,9 +584,33 @@ function stepStatus(profile: ResolvedProfile): MigrateStatusReport {
   console.log(`\n[STATUS] Usando conexión ${resolution.usedDirectConnection ? "DIRECTA" : "normal"} para migrate status.`);
 
   const result = runPrismaCli(["migrate", "status"], resolution.url!);
-  console.log("\n[STATUS] Salida (sanitizada) de `prisma migrate status`:\n");
-  console.log(result.stdout);
-  if (result.stderr.trim()) console.log(`[stderr]\n${result.stderr}`);
+
+  // ── Diagnóstico crudo, SIEMPRE mostrado antes de cualquier veredicto ──
+  console.log(`\n[STATUS] exit code: ${result.code ?? "null (el proceso no terminó normalmente)"}`);
+  console.log(`[STATUS] signal:    ${result.signal ?? "ninguna"}`);
+  console.log(`[STATUS] spawn error: ${result.spawnError ?? "ninguno"}`);
+  console.log("\n[STATUS] stdout (sanitizado):\n");
+  console.log(result.stdout.trim() ? result.stdout : "(vacío)");
+  console.log("\n[STATUS] stderr (sanitizado):\n");
+  console.log(result.stderr.trim() ? result.stderr : "(vacío)");
+
+  // ── Fail-closed: nunca declarar éxito sin evidencia real ──────────
+  if (result.spawnError) {
+    throw new RunnerInputError(
+      `No se pudo ejecutar \`prisma migrate status\` — falló al lanzar el proceso: ${result.spawnError}`,
+    );
+  }
+  if (!result.stdout.trim() && !result.stderr.trim()) {
+    throw new RunnerInputError(
+      "Prisma migrate status no produjo salida; no se puede concluir estado de migraciones.",
+    );
+  }
+  if (result.code !== 0) {
+    throw new RunnerInputError(
+      `\`prisma migrate status\` terminó con código ${result.code ?? "null"}${result.signal ? ` (señal ${result.signal})` : ""}. ` +
+      "Ver stdout/stderr completos arriba — puede indicar migraciones pendientes o un error real; revisar antes de continuar.",
+    );
+  }
 
   const report = parseMigrateStatusOutput(result);
   console.log("\n[STATUS] Resumen derivado (heurístico, revisar salida completa arriba):");
@@ -611,16 +717,33 @@ async function stepDeploy(
 
   console.log("\n[DEPLOY][EXECUTE] Ejecutando `npx prisma migrate deploy` contra la runtime DB...");
   const result = runPrismaCli(["migrate", "deploy"], resolution.url!);
-  console.log("\n[DEPLOY][EXECUTE] Salida (sanitizada):\n");
-  console.log(result.stdout);
-  if (result.stderr.trim()) console.log(`[stderr]\n${result.stderr}`);
+
+  // ── Mismo diagnóstico fail-closed que STATUS — ver runPrismaCli/stepStatus ──
+  console.log(`\n[DEPLOY][EXECUTE] exit code: ${result.code ?? "null (el proceso no terminó normalmente)"}`);
+  console.log(`[DEPLOY][EXECUTE] signal:    ${result.signal ?? "ninguna"}`);
+  console.log(`[DEPLOY][EXECUTE] spawn error: ${result.spawnError ?? "ninguno"}`);
+  console.log("\n[DEPLOY][EXECUTE] stdout (sanitizado):\n");
+  console.log(result.stdout.trim() ? result.stdout : "(vacío)");
+  console.log("\n[DEPLOY][EXECUTE] stderr (sanitizado):\n");
+  console.log(result.stderr.trim() ? result.stderr : "(vacío)");
+
+  if (result.spawnError) {
+    throw new RunnerInputError(
+      `No se pudo ejecutar \`prisma migrate deploy\` — falló al lanzar el proceso: ${result.spawnError}`,
+    );
+  }
+  if (!result.stdout.trim() && !result.stderr.trim()) {
+    throw new RunnerInputError(
+      "Prisma migrate deploy no produjo salida; no se puede confirmar qué se aplicó. Abortando sin dar por exitoso.",
+    );
+  }
 
   const appliedMatches = result.stdout.match(/Applying migration `[^`]+`/g) ?? [];
-  const success = result.code === 0;
 
-  if (!success) {
+  if (result.code !== 0) {
     throw new RunnerInputError(
-      `\`prisma migrate deploy\` terminó con código ${result.code}. Ver salida sanitizada arriba.`,
+      `\`prisma migrate deploy\` terminó con código ${result.code ?? "null"}${result.signal ? ` (señal ${result.signal})` : ""}. ` +
+      "Ver salida sanitizada arriba.",
     );
   }
 
