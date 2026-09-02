@@ -474,6 +474,15 @@ diseño ni su implementación.
 - No se usó `git add .`.
 - No se tocó ningún backup.
 
+## 18B. Bloque A — Modelo comercial y entitlements (posterior a esta fase)
+
+Se implementó el modelo administrativo de planes/módulos/límites (PlatformPlanModule,
+PlatformEntitlementDefinition, PlatformPlanEntitlement,
+PlatformOrganizationEntitlementOverride) y se ajustó `checkVertical` en
+`provisioning-validator.ts` para que `vertical_id = null` (Commerce transversal)
+no bloquee el provisioning. Sin enforcement de runtime todavía. Ver detalle
+completo en `docs/modules/platform-block-a-commercial-model.md`.
+
 ## 19. Próximo paso recomendado
 
 1. Implementar el runner `SEED_TENANT_BASE` (§12.1) — es el bloqueante

@@ -42,13 +42,26 @@ function checkOrganizationCode(org: PlatformOrganizationDetail): ProvisioningChe
   };
 }
 
+// Bloque A, FASE A11 — vertical es OPCIONAL. Commerce es transversal y una
+// organización puede operar sin vertical (vertical_id = null) sin que eso
+// sea un error de provisioning. NO se usa "GENERAL" como fallback — ver
+// docs/context/current-state.md. Si la organización sí tiene una vertical
+// asignada, se sigue validando que exista (org.vertical no vacío ya lo
+// garantiza al venir de la relación real).
 function checkVertical(org: PlatformOrganizationDetail): ProvisioningCheckItem {
-  const passed = Boolean(org.vertical);
+  if (!org.vertical) {
+    return {
+      key:     "vertical",
+      label:   "Vertical",
+      passed:  true,
+      message: "No aplica — organización transversal (Commerce sin vertical).",
+    };
+  }
   return {
     key:     "vertical",
     label:   "Vertical asignada",
-    passed,
-    message: passed ? null : "Debe asignar una vertical a la organización.",
+    passed:  true,
+    message: null,
   };
 }
 

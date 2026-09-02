@@ -28,6 +28,10 @@ export type PlatformProvisioningStatus =
   | "DEPLOYED"
   | "FAILED";
 
+// BLOQUE A — Modelo comercial y entitlements
+export type PlatformEntitlementValueType  = "COUNT" | "BOOLEAN";
+export type PlatformEntitlementPeriodType = "NONE" | "MONTHLY";
+
 // ── PlatformVertical ─────────────────────────────────────────────
 
 export interface PlatformVerticalItem {
@@ -53,6 +57,81 @@ export interface PlatformPlanItem {
   max_users:     number | null;
   is_active:     boolean;
   created_at:    Date;
+  // Bloque A — baseline del plan, cargado junto al listado para alimentar
+  // el formulario de edición sin queries adicionales desde el cliente.
+  modules:      PlanModuleItem[];
+  entitlements: PlanEntitlementItem[];
+}
+
+// ── PlatformPlanModule (Bloque A) ─────────────────────────────────
+
+export interface PlanModuleItem {
+  module_id:  string;
+  is_enabled: boolean;
+}
+
+// ── PlatformEntitlementDefinition (Bloque A) ──────────────────────
+
+export interface PlatformEntitlementDefinitionItem {
+  id:          string;
+  code:        string;
+  name:        string;
+  description: string | null;
+  category:    string;
+  value_type:  PlatformEntitlementValueType;
+  period_type: PlatformEntitlementPeriodType;
+  is_active:   boolean;
+  created_at:  Date;
+}
+
+// ── PlatformPlanEntitlement (Bloque A) ────────────────────────────
+
+export interface PlanEntitlementItem {
+  entitlement_definition_id: string;
+  numeric_value:              number | null;
+  is_unlimited:                boolean;
+}
+
+// ── PlatformOrganizationEntitlementOverride (Bloque A) ────────────
+
+export interface OrganizationEntitlementOverrideItem {
+  id:                         string;
+  organization_id:            string;
+  entitlement_definition_id:  string;
+  numeric_value:               number | null;
+  is_unlimited:                 boolean;
+  created_at:                  Date;
+  updated_at:                  Date;
+}
+
+// ── Resolver de configuración efectiva (Bloque A, FASE A6) ────────
+//
+// Todavía NO se usan como guard de runtime — solo lectura/UI admin.
+
+export type EntitlementSource = "PLAN" | "ORGANIZATION_OVERRIDE" | "UNCONFIGURED";
+
+export interface EffectiveEntitlement {
+  entitlement_definition_id: string;
+  code:          string;
+  name:          string;
+  category:      string;
+  value_type:    PlatformEntitlementValueType;
+  period_type:   PlatformEntitlementPeriodType;
+  numeric_value: number | null; // null cuando is_unlimited=true o UNCONFIGURED
+  is_unlimited:  boolean;
+  source:        EntitlementSource;
+}
+
+export type ModuleSource = "PLAN" | "ORGANIZATION_OVERRIDE_ADDED" | "ORGANIZATION_OVERRIDE_REMOVED" | "UNCONFIGURED";
+
+export interface EffectiveModule {
+  module_id: string;
+  code:      string;
+  name:      string;
+  category:  PlatformModuleCategory;
+  is_core:   boolean;
+  enabled:   boolean;
+  source:    ModuleSource;
 }
 
 // ── PlatformOrganization ──────────────────────────────────────────

@@ -62,64 +62,64 @@ model Branch {
 }
 
 model User {
-  id                                String                 @id @default(uuid())
+  id                                String                   @id @default(uuid())
   gym_id                            String
   tenant_id                         String?
   branch_id                         String?
   location_id                       String?
-  email                             String                 @unique
+  email                             String                   @unique
   password_hash                     String
   first_name                        String
   last_name                         String
   role                              UserRole
-  status                            Status                 @default(active)
+  status                            Status                   @default(active)
   operational_code                  String?
   avatar_url                        String?
-  qr_token                          String?                @unique
-  created_at                        DateTime               @default(now())
-  updated_at                        DateTime               @updatedAt
-  memberships_sold                  ClientMembership[]     @relation("MembershipSales")
-  clients_assigned                  Client[]               @relation("ClientTrainer")
-  client_profile                    Client?                @relation("ClientUserLink")
-  created_classes                   ScheduledClass[]       @relation("ClassCreator")
-  trainer_profile                   Trainer?               @relation("TrainerUserLink")
-  branch                            Branch?                @relation(fields: [branch_id], references: [id])
-  gym                               Gym                    @relation(fields: [gym_id], references: [id])
-  created_weekly_plan_templates     WeeklyPlanTemplate[]   @relation("TemplateCreator")
-  products_created                  Product[]              @relation("ProductCreatedBy")
-  products_updated                  Product[]              @relation("ProductUpdatedBy")
-  product_locations_created         ProductLocation[]      @relation("ProductLocationCreatedBy")
-  product_locations_updated         ProductLocation[]      @relation("ProductLocationUpdatedBy")
-  inventory_movements_performed     InventoryMovement[]    @relation("MovementPerformedBy")
-  purchases_confirmed               Purchase[]             @relation("PurchaseConfirmedBy")
-  purchases_cancelled               Purchase[]             @relation("PurchaseCancelledBy")
-  purchases_created                 Purchase[]             @relation("PurchaseCreatedBy")
-  purchases_updated                 Purchase[]             @relation("PurchaseUpdatedBy")
-  suppliers_created                 Supplier[]             @relation("SupplierCreatedBy")
-  suppliers_updated                 Supplier[]             @relation("SupplierUpdatedBy")
-  customers_created                 Customer[]             @relation("CustomerCreatedBy")
-  customers_updated                 Customer[]             @relation("CustomerUpdatedBy")
-  sales_created                     Sale[]                 @relation("SaleCreatedBy")
-  sales_updated                     Sale[]                 @relation("SaleUpdatedBy")
-  sales_confirmed                   Sale[]                 @relation("SaleConfirmedBy")
-  sales_cancelled                   Sale[]                 @relation("SaleCancelledBy")
-  sale_payments_created             SalePayment[]          @relation("SalePaymentCreatedBy")
-  dte_issuer_configs_created        DteIssuerConfig[]      @relation("DteIssuerConfigCreatedBy")
-  dte_issuer_configs_updated        DteIssuerConfig[]      @relation("DteIssuerConfigUpdatedBy")
-  dte_credentials_created           DteCredential[]        @relation("DteCredentialCreatedBy")
-  dte_credentials_updated           DteCredential[]        @relation("DteCredentialUpdatedBy")
+  qr_token                          String?                  @unique
+  created_at                        DateTime                 @default(now())
+  updated_at                        DateTime                 @updatedAt
+  memberships_sold                  ClientMembership[]       @relation("MembershipSales")
+  clients_assigned                  Client[]                 @relation("ClientTrainer")
+  client_profile                    Client?                  @relation("ClientUserLink")
+  created_classes                   ScheduledClass[]         @relation("ClassCreator")
+  trainer_profile                   Trainer?                 @relation("TrainerUserLink")
+  branch                            Branch?                  @relation(fields: [branch_id], references: [id])
+  gym                               Gym                      @relation(fields: [gym_id], references: [id])
+  created_weekly_plan_templates     WeeklyPlanTemplate[]     @relation("TemplateCreator")
+  products_created                  Product[]                @relation("ProductCreatedBy")
+  products_updated                  Product[]                @relation("ProductUpdatedBy")
+  product_locations_created         ProductLocation[]        @relation("ProductLocationCreatedBy")
+  product_locations_updated         ProductLocation[]        @relation("ProductLocationUpdatedBy")
+  inventory_movements_performed     InventoryMovement[]      @relation("MovementPerformedBy")
+  purchases_confirmed               Purchase[]               @relation("PurchaseConfirmedBy")
+  purchases_cancelled               Purchase[]               @relation("PurchaseCancelledBy")
+  purchases_created                 Purchase[]               @relation("PurchaseCreatedBy")
+  purchases_updated                 Purchase[]               @relation("PurchaseUpdatedBy")
+  suppliers_created                 Supplier[]               @relation("SupplierCreatedBy")
+  suppliers_updated                 Supplier[]               @relation("SupplierUpdatedBy")
+  customers_created                 Customer[]               @relation("CustomerCreatedBy")
+  customers_updated                 Customer[]               @relation("CustomerUpdatedBy")
+  sales_created                     Sale[]                   @relation("SaleCreatedBy")
+  sales_updated                     Sale[]                   @relation("SaleUpdatedBy")
+  sales_confirmed                   Sale[]                   @relation("SaleConfirmedBy")
+  sales_cancelled                   Sale[]                   @relation("SaleCancelledBy")
+  sale_payments_created             SalePayment[]            @relation("SalePaymentCreatedBy")
+  dte_issuer_configs_created        DteIssuerConfig[]        @relation("DteIssuerConfigCreatedBy")
+  dte_issuer_configs_updated        DteIssuerConfig[]        @relation("DteIssuerConfigUpdatedBy")
+  dte_credentials_created           DteCredential[]          @relation("DteCredentialCreatedBy")
+  dte_credentials_updated           DteCredential[]          @relation("DteCredentialUpdatedBy")
   dte_environment_audit_logs        DteEnvironmentAuditLog[] @relation("DteEnvironmentAuditLogChangedBy")
-  dte_outgoing_docs_created         DteOutgoingDocument[]  @relation("DteOutgoingDocumentCreatedBy")
-  dte_outgoing_docs_updated         DteOutgoingDocument[]  @relation("DteOutgoingDocumentUpdatedBy")
-  dte_correlatives_baseline_set     DteCorrelative[]       @relation("DteCorrelativeBaselineSetBy")
-  dte_rendered_documents_generated  DteRenderedDocument[]  @relation("DteRenderedDocumentGeneratedBy")
-  dte_deliveries_created            DteDelivery[]          @relation("DteDeliveryCreatedBy")
-  dte_document_relations_created    DteDocumentRelation[]  @relation("DteDocumentRelationCreatedBy")
-  dte_invalidation_events_requested DteInvalidationEvent[] @relation("DteInvalidationEventRequestedBy")
-  dte_contingency_events_requested  DteContingencyEvent[]  @relation("DteContingencyEventRequestedBy")
-  cash_sessions_opened              CashSession[]          @relation("CashSessionOpenedBy")
-  cash_sessions_closed              CashSession[]          @relation("CashSessionClosedBy")
-  cash_movements_performed          CashMovement[]         @relation("CashMovementPerformedBy")
+  dte_outgoing_docs_created         DteOutgoingDocument[]    @relation("DteOutgoingDocumentCreatedBy")
+  dte_outgoing_docs_updated         DteOutgoingDocument[]    @relation("DteOutgoingDocumentUpdatedBy")
+  dte_correlatives_baseline_set     DteCorrelative[]         @relation("DteCorrelativeBaselineSetBy")
+  dte_rendered_documents_generated  DteRenderedDocument[]    @relation("DteRenderedDocumentGeneratedBy")
+  dte_deliveries_created            DteDelivery[]            @relation("DteDeliveryCreatedBy")
+  dte_document_relations_created    DteDocumentRelation[]    @relation("DteDocumentRelationCreatedBy")
+  dte_invalidation_events_requested DteInvalidationEvent[]   @relation("DteInvalidationEventRequestedBy")
+  dte_contingency_events_requested  DteContingencyEvent[]    @relation("DteContingencyEventRequestedBy")
+  cash_sessions_opened              CashSession[]            @relation("CashSessionOpenedBy")
+  cash_sessions_closed              CashSession[]            @relation("CashSessionClosedBy")
+  cash_movements_performed          CashMovement[]           @relation("CashMovementPerformedBy")
 
   @@unique([gym_id, operational_code])
   @@index([gym_id])
@@ -1229,11 +1229,11 @@ model Purchase {
   updated_by String?
 
   // Relaciones
-  supplier          Supplier           @relation(fields: [supplier_id], references: [id])
-  confirmed_by_user User?              @relation("PurchaseConfirmedBy", fields: [confirmed_by], references: [id])
-  cancelled_by_user User?              @relation("PurchaseCancelledBy", fields: [cancelled_by], references: [id])
-  created_by_user   User?              @relation("PurchaseCreatedBy", fields: [created_by], references: [id])
-  updated_by_user   User?              @relation("PurchaseUpdatedBy", fields: [updated_by], references: [id])
+  supplier          Supplier              @relation(fields: [supplier_id], references: [id])
+  confirmed_by_user User?                 @relation("PurchaseConfirmedBy", fields: [confirmed_by], references: [id])
+  cancelled_by_user User?                 @relation("PurchaseCancelledBy", fields: [cancelled_by], references: [id])
+  created_by_user   User?                 @relation("PurchaseCreatedBy", fields: [created_by], references: [id])
+  updated_by_user   User?                 @relation("PurchaseUpdatedBy", fields: [updated_by], references: [id])
   items             PurchaseItem[]
   dte_import        PurchaseDteImport?
   dte_documents     DteOutgoingDocument[]
@@ -1835,11 +1835,11 @@ model DteIssuerConfig {
   updated_by String?
 
   // Relaciones
-  created_by_user    User?                     @relation("DteIssuerConfigCreatedBy", fields: [created_by], references: [id])
-  updated_by_user    User?                     @relation("DteIssuerConfigUpdatedBy", fields: [updated_by], references: [id])
-  credentials        DteCredential[]
-  outgoing_documents DteOutgoingDocument[]
-  correlatives       DteCorrelative[]
+  created_by_user         User?                    @relation("DteIssuerConfigCreatedBy", fields: [created_by], references: [id])
+  updated_by_user         User?                    @relation("DteIssuerConfigUpdatedBy", fields: [updated_by], references: [id])
+  credentials             DteCredential[]
+  outgoing_documents      DteOutgoingDocument[]
+  correlatives            DteCorrelative[]
   environment_switches_to DteEnvironmentAuditLog[] @relation("DteEnvironmentAuditLogNewConfig")
 
   @@unique([tenant_id, location_id, environment])
@@ -1966,9 +1966,9 @@ model DteCorrelative {
 // Relación N desde Sale (en MVP se controla 1 documento FE/CCFE activo por venta
 // mediante regla de servicio, no a nivel de schema).
 model DteOutgoingDocument {
-  id               String  @id @default(uuid())
-  tenant_id        String
-  location_id      String
+  id          String @id @default(uuid())
+  tenant_id   String
+  location_id String
 
   // Origen del hecho económico — exactamente uno debe estar presente.
   // sale_id      → FE 01, CCFE 03, NC 05, FEX 11 (venta).
@@ -2511,6 +2511,21 @@ enum PlatformProvisioningStatus {
   FAILED
 }
 
+// BLOQUE A — Modelo comercial y entitlements.
+// COUNT = capacidad numérica (limitada o ilimitada); BOOLEAN = capacidad on/off.
+enum PlatformEntitlementValueType {
+  COUNT
+  BOOLEAN
+}
+
+// Periodicidad de consumo de una capacidad. NONE = límite estático (no se resetea).
+// MONTHLY = cupo que se resetea cada mes (ej: DTE emitidos/mes). El contador/
+// enforcement real de periodicidad se implementa en un bloque posterior.
+enum PlatformEntitlementPeriodType {
+  NONE
+  MONTHLY
+}
+
 // ── PlatformVertical — verticales de industria ────────────────────
 
 model PlatformVertical {
@@ -2538,6 +2553,11 @@ model PlatformPlan {
   billing_cycle PlatformBillingCycle @default(MONTHLY)
   price_monthly Decimal?             @db.Decimal(10, 2)
   price_annual  Decimal?             @db.Decimal(10, 2)
+  // LEGACY — se conservan por compatibilidad con consumidores existentes
+  // (forms, queries, deployment bundle). El modelo futuro de límites es
+  // PlatformPlanEntitlement con code "core.locations.max". Ver Bloque A,
+  // FASE A7: no hay doble escritura automática — max_locations sigue
+  // siendo la única fuente de verdad hasta que se decida la migración.
   max_locations Int? // null = sin límite
   max_users     Int? // null = sin límite
   is_active     Boolean              @default(true)
@@ -2545,6 +2565,8 @@ model PlatformPlan {
   updated_at    DateTime             @updatedAt
 
   organizations PlatformOrganization[]
+  modules       PlatformPlanModule[]
+  entitlements  PlatformPlanEntitlement[]
 
   @@map("platform_plans")
 }
@@ -2600,15 +2622,16 @@ model PlatformOrganization {
   created_by String? // ID del admin Platform que creó el registro
 
   // Relaciones
-  vertical          PlatformVertical?             @relation(fields: [vertical_id], references: [id])
-  plan              PlatformPlan?                 @relation(fields: [plan_id], references: [id])
-  modules           PlatformOrganizationModule[]
-  branding          PlatformBranding?
-  deployments       PlatformDeploymentLog[]
-  provisioning_logs PlatformProvisioningLog[]
-  export_logs       PlatformDeploymentExportLog[]
-  deployment_jobs   PlatformDeploymentJob[]
-  database_profiles PlatformDatabaseProfile[]
+  vertical              PlatformVertical?                         @relation(fields: [vertical_id], references: [id])
+  plan                  PlatformPlan?                             @relation(fields: [plan_id], references: [id])
+  modules               PlatformOrganizationModule[]
+  branding              PlatformBranding?
+  deployments           PlatformDeploymentLog[]
+  provisioning_logs     PlatformProvisioningLog[]
+  export_logs           PlatformDeploymentExportLog[]
+  deployment_jobs       PlatformDeploymentJob[]
+  database_profiles     PlatformDatabaseProfile[]
+  entitlement_overrides PlatformOrganizationEntitlementOverride[]
 
   @@index([tenant_id])
   @@index([status])
@@ -2640,11 +2663,118 @@ model PlatformModule {
   // Relaciones
   vertical             PlatformVertical?            @relation(fields: [vertical_id], references: [id])
   organization_modules PlatformOrganizationModule[]
+  plan_modules         PlatformPlanModule[]
 
   @@index([category])
   @@index([status])
   @@index([vertical_id])
   @@map("platform_modules")
+}
+
+// ── PlatformPlanModule — módulos incluidos por defecto en un plan ─
+//
+// Representa el baseline de módulos de un plan comercial.
+// PlatformOrganizationModule sigue representando el estado EFECTIVO/
+// materializado por organización (ver getEffectiveOrganizationModules).
+// Precedencia (determinista):
+//   - existe fila PlatformOrganizationModule para (org, module) → esa fila
+//     manda (is_active=true = override "añadido", is_active=false =
+//     override "desactivado" respecto al plan).
+//   - no existe fila → se hereda el plan: enabled = PlatformPlanModule
+//     .is_enabled del módulo en el plan de la organización (ausencia de
+//     PlatformPlanModule también implica no incluido = disabled).
+model PlatformPlanModule {
+  id         String   @id @default(uuid())
+  plan_id    String
+  module_id  String
+  is_enabled Boolean  @default(true)
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  plan   PlatformPlan   @relation(fields: [plan_id], references: [id])
+  module PlatformModule @relation(fields: [module_id], references: [id])
+
+  @@unique([plan_id, module_id])
+  @@index([plan_id])
+  @@index([module_id])
+  @@map("platform_plan_modules")
+}
+
+// ── PlatformEntitlementDefinition — catálogo de capacidades/límites ─
+//
+// Catálogo extensible de entitlements comerciales. Los códigos iniciales
+// (core.locations.max, commerce.products.max, commerce.cash_registers.max,
+// fiscal.dte.monthly_issued) se siembran en seed.platform.ts. GYM no tiene
+// entitlements propios todavía — el modelo permite añadir códigos como
+// "gym.clients.max" en el futuro sin nueva migración estructural.
+model PlatformEntitlementDefinition {
+  id          String                        @id @default(uuid())
+  code        String                        @unique // "core.locations.max", etc.
+  name        String
+  description String?
+  category    String // agrupador libre: "core", "commerce", "fiscal" (futuro: "gym")
+  value_type  PlatformEntitlementValueType  @default(COUNT)
+  period_type PlatformEntitlementPeriodType @default(NONE)
+  is_active   Boolean                       @default(true)
+  created_at  DateTime                      @default(now())
+  updated_at  DateTime                      @updatedAt
+
+  plan_entitlements      PlatformPlanEntitlement[]
+  organization_overrides PlatformOrganizationEntitlementOverride[]
+
+  @@index([category])
+  @@index([is_active])
+  @@map("platform_entitlement_definitions")
+}
+
+// ── PlatformPlanEntitlement — valor por defecto de un entitlement en un plan ─
+//
+// is_unlimited = true → numeric_value se ignora (debe guardarse null).
+// is_unlimited = false → numeric_value es requerido para value_type COUNT.
+// Esta regla se valida en la capa de aplicación (schemas Zod), Prisma no
+// expresa el CHECK condicional de forma portable.
+model PlatformPlanEntitlement {
+  id                        String   @id @default(uuid())
+  plan_id                   String
+  entitlement_definition_id String
+  numeric_value             Int?
+  is_unlimited              Boolean  @default(false)
+  created_at                DateTime @default(now())
+  updated_at                DateTime @updatedAt
+
+  plan                   PlatformPlan                  @relation(fields: [plan_id], references: [id])
+  entitlement_definition PlatformEntitlementDefinition @relation(fields: [entitlement_definition_id], references: [id])
+
+  @@unique([plan_id, entitlement_definition_id])
+  @@index([plan_id])
+  @@index([entitlement_definition_id])
+  @@map("platform_plan_entitlements")
+}
+
+// ── PlatformOrganizationEntitlementOverride — excepción por organización ─
+//
+// La ausencia de override para (organization, entitlement_definition)
+// significa: usar el valor del plan (PlatformPlanEntitlement). Un override
+// NUNCA se copia automáticamente desde el plan — representa una excepción
+// explícita (ver getEffectiveOrganizationEntitlements).
+model PlatformOrganizationEntitlementOverride {
+  id                        String   @id @default(uuid())
+  organization_id           String
+  entitlement_definition_id String
+  numeric_value             Int?
+  is_unlimited              Boolean  @default(false)
+  created_at                DateTime @default(now())
+  updated_at                DateTime @updatedAt
+  created_by                String?
+  updated_by                String?
+
+  organization           PlatformOrganization          @relation(fields: [organization_id], references: [id])
+  entitlement_definition PlatformEntitlementDefinition @relation(fields: [entitlement_definition_id], references: [id])
+
+  @@unique([organization_id, entitlement_definition_id])
+  @@index([organization_id])
+  @@index([entitlement_definition_id])
+  @@map("platform_organization_entitlement_overrides")
 }
 
 // ── PlatformOrganizationModule — módulos activos por organización ─

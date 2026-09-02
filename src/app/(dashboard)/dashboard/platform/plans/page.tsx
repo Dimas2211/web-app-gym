@@ -6,6 +6,8 @@
 
 import { requireSuperAdmin }        from "@/lib/permissions/guards";
 import { listPlatformPlansQuery }   from "@/modules/platform/queries/list-platform-plans";
+import { listPlatformModulesQuery } from "@/modules/platform/queries/list-platform-modules";
+import { listPlatformEntitlementDefinitionsQuery } from "@/modules/platform/queries/list-platform-entitlement-definitions";
 import { PlatformPlansTable }       from "@/modules/platform/components/platform-plans-table";
 
 export const metadata = { title: "Planes — Platform Admin" };
@@ -13,7 +15,11 @@ export const metadata = { title: "Planes — Platform Admin" };
 export default async function PlatformPlansPage() {
   await requireSuperAdmin();
 
-  const plans = await listPlatformPlansQuery(false);
+  const [plans, allModules, entitlementDefinitions] = await Promise.all([
+    listPlatformPlansQuery(false),
+    listPlatformModulesQuery(),
+    listPlatformEntitlementDefinitionsQuery(true),
+  ]);
 
   return (
     <div className="space-y-5">
@@ -24,7 +30,7 @@ export default async function PlatformPlansPage() {
         </p>
       </div>
 
-      <PlatformPlansTable plans={plans} />
+      <PlatformPlansTable plans={plans} allModules={allModules} entitlementDefinitions={entitlementDefinitions} />
     </div>
   );
 }

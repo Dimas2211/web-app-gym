@@ -5,7 +5,7 @@ import { Plus, Pencil, ToggleLeft, ToggleRight } from "lucide-react";
 
 import { togglePlatformPlanStatusAction }   from "../actions/toggle-platform-plan-status.action";
 import { PlatformPlanFormDialog }           from "./platform-plan-form-dialog";
-import type { PlatformPlanItem }            from "../types/platform.types";
+import type { PlatformPlanItem, PlatformModuleItem, PlatformEntitlementDefinitionItem } from "../types/platform.types";
 
 const BILLING_LABELS: Record<string, string> = {
   MONTHLY:  "Mensual",
@@ -23,7 +23,13 @@ function fmtLimit(n: number | null): string {
   return n === null ? "Sin límite" : String(n);
 }
 
-export function PlatformPlansTable({ plans }: { plans: PlatformPlanItem[] }) {
+interface Props {
+  plans:                   PlatformPlanItem[];
+  allModules:               PlatformModuleItem[];
+  entitlementDefinitions:  PlatformEntitlementDefinitionItem[];
+}
+
+export function PlatformPlansTable({ plans, allModules, entitlementDefinitions }: Props) {
   const [showCreate, setShowCreate] = useState(false);
   const [editing, setEditing]       = useState<PlatformPlanItem | null>(null);
   const [toggling, setToggling]     = useState<string | null>(null);
@@ -113,8 +119,21 @@ export function PlatformPlansTable({ plans }: { plans: PlatformPlanItem[] }) {
         </table>
       </div>
 
-      {showCreate && <PlatformPlanFormDialog onClose={() => setShowCreate(false)} />}
-      {editing    && <PlatformPlanFormDialog plan={editing} onClose={() => setEditing(null)} />}
+      {showCreate && (
+        <PlatformPlanFormDialog
+          allModules={allModules}
+          entitlementDefinitions={entitlementDefinitions}
+          onClose={() => setShowCreate(false)}
+        />
+      )}
+      {editing && (
+        <PlatformPlanFormDialog
+          plan={editing}
+          allModules={allModules}
+          entitlementDefinitions={entitlementDefinitions}
+          onClose={() => setEditing(null)}
+        />
+      )}
     </div>
   );
 }

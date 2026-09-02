@@ -3,8 +3,14 @@
 // ─────────────────────────────────────────────────────────────────
 // platform — deactivate-organization-module.action.ts
 //
-// Desactiva un módulo para una organización.
-// Rechaza la desactivación si el módulo tiene is_core = true.
+// Desactiva un módulo para una organización, como OVERRIDE explícito
+// respecto al plan. Rechaza la desactivación si el módulo es is_core.
+//
+// Bloque A (ajuste post-cierre, punto 3): usa upsert, no update. Un
+// módulo puede estar efectivamente HABILITADO por herencia del plan
+// sin tener fila propia en PlatformOrganizationModule — desactivarlo
+// como override debe poder CREAR esa fila con is_active=false, no
+// requerir que ya existiera una fila activa.
 // ─────────────────────────────────────────────────────────────────
 
 import { revalidatePath } from "next/cache";
@@ -46,21 +52,21 @@ export async function deactivateOrganizationModuleAction(
     return { error: `El módulo "${mod.code}" es core y no puede desactivarse.` };
   }
 
-  const orgModule = await prisma.platformOrganizationModule.findUnique({
-    where: { organization_id_module_id: { organization_id, module_id } },
-    select: { id: true, is_active: true },
-  });
-  if (!orgModule || !orgModule.is_active) {
-    return { error: "El módulo ya está desactivado o no ha sido activado para esta organización." };
-  }
-
   await prisma.$transaction(async (tx) => {
-    await tx.platformOrganizationModule.update({
+    await tx.platformOrganizationModule.upsert({
       where: { organization_id_module_id: { organization_id, module_id } },
-      data:  {
+      update: {
         is_active:      false,
         deactivated_at: new Date(),
         updated_by:     sessionUser.id,
+      },
+      create: {
+        organization_id,
+        module_id,
+        is_active:      false,
+        activated_at:   new Date(),
+        deactivated_at: new Date(),
+        created_by:     sessionUser.id,
       },
     });
 

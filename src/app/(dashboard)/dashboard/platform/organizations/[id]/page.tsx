@@ -10,15 +10,16 @@ import { requireSuperAdmin }    from "@/lib/permissions/guards";
 
 import { getPlatformOrganizationByIdQuery } from "@/modules/platform/queries/get-platform-organization-by-id";
 import { listOrganizationModulesQuery }     from "@/modules/platform/queries/list-organization-modules";
-import { listPlatformModulesQuery }         from "@/modules/platform/queries/list-platform-modules";
 import { listPlatformVerticalsQuery }       from "@/modules/platform/queries/list-platform-verticals";
 import { listPlatformPlansQuery }           from "@/modules/platform/queries/list-platform-plans";
 import { getPlatformBrandingQuery }         from "@/modules/platform/queries/get-platform-branding";
 import { listDeploymentLogsQuery }          from "@/modules/platform/queries/list-deployment-logs";
 import { getDteCorrelativeAlignmentPanelDataQuery } from "@/modules/platform/queries/get-dte-correlative-alignment-panel-data";
+import { getEffectiveOrganizationEntitlements, getEffectiveOrganizationModules } from "@/modules/platform/lib/entitlements-resolver";
 
 import { PlatformOrganizationDetail }         from "@/modules/platform/components/platform-organization-detail";
 import { PlatformOrganizationModulesPanel }   from "@/modules/platform/components/platform-organization-modules-panel";
+import { PlatformOrganizationEntitlementsPanel } from "@/modules/platform/components/platform-organization-entitlements-panel";
 import { PlatformLicensePanel }               from "@/modules/platform/components/platform-license-panel";
 import { PlatformOrganizationSettingsPanel }  from "@/modules/platform/components/platform-organization-settings-panel";
 import { PlatformDeploymentSummary }          from "@/modules/platform/components/platform-deployment-summary";
@@ -43,15 +44,16 @@ export default async function PlatformOrganizationDetailPage({ params }: Props) 
 
   const { id } = await params;
 
-  const [org, orgModules, allModules, verticals, plans, branding, logs, dteCorrelatives] = await Promise.all([
+  const [org, orgModules, verticals, plans, branding, logs, dteCorrelatives, effectiveEntitlements, effectiveModules] = await Promise.all([
     getPlatformOrganizationByIdQuery(id),
     listOrganizationModulesQuery(id),
-    listPlatformModulesQuery(),
     listPlatformVerticalsQuery(false),
     listPlatformPlansQuery(false),
     getPlatformBrandingQuery(id),
     listDeploymentLogsQuery(id, 30),
     getDteCorrelativeAlignmentPanelDataQuery(id),
+    getEffectiveOrganizationEntitlements(id),
+    getEffectiveOrganizationModules(id),
   ]);
 
   if (!org) notFound();
@@ -65,11 +67,17 @@ export default async function PlatformOrganizationDetailPage({ params }: Props) 
       {/* Gestión de licencia */}
       <PlatformLicensePanel org={org} />
 
-      {/* Módulos activos por organización */}
+      {/* Módulos — estado efectivo (plan + overrides), Bloque A */}
       <PlatformOrganizationModulesPanel
         organizationId={org.id}
-        orgModules={orgModules}
-        allModules={allModules}
+        effectiveModules={effectiveModules}
+      />
+
+      {/* Bloque A — Límites/capacidades efectivas (plan + overrides) */}
+      <PlatformOrganizationEntitlementsPanel
+        organizationId={org.id}
+        entitlements={effectiveEntitlements}
+        planName={org.plan?.name ?? null}
       />
 
       {/* Configuración operativa */}

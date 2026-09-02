@@ -1,27 +1,54 @@
 /**
  * seed.platform.ts
  *
- * Seeds del dominio Platform (Etapa 16C):
+ * Seeds del dominio Platform (Etapa 16C + Bloque A — modelo comercial):
  *   1. PlatformVertical  — verticales de industria
- *   2. PlatformPlan      — planes de licencia
+ *   2. PlatformPlan      — planes de licencia (registro base, SIN
+ *      composición comercial — ver nota más abajo)
  *   3. PlatformModule    — catálogo de módulos disponibles
- *   4. PlatformOrganization — organización inicial (la instancia GYM activa)
- *   5. PlatformOrganizationModule — módulos activos de la organización inicial
+ *   4. PlatformEntitlementDefinition — catálogo de entitlements/límites
+ *   5. PlatformOrganization — organización inicial (la instancia GYM activa)
+ *   6. PlatformOrganizationModule — módulos activos de la organización inicial
  *
  * Idempotente: usa upsert en todos los registros.
  * No modifica tablas del ERP runtime.
+ *
+ * IMPORTANTE — este seed corre igual en los tres modos (catalogs/base/demo,
+ * ver prisma/seed.ts), incluido "base" (para clientes reales). Por eso NO
+ * siembra `PlatformPlanModule` ni `PlatformPlanEntitlement`: hacerlo
+ * convertiría composición comercial de desarrollo (qué módulos/límites trae
+ * cada plan) en el bootstrap real de cualquier control plane nuevo, sin que
+ * Zolvi haya aprobado esa composición todavía. Los planes `starter`/
+ * `professional`/`enterprise` quedan sembrados como registros base (código,
+ * nombre, ciclo de facturación) SIN módulos ni entitlements — deben
+ * configurarse explícitamente desde Platform Admin (/dashboard/platform/plans)
+ * cuando Zolvi apruebe su composición comercial oficial. Un plan con 0
+ * PlatformPlanModule / 0 PlatformPlanEntitlement es un estado válido: el
+ * resolver ya lo resuelve como UNCONFIGURED/no heredado (ver
+ * entitlements-resolver.ts y sus tests).
+ *
+ * NOTA — GENERAL (Bloque A, FASE A11): la instalación fresca YA NO siembra
+ * la vertical "GENERAL" — no existe ninguna dependencia real de código,
+ * test, FK ni documentación que la requiera (Commerce transversal usa
+ * vertical_id = null). Una base existente que ya tenga GENERAL sembrada de
+ * antes NO se toca (este seed nunca borra) — queda como registro legacy
+ * hasta una limpieza manual futura. Ver docs/context/current-state.md.
  */
 
 import { PrismaClient } from "@prisma/client";
 
 // ── Constantes de catálogo ────────────────────────────────────────
 
+// Bloque A, FASE A11 (hardening) — "GENERAL" retirada deliberadamente de
+// esta lista. Commerce transversal usa vertical_id = null, no una vertical
+// GENERAL — ver nota en el docblock de arriba. Una base existente que ya
+// tenga la fila GENERAL de un seed anterior no se ve afectada: este archivo
+// nunca hace DELETE.
 const VERTICALS = [
   { code: "GYM",        name: "Gimnasio",              description: "Gestión de membresías, clases y entrenadores" },
   { code: "RETAIL",     name: "Retail / Comercio",     description: "Punto de venta y gestión comercial" },
   { code: "CLINIC",     name: "Clínica / Salud",       description: "Gestión de pacientes, citas y expedientes médicos" },
   { code: "VETERINARY", name: "Veterinaria",           description: "Gestión de pacientes animales y consultas veterinarias" },
-  { code: "GENERAL",    name: "General",               description: "Vertical genérica para negocios sin categoría específica" },
 ] as const;
 
 const PLANS = [
@@ -78,6 +105,15 @@ const MODULES = [
   { code: "gym.trainers",     name: "Entrenadores",        category: "VERTICAL" as const, is_core: false, vertical_code: "GYM" },
   { code: "gym.classes",      name: "Clases",              category: "VERTICAL" as const, is_core: false, vertical_code: "GYM" },
   { code: "gym.weekly_plans", name: "Planes semanales",    category: "VERTICAL" as const, is_core: false, vertical_code: "GYM" },
+] as const;
+
+// Bloque A — catálogo inicial de entitlements/límites comerciales.
+const ENTITLEMENT_DEFINITIONS = [
+  { code: "core.users.max",              name: "Usuarios",       category: "core",     period: "NONE" as const },
+  { code: "core.locations.max",          name: "Sucursales",     category: "core",     period: "NONE" as const },
+  { code: "commerce.products.max",       name: "Productos",      category: "commerce", period: "NONE" as const },
+  { code: "commerce.cash_registers.max", name: "Cajas",          category: "commerce", period: "NONE" as const },
+  { code: "fiscal.dte.monthly_issued",   name: "DTE mensuales",  category: "fiscal",   period: "MONTHLY" as const },
 ] as const;
 
 // Módulos activos en la organización GYM inicial — todos los operativos actuales
@@ -159,7 +195,31 @@ export async function seedPlatform(prisma: PrismaClient): Promise<void> {
     });
   }
 
-  // ── 4. Organización inicial (instancia GYM activa) ───────────
+  // ── 4. Entitlement definitions (Bloque A) ─────────────────────
+  console.log("  → Catálogo de entitlements...");
+  for (const e of ENTITLEMENT_DEFINITIONS) {
+    await prisma.platformEntitlementDefinition.upsert({
+      where:  { code: e.code },
+      update: { name: e.name, category: e.category, period_type: e.period },
+      create: {
+        code:        e.code,
+        name:        e.name,
+        category:    e.category,
+        value_type:  "COUNT",
+        period_type: e.period,
+        is_active:   true,
+      },
+    });
+  }
+
+  // Bloque A (hardening) — deliberadamente NO se siembra PlatformPlanModule
+  // ni PlatformPlanEntitlement aquí. Ver nota en el docblock del archivo:
+  // este seed corre también en modo "base" (clientes reales) y la
+  // composición comercial de los planes todavía no está aprobada por
+  // Zolvi. Un plan con 0 PlatformPlanModule / 0 PlatformPlanEntitlement es
+  // un estado válido — se configura desde Platform Admin cuando corresponda.
+
+  // ── 5. Organización inicial (instancia GYM activa) ───────────
   console.log("  → Organización inicial (GYM)...");
 
   const gymVertical = await prisma.platformVertical.findUnique({ where: { code: "GYM" } });
@@ -198,7 +258,7 @@ export async function seedPlatform(prisma: PrismaClient): Promise<void> {
     },
   });
 
-  // ── 5. Módulos activos de la organización inicial ────────────
+  // ── 6. Módulos activos de la organización inicial ────────────
   console.log("  → Módulos activos de la organización GYM...");
 
   const moduleMap: Record<string, string> = {};
@@ -228,14 +288,14 @@ export async function seedPlatform(prisma: PrismaClient): Promise<void> {
     });
   }
 
-  // ── 6. Branding inicial (vacío) ──────────────────────────────
+  // ── 7. Branding inicial (vacío) ──────────────────────────────
   await prisma.platformBranding.upsert({
     where:  { organization_id: gymOrg.id },
     update: {},
     create: { organization_id: gymOrg.id },
   });
 
-  // ── 7. Log de deployment inicial ────────────────────────────
+  // ── 8. Log de deployment inicial ────────────────────────────
   const existingLog = await prisma.platformDeploymentLog.findFirst({
     where: { organization_id: gymOrg.id, action: "INITIAL_SEED" },
   });

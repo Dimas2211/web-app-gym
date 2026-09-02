@@ -22,6 +22,8 @@ export async function listPlatformPlansQuery(
       max_users:     true,
       is_active:     true,
       created_at:    true,
+      modules:      { select: { module_id: true, is_enabled: true } },
+      entitlements: { select: { entitlement_definition_id: true, numeric_value: true, is_unlimited: true } },
     },
     orderBy: { name: "asc" },
   });
@@ -38,5 +40,11 @@ export async function listPlatformPlansQuery(
     max_users:     r.max_users,
     is_active:     r.is_active,
     created_at:    r.created_at,
+    modules:      r.modules.map((m) => ({ module_id: m.module_id, is_enabled: m.is_enabled })),
+    entitlements: r.entitlements.map((e) => ({
+      entitlement_definition_id: e.entitlement_definition_id,
+      numeric_value:             e.numeric_value,
+      is_unlimited:               e.is_unlimited,
+    })),
   }));
 }
