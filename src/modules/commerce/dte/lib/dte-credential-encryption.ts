@@ -18,6 +18,12 @@ export interface DteCredentialPayload {
   signerUrl:                string; // URL del firmador DTE externo
   signerNit:                string; // NIT del emisor para el firmador
   signerPrivateKeyPassword: string; // contraseña de la llave privada
+  // SIGNERPROFILE-MULTITENANT — campo agregado sin migración (vive dentro del
+  // envelope cifrado, no es columna nueva). Header X-DTE-Signer-Key propio de
+  // este emisor/ambiente para su firmador dedicado. Opcional: si no está
+  // presente, el resolver cae al DTE_SIGNER_API_KEY global de proceso. Ver
+  // resolveDteSignerConfigForIssuer en dte-credential.service.ts.
+  signerApiKey?:             string;
 }
 
 // ── Funciones de cifrado/descifrado ──────────────────────────────

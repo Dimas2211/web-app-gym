@@ -126,6 +126,18 @@ export function DteCredentialFormDialog({ issuerConfigId, environment, status, o
             />
           </div>
 
+          <div>
+            <label className="block text-xs font-semibold text-zinc-600 mb-1">
+              API Key del firmador (opcional)
+            </label>
+            <input
+              type="password"
+              name="signerApiKey"
+              placeholder="•••••••• (dejar en blanco para conservar / usar la global)"
+              className="w-full h-9 px-3 text-sm border border-zinc-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-zinc-900"
+            />
+          </div>
+
           <div className="flex justify-end gap-3 pt-1">
             <button
               type="button"

@@ -3,6 +3,10 @@
 Cierre técnico: FSE 14 + separación permanente de firmadores TEST/PRODUCTION.
 Fecha del incidente 802 y de este cierre: 25/08/2026.
 
+> Este routing por ambiente se reutilizó, sin cambios, en el primer cierre
+> FSE14 TEST sobre runtime multiindustria (cliente TrustMe, 01/09/2026).
+> Ver docs/modules/dte-trustme-fse14-test-closure.md.
+
 ## 1. Qué problema resolvió esto
 
 TEST y PRODUCTION de Hacienda (MH) son **criptográficamente independientes**.

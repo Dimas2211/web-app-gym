@@ -38,6 +38,7 @@ export async function upsertDteCredentialAction(
     signerUrl:                 formData.get("signerUrl") || undefined,
     signerNit:                 formData.get("signerNit") || undefined,
     signerPrivateKeyPassword:  formData.get("signerPrivateKeyPassword") || undefined,
+    signerApiKey:              formData.get("signerApiKey") || undefined,
   };
 
   const parsed = upsertDteCredentialSchema.safeParse(raw);
@@ -61,6 +62,7 @@ export async function upsertDteCredentialAction(
     signerUrl:                 parsed.data.signerUrl,
     signerNit:                 parsed.data.signerNit,
     signerPrivateKeyPassword:  parsed.data.signerPrivateKeyPassword,
+    signerApiKey:              parsed.data.signerApiKey,
   });
 
   if (!result.ok) {

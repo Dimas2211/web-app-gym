@@ -75,12 +75,47 @@ export function resolveDteSignerConfig(environment: DteMhEnvironment): DteSigner
     );
   }
 
+  return buildDteSignerConfig(signerUrl);
+}
+
+// ── SIGNERPROFILE-MULTITENANT ────────────────────────────────────────
+//
+// Construye un DteSignerConfig a partir de una signerUrl explícita (por
+// ejemplo, la guardada por emisor en DteCredential.encrypted_payload vía
+// resolveDteSignerConfigForIssuer en dte-credential.service.ts), en lugar
+// de resolverla desde DTE_SIGNER_URL_TEST/PRODUCTION.
+//
+// apiKey es opcional: si el emisor no tiene su propia clave configurada,
+// cae al DTE_SIGNER_API_KEY global de proceso (mismo comportamiento que
+// resolveDteSignerConfig). timeoutMs siempre viene de DTE_SIGNER_TIMEOUT_MS
+// global — no forma parte del payload por-emisor en este bloque.
+//
+// Pura y sin fallback cruzado de ambiente: quien llama ya decidió la
+// signerUrl correcta para el ambiente que corresponde.
+export function buildDteSignerConfig(signerUrl: string, apiKey?: string): DteSignerConfig {
   return {
     signerUrl,
     timeoutMs: resolveTimeoutMs(),
     healthUrl: resolveHealthUrl(signerUrl),
-    apiKey:    resolveApiKey(),
+    apiKey:    apiKey ?? resolveApiKey(),
   };
+}
+
+// Resumen seguro para logs — nunca imprime apiKey, solo si está configurada.
+// Usado por resolveDteSignerConfigForIssuer para dejar trazabilidad de qué
+// firmador se resolvió (origen, host/ruta, timeout) sin exponer secretos.
+export function summarizeDteSignerConfigForLog(config: DteSignerConfig, source: string): string {
+  let hostPath = "(url no parseable)";
+  try {
+    const u = new URL(config.signerUrl);
+    hostPath = `${u.protocol}//${u.host}${u.pathname}`;
+  } catch {
+    // deja el valor por defecto — nunca lanzar desde una función de logging
+  }
+  return (
+    `[dte-signer] source=${source} url=${hostPath} ` +
+    `apiKey=${config.apiKey ? "configurada" : "no configurada"} timeoutMs=${config.timeoutMs}`
+  );
 }
 
 // ── DEPRECATED ────────────────────────────────────────────────────

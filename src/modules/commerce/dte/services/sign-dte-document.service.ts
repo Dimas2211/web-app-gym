@@ -6,7 +6,10 @@
 //
 // Reglas:
 //   - Solo opera sobre dte_status === "SCHEMA_VALIDATED".
-//   - Lee credenciales de DTE_SIGNER_NIT y DTE_SIGNER_PASSWORD (env).
+//   - Resuelve firmador + credenciales vía resolveDteSignerConfigForIssuer
+//     (issuer_config_id → DteCredential por emisor/ambiente; si no hay
+//     credencial de emisor utilizable, cae a DTE_SIGNER_NIT/PASSWORD +
+//     DTE_SIGNER_URL_TEST/PRODUCTION global). Ver dte-credential.service.ts.
 //   - Si firma bien: dte_status → SIGNED, guarda signed_jws y signed_at.
 //   - Si falla: mantiene SCHEMA_VALIDATED, incrementa retry_count.
 //   - Registra DteTransmissionLog en ambos casos.
@@ -14,7 +17,8 @@
 // ─────────────────────────────────────────────────────────────────
 
 import { prisma }                 from "@/lib/db/prisma";
-import { resolveDteSignerConfig, DteSignerConfigError } from "../config/dte-signer.config";
+import { DteSignerConfigError }   from "../config/dte-signer.config";
+import { resolveDteSignerConfigForIssuer } from "./dte-credential.service";
 import { MhHttpDteSignerAdapter } from "../adapters/dte-signer.adapter";
 import type { DteMhEnvironment }  from "../types/dte-mh-auth.types";
 
@@ -64,12 +68,13 @@ export async function signDteDocument(
     const dteDoc = await prisma.dteOutgoingDocument.findFirst({
       where:  { id: dteDocumentId, tenant_id: tenantId, location_id: locationId },
       select: {
-        id:            true,
-        dte_status:    true,
-        json_document: true,
-        signed_jws:    true,
-        retry_count:   true,
-        environment:   true,
+        id:               true,
+        dte_status:       true,
+        json_document:    true,
+        signed_jws:       true,
+        retry_count:      true,
+        environment:      true,
+        issuer_config_id: true,
       },
     });
 
@@ -98,17 +103,22 @@ export async function signDteDocument(
       );
     }
 
-    // 4. Credenciales desde variables de entorno
-    const rawNit      = process.env["DTE_SIGNER_NIT"];
-    const passwordPri = process.env["DTE_SIGNER_PASSWORD"];
+    // 4. Resolver firmador + credenciales — SIGNERPROFILE-MULTITENANT.
+    //    Prioridad: DteCredential del issuer_config_id del documento
+    //    (signerUrl/signerNit/signerPrivateKeyPassword por emisor/ambiente).
+    //    Si no hay credencial de emisor utilizable, cae al comportamiento
+    //    anterior (DTE_SIGNER_NIT/DTE_SIGNER_PASSWORD + resolveDteSignerConfig
+    //    global). Nunca cruza ambientes. Ver dte-credential.service.ts.
+    const signerResolution = await resolveDteSignerConfigForIssuer({
+      issuerConfigId: dteDoc.issuer_config_id,
+      environment:    dteDoc.environment as DteMhEnvironment,
+    });
 
-    if (!rawNit || !passwordPri) {
-      throw new SignDteBusinessError(
-        "Credenciales del firmador DTE no configuradas.",
-      );
+    if (!signerResolution.ok) {
+      throw new SignDteBusinessError(signerResolution.error);
     }
 
-    const nit = rawNit.replace(/-/g, "");
+    const { config: signerConfig, nit, passwordPri } = signerResolution;
 
     // 5. Parsear json_document (Prisma Json puede venir como objeto o string)
     let dteJson: unknown;
@@ -123,9 +133,7 @@ export async function signDteDocument(
       );
     }
 
-    // 6. Resolver signer por el ambiente real del documento (nunca por UI
-    //    ni por env global) y llamarlo.
-    const signerConfig  = resolveDteSignerConfig(dteDoc.environment as DteMhEnvironment);
+    // 6. Llamar al firmador ya resuelto en el paso 4.
     const { signerUrl } = signerConfig;
     const adapter        = new MhHttpDteSignerAdapter();
     const attemptNumber  = dteDoc.retry_count + 1;

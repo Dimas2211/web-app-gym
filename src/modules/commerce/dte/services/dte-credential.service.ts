@@ -21,12 +21,22 @@
 // vía src/lib/security/encryption.ts. No se agrega el paquete `server-only`
 // para mantener consistencia con el resto del módulo DTE.
 
+import type { PrismaClient } from "@prisma/client";
+
 import { prisma } from "@/lib/db/prisma";
 import {
   encryptDteCredentialPayload,
   decryptDteCredentialPayload,
   type DteCredentialPayload,
 } from "../lib/dte-credential-encryption";
+import {
+  resolveDteSignerConfig,
+  buildDteSignerConfig,
+  summarizeDteSignerConfigForLog,
+  DteSignerConfigError,
+  type DteSignerConfig,
+} from "../config/dte-signer.config";
+import type { DteMhEnvironment } from "../types/dte-mh-auth.types";
 
 const CREDENTIAL_TYPE = "MH_CREDENTIALS";
 
@@ -126,6 +136,7 @@ export interface UpsertDteCredentialInput {
   signerUrl?:                string;
   signerNit?:                string;
   signerPrivateKeyPassword?: string;
+  signerApiKey?:             string;
 }
 
 export type UpsertDteCredentialResult =
@@ -151,7 +162,7 @@ export async function upsertDteCredential(
   });
 
   let current: DteCredentialPayload = {
-    apiUser: "", apiPassword: "", signerUrl: "", signerNit: "", signerPrivateKeyPassword: "",
+    apiUser: "", apiPassword: "", signerUrl: "", signerNit: "", signerPrivateKeyPassword: "", signerApiKey: "",
   };
   if (existing?.encrypted_payload) {
     try {
@@ -168,6 +179,7 @@ export async function upsertDteCredential(
     signerUrl:                input.signerUrl?.trim()                || current.signerUrl,
     signerNit:                input.signerNit?.trim()                || current.signerNit,
     signerPrivateKeyPassword: input.signerPrivateKeyPassword         || current.signerPrivateKeyPassword,
+    signerApiKey:             input.signerApiKey?.trim()             || current.signerApiKey,
   };
 
   const encrypted_payload = encryptDteCredentialPayload(merged);
@@ -258,4 +270,130 @@ export async function resolveMhAuthCredentials(params: {
     ok:    false,
     error: "No hay credenciales MH configuradas (ni DteCredential ni fallback .env) para el ambiente TEST.",
   };
+}
+
+// ── SIGNERPROFILE-MULTITENANT — resolución del firmador por emisor ────
+//
+// Bloque de arquitectura: preparar el firmador para multi-cliente/multi-NIT
+// sin romper TrustMe (ver docs/modules/dte-trustme-fse14-test-closure.md §8.1
+// y §9.1). Decisión de diseño: NO se crea una tabla nueva DteSignerProfile.
+// DteCredential ya modela exactamente esto — un registro por
+// issuer_config_id (que ya encapsula tenant+location+environment vía la
+// constraint única de DteIssuerConfig) con signerUrl/signerNit/
+// signerPrivateKeyPassword cifrados. Este bloque solo agrega el resolver que
+// faltaba para que signDteDocument() y los runners de soporte lean esos
+// campos en vez de depender siempre de DTE_SIGNER_URL_TEST/PRODUCTION +
+// DTE_SIGNER_NIT/PASSWORD globales.
+//
+// Orden de resolución:
+//   1. DteCredential activa de issuer_config_id (credential_type=MH_CREDENTIALS)
+//      con signerNit + signerPrivateKeyPassword utilizables. Si además trae
+//      signerUrl, se usa para construir el DteSignerConfig (con
+//      signerApiKey opcional); si no trae signerUrl, la URL/apiKey/timeout
+//      se resuelven igual que el fallback global para ese mismo `environment`.
+//   2. (Reservado, no implementado en este bloque) SignerProfile a nivel
+//      tenant/organización. `tenantId` ya forma parte de la firma de esta
+//      función para no tener que cambiar todos los callers cuando se
+//      implemente ese nivel intermedio.
+//   3. Fallback global: resolveDteSignerConfig(environment) +
+//      DTE_SIGNER_NIT/DTE_SIGNER_PASSWORD — comportamiento idéntico al que
+//      ya usaba signDteDocument() antes de este bloque.
+//
+// Nunca resuelve cruzado entre ambientes: `environment` es siempre el valor
+// real del registro que se está firmando (dte.environment), nunca una
+// preferencia de UI. issuer_config_id ya pertenece a un único ambiente por
+// diseño (constraint @@unique([tenant_id, location_id, environment]) en
+// DteIssuerConfig), así que el propio id desambigua TEST/PRODUCTION antes
+// de tocar ninguna variable global.
+//
+// No lanza — devuelve unión discriminada. Loguea solo un resumen seguro
+// (origen, host/ruta, apiKey sí/no, timeoutMs) vía
+// summarizeDteSignerConfigForLog — nunca secrets, nunca signed_jws.
+//
+// `client` permite reutilizar este resolver contra un PrismaClient runtime
+// (Runtime Database Router) en vez del Prisma Client global — mismo patrón
+// que el resto de fse14-test-purchase-runner.ts.
+
+type DteCredentialQueryClient = Pick<PrismaClient, "dteCredential">;
+
+export interface ResolvedDteSignerConfigForIssuer {
+  ok:          true;
+  source:      "ISSUER_CREDENTIAL" | "GLOBAL_ENV";
+  config:      DteSignerConfig;
+  nit:         string;
+  passwordPri: string;
+}
+export interface UnresolvedDteSignerConfigForIssuer {
+  ok:    false;
+  error: string;
+}
+
+export async function resolveDteSignerConfigForIssuer(params: {
+  issuerConfigId?: string | null;
+  /** Reservado para un futuro nivel de fallback tenant/organización. No usado todavía. */
+  tenantId?: string;
+  environment: DteMhEnvironment;
+  client?: DteCredentialQueryClient;
+}): Promise<ResolvedDteSignerConfigForIssuer | UnresolvedDteSignerConfigForIssuer> {
+  const { issuerConfigId, environment, client } = params;
+  const db = client ?? prisma;
+
+  try {
+    if (issuerConfigId) {
+      const row = await db.dteCredential.findFirst({
+        where:  { issuer_config_id: issuerConfigId, credential_type: CREDENTIAL_TYPE, is_active: true },
+        select: { encrypted_payload: true },
+      });
+
+      if (row?.encrypted_payload) {
+        try {
+          const payload = decryptDteCredentialPayload(row.encrypted_payload);
+          if (payload.signerNit?.trim() && payload.signerPrivateKeyPassword?.trim()) {
+            const config = payload.signerUrl?.trim()
+              ? buildDteSignerConfig(payload.signerUrl.trim(), payload.signerApiKey?.trim() || undefined)
+              : resolveDteSignerConfig(environment);
+
+            console.info(summarizeDteSignerConfigForLog(config, "ISSUER_CREDENTIAL"));
+
+            return {
+              ok:          true,
+              source:      "ISSUER_CREDENTIAL",
+              config,
+              nit:         payload.signerNit.replace(/-/g, "").trim(),
+              passwordPri: payload.signerPrivateKeyPassword,
+            };
+          }
+        } catch {
+          // Payload ilegible (rotación de clave, corrupción) — cae al
+          // fallback global, mismo criterio que resolveMhAuthCredentials.
+        }
+      }
+    }
+
+    // Fallback global — mismas variables que usaba signDteDocument() antes
+    // de este bloque. Nunca cruza ambientes.
+    const config      = resolveDteSignerConfig(environment);
+    const rawNit      = process.env["DTE_SIGNER_NIT"];
+    const passwordPri = process.env["DTE_SIGNER_PASSWORD"];
+
+    if (!rawNit?.trim() || !passwordPri?.trim()) {
+      return {
+        ok:    false,
+        error: "Credenciales del firmador DTE no configuradas (DTE_SIGNER_NIT / DTE_SIGNER_PASSWORD).",
+      };
+    }
+
+    console.info(summarizeDteSignerConfigForLog(config, "GLOBAL_ENV"));
+
+    return {
+      ok:          true,
+      source:      "GLOBAL_ENV",
+      config,
+      nit:         rawNit.replace(/-/g, "").trim(),
+      passwordPri,
+    };
+  } catch (err) {
+    if (err instanceof DteSignerConfigError) return { ok: false, error: err.message };
+    throw err;
+  }
 }

@@ -14,6 +14,10 @@ export const upsertDteCredentialSchema = z.object({
   signerUrl: z.string().trim().max(300).optional(),
   signerNit: z.string().trim().max(20).optional(),
   signerPrivateKeyPassword: z.string().max(200).optional(),
+  // SIGNERPROFILE-MULTITENANT — header X-DTE-Signer-Key propio de este
+  // emisor/ambiente. Opcional: en blanco, resolveDteSignerConfigForIssuer
+  // cae al DTE_SIGNER_API_KEY global.
+  signerApiKey: z.string().max(200).optional(),
 });
 
 export type UpsertDteCredentialFormInput = z.infer<typeof upsertDteCredentialSchema>;

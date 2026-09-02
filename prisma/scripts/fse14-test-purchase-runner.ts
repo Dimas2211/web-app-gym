@@ -188,7 +188,7 @@ import {
 import type { FseJsonDocument } from "../../src/modules/commerce/dte/types/fse-json.types";
 import { FSE_ELIGIBLE_DOCUMENT_TYPES } from "../../src/modules/commerce/purchases/constants/purchase-document.constants";
 import fseSchema from "../../src/modules/commerce/dte/schemas/mh/fse-14.schema.json";
-import { resolveDteSignerConfig, DteSignerConfigError } from "../../src/modules/commerce/dte/config/dte-signer.config";
+import { resolveDteSignerConfigForIssuer } from "../../src/modules/commerce/dte/services/dte-credential.service";
 import { MhHttpDteSignerAdapter } from "../../src/modules/commerce/dte/adapters/dte-signer.adapter";
 import { resolveDteMhUrls } from "../../src/modules/commerce/dte/config/dte-mh.config";
 import { MhDteTransmissionAdapter } from "../../src/modules/commerce/dte/adapters/dte-transmission.adapter";
@@ -739,6 +739,7 @@ async function stepSign(client: PrismaClient, tenantId: string, mode: Mode) {
     select: {
       id: true, dte_type_code: true, dte_status: true, json_document: true,
       signed_jws: true, retry_count: true, environment: true, control_number: true,
+      issuer_config_id: true,
     },
   });
   if (!dteDoc) throw new RunnerInputError("El DteOutgoingDocument no existe en el tenant runtime.");
@@ -762,23 +763,21 @@ async function stepSign(client: PrismaClient, tenantId: string, mode: Mode) {
   console.log(`\n[SIGN] dte=${dteDoc.id} control_number=${dteDoc.control_number} status actual=${dteDoc.dte_status}`);
   console.log(`[SIGN] actor (updated_by): ${actorId ?? "NULL (sin --actor)"}`);
 
-  // Credenciales del firmador — mismas variables que sign-dte-document.service.ts.
-  const rawNit      = process.env["DTE_SIGNER_NIT"];
-  const passwordPri = process.env["DTE_SIGNER_PASSWORD"];
-  if (!rawNit || !passwordPri) {
-    throw new RunnerInputError("Credenciales del firmador DTE no configuradas (DTE_SIGNER_NIT / DTE_SIGNER_PASSWORD).");
+  // SIGNERPROFILE-MULTITENANT — resolver firmador + credenciales por
+  // issuer_config_id (DteCredential del emisor), con fallback a las
+  // variables globales DTE_SIGNER_NIT/PASSWORD + DTE_SIGNER_URL_TEST. SOLO
+  // TEST — se pasa "TEST" explícito, nunca "PRODUCTION" en este step.
+  const signerResolution = await resolveDteSignerConfigForIssuer({
+    issuerConfigId: dteDoc.issuer_config_id,
+    tenantId,
+    environment: "TEST",
+    client,
+  });
+  if (!signerResolution.ok) {
+    throw new RunnerInputError(signerResolution.error);
   }
-  const nit = rawNit.replace(/-/g, "");
-
-  // Resolver signer SOLO para TEST — nunca "PRODUCTION" en este step.
-  let signerConfig;
-  try {
-    signerConfig = resolveDteSignerConfig("TEST");
-  } catch (err) {
-    if (err instanceof DteSignerConfigError) throw new RunnerInputError(err.message);
-    throw err;
-  }
-  console.log(`[SIGN] firmador TEST resuelto: ${safeSignerHost(signerConfig.signerUrl)}`);
+  const { config: signerConfig, nit, passwordPri } = signerResolution;
+  console.log(`[SIGN] firmador resuelto (fuente=${signerResolution.source}): ${safeSignerHost(signerConfig.signerUrl)}`);
   console.log(`[SIGN] healthUrl: ${safeSignerHost(signerConfig.healthUrl)} timeoutMs=${signerConfig.timeoutMs}`);
   console.log(`[SIGN] apiKey configurada: ${signerConfig.apiKey ? "sí (no se imprime)" : "NO — el firmador remoto puede responder 403"}`);
 
