@@ -22,6 +22,7 @@ import { getTopSoldServices }         from "@/modules/commerce/reports/queries/g
 import { getServiceSalesDistribution }from "@/modules/commerce/reports/queries/get-service-sales-distribution";
 import { getProductVsServiceSales }   from "@/modules/commerce/reports/queries/get-product-vs-service-sales";
 import { getPurchasesBySupplier }     from "@/modules/commerce/reports/queries/get-purchases-by-supplier";
+import { resolveEnabledReportModules } from "@/app/api/reports/reports-enforcement";
 
 const ALLOWED_ROLES = ["super_admin", "branch_admin", "reception"];
 
@@ -57,6 +58,18 @@ export async function GET(req: NextRequest) {
     date_to,
   };
 
+  // Bloque B (cierre reporting) — reporte COMPUESTO: resuelve el
+  // Commercial Enforcement Context UNA sola vez y decide, sección por
+  // sección, qué query ejecutar. No exige TODOS los módulos para
+  // responder ni ANY-habilita-TODO. `summary` mezcla ventas+compras en
+  // un único objeto no separable sin cambiar su forma (margen =
+  // ventas − compras) — se calcula solo si AMBOS módulos están
+  // habilitados; el resto de secciones se resuelve de forma
+  // independiente por su propio module code.
+  const { isEnabled } = await resolveEnabledReportModules(user.tenant_id);
+  const salesEnabled = isEnabled("commerce.sales");
+  const purchasesEnabled = isEnabled("commerce.purchases");
+
   const [
     summary,
     sales_by_period,
@@ -69,16 +82,16 @@ export async function GET(req: NextRequest) {
     product_vs_service,
     purchases_by_supplier,
   ] = await Promise.all([
-    getCommerceReportSummary(filters),
-    getSalesByPeriod(filters),
-    getPurchasesByPeriod(filters),
-    getTopSoldProducts(filters, 10, "total"),
-    getTopSoldProducts(filters, 10, "quantity"),
-    getTopSoldServices(filters, 10, "total"),
-    getTopSoldServices(filters, 10, "quantity"),
-    getServiceSalesDistribution(filters),
-    getProductVsServiceSales(filters),
-    getPurchasesBySupplier(filters),
+    salesEnabled && purchasesEnabled ? getCommerceReportSummary(filters) : Promise.resolve(null),
+    salesEnabled     ? getSalesByPeriod(filters)                    : Promise.resolve(null),
+    purchasesEnabled ? getPurchasesByPeriod(filters)                : Promise.resolve(null),
+    salesEnabled     ? getTopSoldProducts(filters, 10, "total")     : Promise.resolve(null),
+    salesEnabled     ? getTopSoldProducts(filters, 10, "quantity")  : Promise.resolve(null),
+    salesEnabled     ? getTopSoldServices(filters, 10, "total")     : Promise.resolve(null),
+    salesEnabled     ? getTopSoldServices(filters, 10, "quantity")  : Promise.resolve(null),
+    salesEnabled     ? getServiceSalesDistribution(filters)         : Promise.resolve(null),
+    salesEnabled     ? getProductVsServiceSales(filters)            : Promise.resolve(null),
+    purchasesEnabled ? getPurchasesBySupplier(filters)              : Promise.resolve(null),
   ]);
 
   return NextResponse.json({
@@ -92,5 +105,9 @@ export async function GET(req: NextRequest) {
     service_distribution,
     product_vs_service,
     purchases_by_supplier,
+    _module_availability: {
+      "commerce.sales":     salesEnabled,
+      "commerce.purchases": purchasesEnabled,
+    },
   });
 }

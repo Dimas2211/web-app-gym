@@ -17,6 +17,18 @@ import {
   recordAttendanceSchema,
 } from "./schemas";
 import { validateClassWithinTrainerAvailability } from "@/modules/trainers/availability-validator";
+import {
+  resolveCommercialEnforcementContext,
+  assertOrganizationModule,
+  CommercialEnforcementError,
+} from "@/modules/platform/runtime/commercial-enforcement";
+
+// Bloque B — guard central de este archivo: class types, clases
+// programadas, reservas y asistencia requieren gym.classes.
+async function assertClassesModule(tenantId: string): Promise<void> {
+  const commercialCtx = await resolveCommercialEnforcementContext(tenantId);
+  assertOrganizationModule(commercialCtx, "gym.classes");
+}
 
 export type ClassActionState =
   | { errors?: Record<string, string[]>; error?: string }
@@ -36,6 +48,13 @@ export async function createClassTypeAction(
   formData: FormData
 ): Promise<ClassActionState> {
   const sessionUser = await requireAdmin();
+
+  try {
+    await assertClassesModule(sessionUser.tenant_id);
+  } catch (err) {
+    if (err instanceof CommercialEnforcementError) return { error: err.userMessage };
+    throw err;
+  }
 
   const raw = {
     code: n(formData.get("code")),
@@ -69,6 +88,13 @@ export async function updateClassTypeAction(
   });
   if (!existing) return { error: "Tipo de clase no encontrado." };
 
+  try {
+    await assertClassesModule(sessionUser.tenant_id);
+  } catch (err) {
+    if (err instanceof CommercialEnforcementError) return { error: err.userMessage };
+    throw err;
+  }
+
   const raw = {
     code: n(formData.get("code")),
     name: formData.get("name"),
@@ -97,6 +123,13 @@ export async function toggleClassTypeStatusAction(
     where: { id, tenant_id: sessionUser.tenant_id },
   });
   if (!target) return;
+
+  try {
+    await assertClassesModule(sessionUser.tenant_id);
+  } catch (err) {
+    if (err instanceof CommercialEnforcementError) return;
+    throw err;
+  }
 
   await prisma.classType.update({
     where: { id },
@@ -152,6 +185,14 @@ export async function createScheduledClassAction(
   formData: FormData
 ): Promise<ClassActionState> {
   const sessionUser = await requireAdmin();
+
+  try {
+    await assertClassesModule(sessionUser.tenant_id);
+  } catch (err) {
+    if (err instanceof CommercialEnforcementError) return { error: err.userMessage };
+    throw err;
+  }
+
   const raw = parseClassFormData(formData);
 
   // Scope check: branch_admin solo puede crear en su sucursal
@@ -250,6 +291,13 @@ export async function updateScheduledClassAction(
     return { error: "Sin permiso para editar esta clase." };
   }
 
+  try {
+    await assertClassesModule(sessionUser.tenant_id);
+  } catch (err) {
+    if (err instanceof CommercialEnforcementError) return { error: err.userMessage };
+    throw err;
+  }
+
   const raw = parseClassFormData(formData);
   const parsed = updateScheduledClassSchema.safeParse(raw);
   if (!parsed.success) return { errors: parsed.error.flatten().fieldErrors };
@@ -327,6 +375,13 @@ export async function toggleScheduledClassStatusAction(
   const target = await prisma.scheduledClass.findUnique({ where: { id } });
   if (!target || !canManageClass(sessionUser, target)) return;
 
+  try {
+    await assertClassesModule(sessionUser.tenant_id);
+  } catch (err) {
+    if (err instanceof CommercialEnforcementError) return;
+    throw err;
+  }
+
   const newStatus = target.status === "cancelled" ? "scheduled" : "cancelled";
   await prisma.scheduledClass.update({
     where: { id },
@@ -365,6 +420,13 @@ export async function deleteScheduledClassAction(
 
   if (!target || !canManageClass(sessionUser, target)) return;
 
+  try {
+    await assertClassesModule(sessionUser.tenant_id);
+  } catch (err) {
+    if (err instanceof CommercialEnforcementError) return;
+    throw err;
+  }
+
   if (target._count.bookings > 0) {
     const msg = encodeURIComponent(
       "La clase tiene reservas registradas. Cancélala en lugar de eliminarla."
@@ -393,6 +455,13 @@ export async function createBookingAction(
   formData: FormData
 ): Promise<ClassActionState> {
   const sessionUser = await requireMembershipManager();
+
+  try {
+    await assertClassesModule(sessionUser.tenant_id);
+  } catch (err) {
+    if (err instanceof CommercialEnforcementError) return { error: err.userMessage };
+    throw err;
+  }
 
   const raw = {
     scheduled_class_id: formData.get("scheduled_class_id"),
@@ -489,6 +558,13 @@ export async function cancelBookingAction(formData: FormData): Promise<void> {
   if (!booking) return;
   if (!canManageClass(sessionUser, booking.scheduled_class)) return;
 
+  try {
+    await assertClassesModule(sessionUser.tenant_id);
+  } catch (err) {
+    if (err instanceof CommercialEnforcementError) return;
+    throw err;
+  }
+
   await prisma.classBooking.update({
     where: { id: booking_id },
     data: { booking_status: "cancelled" },
@@ -524,6 +600,13 @@ export async function recordAttendanceAction(
     where: { id: scheduled_class_id },
   });
   if (!scheduledClass || !canManageClass(sessionUser, scheduledClass)) return;
+
+  try {
+    await assertClassesModule(sessionUser.tenant_id);
+  } catch (err) {
+    if (err instanceof CommercialEnforcementError) return;
+    throw err;
+  }
 
   await prisma.classAttendance.upsert({
     where: {

@@ -21,6 +21,11 @@ import {
   validateDteJsonSchema,
   type ValidateDteJsonSchemaResult,
 } from "../services/validate-dte-json-schema.service";
+import {
+  resolveCommercialEnforcementContext,
+  assertOrganizationModule,
+  CommercialEnforcementError,
+} from "@/modules/platform/runtime/commercial-enforcement";
 
 export type { ValidateDteJsonSchemaResult };
 
@@ -34,6 +39,14 @@ export async function validateDteJsonSchemaAction(
   if (!tenant_id)       return { ok: false, error: "La sesión no tiene un tenant activo." };
   if (!location_id)     return { ok: false, error: "La sesión no tiene una location activa." };
   if (!dte_document_id) return { ok: false, error: "El ID del documento DTE es requerido." };
+
+  try {
+    const commercialCtx = await resolveCommercialEnforcementContext(tenant_id);
+    assertOrganizationModule(commercialCtx, "fiscal.dte");
+  } catch (err) {
+    if (err instanceof CommercialEnforcementError) return { ok: false, error: err.userMessage };
+    throw err;
+  }
 
   const result = await validateDteJsonSchema(
     dte_document_id,

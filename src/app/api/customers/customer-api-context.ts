@@ -22,6 +22,11 @@ import {
   resolveEffectiveApiContext,
   type RuntimeSessionPayload,
 } from "@/modules/platform/runtime/effective-tenant-context";
+import {
+  resolveCommercialEnforcementContext,
+  assertOrganizationModule,
+  CommercialEnforcementError,
+} from "@/modules/platform/runtime/commercial-enforcement";
 
 type CustomerApiContext =
   | {
@@ -53,6 +58,17 @@ export async function getCustomerApiContext(): Promise<CustomerApiContext> {
   }
 
   const { context, dispose } = await resolveEffectiveApiContext({ tenantId: tenant_id });
+
+  try {
+    const commercialCtx = await resolveCommercialEnforcementContext(context.tenantId);
+    assertOrganizationModule(commercialCtx, "core.customers");
+  } catch (err) {
+    await dispose();
+    if (err instanceof CommercialEnforcementError) {
+      return { ok: false, status: err.httpStatus, error: err.userMessage };
+    }
+    throw err;
+  }
 
   return {
     ok:        true,

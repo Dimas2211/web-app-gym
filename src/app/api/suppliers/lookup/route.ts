@@ -13,6 +13,11 @@ export const runtime = "nodejs";
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/permissions/guards";
 import { getSuppliersForLookup } from "@/modules/commerce/suppliers/queries/get-suppliers-for-lookup";
+import {
+  resolveCommercialEnforcementContext,
+  assertOrganizationModule,
+  CommercialEnforcementError,
+} from "@/modules/platform/runtime/commercial-enforcement";
 
 export async function GET(req: NextRequest) {
   const sessionUser = await requireAdmin();
@@ -20,6 +25,20 @@ export async function GET(req: NextRequest) {
 
   if (!tenantId) {
     return NextResponse.json({ error: "Sesión sin tenant activo." }, { status: 401 });
+  }
+
+  // Consumido por el combobox propio de Suppliers y por el flujo de
+  // importación DTE de Purchases (purchase-dte-import-client) — sin un
+  // único consumidor funcional exclusivo, se guarda con el módulo dueño
+  // de la entidad (commerce.suppliers), igual que /api/suppliers/[id].
+  try {
+    const commercialCtx = await resolveCommercialEnforcementContext(tenantId);
+    assertOrganizationModule(commercialCtx, "commerce.suppliers");
+  } catch (err) {
+    if (err instanceof CommercialEnforcementError) {
+      return NextResponse.json({ error: err.userMessage }, { status: err.httpStatus });
+    }
+    throw err;
   }
 
   const search = req.nextUrl.searchParams.get("search")?.trim() || undefined;

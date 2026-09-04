@@ -19,6 +19,7 @@ import {
   resolveEffectiveTenantContext,
   resolveRuntimeFirstLocationId,
 } from "@/modules/platform/runtime/effective-tenant-context";
+import { requireOrganizationModule } from "@/modules/platform/runtime/commercial-enforcement";
 import { listSales } from "@/modules/commerce/sales/queries/list-sales";
 import { listCashRegisters } from "@/modules/commerce/cash/queries/list-cash-registers";
 import { SalesClient } from "@/modules/commerce/sales/components/sales-client";
@@ -34,6 +35,8 @@ export default async function SalesPage() {
   const { tenantId: tenant_id, client } = context;
 
   try {
+    await requireOrganizationModule(tenant_id, "commerce.sales");
+
     const location_id = context.runtime
       ? await resolveRuntimeFirstLocationId(context)
       : await getEffectiveLocationId(sessionUser);

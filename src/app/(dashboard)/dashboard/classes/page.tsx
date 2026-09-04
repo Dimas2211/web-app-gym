@@ -12,6 +12,7 @@ import {
 } from "@/modules/classes/actions";
 import { CLASS_STATUS_LABELS, CLASS_STATUS_COLORS } from "@/lib/utils/labels";
 import { DeleteClassButton } from "./_components/delete-class-button";
+import { requireOrganizationModule } from "@/modules/platform/runtime/commercial-enforcement";
 
 type Props = {
   searchParams: Promise<{
@@ -61,6 +62,7 @@ function CapacityBar({ used, total }: { used: number; total: number }) {
 
 export default async function ClassesAgendaPage({ searchParams }: Props) {
   const sessionUser = await requireClassViewer();
+  await requireOrganizationModule(sessionUser.tenant_id, "gym.classes");
   const sp = await searchParams;
 
   const sp1 = (v: string | string[] | undefined): string | undefined => {

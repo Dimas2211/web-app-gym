@@ -6,11 +6,13 @@ import { getBranchOptions } from "@/modules/branches/queries";
 import { UserForm } from "@/components/forms/user-form";
 import { updateUserAction } from "@/modules/users/actions";
 import { getAssignableRoles, ROLE_LABELS } from "@/lib/utils/roles";
+import { requireOrganizationModule } from "@/modules/platform/runtime/commercial-enforcement";
 
 type Props = { params: Promise<{ id: string }> };
 
 export default async function EditUserPage({ params }: Props) {
   const sessionUser = await requireAdmin();
+  await requireOrganizationModule(sessionUser.tenant_id, "core.users");
   const { id } = await params;
 
   const target = await getUserById(id, sessionUser);

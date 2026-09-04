@@ -20,6 +20,11 @@ import { requireAdmin } from "@/lib/permissions/guards";
 import { isRuntimeReadOnlyActive, RUNTIME_READONLY_MESSAGE } from "@/modules/platform/runtime/runtime-session";
 import { str, strNullable } from "@/lib/utils/form-data-parsers";
 import { updateCustomer } from "../services/customer.service";
+import {
+  resolveCommercialEnforcementContext,
+  assertOrganizationModule,
+  CommercialEnforcementError,
+} from "@/modules/platform/runtime/commercial-enforcement";
 
 export type UpdateCustomerActivityState =
   | { error: string }
@@ -35,6 +40,14 @@ export async function updateCustomerActivityAction(
 
   // PASO 6A: bloquear escritura bajo sesión runtime "Operar como cliente"
   if (await isRuntimeReadOnlyActive()) return { error: RUNTIME_READONLY_MESSAGE };
+
+  try {
+    const commercialCtx = await resolveCommercialEnforcementContext(tenantId);
+    assertOrganizationModule(commercialCtx, "core.customers");
+  } catch (err) {
+    if (err instanceof CommercialEnforcementError) return { error: err.userMessage };
+    throw err;
+  }
 
   const id            = str(formData.get("id"));
   const activity_code = strNullable(formData.get("activity_code"));

@@ -14,6 +14,11 @@ import { getEffectiveLocationId } from "@/lib/location/active-location";
 import { prisma } from "@/lib/db/prisma";
 import { upsertDteCredentialSchema } from "../schemas/dte-credential.schemas";
 import { upsertDteCredential } from "../services/dte-credential.service";
+import {
+  resolveCommercialEnforcementContext,
+  assertOrganizationModule,
+  CommercialEnforcementError,
+} from "@/modules/platform/runtime/commercial-enforcement";
 
 export type UpsertDteCredentialActionState =
   | { errors?: Record<string, string[]>; error?: string; success?: false }
@@ -30,6 +35,14 @@ export async function upsertDteCredentialAction(
 
   if (!tenant_id)   return { error: "La sesión no tiene un tenant activo." };
   if (!location_id) return { error: "Selecciona una location activa." };
+
+  try {
+    const commercialCtx = await resolveCommercialEnforcementContext(tenant_id);
+    assertOrganizationModule(commercialCtx, "fiscal.dte");
+  } catch (err) {
+    if (err instanceof CommercialEnforcementError) return { error: err.userMessage };
+    throw err;
+  }
 
   const raw = {
     issuer_config_id:          formData.get("issuer_config_id"),

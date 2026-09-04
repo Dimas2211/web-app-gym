@@ -14,6 +14,11 @@
 
 import { requireAdmin } from "@/lib/permissions/guards";
 import { verifyAdminDeleteCredentials } from "@/lib/permissions/delete-authorization";
+import {
+  resolveCommercialEnforcementContext,
+  assertOrganizationModule,
+  CommercialEnforcementError,
+} from "@/modules/platform/runtime/commercial-enforcement";
 
 export type EditPurchaseAuthState =
   | { ok: true }
@@ -27,6 +32,14 @@ export async function editPurchaseAuthAction(
   const sessionUser = await requireAdmin();
   if (!sessionUser.tenant_id) {
     return { ok: false, error: "Sesión sin tenant activo." };
+  }
+
+  try {
+    const commercialCtx = await resolveCommercialEnforcementContext(sessionUser.tenant_id);
+    assertOrganizationModule(commercialCtx, "commerce.purchases");
+  } catch (err) {
+    if (err instanceof CommercialEnforcementError) return { ok: false, error: err.userMessage };
+    throw err;
   }
 
   const email    = (formData.get("auth_email")    as string ?? "").trim();

@@ -12,6 +12,11 @@ import { getEffectiveLocationId } from "@/lib/location/active-location";
 import { updateDteIssuerConfigSchema } from "@/modules/commerce/dte/schemas/dte-issuer-config.schemas";
 import { updateDteIssuerConfig } from "@/modules/commerce/dte/services/dte-issuer-config.service";
 import { isRuntimeReadOnlyActive, RUNTIME_READONLY_MESSAGE } from "@/modules/platform/runtime/runtime-session";
+import {
+  resolveCommercialEnforcementContext,
+  assertOrganizationModule,
+  CommercialEnforcementError,
+} from "@/modules/platform/runtime/commercial-enforcement";
 
 // ── PATCH — actualizar config ──────────────────────────────────────
 
@@ -31,6 +36,16 @@ export async function PATCH(
   // PASO 6A: bloquear escritura bajo sesión runtime "Operar como cliente"
   if (await isRuntimeReadOnlyActive()) {
     return NextResponse.json({ ok: false, error: RUNTIME_READONLY_MESSAGE }, { status: 403 });
+  }
+
+  try {
+    const commercialCtx = await resolveCommercialEnforcementContext(tenant_id);
+    assertOrganizationModule(commercialCtx, "fiscal.dte");
+  } catch (err) {
+    if (err instanceof CommercialEnforcementError) {
+      return NextResponse.json({ ok: false, error: err.userMessage }, { status: err.httpStatus });
+    }
+    throw err;
   }
 
   const body = await req.json().catch(() => null);

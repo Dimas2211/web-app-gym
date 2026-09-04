@@ -21,6 +21,14 @@ import type {
   SortDirection,
 } from "@/modules/commerce/products/types/product-filters.types";
 import type { ProductStatus, ProductType } from "@/modules/commerce/products/types/product.types";
+import {
+  resolveCommercialEnforcementContext,
+  assertOrganizationModule,
+  withCapacityCheckedTransaction,
+  isProductCountedForCapacity,
+  capacityDelta,
+  CommercialEnforcementError,
+} from "@/modules/platform/runtime/commercial-enforcement";
 
 // Roles que pueden ver el catálogo (lectura)
 const VIEWER_ROLES = ["super_admin", "branch_admin", "reception"];
@@ -116,6 +124,16 @@ export async function GET(req: NextRequest) {
   // la base del perfil runtime en vez de la del tenant del super_admin.
   const { context, dispose } = await resolveEffectiveApiContext({ tenantId: user.tenant_id });
   try {
+    const commercialCtx = await resolveCommercialEnforcementContext(context.tenantId);
+    try {
+      assertOrganizationModule(commercialCtx, "commerce.products");
+    } catch (err) {
+      if (err instanceof CommercialEnforcementError) {
+        return NextResponse.json({ error: err.userMessage }, { status: err.httpStatus });
+      }
+      throw err;
+    }
+
     const result = await getProducts(context.tenantId, {
       filters,
       sort,
@@ -144,6 +162,17 @@ export async function POST(req: NextRequest) {
   // PASO 6A: bloquear escritura bajo sesión runtime "Operar como cliente"
   if (await isRuntimeReadOnlyActive()) {
     return NextResponse.json({ error: RUNTIME_READONLY_MESSAGE }, { status: 403 });
+  }
+
+  // Bloque B: módulo commerce.products debe estar habilitado
+  const commercialCtx = await resolveCommercialEnforcementContext(user.tenant_id);
+  try {
+    assertOrganizationModule(commercialCtx, "commerce.products");
+  } catch (err) {
+    if (err instanceof CommercialEnforcementError) {
+      return NextResponse.json({ error: err.userMessage }, { status: err.httpStatus });
+    }
+    throw err;
   }
 
   // ── Parseo del body ─────────────────────────────────────────────
@@ -276,40 +305,51 @@ export async function POST(req: NextRequest) {
   }
 
   // ── Crear producto ──────────────────────────────────────────────
+  const delta = capacityDelta(false, isProductCountedForCapacity("ACTIVE"));
   try {
-    const product = await prisma.product.create({
-      data: {
-        tenant_id:      tenantId,
-        product_code:   data.product_code,
-        name:           data.name,
-        description:    data.description ?? null,
-        product_type:   data.product_type,
-        status:         "ACTIVE",
-        is_stockable:   data.is_stockable,
-        allow_purchase: data.allow_purchase,
-        allow_sale:     data.allow_sale,
-        category_id:    data.category_id,
-        line_id:        data.line_id ?? null,
-        subline_id:     data.subline_id ?? null,
-        brand:          data.brand ?? null,
-        unit_id:        data.unit_id,
-        package_unit:   data.package_unit ?? null,
-        supplier_id:    data.supplier_id ?? null,
-        sku:            data.sku ?? null,
-        cost_price:     data.cost_price ?? null,
-        sale_price:     data.sale_price ?? null,
-        tax_rate_id:    data.tax_rate_id ?? null,
-        created_by:     user.id,
-        updated_by:     user.id,
-      },
-      select: { id: true, product_code: true, name: true },
-    });
+    const product = await withCapacityCheckedTransaction(
+      prisma,
+      "commerce.products.max",
+      delta,
+      commercialCtx,
+      (tx) =>
+        tx.product.create({
+          data: {
+            tenant_id:      tenantId,
+            product_code:   data.product_code,
+            name:           data.name,
+            description:    data.description ?? null,
+            product_type:   data.product_type,
+            status:         "ACTIVE",
+            is_stockable:   data.is_stockable,
+            allow_purchase: data.allow_purchase,
+            allow_sale:     data.allow_sale,
+            category_id:    data.category_id,
+            line_id:        data.line_id ?? null,
+            subline_id:     data.subline_id ?? null,
+            brand:          data.brand ?? null,
+            unit_id:        data.unit_id,
+            package_unit:   data.package_unit ?? null,
+            supplier_id:    data.supplier_id ?? null,
+            sku:            data.sku ?? null,
+            cost_price:     data.cost_price ?? null,
+            sale_price:     data.sale_price ?? null,
+            tax_rate_id:    data.tax_rate_id ?? null,
+            created_by:     user.id,
+            updated_by:     user.id,
+          },
+          select: { id: true, product_code: true, name: true },
+        }),
+    );
 
     return NextResponse.json(product, {
       status: 201,
       headers: { Location: `/api/products/${product.id}` },
     });
   } catch (e) {
+    if (e instanceof CommercialEnforcementError) {
+      return NextResponse.json({ error: e.userMessage }, { status: e.httpStatus });
+    }
     if (
       e instanceof Prisma.PrismaClientKnownRequestError &&
       e.code === "P2002"

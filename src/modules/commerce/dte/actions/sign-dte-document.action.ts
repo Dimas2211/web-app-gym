@@ -36,6 +36,11 @@ import {
   type SignDteDocumentResult,
 } from "../services/sign-dte-document.service";
 import { canUseFex11InServerFlow } from "../utils/fex11-feature-guard";
+import {
+  resolveCommercialEnforcementContext,
+  assertOrganizationModule,
+  CommercialEnforcementError,
+} from "@/modules/platform/runtime/commercial-enforcement";
 
 export type { SignDteDocumentResult };
 
@@ -55,6 +60,14 @@ export async function signDteDocumentAction(
   if (!tenant_id)     return { ok: false, error: "La sesión no tiene un tenant activo." };
   if (!location_id)   return { ok: false, error: "La sesión no tiene una location activa." };
   if (!dteDocumentId) return { ok: false, error: "El ID del documento DTE es requerido." };
+
+  try {
+    const commercialCtx = await resolveCommercialEnforcementContext(tenant_id);
+    assertOrganizationModule(commercialCtx, "fiscal.dte");
+  } catch (err) {
+    if (err instanceof CommercialEnforcementError) return { ok: false, error: err.userMessage };
+    throw err;
+  }
 
   const dteDoc = await prisma.dteOutgoingDocument.findFirst({
     where:  { id: dteDocumentId, tenant_id, location_id },

@@ -4,6 +4,7 @@ import { getTrainers } from "@/modules/trainers/queries";
 import { toggleTrainerStatusAction, deleteTrainerAction } from "@/modules/trainers/actions";
 import { DeleteAuthorizationDialog } from "@/components/forms/delete-authorization-dialog";
 import { StatusBadge } from "@/components/ui/status-badge";
+import { requireOrganizationModule } from "@/modules/platform/runtime/commercial-enforcement";
 
 type Props = {
   searchParams: Promise<{ search?: string; status?: string; branch_id?: string }>;
@@ -11,6 +12,7 @@ type Props = {
 
 export default async function TrainersPage({ searchParams }: Props) {
   const sessionUser = await requireAdmin();
+  await requireOrganizationModule(sessionUser.tenant_id, "gym.trainers");
   const sp = await searchParams;
 
   const trainers = await getTrainers(sessionUser, {

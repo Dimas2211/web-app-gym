@@ -4,9 +4,11 @@ import { getBranchOptions } from "@/modules/branches/queries";
 import { UserForm } from "@/components/forms/user-form";
 import { createUserAction } from "@/modules/users/actions";
 import { getAssignableRoles, ROLE_LABELS } from "@/lib/utils/roles";
+import { requireOrganizationModule } from "@/modules/platform/runtime/commercial-enforcement";
 
 export default async function NewUserPage() {
   const user = await requireAdmin();
+  await requireOrganizationModule(user.tenant_id, "core.users");
   const branches = await getBranchOptions(user);
 
   const availableRoles = getAssignableRoles(user.role).map((r) => ({

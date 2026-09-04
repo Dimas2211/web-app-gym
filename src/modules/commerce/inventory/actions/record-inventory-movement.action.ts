@@ -34,6 +34,11 @@ import { requireAdmin } from "@/lib/permissions/guards";
 import { isRuntimeReadOnlyActive, RUNTIME_READONLY_MESSAGE } from "@/modules/platform/runtime/runtime-session";
 import { ACTIVE_MOVEMENT_TYPES } from "../schemas/record-movement.schema";
 import { recordInventoryMovement } from "../services/inventory-movement.service";
+import {
+  resolveCommercialEnforcementContext,
+  assertOrganizationModule,
+  CommercialEnforcementError,
+} from "@/modules/platform/runtime/commercial-enforcement";
 
 // ── Estado de retorno ─────────────────────────────────────────────
 
@@ -92,6 +97,14 @@ export async function recordInventoryMovementAction(
 
   // PASO 6A: bloquear escritura bajo sesión runtime "Operar como cliente"
   if (await isRuntimeReadOnlyActive()) return { error: RUNTIME_READONLY_MESSAGE };
+
+  try {
+    const commercialCtx = await resolveCommercialEnforcementContext(tenant_id);
+    assertOrganizationModule(commercialCtx, "commerce.inventory");
+  } catch (err) {
+    if (err instanceof CommercialEnforcementError) return { error: err.userMessage };
+    throw err;
+  }
 
   const raw = {
     product_location_id: str(formData.get("product_location_id")),

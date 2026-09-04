@@ -19,6 +19,11 @@ import {
   type DeliverInvalidationToExternalDbParams,
 } from "../services/deliver-invalidation-to-external-db.service";
 import type { DeliverInvalidationToExternalDbResult } from "../types/external-dte-delivery.types";
+import {
+  resolveCommercialEnforcementContext,
+  assertOrganizationModule,
+  CommercialEnforcementError,
+} from "@/modules/platform/runtime/commercial-enforcement";
 
 export type { DeliverInvalidationToExternalDbResult };
 
@@ -32,6 +37,14 @@ export async function deliverInvalidationToExternalDbAction(
   if (!tenant_id)            return { ok: false, error: "La sesión no tiene un tenant activo." };
   if (!location_id)          return { ok: false, error: "La sesión no tiene una location activa." };
   if (!invalidationEventId)  return { ok: false, error: "El ID del evento de invalidación es requerido." };
+
+  try {
+    const commercialCtx = await resolveCommercialEnforcementContext(tenant_id);
+    assertOrganizationModule(commercialCtx, "fiscal.dte");
+  } catch (err) {
+    if (err instanceof CommercialEnforcementError) return { ok: false, error: err.userMessage };
+    throw err;
+  }
 
   const params: DeliverInvalidationToExternalDbParams = {
     invalidationEventId,

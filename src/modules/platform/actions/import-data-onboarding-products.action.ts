@@ -56,6 +56,11 @@ import type {
   DatabaseExecutionSafetyInput,
   PlatformDatabaseProfileEnvironment,
 } from "../types/platform.types";
+import {
+  resolveCommercialEnforcementContext,
+  assertOrganizationModule,
+  CommercialEnforcementError,
+} from "../runtime/commercial-enforcement";
 
 // Límite de archivo
 const MAX_FILE_SIZE_BYTES = 5 * 1024 * 1024; // 5 MB
@@ -171,6 +176,21 @@ export async function importDataOnboardingProductsAction(
           "Detectar tenant para asociarlo. Si la base es nueva y no aparecen tenants, " +
           "primero debe ejecutarse provisioning/seed para crear el registro en gyms.",
       };
+    }
+
+    // ── 5b. Bloque B: resolver Commercial Enforcement Context contra la
+    // organización DESTINO (controlPlanePrisma, tenant_id de esa
+    // organización) — NUNCA la sesión del super_admin que ejecuta el
+    // import. Exige commerce.products habilitado para esa organización.
+    let commercialCtx;
+    try {
+      commercialCtx = await resolveCommercialEnforcementContext(tenantId);
+      assertOrganizationModule(commercialCtx, "commerce.products");
+    } catch (err) {
+      if (err instanceof CommercialEnforcementError) {
+        return { success: false, error: err.userMessage };
+      }
+      throw err;
     }
 
     // ── 6. Hard block: PRODUCTION ─────────────────────────────────
@@ -289,6 +309,7 @@ export async function importDataOnboardingProductsAction(
           prismaClient: client,
           tenantId,
           isDryRun:     mode === "DRY_RUN",
+          commercialCtx,
         });
       },
     );

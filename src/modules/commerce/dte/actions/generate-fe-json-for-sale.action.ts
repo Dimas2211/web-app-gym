@@ -24,6 +24,11 @@ import { requireAdmin }   from "@/lib/permissions/guards";
 import { getEffectiveLocationId } from "@/lib/location/active-location";
 import { isRuntimeReadOnlyActive, RUNTIME_READONLY_MESSAGE } from "@/modules/platform/runtime/runtime-session";
 import { generateFeJsonForDte } from "../services/generate-fe-json.service";
+import {
+  resolveCommercialEnforcementContext,
+  assertOrganizationModule,
+  CommercialEnforcementError,
+} from "@/modules/platform/runtime/commercial-enforcement";
 
 export type GenerateFeJsonForSaleActionResult =
   | { ok: true }
@@ -43,6 +48,14 @@ export async function generateFeJsonForSaleAction(
   // PASO 6A: bloquear escritura bajo sesión runtime "Operar como cliente"
   if (await isRuntimeReadOnlyActive()) {
     return { ok: false, error: RUNTIME_READONLY_MESSAGE };
+  }
+
+  try {
+    const commercialCtx = await resolveCommercialEnforcementContext(tenant_id);
+    assertOrganizationModule(commercialCtx, "fiscal.dte");
+  } catch (err) {
+    if (err instanceof CommercialEnforcementError) return { ok: false, error: err.userMessage };
+    throw err;
   }
 
   const result = await generateFeJsonForDte(

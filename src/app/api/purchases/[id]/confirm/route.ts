@@ -10,6 +10,11 @@ import { requireAdmin } from "@/lib/permissions/guards";
 import { getEffectiveLocationId } from "@/lib/location/active-location";
 import { confirmPurchase } from "@/modules/commerce/purchases/services/purchase.service";
 import { isRuntimeReadOnlyActive, RUNTIME_READONLY_MESSAGE } from "@/modules/platform/runtime/runtime-session";
+import {
+  resolveCommercialEnforcementContext,
+  assertOrganizationModule,
+  CommercialEnforcementError,
+} from "@/modules/platform/runtime/commercial-enforcement";
 
 export async function POST(
   _req: NextRequest,
@@ -26,6 +31,16 @@ export async function POST(
   // PASO 6A: bloquear escritura bajo sesión runtime "Operar como cliente"
   if (await isRuntimeReadOnlyActive()) {
     return NextResponse.json({ error: RUNTIME_READONLY_MESSAGE }, { status: 403 });
+  }
+
+  try {
+    const commercialCtx = await resolveCommercialEnforcementContext(tenant_id);
+    assertOrganizationModule(commercialCtx, "commerce.purchases");
+  } catch (err) {
+    if (err instanceof CommercialEnforcementError) {
+      return NextResponse.json({ error: err.userMessage }, { status: err.httpStatus });
+    }
+    throw err;
   }
 
   const { id: purchase_id } = await params;

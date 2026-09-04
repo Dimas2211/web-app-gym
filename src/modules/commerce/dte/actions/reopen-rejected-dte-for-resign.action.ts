@@ -16,6 +16,11 @@ import { revalidatePath } from "next/cache";
 import { requireAdmin } from "@/lib/permissions/guards";
 import { getEffectiveLocationId } from "@/lib/location/active-location";
 import { reopenRejectedDteForResign } from "../services/reopen-rejected-dte-for-resign.service";
+import {
+  resolveCommercialEnforcementContext,
+  assertOrganizationModule,
+  CommercialEnforcementError,
+} from "@/modules/platform/runtime/commercial-enforcement";
 
 export type ReopenRejectedDteForResignActionResult =
   | { ok: true }
@@ -31,6 +36,14 @@ export async function reopenRejectedDteForResignAction(
   if (!tenant_id)     return { ok: false, error: "La sesión no tiene un tenant activo." };
   if (!location_id)   return { ok: false, error: "La sesión no tiene una location activa." };
   if (!dteDocumentId) return { ok: false, error: "El ID del documento DTE es requerido." };
+
+  try {
+    const commercialCtx = await resolveCommercialEnforcementContext(tenant_id);
+    assertOrganizationModule(commercialCtx, "fiscal.dte");
+  } catch (err) {
+    if (err instanceof CommercialEnforcementError) return { ok: false, error: err.userMessage };
+    throw err;
+  }
 
   const result = await reopenRejectedDteForResign({
     dteDocumentId,

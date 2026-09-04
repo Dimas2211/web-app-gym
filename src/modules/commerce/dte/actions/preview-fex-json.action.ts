@@ -33,6 +33,11 @@ import { getEffectiveLocationId } from "@/lib/location/active-location";
 import fexSchema from "../schemas/mh/fex-11.schema.json";
 import { generateFexJsonForSale } from "../services/generate-fex-json.service";
 import type { FexJsonDocument } from "../types/fex-json.types";
+import {
+  resolveCommercialEnforcementContext,
+  assertOrganizationModule,
+  CommercialEnforcementError,
+} from "@/modules/platform/runtime/commercial-enforcement";
 
 // ── Tipos públicos ────────────────────────────────────────────────
 
@@ -109,6 +114,14 @@ export async function previewFexJsonAction(
   if (!tenant_id)       return { ok: false, error: "La sesión no tiene un tenant activo." };
   if (!location_id)     return { ok: false, error: "La sesión no tiene una location activa." };
   if (!dte_document_id) return { ok: false, error: "El ID del documento DTE es requerido." };
+
+  try {
+    const commercialCtx = await resolveCommercialEnforcementContext(tenant_id);
+    assertOrganizationModule(commercialCtx, "fiscal.dte");
+  } catch (err) {
+    if (err instanceof CommercialEnforcementError) return { ok: false, error: err.userMessage };
+    throw err;
+  }
 
   // ── 1. Precondiciones sobre el DteOutgoingDocument ────────────────
   // Validaciones que generateFexJsonForSale no cubre (no está firmado,

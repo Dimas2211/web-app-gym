@@ -21,6 +21,11 @@ import type {
   SortDirection,
 } from "@/modules/commerce/inventory/types/inventory-filters.types";
 import type { MovementType } from "@/modules/commerce/inventory/types/inventory-movement.types";
+import {
+  resolveCommercialEnforcementContext,
+  assertOrganizationModule,
+  CommercialEnforcementError,
+} from "@/modules/platform/runtime/commercial-enforcement";
 
 const VIEWER_ROLES = ["super_admin", "branch_admin", "reception"];
 const ADMIN_ROLES  = ["super_admin", "branch_admin"];
@@ -76,6 +81,17 @@ export async function GET(req: NextRequest) {
       { error: "La sesión no tiene tenant o location activos." },
       { status: 400 },
     );
+  }
+
+  const commercialCtx = await resolveCommercialEnforcementContext(context.tenantId);
+  try {
+    assertOrganizationModule(commercialCtx, "commerce.inventory");
+  } catch (err) {
+    await dispose();
+    if (err instanceof CommercialEnforcementError) {
+      return NextResponse.json({ error: err.userMessage }, { status: err.httpStatus });
+    }
+    throw err;
   }
 
   const { searchParams } = req.nextUrl;
@@ -160,6 +176,16 @@ export async function POST(req: NextRequest) {
       { error: "La sesión no tiene tenant o location activos." },
       { status: 400 },
     );
+  }
+
+  const commercialCtx = await resolveCommercialEnforcementContext(tenant_id);
+  try {
+    assertOrganizationModule(commercialCtx, "commerce.inventory");
+  } catch (err) {
+    if (err instanceof CommercialEnforcementError) {
+      return NextResponse.json({ error: err.userMessage }, { status: err.httpStatus });
+    }
+    throw err;
   }
 
   let body: unknown;

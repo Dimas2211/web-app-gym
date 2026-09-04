@@ -16,6 +16,11 @@
 // ─────────────────────────────────────────────────────────────────
 
 import { requireAdmin } from "@/lib/permissions/guards";
+import {
+  resolveCommercialEnforcementContext,
+  assertOrganizationModule,
+  CommercialEnforcementError,
+} from "@/modules/platform/runtime/commercial-enforcement";
 
 export type VerifyEditKeyResult =
   | { success: true }
@@ -26,7 +31,15 @@ export async function verifyEditKeyAction(
   formData: FormData
 ): Promise<VerifyEditKeyResult> {
   // Requiere sesión activa con rol admin — no permite verificación anónima
-  await requireAdmin();
+  const sessionUser = await requireAdmin();
+
+  try {
+    const commercialCtx = await resolveCommercialEnforcementContext(sessionUser.tenant_id);
+    assertOrganizationModule(commercialCtx, "commerce.products");
+  } catch (err) {
+    if (err instanceof CommercialEnforcementError) return { success: false, error: err.userMessage };
+    throw err;
+  }
 
   const key = (formData.get("key") as string | null)?.trim() ?? "";
   const expected = process.env.EDIT_CATALOG_PIN;

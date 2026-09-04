@@ -9,6 +9,11 @@ import { auth } from "@/lib/auth/auth";
 import type { SessionUser } from "@/lib/permissions/guards";
 import { resolveEffectiveApiContext } from "@/modules/platform/runtime/effective-tenant-context";
 import { getProductById } from "@/modules/commerce/products/queries/get-product-by-id";
+import {
+  resolveCommercialEnforcementContext,
+  assertOrganizationModule,
+  CommercialEnforcementError,
+} from "@/modules/platform/runtime/commercial-enforcement";
 
 // Roles que pueden ver el catálogo
 const VIEWER_ROLES = ["super_admin", "branch_admin", "reception"];
@@ -31,6 +36,16 @@ export async function GET(
 
   const { context, dispose } = await resolveEffectiveApiContext({ tenantId: user.tenant_id });
   try {
+    const commercialCtx = await resolveCommercialEnforcementContext(context.tenantId);
+    try {
+      assertOrganizationModule(commercialCtx, "commerce.products");
+    } catch (err) {
+      if (err instanceof CommercialEnforcementError) {
+        return NextResponse.json({ error: err.userMessage }, { status: err.httpStatus });
+      }
+      throw err;
+    }
+
     const product = await getProductById(context.tenantId, id, context.client);
 
     if (!product) {

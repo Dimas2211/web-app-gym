@@ -16,6 +16,11 @@ import { requireAdmin } from "@/lib/permissions/guards";
 import { isRuntimeReadOnlyActive, RUNTIME_READONLY_MESSAGE } from "@/modules/platform/runtime/runtime-session";
 import { updateProductLocationSchema } from "../schemas/update-product-location.schema";
 import { updateProductLocationFields } from "../services/product-location.service";
+import {
+  resolveCommercialEnforcementContext,
+  assertOrganizationModule,
+  CommercialEnforcementError,
+} from "@/modules/platform/runtime/commercial-enforcement";
 
 // ── Estado de retorno ─────────────────────────────────────────────
 
@@ -61,6 +66,14 @@ export async function updateProductLocationAction(
 
   // PASO 6A: bloquear escritura bajo sesión runtime "Operar como cliente"
   if (await isRuntimeReadOnlyActive()) return { error: RUNTIME_READONLY_MESSAGE };
+
+  try {
+    const commercialCtx = await resolveCommercialEnforcementContext(tenant_id);
+    assertOrganizationModule(commercialCtx, "commerce.inventory");
+  } catch (err) {
+    if (err instanceof CommercialEnforcementError) return { error: err.userMessage };
+    throw err;
+  }
 
   const id = (formData.get("id") as string | null)?.trim();
   if (!id) return { error: "Falta el identificador del registro a actualizar." };

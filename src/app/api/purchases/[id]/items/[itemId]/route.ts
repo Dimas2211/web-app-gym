@@ -13,6 +13,11 @@ import {
   removePurchaseItem,
 } from "@/modules/commerce/purchases/services/purchase.service";
 import { isRuntimeReadOnlyActive, RUNTIME_READONLY_MESSAGE } from "@/modules/platform/runtime/runtime-session";
+import {
+  resolveCommercialEnforcementContext,
+  assertOrganizationModule,
+  CommercialEnforcementError,
+} from "@/modules/platform/runtime/commercial-enforcement";
 
 type RouteParams = { params: Promise<{ id: string; itemId: string }> };
 
@@ -30,6 +35,16 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
   // PASO 6A: bloquear escritura bajo sesión runtime "Operar como cliente"
   if (await isRuntimeReadOnlyActive()) {
     return NextResponse.json({ error: RUNTIME_READONLY_MESSAGE }, { status: 403 });
+  }
+
+  try {
+    const commercialCtx = await resolveCommercialEnforcementContext(tenant_id);
+    assertOrganizationModule(commercialCtx, "commerce.purchases");
+  } catch (err) {
+    if (err instanceof CommercialEnforcementError) {
+      return NextResponse.json({ error: err.userMessage }, { status: err.httpStatus });
+    }
+    throw err;
   }
 
   const { id: purchase_id, itemId: item_id } = await params;
@@ -80,6 +95,16 @@ export async function DELETE(
   // PASO 6A: bloquear escritura bajo sesión runtime "Operar como cliente"
   if (await isRuntimeReadOnlyActive()) {
     return NextResponse.json({ error: RUNTIME_READONLY_MESSAGE }, { status: 403 });
+  }
+
+  try {
+    const commercialCtx = await resolveCommercialEnforcementContext(tenant_id);
+    assertOrganizationModule(commercialCtx, "commerce.purchases");
+  } catch (err) {
+    if (err instanceof CommercialEnforcementError) {
+      return NextResponse.json({ error: err.userMessage }, { status: err.httpStatus });
+    }
+    throw err;
   }
 
   const { id: purchase_id, itemId: item_id } = await params;

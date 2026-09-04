@@ -14,6 +14,11 @@ import { getEffectiveLocationId } from "@/lib/location/active-location";
 import { resolveEffectiveApiContext } from "@/modules/platform/runtime/effective-tenant-context";
 import { getMovementDirection } from "@/modules/commerce/inventory/utils/movement-direction.utils";
 import type { MovementType } from "@/modules/commerce/inventory/types/inventory-movement.types";
+import {
+  resolveCommercialEnforcementContext,
+  assertOrganizationModule,
+  CommercialEnforcementError,
+} from "@/modules/platform/runtime/commercial-enforcement";
 
 const VIEWER_ROLES = ["super_admin", "branch_admin", "reception"];
 
@@ -57,6 +62,15 @@ export async function GET(
   const { tenantId: scoped_tenant_id, locationId: scoped_location_id, client } = context;
 
   try {
+  const commercialCtx = await resolveCommercialEnforcementContext(scoped_tenant_id);
+  try {
+    assertOrganizationModule(commercialCtx, "commerce.inventory");
+  } catch (err) {
+    if (err instanceof CommercialEnforcementError) {
+      return NextResponse.json({ error: err.userMessage }, { status: err.httpStatus });
+    }
+    throw err;
+  }
 
   // Consulta directa con select mínimo — no hay query reutilizable de detalle
   // individual en el módulo (get-inventory-movements devuelve lista).

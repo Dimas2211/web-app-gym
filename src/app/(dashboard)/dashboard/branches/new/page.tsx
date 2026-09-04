@@ -2,9 +2,11 @@ import Link from "next/link";
 import { requireSuperAdmin } from "@/lib/permissions/guards";
 import { BranchForm } from "@/components/forms/branch-form";
 import { createBranchAction } from "@/modules/branches/actions";
+import { requireOrganizationModule } from "@/modules/platform/runtime/commercial-enforcement";
 
 export default async function NewBranchPage() {
-  await requireSuperAdmin();
+  const user = await requireSuperAdmin();
+  await requireOrganizationModule(user.tenant_id, "core.locations");
 
   return (
     <div className="space-y-6">

@@ -26,6 +26,19 @@ import {
   assignSegmentedSchema,
 } from "./schemas";
 import { getLinkedTrainerId } from "./queries";
+import {
+  resolveCommercialEnforcementContext,
+  assertOrganizationModule,
+  CommercialEnforcementError,
+} from "@/modules/platform/runtime/commercial-enforcement";
+
+// Bloque B — guard central de este archivo: plantillas, días de
+// plantilla, planes de cliente y asignación segmentada requieren
+// gym.weekly_plans.
+async function assertWeeklyPlansModule(tenantId: string): Promise<void> {
+  const commercialCtx = await resolveCommercialEnforcementContext(tenantId);
+  assertOrganizationModule(commercialCtx, "gym.weekly_plans");
+}
 
 export type WeeklyPlanActionState =
   | { errors?: Record<string, string[]>; error?: string }
@@ -103,6 +116,13 @@ export async function createTemplateAction(
     target_level: n(formData.get("target_level")),
   };
 
+  try {
+    await assertWeeklyPlansModule(sessionUser.tenant_id);
+  } catch (err) {
+    if (err instanceof CommercialEnforcementError) return { error: err.userMessage };
+    throw err;
+  }
+
   // branch_admin solo puede crear en su sucursal o global (null)
   if (
     sessionUser.role === "branch_admin" &&
@@ -145,6 +165,13 @@ export async function updateTemplateAction(
     return { error: "Sin permiso para editar esta plantilla." };
   }
 
+  try {
+    await assertWeeklyPlansModule(sessionUser.tenant_id);
+  } catch (err) {
+    if (err instanceof CommercialEnforcementError) return { error: err.userMessage };
+    throw err;
+  }
+
   const raw = {
     code: n(formData.get("code")),
     name: formData.get("name"),
@@ -178,6 +205,13 @@ export async function toggleTemplateStatusAction(
   });
   if (!target || !canManageTemplate(sessionUser, target)) return;
 
+  try {
+    await assertWeeklyPlansModule(sessionUser.tenant_id);
+  } catch (err) {
+    if (err instanceof CommercialEnforcementError) return;
+    throw err;
+  }
+
   await prisma.weeklyPlanTemplate.update({
     where: { id },
     data: { status: target.status === "active" ? "inactive" : "active" },
@@ -204,6 +238,13 @@ export async function upsertTemplateDayAction(
   if (!template) return { error: "Plantilla no encontrada." };
   if (!canManageTemplate(sessionUser, template)) {
     return { error: "Sin permiso para editar esta plantilla." };
+  }
+
+  try {
+    await assertWeeklyPlansModule(sessionUser.tenant_id);
+  } catch (err) {
+    if (err instanceof CommercialEnforcementError) return { error: err.userMessage };
+    throw err;
   }
 
   const raw = {
@@ -258,6 +299,13 @@ export async function deleteTemplateDayAction(
     }
   }
 
+  try {
+    await assertWeeklyPlansModule(sessionUser.tenant_id);
+  } catch (err) {
+    if (err instanceof CommercialEnforcementError) return { error: err.userMessage };
+    throw err;
+  }
+
   const auth = await checkDeleteAuth(formData, sessionUser);
   if (!auth.ok) return { error: auth.error };
 
@@ -298,6 +346,13 @@ export async function createClientPlanAction(
   formData: FormData
 ): Promise<WeeklyPlanActionState> {
   const sessionUser = await requireClassViewer();
+
+  try {
+    await assertWeeklyPlansModule(sessionUser.tenant_id);
+  } catch (err) {
+    if (err instanceof CommercialEnforcementError) return { error: err.userMessage };
+    throw err;
+  }
 
   const raw = {
     client_id: formData.get("client_id"),
@@ -419,6 +474,13 @@ export async function updateClientPlanAction(
     return { error: "Sin permiso para editar este plan." };
   }
 
+  try {
+    await assertWeeklyPlansModule(sessionUser.tenant_id);
+  } catch (err) {
+    if (err instanceof CommercialEnforcementError) return { error: err.userMessage };
+    throw err;
+  }
+
   const raw = {
     trainer_id: n(formData.get("trainer_id")),
     start_date: formData.get("start_date"),
@@ -480,6 +542,13 @@ export async function toggleClientPlanStatusAction(
     : false;
   if (!hasDirectAccess && !hasTrainerAccess) return;
 
+  try {
+    await assertWeeklyPlansModule(sessionUser.tenant_id);
+  } catch (err) {
+    if (err instanceof CommercialEnforcementError) return;
+    throw err;
+  }
+
   await prisma.clientWeeklyPlan.update({
     where: { id },
     data: { status: plan.status === "active" ? "inactive" : "active" },
@@ -513,6 +582,13 @@ export async function updateClientPlanDayAction(
     : false;
   if (!hasDirectAccess && !hasTrainerAccess) {
     return { error: "Sin permiso para editar este día." };
+  }
+
+  try {
+    await assertWeeklyPlansModule(sessionUser.tenant_id);
+  } catch (err) {
+    if (err instanceof CommercialEnforcementError) return { error: err.userMessage };
+    throw err;
   }
 
   const raw = {
@@ -554,6 +630,13 @@ export async function markClientPlanDayAction(
     ? await canTrainerManagePlan(sessionUser, plan)
     : false;
   if (!hasDirectAccess && !hasTrainerAccess) return;
+
+  try {
+    await assertWeeklyPlansModule(sessionUser.tenant_id);
+  } catch (err) {
+    if (err instanceof CommercialEnforcementError) return;
+    throw err;
+  }
 
   const raw = {
     execution_status: formData.get("execution_status"),
@@ -603,6 +686,13 @@ export async function addClientPlanDayAction(
     : false;
   if (!hasDirectAccess && !hasTrainerAccess) {
     return { error: "Sin permiso." };
+  }
+
+  try {
+    await assertWeeklyPlansModule(sessionUser.tenant_id);
+  } catch (err) {
+    if (err instanceof CommercialEnforcementError) return { error: err.userMessage };
+    throw err;
   }
 
   const raw = {
@@ -660,6 +750,13 @@ export async function assignTemplateSegmentedAction(
   formData: FormData
 ): Promise<AssignSegmentedActionState> {
   const sessionUser = await requireAdmin();
+
+  try {
+    await assertWeeklyPlansModule(sessionUser.tenant_id);
+  } catch (err) {
+    if (err instanceof CommercialEnforcementError) return { error: err.userMessage };
+    throw err;
+  }
 
   const raw = {
     template_id: formData.get("template_id"),
@@ -843,6 +940,13 @@ export async function deleteTemplateAction(
     };
   }
 
+  try {
+    await assertWeeklyPlansModule(sessionUser.tenant_id);
+  } catch (err) {
+    if (err instanceof CommercialEnforcementError) return { error: err.userMessage };
+    throw err;
+  }
+
   const auth = await checkDeleteAuth(formData, sessionUser);
   if (!auth.ok) return { error: auth.error };
 
@@ -879,6 +983,13 @@ export async function deleteClientPlanAction(
 
   if (!hasScope) {
     return { error: "Sin permisos para gestionar este plan." };
+  }
+
+  try {
+    await assertWeeklyPlansModule(sessionUser.tenant_id);
+  } catch (err) {
+    if (err instanceof CommercialEnforcementError) return { error: err.userMessage };
+    throw err;
   }
 
   const auth = await checkDeleteAuth(formData, sessionUser);

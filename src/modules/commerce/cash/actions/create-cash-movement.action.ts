@@ -17,6 +17,11 @@ import { recordCashMovement }           from "../services/cash-movement.service"
 import { isRuntimeReadOnlyActive, RUNTIME_READONLY_MESSAGE } from "@/modules/platform/runtime/runtime-session";
 import type { CreateCashMovementInput } from "../schemas/cash.schemas";
 import type { CashMovementCreateResult } from "../types/cash.types";
+import {
+  resolveCommercialEnforcementContext,
+  assertOrganizationModule,
+  CommercialEnforcementError,
+} from "@/modules/platform/runtime/commercial-enforcement";
 
 export type CreateCashMovementActionResult =
   | { ok: true;  data: CashMovementCreateResult }
@@ -35,6 +40,14 @@ export async function createCashMovementAction(
   // PASO 6A: bloquear escritura bajo sesión runtime "Operar como cliente"
   if (await isRuntimeReadOnlyActive()) {
     return { ok: false, error: RUNTIME_READONLY_MESSAGE };
+  }
+
+  try {
+    const commercialCtx = await resolveCommercialEnforcementContext(tenant_id);
+    assertOrganizationModule(commercialCtx, "commerce.cash");
+  } catch (err) {
+    if (err instanceof CommercialEnforcementError) return { ok: false, error: err.userMessage };
+    throw err;
   }
 
   const parsed = createCashMovementInputSchema.safeParse(input);

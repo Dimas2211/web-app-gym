@@ -17,6 +17,7 @@ import { getEffectiveLocationId } from "@/lib/location/active-location";
 import { getLocationById } from "@/core/modules/locations/queries";
 import { listDteCorrelativeAlignmentRows } from "@/modules/commerce/dte/queries/list-dte-correlative-alignment-rows";
 import { DteCorrelativesPanel } from "@/modules/commerce/dte/components/dte-correlatives-panel";
+import { requireOrganizationModule } from "@/modules/platform/runtime/commercial-enforcement";
 
 export const metadata = {
   title: "Correlativos DTE",
@@ -24,6 +25,10 @@ export const metadata = {
 
 export default async function DteCorrelativesPage() {
   const sessionUser = await requireSuperAdmin();
+
+  if (sessionUser.tenant_id) {
+    await requireOrganizationModule(sessionUser.tenant_id, "fiscal.dte");
+  }
 
   if (!sessionUser.tenant_id) {
     return (

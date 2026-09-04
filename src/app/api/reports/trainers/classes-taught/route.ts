@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth/auth";
 import type { SessionUser } from "@/lib/permissions/guards";
 import { getTrainerClassesTaught } from "@/modules/reports/queries";
+import { assertReportModule } from "@/app/api/reports/reports-enforcement";
 
 const ALLOWED_ROLES = ["super_admin", "branch_admin", "reception"];
 
@@ -13,6 +14,12 @@ export async function GET(req: NextRequest) {
 
   const user = session.user as SessionUser;
   if (!ALLOWED_ROLES.includes(user.role)) return NextResponse.json({ error: "Acceso denegado" }, { status: 403 });
+
+  // Fuente real de datos: scheduled_class + attendance (gym.classes).
+  // El nombre del entrenador es un join incidental de display, no el
+  // recurso gestionado por el endpoint.
+  const moduleCheck = await assertReportModule(user.tenant_id, "gym.classes");
+  if (!moduleCheck.ok) return moduleCheck.response;
 
   const { searchParams } = req.nextUrl;
   const dateFrom = searchParams.get("dateFrom") ?? undefined;

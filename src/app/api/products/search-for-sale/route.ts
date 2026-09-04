@@ -18,11 +18,29 @@ import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { getSaleApiContext } from "@/app/api/sales/sale-api-context";
 import { searchProductsForSale } from "@/modules/commerce/sales/queries/search-products-for-sale";
+import {
+  resolveCommercialEnforcementContext,
+  assertOrganizationModule,
+  CommercialEnforcementError,
+} from "@/modules/platform/runtime/commercial-enforcement";
 
 export async function GET(req: NextRequest) {
   const ctx = await getSaleApiContext(req);
   if (!ctx.ok) {
     return NextResponse.json({ ok: false, error: ctx.error }, { status: ctx.status });
+  }
+
+  // Función real = búsqueda de productos para armar una VENTA -> commerce.sales,
+  // no commerce.products (endpoint exclusivo del flujo de Sales).
+  const commercialCtx = await resolveCommercialEnforcementContext(ctx.tenant_id);
+  try {
+    assertOrganizationModule(commercialCtx, "commerce.sales");
+  } catch (err) {
+    await ctx.dispose();
+    if (err instanceof CommercialEnforcementError) {
+      return NextResponse.json({ ok: false, error: err.userMessage }, { status: err.httpStatus });
+    }
+    throw err;
   }
 
   const params = req.nextUrl.searchParams;

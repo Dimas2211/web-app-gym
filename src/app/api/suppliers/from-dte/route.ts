@@ -6,6 +6,11 @@ import { auth } from "@/lib/auth/auth";
 import type { SessionUser } from "@/lib/permissions/guards";
 import { createSupplier } from "@/modules/commerce/suppliers/services/supplier.service";
 import { taxpayerTypeEnum } from "@/modules/commerce/suppliers/schemas/create-supplier.schema";
+import {
+  resolveCommercialEnforcementContext,
+  assertOrganizationModule,
+  CommercialEnforcementError,
+} from "@/modules/platform/runtime/commercial-enforcement";
 
 const ADMIN_ROLES = ["super_admin", "branch_admin"];
 
@@ -61,6 +66,18 @@ export async function POST(req: NextRequest) {
 
   if (!user.tenant_id) {
     return NextResponse.json({ error: "La sesion no tiene un tenant activo." }, { status: 400 });
+  }
+
+  // Alta rápida de proveedor exclusiva del flujo de importación DTE de
+  // Purchases (purchase-dte-create-supplier-dialog) -> commerce.purchases.
+  try {
+    const commercialCtx = await resolveCommercialEnforcementContext(user.tenant_id);
+    assertOrganizationModule(commercialCtx, "commerce.purchases");
+  } catch (err) {
+    if (err instanceof CommercialEnforcementError) {
+      return NextResponse.json({ error: err.userMessage }, { status: err.httpStatus });
+    }
+    throw err;
   }
 
   let body: unknown;

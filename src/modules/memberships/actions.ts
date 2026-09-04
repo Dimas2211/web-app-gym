@@ -19,6 +19,11 @@ import {
   createClientMembershipSchema,
   updateClientMembershipSchema,
 } from "./schemas";
+import {
+  resolveCommercialEnforcementContext,
+  assertOrganizationModule,
+  CommercialEnforcementError,
+} from "@/modules/platform/runtime/commercial-enforcement";
 
 export type MembershipActionState =
   | { errors?: Record<string, string[]>; error?: string }
@@ -37,6 +42,15 @@ function addDays(dateStr: string, days: number): Date {
   return d;
 }
 
+// Bloque B — guard central de este archivo: todas las actions de
+// memberships (planes + membresías de clientes) requieren gym.memberships.
+// Lanza CommercialEnforcementError — cada action lo mapea a su propio
+// contrato de retorno (MembershipActionState / DeleteAuthActionState / void).
+async function assertMembershipsModule(tenantId: string): Promise<void> {
+  const commercialCtx = await resolveCommercialEnforcementContext(tenantId);
+  assertOrganizationModule(commercialCtx, "gym.memberships");
+}
+
 // ── PLANES ───────────────────────────────────────────────────
 
 export async function createPlanAction(
@@ -44,6 +58,13 @@ export async function createPlanAction(
   formData: FormData
 ): Promise<MembershipActionState> {
   const sessionUser = await requireAdmin();
+
+  try {
+    await assertMembershipsModule(sessionUser.tenant_id);
+  } catch (err) {
+    if (err instanceof CommercialEnforcementError) return { error: err.userMessage };
+    throw err;
+  }
 
   const raw = {
     code: norm(formData.get("code")),
@@ -108,6 +129,13 @@ export async function updatePlanAction(
     return { error: "Sin permiso para editar este plan." };
   }
 
+  try {
+    await assertMembershipsModule(sessionUser.tenant_id);
+  } catch (err) {
+    if (err instanceof CommercialEnforcementError) return { error: err.userMessage };
+    throw err;
+  }
+
   const raw = {
     code: norm(formData.get("code")),
     name: formData.get("name"),
@@ -151,6 +179,13 @@ export async function togglePlanStatusAction(formData: FormData): Promise<void> 
   const plan = await prisma.membershipPlan.findUnique({ where: { id } });
   if (!plan || !canManagePlan(sessionUser, plan)) return;
 
+  try {
+    await assertMembershipsModule(sessionUser.tenant_id);
+  } catch (err) {
+    if (err instanceof CommercialEnforcementError) return;
+    throw err;
+  }
+
   await prisma.membershipPlan.update({
     where: { id },
     data: { status: plan.status === "active" ? "inactive" : "active" },
@@ -166,6 +201,13 @@ export async function createClientMembershipAction(
   formData: FormData
 ): Promise<MembershipActionState> {
   const sessionUser = await requireMembershipManager();
+
+  try {
+    await assertMembershipsModule(sessionUser.tenant_id);
+  } catch (err) {
+    if (err instanceof CommercialEnforcementError) return { error: err.userMessage };
+    throw err;
+  }
 
   const raw = {
     client_id: formData.get("client_id"),
@@ -252,6 +294,13 @@ export async function updateClientMembershipAction(
     return { error: "Sin permiso para editar esta membresía." };
   }
 
+  try {
+    await assertMembershipsModule(sessionUser.tenant_id);
+  } catch (err) {
+    if (err instanceof CommercialEnforcementError) return { error: err.userMessage };
+    throw err;
+  }
+
   const raw = {
     membership_plan_id: formData.get("membership_plan_id"),
     start_date: formData.get("start_date"),
@@ -325,6 +374,13 @@ export async function deletePlanAction(
     };
   }
 
+  try {
+    await assertMembershipsModule(sessionUser.tenant_id);
+  } catch (err) {
+    if (err instanceof CommercialEnforcementError) return { error: err.userMessage };
+    throw err;
+  }
+
   const auth = await checkDeleteAuth(formData, sessionUser);
   if (!auth.ok) return { error: auth.error };
 
@@ -352,6 +408,13 @@ export async function deleteClientMembershipAction(
     return { error: "Sin permisos para gestionar esta membresía." };
   }
 
+  try {
+    await assertMembershipsModule(sessionUser.tenant_id);
+  } catch (err) {
+    if (err instanceof CommercialEnforcementError) return { error: err.userMessage };
+    throw err;
+  }
+
   const auth = await checkDeleteAuth(formData, sessionUser);
   if (!auth.ok) return { error: auth.error };
 
@@ -370,6 +433,13 @@ export async function toggleClientMembershipStatusAction(
 
   const membership = await prisma.clientMembership.findUnique({ where: { id } });
   if (!membership || !canManageMembership(sessionUser, membership)) return;
+
+  try {
+    await assertMembershipsModule(sessionUser.tenant_id);
+  } catch (err) {
+    if (err instanceof CommercialEnforcementError) return;
+    throw err;
+  }
 
   const next = membership.status === "active" ? "cancelled" : "active";
   await prisma.clientMembership.update({ where: { id }, data: { status: next } });

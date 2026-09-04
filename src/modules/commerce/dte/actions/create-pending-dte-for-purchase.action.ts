@@ -25,6 +25,11 @@ import { requireAdmin } from "@/lib/permissions/guards";
 import { getEffectiveLocationId } from "@/lib/location/active-location";
 import { prisma } from "@/lib/db/prisma";
 import { createPendingDteForPurchase } from "../services/dte-outgoing.service";
+import {
+  resolveCommercialEnforcementContext,
+  assertOrganizationModule,
+  CommercialEnforcementError,
+} from "@/modules/platform/runtime/commercial-enforcement";
 
 export type CreatePendingDteForPurchaseResult =
   | { ok: true; dte_document_id: string }
@@ -40,6 +45,14 @@ export async function createPendingDteForPurchaseAction(
   if (!tenant_id)     return { ok: false, error: "La sesión no tiene un tenant activo." };
   if (!location_id)   return { ok: false, error: "La sesión no tiene una location activa." };
   if (!purchase_id)   return { ok: false, error: "El ID de compra es requerido." };
+
+  try {
+    const commercialCtx = await resolveCommercialEnforcementContext(tenant_id);
+    assertOrganizationModule(commercialCtx, "fiscal.dte");
+  } catch (err) {
+    if (err instanceof CommercialEnforcementError) return { ok: false, error: err.userMessage };
+    throw err;
+  }
 
   // Resolver la configuración DTE activa para este tenant+location.
   // Si hay más de una config activa (TEST y PRODUCTION simultáneas),

@@ -11,6 +11,7 @@ import {
 import { DeleteAuthorizationDialog } from "@/components/forms/delete-authorization-dialog";
 import { StatusBadge } from "@/components/ui/status-badge";
 import type { Status, AssignmentType } from "@prisma/client";
+import { requireOrganizationModule } from "@/modules/platform/runtime/commercial-enforcement";
 
 function AssignmentTypeBadge({ type }: { type: AssignmentType }) {
   if (type === "segmented") {
@@ -48,6 +49,7 @@ export default async function ClientWeeklyPlansPage({
   searchParams: SearchParams;
 }) {
   const sessionUser = await requireClassViewer();
+  await requireOrganizationModule(sessionUser.tenant_id, "gym.weekly_plans");
   const sp = await searchParams;
 
   // Sin filtro de estado explícito → vista operativa: solo planes vigentes (end_date >= hoy)

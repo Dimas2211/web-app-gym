@@ -16,6 +16,11 @@ import {
   resolveEffectiveApiContext,
   type RuntimeSessionPayload,
 } from "@/modules/platform/runtime/effective-tenant-context";
+import {
+  resolveCommercialEnforcementContext,
+  assertOrganizationModule,
+  CommercialEnforcementError,
+} from "@/modules/platform/runtime/commercial-enforcement";
 
 // PASO 6A (corrección de alcance): resuelve además el tenant_id/
 // location_id/PrismaClient EFECTIVOS — los del perfil runtime "Operar
@@ -92,6 +97,20 @@ export async function getDteApiContext(req: NextRequest): Promise<DteApiContext>
         ? "El tenant runtime no tiene sucursales activas configuradas."
         : "Selecciona una location activa para operar con documentos DTE.",
     };
+  }
+
+  // Bloque B — guard central único: cubre automáticamente los Route
+  // Handlers que llaman getDteApiContext (issuer-config, outgoing/[id],
+  // outgoing/[id]/logs, outgoing/by-sale/[saleId]).
+  try {
+    const commercialCtx = await resolveCommercialEnforcementContext(context.tenantId);
+    assertOrganizationModule(commercialCtx, "fiscal.dte");
+  } catch (err) {
+    await dispose();
+    if (err instanceof CommercialEnforcementError) {
+      return { ok: false, status: err.httpStatus, error: err.userMessage };
+    }
+    throw err;
   }
 
   return {

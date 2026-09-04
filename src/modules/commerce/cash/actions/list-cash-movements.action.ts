@@ -20,6 +20,11 @@ import { listCashMovementsInputSchema } from "../schemas/cash.schemas";
 import { listCashMovementsBySession }  from "../queries/list-cash-movements-by-session";
 import type { ListCashMovementsInput } from "../schemas/cash.schemas";
 import type { CashMovementItem }       from "../types/cash.types";
+import {
+  resolveCommercialEnforcementContext,
+  assertOrganizationModule,
+  CommercialEnforcementError,
+} from "@/modules/platform/runtime/commercial-enforcement";
 
 export type ListCashMovementsActionResult =
   | { ok: true;  data: CashMovementItem[] }
@@ -40,6 +45,14 @@ export async function listCashMovementsAction(
 
     if (!tenant_id)   return { ok: false, error: "La sesión no tiene un tenant activo." };
     if (!location_id) return { ok: false, error: "La sesión no tiene una location activa." };
+
+    try {
+      const commercialCtx = await resolveCommercialEnforcementContext(tenant_id);
+      assertOrganizationModule(commercialCtx, "commerce.cash");
+    } catch (err) {
+      if (err instanceof CommercialEnforcementError) return { ok: false, error: err.userMessage };
+      throw err;
+    }
 
     const parsed = listCashMovementsInputSchema.safeParse(input);
     if (!parsed.success) {

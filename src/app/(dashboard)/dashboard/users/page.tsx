@@ -5,13 +5,33 @@ import { toggleUserStatusAction, deleteUserAction } from "@/modules/users/action
 import { StatusBadge } from "@/components/ui/status-badge";
 import { ROLE_LABELS, ROLE_COLORS } from "@/lib/utils/roles";
 import { DeleteAuthorizationDialog } from "@/components/forms/delete-authorization-dialog";
+import { requireOrganizationModule } from "@/modules/platform/runtime/commercial-enforcement";
 
-export default async function UsersPage() {
+const COMMERCIAL_ERROR_MESSAGES: Record<string, string> = {
+  module_not_enabled: "Este módulo no está habilitado para tu organización.",
+  capacity_limit_reached: "Alcanzaste el límite de usuarios de tu plan.",
+};
+
+export default async function UsersPage({
+  searchParams,
+}: {
+  searchParams?: Promise<{ commercial_error?: string }>;
+}) {
   const user = await requireAdmin();
+  await requireOrganizationModule(user.tenant_id, "core.users");
   const users = await getAdminUsers(user);
+  const params = await searchParams;
+  const commercialErrorMessage = params?.commercial_error
+    ? COMMERCIAL_ERROR_MESSAGES[params.commercial_error]
+    : undefined;
 
   return (
     <div className="space-y-6">
+      {commercialErrorMessage && (
+        <div className="bg-amber-50 border border-amber-200 text-amber-800 text-sm rounded-lg px-4 py-3">
+          {commercialErrorMessage}
+        </div>
+      )}
       {/* Header */}
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div>

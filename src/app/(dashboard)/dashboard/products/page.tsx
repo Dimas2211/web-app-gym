@@ -33,6 +33,7 @@ import { getUnitsLookup } from "@/modules/commerce/products/queries/lookups/get-
 import { getTaxRatesLookup } from "@/modules/commerce/products/queries/lookups/get-tax-rates-lookup";
 import { getSuppliersLookup } from "@/modules/commerce/products/queries/lookups/get-suppliers-lookup";
 import { ProductsClient } from "@/modules/commerce/products/components/products-client";
+import { requireOrganizationModule } from "@/modules/platform/runtime/commercial-enforcement";
 
 export const metadata = {
   title: "Catálogo de productos",
@@ -57,6 +58,8 @@ export default async function ProductsPage() {
     !context.runtime && (user.role === "super_admin" || user.role === "branch_admin");
 
   try {
+    await requireOrganizationModule(tenantId, "commerce.products");
+
     // Carga inicial en paralelo: primera página + todos los lookups.
     // allLines/allSublines se cargan completos para que ProductFilters
     // pueda filtrarlos client-side sin round-trips adicionales.

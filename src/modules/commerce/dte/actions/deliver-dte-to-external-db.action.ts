@@ -28,6 +28,11 @@ import {
   type DeliverDteToExternalDbParams,
 } from "../services/deliver-dte-to-external-db.service";
 import type { DeliverDteToExternalDbResult } from "../types/external-dte-delivery.types";
+import {
+  resolveCommercialEnforcementContext,
+  assertOrganizationModule,
+  CommercialEnforcementError,
+} from "@/modules/platform/runtime/commercial-enforcement";
 
 export type { DeliverDteToExternalDbResult };
 
@@ -47,6 +52,21 @@ export async function deliverDteToExternalDbAction(
   }
 
   const { tenantId, locationId, client, userId, isRuntimeWrite, runtimeInfo, dispose } = access.context;
+
+  // Bloque B — el tenant efectivo ya viene resuelto por
+  // requireRuntimeDteWriteAccess (sesión normal o runtime "operar como
+  // cliente"), así que un super_admin en modo runtime queda sujeto al
+  // contrato comercial del CLIENTE, no al suyo.
+  try {
+    const commercialCtx = await resolveCommercialEnforcementContext(tenantId);
+    assertOrganizationModule(commercialCtx, "fiscal.dte");
+  } catch (err) {
+    await dispose();
+    if (err instanceof CommercialEnforcementError) {
+      return { ok: false, error: err.userMessage, targetTable: null };
+    }
+    throw err;
+  }
 
   let result: DeliverDteToExternalDbResult;
   try {

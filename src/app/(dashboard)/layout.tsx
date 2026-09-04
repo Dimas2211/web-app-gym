@@ -11,6 +11,8 @@ import { DashboardSidebar } from "@/components/ui/dashboard-sidebar";
 import { RuntimeSessionBanner } from "@/modules/platform/components/runtime-session-banner";
 import type { SessionUser } from "@/lib/permissions/guards";
 import type { UserRole } from "@prisma/client";
+import { MODULE_GROUPS } from "@/lib/navigation/dashboard-nav";
+import { resolveCommercialEnforcementContext } from "@/modules/platform/runtime/commercial-enforcement";
 
 export default async function DashboardLayout({
   children,
@@ -48,6 +50,22 @@ export default async function DashboardLayout({
       getEffectiveLocationId(user as SessionUser & { role: UserRole }),
     ]);
     locationSwitcherData = { locations, activeLocationId };
+  }
+
+  // Bloque B — module codes habilitados para el tenant de sesión, para
+  // filtrar la navegación además del rol. LEGACY_UNMANAGED es bypass
+  // explícito: se incluyen todos los codes referenciados en MODULE_GROUPS
+  // para no ocultar nada bajo compatibilidad temporal.
+  const ALL_NAV_MODULE_CODES = MODULE_GROUPS.flatMap((g) =>
+    g.items.map((i) => i.moduleCode).filter((c): c is string => Boolean(c)),
+  );
+  let enabledModuleCodes: string[] = [];
+  if (user.tenant_id) {
+    const commercialCtx = await resolveCommercialEnforcementContext(user.tenant_id);
+    enabledModuleCodes =
+      commercialCtx.mode === "LEGACY_UNMANAGED"
+        ? ALL_NAV_MODULE_CODES
+        : ALL_NAV_MODULE_CODES.filter((code) => commercialCtx.effectiveModules.get(code)?.enabled === true);
   }
 
   return (
@@ -102,7 +120,7 @@ export default async function DashboardLayout({
 
         {/* Cuerpo: sidebar + contenido */}
         <div className="flex flex-1 min-h-0">
-          <DashboardSidebar role={user.role} />
+          <DashboardSidebar role={user.role} enabledModuleCodes={enabledModuleCodes} />
           <main className="flex-1 min-h-0 overflow-y-auto px-4 sm:px-6 py-8">
             <div className="w-full max-w-[1800px] mx-auto">{children}</div>
           </main>

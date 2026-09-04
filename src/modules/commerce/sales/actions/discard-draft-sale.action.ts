@@ -14,6 +14,11 @@ import { revalidatePath } from "next/cache";
 import { requireAdmin } from "@/lib/permissions/guards";
 import { getEffectiveLocationId } from "@/lib/location/active-location";
 import { discardDraftSale } from "../services/sale.service";
+import {
+  resolveCommercialEnforcementContext,
+  assertOrganizationModule,
+  CommercialEnforcementError,
+} from "@/modules/platform/runtime/commercial-enforcement";
 
 export type DiscardDraftSaleActionResult =
   | { ok: true }
@@ -29,6 +34,14 @@ export async function discardDraftSaleAction(
   if (!tenant_id)       return { ok: false, error: "La sesión no tiene un tenant activo." };
   if (!location_id)     return { ok: false, error: "La sesión no tiene una location activa." };
   if (!sale_id?.trim()) return { ok: false, error: "El ID de venta es requerido." };
+
+  try {
+    const commercialCtx = await resolveCommercialEnforcementContext(tenant_id);
+    assertOrganizationModule(commercialCtx, "commerce.sales");
+  } catch (err) {
+    if (err instanceof CommercialEnforcementError) return { ok: false, error: err.userMessage };
+    throw err;
+  }
 
   const result = await discardDraftSale(sale_id, tenant_id, location_id);
 

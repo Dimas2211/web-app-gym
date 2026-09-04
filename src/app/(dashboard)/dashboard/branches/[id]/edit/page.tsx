@@ -4,11 +4,13 @@ import { requireAdmin, canManageBranch } from "@/lib/permissions/guards";
 import { getBranchById } from "@/modules/branches/queries";
 import { BranchForm } from "@/components/forms/branch-form";
 import { updateBranchAction } from "@/modules/branches/actions";
+import { requireOrganizationModule } from "@/modules/platform/runtime/commercial-enforcement";
 
 type Props = { params: Promise<{ id: string }> };
 
 export default async function EditBranchPage({ params }: Props) {
   const user = await requireAdmin();
+  await requireOrganizationModule(user.tenant_id, "core.locations");
   const { id } = await params;
 
   const branch = await getBranchById(id, user);

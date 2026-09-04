@@ -25,6 +25,11 @@ import { prisma } from "@/lib/db/prisma";
 import { isRuntimeReadOnlyActive, RUNTIME_READONLY_MESSAGE } from "@/modules/platform/runtime/runtime-session";
 import { createPendingDteForSale } from "../services/dte-outgoing.service";
 import { DTE_MVP_TYPE_CODES } from "../types/dte.types";
+import {
+  resolveCommercialEnforcementContext,
+  assertOrganizationModule,
+  CommercialEnforcementError,
+} from "@/modules/platform/runtime/commercial-enforcement";
 
 export type CreatePendingDteSimpleResult =
   | { ok: true; dte_document_id: string }
@@ -45,6 +50,14 @@ export async function createPendingDteSimpleAction(
     return { ok: false, error: RUNTIME_READONLY_MESSAGE };
   }
   if (!sale_id)     return { ok: false, error: "El ID de venta es requerido." };
+
+  try {
+    const commercialCtx = await resolveCommercialEnforcementContext(tenant_id);
+    assertOrganizationModule(commercialCtx, "fiscal.dte");
+  } catch (err) {
+    if (err instanceof CommercialEnforcementError) return { ok: false, error: err.userMessage };
+    throw err;
+  }
 
   // Cargar la venta y validar precondiciones de negocio
   const sale = await prisma.sale.findFirst({

@@ -20,6 +20,11 @@ import { getCashWorkspaceStateInputSchema } from "../schemas/cash.schemas";
 import { getCashWorkspaceState }   from "../services/cash-read.service";
 import type { CashWorkspaceState } from "../types/cash.types";
 import type { GetCashWorkspaceStateInput } from "../schemas/cash.schemas";
+import {
+  resolveCommercialEnforcementContext,
+  assertOrganizationModule,
+  CommercialEnforcementError,
+} from "@/modules/platform/runtime/commercial-enforcement";
 
 export type GetCashWorkspaceStateResult =
   | { ok: true;  data: CashWorkspaceState }
@@ -40,6 +45,14 @@ export async function getCashWorkspaceStateAction(
 
     if (!tenant_id)   return { ok: false, error: "La sesión no tiene un tenant activo." };
     if (!location_id) return { ok: false, error: "La sesión no tiene una location activa." };
+
+    try {
+      const commercialCtx = await resolveCommercialEnforcementContext(tenant_id);
+      assertOrganizationModule(commercialCtx, "commerce.cash");
+    } catch (err) {
+      if (err instanceof CommercialEnforcementError) return { ok: false, error: err.userMessage };
+      throw err;
+    }
 
     const parsed = getCashWorkspaceStateInputSchema.safeParse(input);
     if (!parsed.success) {

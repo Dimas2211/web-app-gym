@@ -17,6 +17,11 @@ import { requireAdmin } from "@/lib/permissions/guards";
 import { isRuntimeReadOnlyActive, RUNTIME_READONLY_MESSAGE } from "@/modules/platform/runtime/runtime-session";
 import { createProductLocationSchema } from "../schemas/create-product-location.schema";
 import { createProductLocation } from "../services/product-location.service";
+import {
+  resolveCommercialEnforcementContext,
+  assertOrganizationModule,
+  CommercialEnforcementError,
+} from "@/modules/platform/runtime/commercial-enforcement";
 
 // ── Estado de retorno ─────────────────────────────────────────────
 
@@ -68,6 +73,14 @@ export async function createProductLocationAction(
 
   // PASO 6A: bloquear escritura bajo sesión runtime "Operar como cliente"
   if (await isRuntimeReadOnlyActive()) return { error: RUNTIME_READONLY_MESSAGE };
+
+  try {
+    const commercialCtx = await resolveCommercialEnforcementContext(tenant_id);
+    assertOrganizationModule(commercialCtx, "commerce.inventory");
+  } catch (err) {
+    if (err instanceof CommercialEnforcementError) return { error: err.userMessage };
+    throw err;
+  }
 
   const raw = {
     tenant_id,

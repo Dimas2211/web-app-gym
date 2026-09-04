@@ -19,6 +19,11 @@ import {
   VALID_PAYMENT_CONDITIONS,
   VALID_CANCELLATION_TYPES,
 } from "../constants/purchase-document.constants";
+import {
+  resolveCommercialEnforcementContext,
+  assertOrganizationModule,
+  CommercialEnforcementError,
+} from "@/modules/platform/runtime/commercial-enforcement";
 
 export type SavePurchaseHeaderState =
   | { ok: true;  id: string; created: boolean }
@@ -45,6 +50,14 @@ export async function savePurchaseHeaderAction(
 
   if (!tenant_id)   return { ok: false, error: "Sesión sin tenant activo." };
   if (!location_id) return { ok: false, error: "Sesión sin location activa." };
+
+  try {
+    const commercialCtx = await resolveCommercialEnforcementContext(tenant_id);
+    assertOrganizationModule(commercialCtx, "commerce.purchases");
+  } catch (err) {
+    if (err instanceof CommercialEnforcementError) return { ok: false, error: err.userMessage };
+    throw err;
+  }
 
   const purchase_id = str(formData.get("purchase_id"));
 

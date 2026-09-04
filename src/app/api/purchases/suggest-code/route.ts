@@ -11,6 +11,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/permissions/guards";
 import { getEffectiveLocationId } from "@/lib/location/active-location";
 import { getNextPurchaseCode } from "@/modules/commerce/purchases/queries/get-next-purchase-code";
+import {
+  resolveCommercialEnforcementContext,
+  assertOrganizationModule,
+  CommercialEnforcementError,
+} from "@/modules/platform/runtime/commercial-enforcement";
 
 export const dynamic = "force-dynamic";
 
@@ -20,6 +25,16 @@ export async function GET(req: NextRequest) {
 
   if (!location_id) {
     return NextResponse.json({ error: "Sin location activa." }, { status: 401 });
+  }
+
+  try {
+    const commercialCtx = await resolveCommercialEnforcementContext(sessionUser.tenant_id);
+    assertOrganizationModule(commercialCtx, "commerce.purchases");
+  } catch (err) {
+    if (err instanceof CommercialEnforcementError) {
+      return NextResponse.json({ error: err.userMessage }, { status: err.httpStatus });
+    }
+    throw err;
   }
 
   const dateParam = req.nextUrl.searchParams.get("date");

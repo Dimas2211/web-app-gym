@@ -13,6 +13,7 @@ import {
   GENDER_LABELS,
 } from "@/lib/utils/labels";
 import type { PlanLevel, Gender, Status } from "@prisma/client";
+import { requireOrganizationModule } from "@/modules/platform/runtime/commercial-enforcement";
 
 type SearchParams = Promise<{
   search?: string;
@@ -26,6 +27,7 @@ export default async function WeeklyPlanTemplatesPage({
   searchParams: SearchParams;
 }) {
   const sessionUser = await requireAdmin();
+  await requireOrganizationModule(sessionUser.tenant_id, "gym.weekly_plans");
   const sp = await searchParams;
 
   const templates = await getWeeklyPlanTemplates(sessionUser, {

@@ -13,6 +13,11 @@
 import { revalidatePath } from "next/cache";
 import { requireAdmin } from "@/lib/permissions/guards";
 import { cancelPurchase } from "../services/purchase.service";
+import {
+  resolveCommercialEnforcementContext,
+  assertOrganizationModule,
+  CommercialEnforcementError,
+} from "@/modules/platform/runtime/commercial-enforcement";
 
 export type CancelPurchaseState =
   | { error?: string }
@@ -37,6 +42,14 @@ export async function cancelPurchaseAction(
 
   if (!tenant_id)   return { error: "La sesión no tiene un tenant activo." };
   if (!location_id) return { error: "La sesión no tiene una location activa." };
+
+  try {
+    const commercialCtx = await resolveCommercialEnforcementContext(tenant_id);
+    assertOrganizationModule(commercialCtx, "commerce.purchases");
+  } catch (err) {
+    if (err instanceof CommercialEnforcementError) return { error: err.userMessage };
+    throw err;
+  }
 
   const purchase_id = str(formData.get("purchase_id"));
   if (!purchase_id) return { error: "purchase_id es requerido." };

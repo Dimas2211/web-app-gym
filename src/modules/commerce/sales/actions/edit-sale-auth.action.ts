@@ -15,6 +15,11 @@
 import { requireAdmin } from "@/lib/permissions/guards";
 import { isRuntimeReadOnlyActive, RUNTIME_READONLY_MESSAGE } from "@/modules/platform/runtime/runtime-session";
 import { verifyAdminDeleteCredentials } from "@/lib/permissions/delete-authorization";
+import {
+  resolveCommercialEnforcementContext,
+  assertOrganizationModule,
+  CommercialEnforcementError,
+} from "@/modules/platform/runtime/commercial-enforcement";
 
 export type EditSaleAuthState =
   | { ok: true }
@@ -33,6 +38,14 @@ export async function editSaleAuthAction(
   // PASO 6A: bloquear escritura bajo sesión runtime "Operar como cliente"
   if (await isRuntimeReadOnlyActive()) {
     return { ok: false, error: RUNTIME_READONLY_MESSAGE };
+  }
+
+  try {
+    const commercialCtx = await resolveCommercialEnforcementContext(sessionUser.tenant_id);
+    assertOrganizationModule(commercialCtx, "commerce.sales");
+  } catch (err) {
+    if (err instanceof CommercialEnforcementError) return { ok: false, error: err.userMessage };
+    throw err;
   }
 
   const email    = (formData.get("auth_email")    as string ?? "").trim();

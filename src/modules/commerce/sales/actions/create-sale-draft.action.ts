@@ -15,6 +15,11 @@ import { getEffectiveLocationId } from "@/lib/location/active-location";
 import { createSaleDraftSchema } from "../schemas/sale.schemas";
 import { createSaleDraft } from "../services/sale.service";
 import type { CreateSaleDraftInput } from "../schemas/sale.schemas";
+import {
+  resolveCommercialEnforcementContext,
+  assertOrganizationModule,
+  CommercialEnforcementError,
+} from "@/modules/platform/runtime/commercial-enforcement";
 
 export type CreateSaleDraftActionResult =
   | { ok: true; id: string; sale_code: string }
@@ -29,6 +34,14 @@ export async function createSaleDraftAction(
 
   if (!tenant_id)   return { ok: false, error: "La sesión no tiene un tenant activo." };
   if (!location_id) return { ok: false, error: "La sesión no tiene una location activa." };
+
+  try {
+    const commercialCtx = await resolveCommercialEnforcementContext(tenant_id);
+    assertOrganizationModule(commercialCtx, "commerce.sales");
+  } catch (err) {
+    if (err instanceof CommercialEnforcementError) return { ok: false, error: err.userMessage };
+    throw err;
+  }
 
   const parsed = createSaleDraftSchema.safeParse(input);
   if (!parsed.success) {

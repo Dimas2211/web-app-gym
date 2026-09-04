@@ -16,6 +16,11 @@ import { isRuntimeReadOnlyActive, RUNTIME_READONLY_MESSAGE } from "@/modules/pla
 import { createCustomerSchema } from "../schemas/customer.schemas";
 import { createCustomer } from "../services/customer.service";
 import type { CreateCustomerInput } from "../schemas/customer.schemas";
+import {
+  resolveCommercialEnforcementContext,
+  assertOrganizationModule,
+  CommercialEnforcementError,
+} from "@/modules/platform/runtime/commercial-enforcement";
 
 export type CreateCustomerActionResult =
   | { ok: true; id: string; customer_code: string }
@@ -34,6 +39,14 @@ export async function createCustomerAction(
   // PASO 6A: bloquear escritura bajo sesión runtime "Operar como cliente"
   if (await isRuntimeReadOnlyActive()) {
     return { ok: false, error: RUNTIME_READONLY_MESSAGE };
+  }
+
+  try {
+    const commercialCtx = await resolveCommercialEnforcementContext(tenant_id);
+    assertOrganizationModule(commercialCtx, "core.customers");
+  } catch (err) {
+    if (err instanceof CommercialEnforcementError) return { ok: false, error: err.userMessage };
+    throw err;
   }
 
   const parsed = createCustomerSchema.safeParse(input);

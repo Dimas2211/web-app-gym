@@ -14,6 +14,11 @@
 import { requireAdmin }           from "@/lib/permissions/guards";
 import { getEffectiveLocationId } from "@/lib/location/active-location";
 import { updatePurchaseHeader }   from "../services/purchase.service";
+import {
+  resolveCommercialEnforcementContext,
+  assertOrganizationModule,
+  CommercialEnforcementError,
+} from "@/modules/platform/runtime/commercial-enforcement";
 
 export type UpdatePurchaseHeaderState =
   | { ok: true }
@@ -30,6 +35,14 @@ export async function updatePurchaseHeaderAction(
 
   if (!sessionUser.tenant_id || !location_id) {
     return { ok: false, error: "Sesión sin tenant o location activa." };
+  }
+
+  try {
+    const commercialCtx = await resolveCommercialEnforcementContext(sessionUser.tenant_id);
+    assertOrganizationModule(commercialCtx, "commerce.purchases");
+  } catch (err) {
+    if (err instanceof CommercialEnforcementError) return { ok: false, error: err.userMessage };
+    throw err;
   }
 
   const supplier_id   = (formData.get("supplier_id")   as string ?? "").trim();

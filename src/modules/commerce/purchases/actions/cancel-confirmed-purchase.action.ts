@@ -15,6 +15,11 @@ import { requireAdmin } from "@/lib/permissions/guards";
 import { verifyAdminDeleteCredentials } from "@/lib/permissions/delete-authorization";
 import { getEffectiveLocationId } from "@/lib/location/active-location";
 import { cancelConfirmedPurchase } from "../services/purchase.service";
+import {
+  resolveCommercialEnforcementContext,
+  assertOrganizationModule,
+  CommercialEnforcementError,
+} from "@/modules/platform/runtime/commercial-enforcement";
 
 export type CancelConfirmedPurchaseState =
   | { ok: true }
@@ -34,6 +39,14 @@ export async function cancelConfirmedPurchaseAction(
   const location_id = await getEffectiveLocationId(sessionUser);
   if (!location_id) {
     return { ok: false, error: "Selecciona una location activa antes de anular." };
+  }
+
+  try {
+    const commercialCtx = await resolveCommercialEnforcementContext(sessionUser.tenant_id);
+    assertOrganizationModule(commercialCtx, "commerce.purchases");
+  } catch (err) {
+    if (err instanceof CommercialEnforcementError) return { ok: false, error: err.userMessage };
+    throw err;
   }
 
   const purchase_id = ((formData.get("purchase_id") as string) ?? "").trim();

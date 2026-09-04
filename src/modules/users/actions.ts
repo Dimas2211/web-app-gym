@@ -20,6 +20,11 @@ import {
   updateCoreUser,
   toggleCoreUserStatus,
 } from "@/core/modules/users/actions";
+import {
+  resolveCommercialEnforcementContext,
+  assertOrganizationModule,
+  CommercialEnforcementError,
+} from "@/modules/platform/runtime/commercial-enforcement";
 
 export type UserActionState =
   | { errors?: Record<string, string[]>; error?: string }
@@ -59,6 +64,15 @@ export async function createUserAction(
     }
   }
 
+  let commercialCtx;
+  try {
+    commercialCtx = await resolveCommercialEnforcementContext(sessionUser.tenant_id);
+    assertOrganizationModule(commercialCtx, "core.users");
+  } catch (err) {
+    if (err instanceof CommercialEnforcementError) return { error: err.userMessage };
+    throw err;
+  }
+
   // Generar códigos operativos GYM antes de delegar al core
   const operational_code = await suggestNextStaffCode(sessionUser.tenant_id);
   const qr_token = generateQrToken();
@@ -72,7 +86,7 @@ export async function createUserAction(
     password: parsed.data.password,
     operational_code,
     qr_token,
-  });
+  }, commercialCtx);
 
   if (!result.success) return result;
 
@@ -115,6 +129,14 @@ export async function updateUserAction(
   if (!target) return { error: "Usuario no encontrado." };
   if (!canManageUser(sessionUser, target)) {
     return { error: "Sin permiso para editar este usuario." };
+  }
+
+  try {
+    const commercialCtx = await resolveCommercialEnforcementContext(sessionUser.tenant_id);
+    assertOrganizationModule(commercialCtx, "core.users");
+  } catch (err) {
+    if (err instanceof CommercialEnforcementError) return { error: err.userMessage };
+    throw err;
   }
 
   // Validación GYM: verificar contraseña y campos con updateUserSchema
@@ -217,6 +239,14 @@ export async function deleteUserAction(
     return { error: "Sin permisos para gestionar este usuario." };
   }
 
+  try {
+    const commercialCtx = await resolveCommercialEnforcementContext(sessionUser.tenant_id);
+    assertOrganizationModule(commercialCtx, "core.users");
+  } catch (err) {
+    if (err instanceof CommercialEnforcementError) return { error: err.userMessage };
+    throw err;
+  }
+
   // Bloqueos por dependencias GYM
   if (target.trainer_profile) {
     return {
@@ -242,6 +272,9 @@ export async function deleteUserAction(
 // ──────────────────────────────────────────────
 // Cambiar estado (sin borrado físico)
 // ──────────────────────────────────────────────
+// Retorna void (invocada vía <form action={...}> sin useActionState, no
+// hay canal de error hoy) — un bloqueo de módulo/capacidad se comunica
+// con redirect + query param, leído como banner en users/page.tsx.
 export async function toggleUserStatusAction(formData: FormData): Promise<void> {
   const sessionUser = await requireAdmin();
   const id = formData.get("id") as string;
@@ -252,8 +285,22 @@ export async function toggleUserStatusAction(formData: FormData): Promise<void> 
   if (!target) return;
   if (!canManageUser(sessionUser, target)) return;
 
-  // Delegar toggle y guard de auto-desactivación al core
-  await toggleCoreUserStatus(id, sessionUser.id, sessionUser.tenant_id);
+  try {
+    const commercialCtx = await resolveCommercialEnforcementContext(sessionUser.tenant_id);
+    assertOrganizationModule(commercialCtx, "core.users");
+
+    const result = await toggleCoreUserStatus(id, sessionUser.id, sessionUser.tenant_id, commercialCtx);
+    if (!result.success) {
+      revalidatePath("/dashboard/users");
+      redirect("/dashboard/users?commercial_error=capacity_limit_reached");
+    }
+  } catch (err) {
+    if (err instanceof CommercialEnforcementError) {
+      revalidatePath("/dashboard/users");
+      redirect("/dashboard/users?commercial_error=module_not_enabled");
+    }
+    throw err;
+  }
 
   revalidatePath("/dashboard/users");
 }

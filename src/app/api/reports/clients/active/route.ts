@@ -5,6 +5,10 @@ import { auth } from "@/lib/auth/auth";
 import type { SessionUser } from "@/lib/permissions/guards";
 import { getActiveClients } from "@/modules/reports/queries";
 
+// Bloque B (cierre reporting) — Client no tiene module code propio en el
+// catálogo de 15 (mismo criterio ya aplicado a la navegación de
+// "Clientes"). Este endpoint queda sin module guard deliberadamente;
+// solo aplica el guard de rol existente.
 const ALLOWED_ROLES = ["super_admin", "branch_admin", "reception"];
 
 export async function GET(req: NextRequest) {

@@ -17,6 +17,11 @@ import { getOpenCashSessionInputSchema } from "../schemas/cash.schemas";
 import { getOpenSessionForRegister }     from "../services/cash-read.service";
 import type { CashOpenSessionInfo }      from "../types/cash.types";
 import type { GetOpenCashSessionInput }  from "../schemas/cash.schemas";
+import {
+  resolveCommercialEnforcementContext,
+  assertOrganizationModule,
+  CommercialEnforcementError,
+} from "@/modules/platform/runtime/commercial-enforcement";
 
 export type GetOpenCashSessionResult =
   | { ok: true;  data: CashOpenSessionInfo | null }
@@ -31,6 +36,14 @@ export async function getOpenCashSessionAction(
 
   if (!tenant_id)   return { ok: false, error: "La sesión no tiene un tenant activo." };
   if (!location_id) return { ok: false, error: "La sesión no tiene una location activa." };
+
+  try {
+    const commercialCtx = await resolveCommercialEnforcementContext(tenant_id);
+    assertOrganizationModule(commercialCtx, "commerce.cash");
+  } catch (err) {
+    if (err instanceof CommercialEnforcementError) return { ok: false, error: err.userMessage };
+    throw err;
+  }
 
   const parsed = getOpenCashSessionInputSchema.safeParse(input);
   if (!parsed.success) {

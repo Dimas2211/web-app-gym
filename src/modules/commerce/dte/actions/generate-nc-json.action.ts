@@ -22,6 +22,11 @@ import { revalidatePath }         from "next/cache";
 import { requireAdmin }           from "@/lib/permissions/guards";
 import { getEffectiveLocationId } from "@/lib/location/active-location";
 import { generateNcJsonForDte }   from "../services/generate-nc-json.service";
+import {
+  resolveCommercialEnforcementContext,
+  assertOrganizationModule,
+  CommercialEnforcementError,
+} from "@/modules/platform/runtime/commercial-enforcement";
 
 export type GenerateNcJsonActionResult =
   | {
@@ -43,6 +48,14 @@ export async function generateNcJsonAction(
   if (!tenant_id)    return { ok: false, message: "La sesión no tiene un tenant activo." };
   if (!location_id)  return { ok: false, message: "La sesión no tiene una location activa." };
   if (!dteDocumentId) return { ok: false, message: "El ID del documento DTE es requerido." };
+
+  try {
+    const commercialCtx = await resolveCommercialEnforcementContext(tenant_id);
+    assertOrganizationModule(commercialCtx, "fiscal.dte");
+  } catch (err) {
+    if (err instanceof CommercialEnforcementError) return { ok: false, message: err.userMessage };
+    throw err;
+  }
 
   const result = await generateNcJsonForDte({
     dteDocumentId,

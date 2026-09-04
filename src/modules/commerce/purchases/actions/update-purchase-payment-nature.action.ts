@@ -17,6 +17,11 @@ import { updatePurchasePaymentNatureSchema } from "../schemas/payment-nature.sch
 import { updatePurchasePaymentNature } from "../services/purchase.service";
 import { getPurchaseById } from "../queries/get-purchase-by-id";
 import type { PurchaseDetail } from "../types/purchase.types";
+import {
+  resolveCommercialEnforcementContext,
+  assertOrganizationModule,
+  CommercialEnforcementError,
+} from "@/modules/platform/runtime/commercial-enforcement";
 
 export type UpdatePurchasePaymentNatureState =
   | { ok: true; detail: PurchaseDetail }
@@ -32,6 +37,14 @@ export async function updatePurchasePaymentNatureAction(
 
   if (!sessionUser.tenant_id || !location_id) {
     return { ok: false, error: "Sesión sin tenant o location activa." };
+  }
+
+  try {
+    const commercialCtx = await resolveCommercialEnforcementContext(sessionUser.tenant_id);
+    assertOrganizationModule(commercialCtx, "commerce.purchases");
+  } catch (err) {
+    if (err instanceof CommercialEnforcementError) return { ok: false, error: err.userMessage };
+    throw err;
   }
 
   const parsed = updatePurchasePaymentNatureSchema.safeParse({

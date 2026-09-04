@@ -20,6 +20,14 @@ import { isRuntimeReadOnlyActive, RUNTIME_READONLY_MESSAGE } from "@/modules/pla
 import { updateProductStatusSchema } from "@/modules/commerce/products/schemas/update-product-status.schema";
 import { isValidTransition } from "@/modules/commerce/products/utils/product-status.utils";
 import type { ProductStatus } from "@/modules/commerce/products/types/product.types";
+import {
+  resolveCommercialEnforcementContext,
+  assertOrganizationModule,
+  withCapacityCheckedTransaction,
+  isProductCountedForCapacity,
+  capacityDelta,
+  CommercialEnforcementError,
+} from "@/modules/platform/runtime/commercial-enforcement";
 
 // Roles que pueden cambiar el estado del catálogo
 const ADMIN_ROLES = ["super_admin", "branch_admin"];
@@ -43,6 +51,17 @@ export async function PATCH(
   // PASO 6A: bloquear escritura bajo sesión runtime "Operar como cliente"
   if (await isRuntimeReadOnlyActive()) {
     return NextResponse.json({ error: RUNTIME_READONLY_MESSAGE }, { status: 403 });
+  }
+
+  // Bloque B: módulo commerce.products debe estar habilitado
+  const commercialCtx = await resolveCommercialEnforcementContext(user.tenant_id);
+  try {
+    assertOrganizationModule(commercialCtx, "commerce.products");
+  } catch (err) {
+    if (err instanceof CommercialEnforcementError) {
+      return NextResponse.json({ error: err.userMessage }, { status: err.httpStatus });
+    }
+    throw err;
   }
 
   // ── Parseo del body ─────────────────────────────────────────────
@@ -103,14 +122,28 @@ export async function PATCH(
     return NextResponse.json({ error: message }, { status: 422 });
   }
 
-  // ── Aplicar cambio ──────────────────────────────────────────────
-  await prisma.product.update({
-    where: { id },
-    data: {
-      status:     nextStatus,
-      updated_by: user.id,
-    },
-  });
+  // ── Aplicar cambio — delta de capacidad exclusivamente desde
+  // isProductCountedForCapacity (todo estado excepto DISCONTINUED
+  // consume cupo), nunca comparando nextStatus contra "ACTIVE" ─────
+  const delta = capacityDelta(isProductCountedForCapacity(currentStatus), isProductCountedForCapacity(nextStatus));
+
+  try {
+    if (delta > 0) {
+      await withCapacityCheckedTransaction(prisma, "commerce.products.max", delta, commercialCtx, (tx) =>
+        tx.product.update({ where: { id }, data: { status: nextStatus, updated_by: user.id } }),
+      );
+    } else {
+      await prisma.product.update({
+        where: { id },
+        data: { status: nextStatus, updated_by: user.id },
+      });
+    }
+  } catch (err) {
+    if (err instanceof CommercialEnforcementError) {
+      return NextResponse.json({ error: err.userMessage }, { status: err.httpStatus });
+    }
+    throw err;
+  }
 
   return NextResponse.json({ success: true, status: nextStatus });
 }

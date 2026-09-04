@@ -20,6 +20,11 @@ import { getCashSessionCutReportInputSchema } from "../schemas/cash.schemas";
 import { getCashSessionCutReport }            from "../queries/get-cash-session-cut-report";
 import type { GetCashSessionCutReportInput }  from "../schemas/cash.schemas";
 import type { CashSessionCutReport }          from "../types/cash.types";
+import {
+  resolveCommercialEnforcementContext,
+  assertOrganizationModule,
+  CommercialEnforcementError,
+} from "@/modules/platform/runtime/commercial-enforcement";
 
 export type GetCashSessionCutReportActionResult =
   | { ok: true;  data: CashSessionCutReport }
@@ -40,6 +45,14 @@ export async function getCashSessionCutReportAction(
 
     if (!tenant_id)   return { ok: false, error: "La sesión no tiene un tenant activo." };
     if (!location_id) return { ok: false, error: "La sesión no tiene una location activa." };
+
+    try {
+      const commercialCtx = await resolveCommercialEnforcementContext(tenant_id);
+      assertOrganizationModule(commercialCtx, "commerce.cash");
+    } catch (err) {
+      if (err instanceof CommercialEnforcementError) return { ok: false, error: err.userMessage };
+      throw err;
+    }
 
     const parsed = getCashSessionCutReportInputSchema.safeParse(input);
     if (!parsed.success) {

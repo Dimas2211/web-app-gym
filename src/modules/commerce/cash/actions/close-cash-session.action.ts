@@ -18,6 +18,11 @@ import { closeCashSession }            from "../services/cash-session.service";
 import { isRuntimeReadOnlyActive, RUNTIME_READONLY_MESSAGE } from "@/modules/platform/runtime/runtime-session";
 import type { CloseCashSessionInput }  from "../schemas/cash.schemas";
 import type { CashOpenSessionInfo }    from "../types/cash.types";
+import {
+  resolveCommercialEnforcementContext,
+  assertOrganizationModule,
+  CommercialEnforcementError,
+} from "@/modules/platform/runtime/commercial-enforcement";
 
 export type CloseCashSessionActionResult =
   | { ok: true;  data: CashOpenSessionInfo }
@@ -36,6 +41,14 @@ export async function closeCashSessionAction(
   // PASO 6A: bloquear escritura bajo sesión runtime "Operar como cliente"
   if (await isRuntimeReadOnlyActive()) {
     return { ok: false, error: RUNTIME_READONLY_MESSAGE };
+  }
+
+  try {
+    const commercialCtx = await resolveCommercialEnforcementContext(tenant_id);
+    assertOrganizationModule(commercialCtx, "commerce.cash");
+  } catch (err) {
+    if (err instanceof CommercialEnforcementError) return { ok: false, error: err.userMessage };
+    throw err;
   }
 
   const parsed = closeCashSessionInputSchema.safeParse(input);

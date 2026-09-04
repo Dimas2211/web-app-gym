@@ -18,6 +18,11 @@ import { getEffectiveLocationId } from "@/lib/location/active-location";
 import { verifyAdminDeleteCredentials } from "@/lib/permissions/delete-authorization";
 import { isRuntimeReadOnlyActive, RUNTIME_READONLY_MESSAGE } from "@/modules/platform/runtime/runtime-session";
 import { discardDraftSale } from "../services/sale.service";
+import {
+  resolveCommercialEnforcementContext,
+  assertOrganizationModule,
+  CommercialEnforcementError,
+} from "@/modules/platform/runtime/commercial-enforcement";
 
 export type DeleteDraftSaleWithAuthState =
   | { ok: true }
@@ -46,6 +51,14 @@ export async function deleteDraftSaleWithAuthAction(
 
   if (!sale_id)            return { ok: false, error: "El ID de venta es requerido." };
   if (!email || !password) return { ok: false, error: "Correo y contraseña son requeridos." };
+
+  try {
+    const commercialCtx = await resolveCommercialEnforcementContext(tenant_id);
+    assertOrganizationModule(commercialCtx, "commerce.sales");
+  } catch (err) {
+    if (err instanceof CommercialEnforcementError) return { ok: false, error: err.userMessage };
+    throw err;
+  }
 
   const authResult = await verifyAdminDeleteCredentials(
     { email, password },

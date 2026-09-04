@@ -21,6 +21,7 @@
 
 import { requireAdmin } from "@/lib/permissions/guards";
 import { resolveEffectiveTenantContext } from "@/modules/platform/runtime/effective-tenant-context";
+import { requireOrganizationModule } from "@/modules/platform/runtime/commercial-enforcement";
 import { getSuppliers } from "@/modules/commerce/suppliers/queries/get-suppliers";
 import { SuppliersClient } from "@/modules/commerce/suppliers/components/suppliers-client";
 
@@ -34,6 +35,8 @@ export default async function SuppliersPage() {
   const { context, dispose } = await resolveEffectiveTenantContext(user);
 
   try {
+    await requireOrganizationModule(context.tenantId, "commerce.suppliers");
+
     const result = await getSuppliers({
       tenant_id:      context.tenantId,
       sort_field:     "name",

@@ -25,6 +25,11 @@ import { validateDteJsonSchema }         from "../services/validate-dte-json-sch
 import { signDteDocument }               from "../services/sign-dte-document.service";
 import { transmitDteDocument }           from "../services/transmit-dte-document.service";
 import { isRuntimeReadOnlyActive, RUNTIME_READONLY_MESSAGE } from "@/modules/platform/runtime/runtime-session";
+import {
+  resolveCommercialEnforcementContext,
+  assertOrganizationModule,
+  CommercialEnforcementError,
+} from "@/modules/platform/runtime/commercial-enforcement";
 
 // ── Input ─────────────────────────────────────────────────────────
 
@@ -68,6 +73,14 @@ export async function createAndTransmitCreditNoteAction(
   // validateDteJsonSchema/signDteDocument/transmitDteDocument intactos).
   if (await isRuntimeReadOnlyActive()) {
     return { ok: false, error: RUNTIME_READONLY_MESSAGE };
+  }
+
+  try {
+    const commercialCtx = await resolveCommercialEnforcementContext(tenant_id);
+    assertOrganizationModule(commercialCtx, "fiscal.dte");
+  } catch (err) {
+    if (err instanceof CommercialEnforcementError) return { ok: false, error: err.userMessage };
+    throw err;
   }
 
   const parsed = inputSchema.safeParse(rawInput);

@@ -15,6 +15,11 @@ import { getEffectiveLocationId } from "@/lib/location/active-location";
 import { addSaleItemSchema } from "../schemas/sale.schemas";
 import { addSaleItemToDraft } from "../services/sale.service";
 import type { AddSaleItemInput } from "../schemas/sale.schemas";
+import {
+  resolveCommercialEnforcementContext,
+  assertOrganizationModule,
+  CommercialEnforcementError,
+} from "@/modules/platform/runtime/commercial-enforcement";
 
 export type AddSaleItemActionResult =
   | { ok: true; item_id: string; line_number: number }
@@ -31,6 +36,14 @@ export async function addSaleItemAction(
   if (!tenant_id)   return { ok: false, error: "La sesión no tiene un tenant activo." };
   if (!location_id) return { ok: false, error: "La sesión no tiene una location activa." };
   if (!sale_id?.trim()) return { ok: false, error: "El ID de venta es requerido." };
+
+  try {
+    const commercialCtx = await resolveCommercialEnforcementContext(tenant_id);
+    assertOrganizationModule(commercialCtx, "commerce.sales");
+  } catch (err) {
+    if (err instanceof CommercialEnforcementError) return { ok: false, error: err.userMessage };
+    throw err;
+  }
 
   const parsed = addSaleItemSchema.safeParse(input);
   if (!parsed.success) {

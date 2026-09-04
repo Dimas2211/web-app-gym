@@ -23,6 +23,11 @@ import { getEffectiveLocationId } from "@/lib/location/active-location";
 import { createDteOutgoingDocumentDraftSchema } from "../schemas/dte-issuer-config.schemas";
 import { createPendingDteForSale } from "../services/dte-outgoing.service";
 import type { CreateDteOutgoingDocumentDraftInput } from "../schemas/dte-issuer-config.schemas";
+import {
+  resolveCommercialEnforcementContext,
+  assertOrganizationModule,
+  CommercialEnforcementError,
+} from "@/modules/platform/runtime/commercial-enforcement";
 
 export type CreatePendingDteForSaleActionResult =
   | { ok: true; dte_document_id: string }
@@ -37,6 +42,14 @@ export async function createPendingDteForSaleAction(
 
   if (!tenant_id)   return { ok: false, error: "La sesión no tiene un tenant activo." };
   if (!location_id) return { ok: false, error: "La sesión no tiene una location activa." };
+
+  try {
+    const commercialCtx = await resolveCommercialEnforcementContext(tenant_id);
+    assertOrganizationModule(commercialCtx, "fiscal.dte");
+  } catch (err) {
+    if (err instanceof CommercialEnforcementError) return { ok: false, error: err.userMessage };
+    throw err;
+  }
 
   const parsed = createDteOutgoingDocumentDraftSchema.safeParse(input);
   if (!parsed.success) {

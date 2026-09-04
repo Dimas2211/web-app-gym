@@ -34,7 +34,14 @@ import {
 } from "../services/export-sale.service";
 import { createForeignCustomerSchema, createExportSaleSchema } from "../schemas/export-sale.schemas";
 import type { CreateForeignCustomerInput, CreateExportSaleInput } from "../schemas/export-sale.schemas";
+import {
+  resolveCommercialEnforcementContext,
+  assertOrganizationModule,
+  CommercialEnforcementError,
+} from "@/modules/platform/runtime/commercial-enforcement";
 
+// Bloque B — guard central único: cubre las 6 actions exportadas de este
+// archivo (todas llaman requireExportSession antes de operar).
 async function requireExportSession() {
   if (!isFex11Enabled()) {
     return { error: "FEX 11 no está habilitada. Active DTE_FEX11_ENABLED o DTE_FEX11_TEST_ENABLED en ambiente TEST." };
@@ -46,6 +53,14 @@ async function requireExportSession() {
 
   if (!tenant_id)   return { error: "La sesión no tiene un tenant activo." };
   if (!location_id) return { error: "La sesión no tiene una location activa." };
+
+  try {
+    const commercialCtx = await resolveCommercialEnforcementContext(tenant_id);
+    assertOrganizationModule(commercialCtx, "commerce.sales");
+  } catch (err) {
+    if (err instanceof CommercialEnforcementError) return { error: err.userMessage };
+    throw err;
+  }
 
   return { tenant_id, location_id, user_id: sessionUser.id };
 }

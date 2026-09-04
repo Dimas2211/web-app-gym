@@ -19,6 +19,11 @@ import {
   updateDteIssuerConfigSchema,
 } from "../schemas/dte-issuer-config.schemas";
 import { createDteIssuerConfig, updateDteIssuerConfig } from "../services/dte-issuer-config.service";
+import {
+  resolveCommercialEnforcementContext,
+  assertOrganizationModule,
+  CommercialEnforcementError,
+} from "@/modules/platform/runtime/commercial-enforcement";
 
 export type UpsertDteIssuerConfigForClientState =
   | { errors?: Record<string, string[]>; error?: string; success?: false }
@@ -37,6 +42,14 @@ export async function createDteIssuerConfigForClientAction(
 
   if (!tenant_id)   return { error: "La sesión no tiene un tenant activo." };
   if (!location_id) return { error: "Selecciona una location activa para configurar el emisor DTE." };
+
+  try {
+    const commercialCtx = await resolveCommercialEnforcementContext(tenant_id);
+    assertOrganizationModule(commercialCtx, "fiscal.dte");
+  } catch (err) {
+    if (err instanceof CommercialEnforcementError) return { error: err.userMessage };
+    throw err;
+  }
 
   const raw = {
     environment:              formData.get("environment"),
@@ -85,6 +98,14 @@ export async function updateDteIssuerConfigForClientAction(
 
   if (!tenant_id)   return { error: "La sesión no tiene un tenant activo." };
   if (!location_id) return { error: "Selecciona una location activa." };
+
+  try {
+    const commercialCtx = await resolveCommercialEnforcementContext(tenant_id);
+    assertOrganizationModule(commercialCtx, "fiscal.dte");
+  } catch (err) {
+    if (err instanceof CommercialEnforcementError) return { error: err.userMessage };
+    throw err;
+  }
 
   const id = formData.get("id");
   if (typeof id !== "string" || !id) {

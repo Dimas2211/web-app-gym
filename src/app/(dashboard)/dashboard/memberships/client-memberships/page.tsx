@@ -16,6 +16,7 @@ import {
   MEMBERSHIP_STATUS_COLORS,
 } from "@/lib/utils/labels";
 import type { PaymentStatus, MembershipStatus } from "@prisma/client";
+import { requireOrganizationModule } from "@/modules/platform/runtime/commercial-enforcement";
 
 type SearchParams = Promise<{
   search?: string;
@@ -48,6 +49,7 @@ export default async function ClientMembershipsPage({
   searchParams: SearchParams;
 }) {
   const sessionUser = await requireMembershipManager();
+  await requireOrganizationModule(sessionUser.tenant_id, "gym.memberships");
   const params = await searchParams;
 
   const [memberships, branches] = await Promise.all([

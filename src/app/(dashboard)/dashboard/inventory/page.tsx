@@ -35,6 +35,7 @@ import {
   resolveEffectiveTenantContext,
   resolveRuntimeFirstLocationId,
 } from "@/modules/platform/runtime/effective-tenant-context";
+import { requireOrganizationModule } from "@/modules/platform/runtime/commercial-enforcement";
 import { getProductLocations } from "@/modules/commerce/inventory/queries/get-product-locations";
 import { InventoryClient } from "@/modules/commerce/inventory/components/inventory-client";
 import { MapPin } from "lucide-react";
@@ -89,6 +90,8 @@ export default async function InventoryPage() {
   }
 
   try {
+    await requireOrganizationModule(tenantId, "commerce.inventory");
+
     // Resolver la location efectiva:
     //   - modo runtime: primera sucursal activa del tenant runtime.
     //   - modo normal, branch_admin / reception: viene del JWT directamente.

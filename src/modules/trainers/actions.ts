@@ -19,6 +19,18 @@ import {
   availabilitySlotSchema,
 } from "./schemas";
 import { checkAvailabilitySlotCanBeRemoved } from "./availability-validator";
+import {
+  resolveCommercialEnforcementContext,
+  assertOrganizationModule,
+  CommercialEnforcementError,
+} from "@/modules/platform/runtime/commercial-enforcement";
+
+// Bloque B — guard central de este archivo: todas las actions de
+// trainers (perfil + disponibilidad) requieren gym.trainers.
+async function assertTrainersModule(tenantId: string): Promise<void> {
+  const commercialCtx = await resolveCommercialEnforcementContext(tenantId);
+  assertOrganizationModule(commercialCtx, "gym.trainers");
+}
 
 export type TrainerActionState =
   | { errors?: Record<string, string[]>; error?: string }
@@ -51,6 +63,14 @@ export async function createTrainerAction(
   formData: FormData
 ): Promise<TrainerActionState> {
   const sessionUser = await requireAdmin();
+
+  try {
+    await assertTrainersModule(sessionUser.tenant_id);
+  } catch (err) {
+    if (err instanceof CommercialEnforcementError) return { error: err.userMessage };
+    throw err;
+  }
+
   const raw = parseTrainerFormData(formData);
 
   // branch_admin solo puede crear en su sucursal
@@ -117,6 +137,13 @@ export async function updateTrainerAction(
   if (!target) return { error: "Entrenador no encontrado." };
   if (!canManageTrainer(sessionUser, target)) {
     return { error: "Sin permiso para editar este entrenador." };
+  }
+
+  try {
+    await assertTrainersModule(sessionUser.tenant_id);
+  } catch (err) {
+    if (err instanceof CommercialEnforcementError) return { error: err.userMessage };
+    throw err;
   }
 
   const raw = parseTrainerFormData(formData);
@@ -206,6 +233,13 @@ export async function deleteTrainerAction(
     };
   }
 
+  try {
+    await assertTrainersModule(sessionUser.tenant_id);
+  } catch (err) {
+    if (err instanceof CommercialEnforcementError) return { error: err.userMessage };
+    throw err;
+  }
+
   const auth = await checkDeleteAuth(formData, sessionUser);
   if (!auth.ok) return { error: auth.error };
 
@@ -232,6 +266,13 @@ export async function toggleTrainerStatusAction(
   const target = await prisma.trainer.findUnique({ where: { id } });
   if (!target || !canManageTrainer(sessionUser, target)) return;
 
+  try {
+    await assertTrainersModule(sessionUser.tenant_id);
+  } catch (err) {
+    if (err instanceof CommercialEnforcementError) return;
+    throw err;
+  }
+
   await prisma.trainer.update({
     where: { id },
     data: { status: target.status === "active" ? "inactive" : "active" },
@@ -249,6 +290,13 @@ export async function addAvailabilitySlotAction(
   formData: FormData
 ): Promise<TrainerActionState> {
   const sessionUser = await requireAdmin();
+
+  try {
+    await assertTrainersModule(sessionUser.tenant_id);
+  } catch (err) {
+    if (err instanceof CommercialEnforcementError) return { error: err.userMessage };
+    throw err;
+  }
 
   const raw = {
     trainer_id: formData.get("trainer_id"),
@@ -317,6 +365,13 @@ export async function removeAvailabilitySlotAction(
   const slot_id = formData.get("slot_id") as string;
   const trainer_id = formData.get("trainer_id") as string;
   if (!slot_id || !trainer_id) return { error: "Datos inválidos." };
+
+  try {
+    await assertTrainersModule(sessionUser.tenant_id);
+  } catch (err) {
+    if (err instanceof CommercialEnforcementError) return { error: err.userMessage };
+    throw err;
+  }
 
   const slot = await prisma.trainerAvailability.findUnique({
     where: { id: slot_id },

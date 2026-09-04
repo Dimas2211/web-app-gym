@@ -15,6 +15,11 @@ import { getEffectiveLocationId } from "@/lib/location/active-location";
 import { createDteIssuerConfigSchema } from "../schemas/dte-issuer-config.schemas";
 import { createDteIssuerConfig } from "../services/dte-issuer-config.service";
 import type { CreateDteIssuerConfigInput } from "../schemas/dte-issuer-config.schemas";
+import {
+  resolveCommercialEnforcementContext,
+  assertOrganizationModule,
+  CommercialEnforcementError,
+} from "@/modules/platform/runtime/commercial-enforcement";
 
 export type CreateDteIssuerConfigActionResult =
   | { ok: true; id: string }
@@ -29,6 +34,14 @@ export async function createDteIssuerConfigAction(
 
   if (!tenant_id)   return { ok: false, error: "La sesión no tiene un tenant activo." };
   if (!location_id) return { ok: false, error: "La sesión no tiene una location activa. Selecciona una sucursal para configurar el emisor DTE." };
+
+  try {
+    const commercialCtx = await resolveCommercialEnforcementContext(tenant_id);
+    assertOrganizationModule(commercialCtx, "fiscal.dte");
+  } catch (err) {
+    if (err instanceof CommercialEnforcementError) return { ok: false, error: err.userMessage };
+    throw err;
+  }
 
   const parsed = createDteIssuerConfigSchema.safeParse(input);
   if (!parsed.success) {

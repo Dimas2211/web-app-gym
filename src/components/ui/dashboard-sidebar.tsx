@@ -2,21 +2,31 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { MODULE_GROUPS } from "@/lib/navigation/dashboard-nav";
+import { MODULE_GROUPS, filterModuleGroupsByAccess } from "@/lib/navigation/dashboard-nav";
 import { useSidebar } from "@/components/ui/sidebar-context";
 import { cn } from "@/lib/utils/cn";
 import type { UserRole } from "@prisma/client";
 
-type Props = { role: UserRole };
+type Props = {
+  role: UserRole;
+  /**
+   * Bloque B — module codes efectivamente habilitados para el tenant
+   * actual (resuelto server-side en layout.tsx contra el Commercial
+   * Enforcement Context). En LEGACY_UNMANAGED, el layout ya incluye
+   * todos los codes referenciados en MODULE_GROUPS (bypass explícito).
+   */
+  enabledModuleCodes: string[];
+};
 
-export function DashboardSidebar({ role }: Props) {
+export function DashboardSidebar({ role, enabledModuleCodes }: Props) {
   const { open, close } = useSidebar();
   const pathname = usePathname();
 
-  const visibleGroups = MODULE_GROUPS.map((group) => ({
-    ...group,
-    items: group.items.filter((item) => item.roles.includes(role)),
-  })).filter((group) => group.items.length > 0);
+  const visibleGroups = filterModuleGroupsByAccess(
+    MODULE_GROUPS,
+    role,
+    new Set(enabledModuleCodes),
+  );
 
   return (
     <>

@@ -16,6 +16,7 @@
 
 import { requireAdmin } from "@/lib/permissions/guards";
 import { resolveEffectiveTenantContext } from "@/modules/platform/runtime/effective-tenant-context";
+import { requireOrganizationModule } from "@/modules/platform/runtime/commercial-enforcement";
 import { listCustomers } from "@/modules/commerce/customers/queries/list-customers";
 import { CustomersClient } from "@/modules/commerce/customers/components/customers-client";
 
@@ -29,6 +30,8 @@ export default async function CustomersPage() {
   const { context, dispose } = await resolveEffectiveTenantContext(user);
 
   try {
+    await requireOrganizationModule(context.tenantId, "core.customers");
+
     const result = await listCustomers({
       tenant_id:      context.tenantId,
       sort_field:     "name",

@@ -18,6 +18,7 @@ import {
   resolveEffectiveTenantContext,
   resolveRuntimeFirstLocationId,
 } from "@/modules/platform/runtime/effective-tenant-context";
+import { requireOrganizationModule } from "@/modules/platform/runtime/commercial-enforcement";
 import { getPurchases } from "@/modules/commerce/purchases/queries/get-purchases";
 import { PurchasesClient } from "@/modules/commerce/purchases/components/purchases-client";
 
@@ -32,6 +33,8 @@ export default async function PurchasesPage() {
   const { tenantId: tenant_id, client } = context;
 
   try {
+    await requireOrganizationModule(tenant_id, "commerce.purchases");
+
     const location_id = context.runtime
       ? await resolveRuntimeFirstLocationId(context)
       : await getEffectiveLocationId(sessionUser);

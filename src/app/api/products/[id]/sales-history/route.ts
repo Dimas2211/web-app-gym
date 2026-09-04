@@ -13,6 +13,11 @@ import { auth } from "@/lib/auth/auth";
 import type { SessionUser } from "@/lib/permissions/guards";
 import { resolveEffectiveApiContext } from "@/modules/platform/runtime/effective-tenant-context";
 import { getProductSalesHistory } from "@/modules/commerce/products/queries/get-product-sales-history";
+import {
+  resolveCommercialEnforcementContext,
+  assertOrganizationModule,
+  CommercialEnforcementError,
+} from "@/modules/platform/runtime/commercial-enforcement";
 
 const VIEWER_ROLES = ["super_admin", "branch_admin", "reception"];
 
@@ -37,6 +42,18 @@ export async function GET(
   // del tenant efectivo, igual que el comportamiento normal de super_admin.
   const { context, dispose } = await resolveEffectiveApiContext({ tenantId: user.tenant_id });
   try {
+    // Función real = consultar historial de VENTAS -> module code commerce.sales,
+    // no commerce.products (por ubicación física bajo products/**).
+    const commercialCtx = await resolveCommercialEnforcementContext(context.tenantId);
+    try {
+      assertOrganizationModule(commercialCtx, "commerce.sales");
+    } catch (err) {
+      if (err instanceof CommercialEnforcementError) {
+        return NextResponse.json({ error: err.userMessage }, { status: err.httpStatus });
+      }
+      throw err;
+    }
+
     const rows = await getProductSalesHistory(
       context.tenantId,
       id,

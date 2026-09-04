@@ -18,6 +18,7 @@ import {
   resolveEffectiveTenantContext,
   resolveRuntimeFirstLocationId,
 } from "@/modules/platform/runtime/effective-tenant-context";
+import { requireOrganizationModule } from "@/modules/platform/runtime/commercial-enforcement";
 import { listDteOutgoingGlobal } from "@/modules/commerce/dte/outgoing/queries/list-dte-outgoing-global";
 import { dteOutgoingFiltersSchema } from "@/modules/commerce/dte/outgoing/schemas";
 import { DteOutgoingClient } from "@/modules/commerce/dte/outgoing/components/dte-outgoing-client";
@@ -38,6 +39,7 @@ export default async function DteOutgoingPage({ searchParams }: PageProps) {
   const { tenantId, client } = context;
 
   try {
+    if (tenantId) await requireOrganizationModule(tenantId, "fiscal.dte");
     if (!tenantId) {
       return (
         <div className="flex h-48 items-center justify-center text-sm text-zinc-500">

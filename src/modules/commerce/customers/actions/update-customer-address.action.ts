@@ -21,6 +21,11 @@ import { isRuntimeReadOnlyActive, RUNTIME_READONLY_MESSAGE } from "@/modules/pla
 import { str, strNullable } from "@/lib/utils/form-data-parsers";
 import { prisma } from "@/lib/db/prisma";
 import { updateCustomer } from "../services/customer.service";
+import {
+  resolveCommercialEnforcementContext,
+  assertOrganizationModule,
+  CommercialEnforcementError,
+} from "@/modules/platform/runtime/commercial-enforcement";
 
 export type UpdateCustomerAddressState =
   | { error: string }
@@ -36,6 +41,14 @@ export async function updateCustomerAddressAction(
 
   // PASO 6A: bloquear escritura bajo sesión runtime "Operar como cliente"
   if (await isRuntimeReadOnlyActive()) return { error: RUNTIME_READONLY_MESSAGE };
+
+  try {
+    const commercialCtx = await resolveCommercialEnforcementContext(tenantId);
+    assertOrganizationModule(commercialCtx, "core.customers");
+  } catch (err) {
+    if (err instanceof CommercialEnforcementError) return { error: err.userMessage };
+    throw err;
+  }
 
   const id                 = str(formData.get("id"));
   const dept_code          = strNullable(formData.get("dept_code"));

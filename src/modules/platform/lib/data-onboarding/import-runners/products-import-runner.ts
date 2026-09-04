@@ -42,6 +42,13 @@ import type {
   ProductsImportDryRunResult,
   ProductsImportResult,
 } from "../../../types/platform.types";
+import {
+  withCapacityCheckedTransaction,
+  assertCapacityAvailable,
+  isProductCountedForCapacity,
+  CommercialEnforcementError,
+  type CommercialEnforcementContext,
+} from "../../../runtime/commercial-enforcement";
 
 // ── Valores válidos para importación (deliberadamente sin BLOCKED_PURCHASE / BLOCKED_SALE / deleted) ─
 
@@ -78,6 +85,14 @@ export interface ProductsImportRunnerInput {
   prismaClient:  PrismaClient;
   tenantId:      string;
   isDryRun:      boolean;
+  /**
+   * Commercial Enforcement Context de la organización DESTINO (resuelto
+   * por el caller contra controlPlanePrisma usando el tenant_id de esa
+   * organización, no la sesión del super_admin). `prismaClient` aquí ES
+   * la runtime DB target (perfil temporal del cliente) — usage se cuenta
+   * ahí, nunca contra el Control Plane.
+   */
+  commercialCtx: CommercialEnforcementContext;
 }
 
 // ── Runner principal ──────────────────────────────────────────────
@@ -85,7 +100,7 @@ export interface ProductsImportRunnerInput {
 export async function runProductsImport(
   input: ProductsImportRunnerInput,
 ): Promise<ProductsImportResult | ProductsImportDryRunResult> {
-  const { parsedPreview, dbAwareResult, prismaClient, tenantId, isDryRun } = input;
+  const { parsedPreview, dbAwareResult, prismaClient, tenantId, isDryRun, commercialCtx } = input;
 
   // ── 1. Reunir solo las filas que el DB-aware marcó como CREATE ─
   const createRows = dbAwareResult.rows.filter((r) => r.resolution === "CREATE");
@@ -286,9 +301,31 @@ export async function runProductsImport(
     );
   }
 
+  // Bloque B — delta de capacidad del lote completo: todas las filas son
+  // altas nuevas (wasCounted=false), cuentan las que NO quedarían en
+  // DISCONTINUED. El WRITE real vuelve a verificar esto con usage fresco
+  // dentro de la transacción (ver withCapacityCheckedTransaction abajo) —
+  // el preview NO es la fuente de verdad final, solo informa.
+  const capacityDeltaTotal = toCreate.filter((r) => isProductCountedForCapacity(r.status)).length;
+
   // ── 5. Dry-run limpio → retornar conteo sin escribir ──────────
 
   if (isDryRun) {
+    // Verificación informativa contra usage fresco de la runtime DB
+    // destino (prismaClient = perfil temporal del cliente) — bloquea el
+    // preview con el mismo mensaje que bloquearía el EXECUTE, en vez de
+    // dejar que el usuario descubra el límite recién al confirmar.
+    try {
+      await assertCapacityAvailable("commerce.products.max", capacityDeltaTotal, commercialCtx, prismaClient);
+    } catch (err) {
+      if (err instanceof CommercialEnforcementError) {
+        throw new Error(
+          `${err.userMessage} El archivo agregaría ${capacityDeltaTotal} producto(s) nuevo(s).`,
+        );
+      }
+      throw err;
+    }
+
     const rowResults: ProductsImportRowResult[] = toCreate.map((r) => ({
       rowNumber:  r.rowNumber,
       name:       r.name,
@@ -304,40 +341,55 @@ export async function runProductsImport(
     } satisfies ProductsImportDryRunResult;
   }
 
-  // ── 6. EXECUTE: transacción — solo escribe en products ────────
+  // ── 6. EXECUTE: transacción Serializable + retry acotado — capacidad
+  // verificada con usage fresco DENTRO de la misma transacción antes de
+  // escribir. Bloqueo all-or-nothing: si excede, no se escribe nada.
 
   const now = new Date();
 
-  await prismaClient.$transaction(async (tx) => {
-    for (const row of toCreate) {
-      await tx.product.create({
-        data: {
-          tenant_id:      tenantId,
-          product_code:   row.code,
-          name:           row.name,
-          description:    row.description,
-          product_type:   row.productType,
-          status:         row.status,
-          is_stockable:   row.isStockable,
-          allow_purchase: row.allowPurchase,
-          allow_sale:     row.allowSale,
-          category_id:    row.categoryId,
-          line_id:        row.lineId,
-          subline_id:     row.sublineId,
-          brand:          row.brand,
-          unit_id:        row.unitId,
-          package_unit:   row.packageUnit,
-          supplier_id:    row.supplierId,
-          sku:            row.sku,
-          cost_price:     row.costPrice,
-          sale_price:     row.salePrice,
-          tax_rate_id:    row.taxRateId,
-          created_at:     now,
-          updated_at:     now,
-        },
-      });
+  try {
+    await withCapacityCheckedTransaction(
+      prismaClient,
+      "commerce.products.max",
+      capacityDeltaTotal,
+      commercialCtx,
+      async (tx) => {
+        for (const row of toCreate) {
+          await tx.product.create({
+            data: {
+              tenant_id:      tenantId,
+              product_code:   row.code,
+              name:           row.name,
+              description:    row.description,
+              product_type:   row.productType,
+              status:         row.status,
+              is_stockable:   row.isStockable,
+              allow_purchase: row.allowPurchase,
+              allow_sale:     row.allowSale,
+              category_id:    row.categoryId,
+              line_id:        row.lineId,
+              subline_id:     row.sublineId,
+              brand:          row.brand,
+              unit_id:        row.unitId,
+              package_unit:   row.packageUnit,
+              supplier_id:    row.supplierId,
+              sku:            row.sku,
+              cost_price:     row.costPrice,
+              sale_price:     row.salePrice,
+              tax_rate_id:    row.taxRateId,
+              created_at:     now,
+              updated_at:     now,
+            },
+          });
+        }
+      },
+    );
+  } catch (err) {
+    if (err instanceof CommercialEnforcementError) {
+      throw new Error(`${err.userMessage} El archivo agregaría ${capacityDeltaTotal} producto(s) nuevo(s).`);
     }
-  });
+    throw err;
+  }
 
   const rowResults: ProductsImportRowResult[] = toCreate.map((r) => ({
     rowNumber:  r.rowNumber,

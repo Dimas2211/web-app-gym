@@ -18,6 +18,11 @@ import { prisma } from "@/lib/db/prisma";
 import { switchDteEnvironmentSchema } from "../schemas/dte-credential.schemas";
 import { switchActiveDteEnvironment } from "../services/dte-issuer-config.service";
 import type { DteProductionPreflightResult } from "../services/dte-production-preflight.service";
+import {
+  resolveCommercialEnforcementContext,
+  assertOrganizationModule,
+  CommercialEnforcementError,
+} from "@/modules/platform/runtime/commercial-enforcement";
 
 export type SwitchDteEnvironmentActionState =
   | { error: string; preflight?: DteProductionPreflightResult; success?: false }
@@ -36,6 +41,14 @@ export async function switchDteEnvironmentAction(
 
   if (!tenant_id)   return { error: "La sesión no tiene un tenant activo." };
   if (!location_id) return { error: "Selecciona una location activa." };
+
+  try {
+    const commercialCtx = await resolveCommercialEnforcementContext(tenant_id);
+    assertOrganizationModule(commercialCtx, "fiscal.dte");
+  } catch (err) {
+    if (err instanceof CommercialEnforcementError) return { error: err.userMessage };
+    throw err;
+  }
 
   const raw = {
     target_issuer_config_id: formData.get("target_issuer_config_id"),

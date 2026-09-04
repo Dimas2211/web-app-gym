@@ -16,6 +16,11 @@ import {
   resolveEffectiveApiContext,
   type RuntimeSessionPayload,
 } from "@/modules/platform/runtime/effective-tenant-context";
+import {
+  resolveCommercialEnforcementContext,
+  assertOrganizationModule,
+  CommercialEnforcementError,
+} from "@/modules/platform/runtime/commercial-enforcement";
 
 // PASO 6A (corrección de alcance): además de autenticar y resolver la
 // location activa del usuario, este contexto resuelve el tenant_id/
@@ -93,6 +98,20 @@ export async function getSaleApiContext(req: NextRequest): Promise<SaleApiContex
         ? "El tenant runtime no tiene sucursales activas configuradas."
         : "Selecciona una location activa para operar con ventas.",
     };
+  }
+
+  // Bloque B — guard central único: cubre automáticamente todos los
+  // Route Handlers que llaman getSaleApiContext (route.ts, [id]/route.ts,
+  // y products/search-for-sale ya guardado explícitamente también).
+  try {
+    const commercialCtx = await resolveCommercialEnforcementContext(context.tenantId);
+    assertOrganizationModule(commercialCtx, "commerce.sales");
+  } catch (err) {
+    await dispose();
+    if (err instanceof CommercialEnforcementError) {
+      return { ok: false, status: err.httpStatus, error: err.userMessage };
+    }
+    throw err;
   }
 
   return {

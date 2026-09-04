@@ -13,6 +13,11 @@ import type { SessionUser } from "@/lib/permissions/guards";
 import { updateProductLocationFields } from "@/modules/commerce/inventory/services/product-location.service";
 import { getEffectiveLocationId } from "@/lib/location/active-location";
 import { isRuntimeReadOnlyActive, RUNTIME_READONLY_MESSAGE } from "@/modules/platform/runtime/runtime-session";
+import {
+  resolveCommercialEnforcementContext,
+  assertOrganizationModule,
+  CommercialEnforcementError,
+} from "@/modules/platform/runtime/commercial-enforcement";
 
 const ADMIN_ROLES = ["super_admin", "branch_admin"];
 
@@ -47,6 +52,16 @@ export async function PATCH(
   // PASO 6A: bloquear escritura bajo sesión runtime "Operar como cliente"
   if (await isRuntimeReadOnlyActive()) {
     return NextResponse.json({ error: RUNTIME_READONLY_MESSAGE }, { status: 403 });
+  }
+
+  const commercialCtx = await resolveCommercialEnforcementContext(tenant_id);
+  try {
+    assertOrganizationModule(commercialCtx, "commerce.inventory");
+  } catch (err) {
+    if (err instanceof CommercialEnforcementError) {
+      return NextResponse.json({ error: err.userMessage }, { status: err.httpStatus });
+    }
+    throw err;
   }
 
   let body: unknown;

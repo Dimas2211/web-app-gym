@@ -27,6 +27,11 @@ import { requireSuperAdmin } from "@/lib/permissions/guards";
 import { prisma } from "@/lib/db/prisma";
 import { alignDteCorrelativeSessionSchema } from "../schemas/align-dte-correlative-session.schema";
 import { alignDteCorrelativeBaseline } from "../services/dte-correlative.service";
+import {
+  resolveCommercialEnforcementContext,
+  assertOrganizationModule,
+  CommercialEnforcementError,
+} from "@/modules/platform/runtime/commercial-enforcement";
 
 export type AlignDteCorrelativeSessionActionState =
   | { errors?: Record<string, string[]>; error?: string; success?: false }
@@ -40,6 +45,14 @@ export async function alignDteCorrelativeSessionAction(
   const sessionUser = await requireSuperAdmin();
   const tenant_id = sessionUser.tenant_id;
   if (!tenant_id) return { error: "La sesión no tiene un tenant activo." };
+
+  try {
+    const commercialCtx = await resolveCommercialEnforcementContext(tenant_id);
+    assertOrganizationModule(commercialCtx, "fiscal.dte");
+  } catch (err) {
+    if (err instanceof CommercialEnforcementError) return { error: err.userMessage };
+    throw err;
+  }
 
   const raw = {
     location_id:        formData.get("location_id"),

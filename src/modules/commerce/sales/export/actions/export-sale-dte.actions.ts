@@ -25,6 +25,11 @@ import { signDteDocumentAction }        from "../../../dte/actions/sign-dte-docu
 import { transmitDteDocumentAction }    from "../../../dte/actions/transmit-dte-document.action";
 import { deliverDteToExternalDbAction } from "../../../dte/actions/deliver-dte-to-external-db.action";
 import { regenerateRejectedExportDte }  from "../services/export-sale.service";
+import {
+  resolveCommercialEnforcementContext,
+  assertOrganizationModule,
+  CommercialEnforcementError,
+} from "@/modules/platform/runtime/commercial-enforcement";
 
 export interface ExportDteLastLog {
   operation_type: string;
@@ -67,6 +72,17 @@ async function requireExportDteSession(): Promise<ExportSession | { error: strin
 
   if (!tenant_id)   return { error: "La sesión no tiene un tenant activo." };
   if (!location_id) return { error: "La sesión no tiene una location activa." };
+
+  // Panel de exportación (commerce.sales) — las actions DTE subyacentes
+  // (generate/sign/transmit/deliver) llevan además su propio guard
+  // fiscal.dte, ver sección DTE del Bloque B.
+  try {
+    const commercialCtx = await resolveCommercialEnforcementContext(tenant_id);
+    assertOrganizationModule(commercialCtx, "commerce.sales");
+  } catch (err) {
+    if (err instanceof CommercialEnforcementError) return { error: err.userMessage };
+    throw err;
+  }
 
   return { tenant_id, location_id };
 }

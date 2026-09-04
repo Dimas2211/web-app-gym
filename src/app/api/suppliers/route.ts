@@ -19,6 +19,11 @@ import type {
   SortDirection,
 } from "@/modules/commerce/suppliers/types/supplier-filters.types";
 import type { TaxpayerType, SupplierStatus } from "@/modules/commerce/suppliers/types/supplier.types";
+import {
+  resolveCommercialEnforcementContext,
+  assertOrganizationModule,
+  CommercialEnforcementError,
+} from "@/modules/platform/runtime/commercial-enforcement";
 
 // Solo admins gestionan el maestro de proveedores
 const ADMIN_ROLES = ["super_admin", "branch_admin"];
@@ -51,6 +56,17 @@ export async function GET(req: NextRequest) {
   // PASO 6A: si hay sesión runtime "Operar como cliente" activa, leer de
   // la base del perfil runtime en vez de la del tenant del super_admin.
   const { context, dispose } = await resolveEffectiveApiContext({ tenantId: user.tenant_id });
+
+  const commercialCtx = await resolveCommercialEnforcementContext(context.tenantId);
+  try {
+    assertOrganizationModule(commercialCtx, "commerce.suppliers");
+  } catch (err) {
+    await dispose();
+    if (err instanceof CommercialEnforcementError) {
+      return NextResponse.json({ error: err.userMessage }, { status: err.httpStatus });
+    }
+    throw err;
+  }
 
   const { searchParams } = req.nextUrl;
 
@@ -121,6 +137,16 @@ export async function POST(req: NextRequest) {
   // PASO 6A: bloquear escritura bajo sesión runtime "Operar como cliente"
   if (await isRuntimeReadOnlyActive()) {
     return NextResponse.json({ error: RUNTIME_READONLY_MESSAGE }, { status: 403 });
+  }
+
+  const commercialCtx = await resolveCommercialEnforcementContext(user.tenant_id);
+  try {
+    assertOrganizationModule(commercialCtx, "commerce.suppliers");
+  } catch (err) {
+    if (err instanceof CommercialEnforcementError) {
+      return NextResponse.json({ error: err.userMessage }, { status: err.httpStatus });
+    }
+    throw err;
   }
 
   let body: unknown;

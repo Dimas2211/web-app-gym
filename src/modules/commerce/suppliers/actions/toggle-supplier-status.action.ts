@@ -20,6 +20,11 @@ import { isRuntimeReadOnlyActive, RUNTIME_READONLY_MESSAGE } from "@/modules/pla
 import { str } from "@/lib/utils/form-data-parsers";
 import { toggleSupplierStatusSchema } from "../schemas/toggle-supplier-status.schema";
 import { toggleSupplierStatus } from "../services/supplier.service";
+import {
+  resolveCommercialEnforcementContext,
+  assertOrganizationModule,
+  CommercialEnforcementError,
+} from "@/modules/platform/runtime/commercial-enforcement";
 
 export type ToggleSupplierStatusState =
   | { errors?: Record<string, string[]>; error?: string }
@@ -36,6 +41,14 @@ export async function toggleSupplierStatusAction(
 
   // PASO 6A: bloquear escritura bajo sesión runtime "Operar como cliente"
   if (await isRuntimeReadOnlyActive()) return { error: RUNTIME_READONLY_MESSAGE };
+
+  try {
+    const commercialCtx = await resolveCommercialEnforcementContext(tenantId);
+    assertOrganizationModule(commercialCtx, "commerce.suppliers");
+  } catch (err) {
+    if (err instanceof CommercialEnforcementError) return { error: err.userMessage };
+    throw err;
+  }
 
   // 2. Parseo de FormData (solo id y status)
   const raw = {

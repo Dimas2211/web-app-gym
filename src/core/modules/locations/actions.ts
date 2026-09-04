@@ -16,6 +16,13 @@
 
 import { prisma } from "@/lib/db/prisma";
 import { updateLocationSchema } from "./schemas";
+import {
+  withCapacityCheckedTransaction,
+  isLocationCountedForCapacity,
+  capacityDelta,
+  CommercialEnforcementError,
+  type CommercialEnforcementContext,
+} from "@/modules/platform/runtime/commercial-enforcement";
 
 // ─── Contrato de retorno ───────────────────────────────────────────────────────
 
@@ -28,10 +35,16 @@ export type LocationActionResult =
 /**
  * Crea una nueva location dentro del tenant indicado.
  * tenant_id no forma parte del input validado — viene siempre del caller.
+ *
+ * `ctx` es el Commercial Enforcement Context ya resuelto por el caller
+ * (Bloque B) — se verifica capacidad core.locations.max antes del write.
+ * Toda alta se crea status:"active" (delta +1), verificado y escrito en
+ * la misma transacción Serializable vía withCapacityCheckedTransaction.
  */
 export async function createLocation(
   tenantId: string,
-  input: unknown
+  input: unknown,
+  ctx: CommercialEnforcementContext,
 ): Promise<LocationActionResult> {
   const parsed = updateLocationSchema.safeParse(input);
   if (!parsed.success) {
@@ -42,18 +55,33 @@ export async function createLocation(
     return { success: false, error: "El nombre es obligatorio." };
   }
 
-  const location = await prisma.branch.create({
-    data: {
-      name: parsed.data.name,
-      address: parsed.data.address ?? null,
-      phone: parsed.data.phone ?? null,
-      gym_id: tenantId,
-      status: "active",
-    },
-    select: { id: true },
-  });
+  const delta = capacityDelta(false, isLocationCountedForCapacity("active"));
 
-  return { success: true, id: location.id };
+  try {
+    const location = await withCapacityCheckedTransaction(
+      prisma,
+      "core.locations.max",
+      delta,
+      ctx,
+      (tx) =>
+        tx.branch.create({
+          data: {
+            name: parsed.data.name!,
+            address: parsed.data.address ?? null,
+            phone: parsed.data.phone ?? null,
+            gym_id: tenantId,
+            status: "active",
+          },
+          select: { id: true },
+        }),
+    );
+    return { success: true, id: location.id };
+  } catch (err) {
+    if (err instanceof CommercialEnforcementError) {
+      return { success: false, error: err.userMessage };
+    }
+    throw err;
+  }
 }
 
 // ─── Actualizar location ───────────────────────────────────────────────────────
@@ -99,10 +127,15 @@ export async function updateLocation(
  * Alterna el estado active/inactive de una location.
  * Verifica que la location pertenezca al tenant antes de escribir.
  * No hace borrado físico.
+ *
+ * Delta de capacidad real según la transición (inactive->active = +1,
+ * verificado; active->inactive = -1, siempre permitido sin Serializable
+ * porque nunca compite por el límite).
  */
 export async function toggleLocationStatus(
   locationId: string,
-  tenantId: string
+  tenantId: string,
+  ctx: CommercialEnforcementContext,
 ): Promise<LocationActionResult> {
   const location = await prisma.branch.findFirst({
     where: { id: locationId, gym_id: tenantId },
@@ -113,10 +146,22 @@ export async function toggleLocationStatus(
     return { success: false, error: "Location no encontrada." };
   }
 
-  await prisma.branch.update({
-    where: { id: locationId },
-    data: { status: location.status === "active" ? "inactive" : "active" },
-  });
+  const nextStatus = location.status === "active" ? "inactive" : "active";
+  const delta = capacityDelta(isLocationCountedForCapacity(location.status), isLocationCountedForCapacity(nextStatus));
 
-  return { success: true, id: locationId };
+  try {
+    if (delta > 0) {
+      await withCapacityCheckedTransaction(prisma, "core.locations.max", delta, ctx, (tx) =>
+        tx.branch.update({ where: { id: locationId }, data: { status: nextStatus } }),
+      );
+    } else {
+      await prisma.branch.update({ where: { id: locationId }, data: { status: nextStatus } });
+    }
+    return { success: true, id: locationId };
+  } catch (err) {
+    if (err instanceof CommercialEnforcementError) {
+      return { success: false, error: err.userMessage };
+    }
+    throw err;
+  }
 }

@@ -18,6 +18,14 @@ import { prisma } from "@/lib/db/prisma";
 import { requireAdmin } from "@/lib/permissions/guards";
 import { isRuntimeReadOnlyActive, RUNTIME_READONLY_MESSAGE } from "@/modules/platform/runtime/runtime-session";
 import { createProductSchema } from "../schemas/create-product.schema";
+import {
+  resolveCommercialEnforcementContext,
+  assertOrganizationModule,
+  withCapacityCheckedTransaction,
+  isProductCountedForCapacity,
+  capacityDelta,
+  CommercialEnforcementError,
+} from "@/modules/platform/runtime/commercial-enforcement";
 
 // ── Estado de retorno ─────────────────────────────────────────────
 
@@ -70,6 +78,16 @@ export async function createProductAction(
   // PASO 6A: bloquear escritura bajo sesión runtime "Operar como cliente"
   if (await isRuntimeReadOnlyActive()) {
     return { error: RUNTIME_READONLY_MESSAGE };
+  }
+
+  // Bloque B: módulo commerce.products debe estar habilitado
+  let commercialCtx;
+  try {
+    commercialCtx = await resolveCommercialEnforcementContext(tenantId);
+    assertOrganizationModule(commercialCtx, "commerce.products");
+  } catch (err) {
+    if (err instanceof CommercialEnforcementError) return { error: err.userMessage };
+    throw err;
   }
 
   // 2. Parseo y validación Zod
@@ -242,34 +260,46 @@ export async function createProductAction(
   // findUnique al mismo tiempo. La constraint @@unique de PostgreSQL rechaza
   // el segundo insert — aquí lo convertimos en un error de usuario en lugar
   // de dejar que suba como error 500.
+  const delta = capacityDelta(false, isProductCountedForCapacity("ACTIVE"));
+
   try {
-    await prisma.product.create({
-      data: {
-        tenant_id:     tenantId,
-        product_code:  data.product_code,
-        name:          data.name,
-        description:   data.description ?? null,
-        product_type:  data.product_type,
-        status:        "ACTIVE",
-        is_stockable:  data.is_stockable,
-        allow_purchase: data.allow_purchase,
-        allow_sale:    data.allow_sale,
-        category_id:   data.category_id,
-        line_id:       data.line_id ?? null,
-        subline_id:    data.subline_id ?? null,
-        brand:         data.brand ?? null,
-        unit_id:       data.unit_id,
-        package_unit:  data.package_unit ?? null,
-        supplier_id:   data.supplier_id ?? null,
-        sku:           data.sku ?? null,
-        cost_price:    data.cost_price ?? null,
-        sale_price:    data.sale_price ?? null,
-        tax_rate_id:   data.tax_rate_id ?? null,
-        created_by:    sessionUser.id,
-        updated_by:    sessionUser.id,
-      },
-    });
+    await withCapacityCheckedTransaction(
+      prisma,
+      "commerce.products.max",
+      delta,
+      commercialCtx,
+      (tx) =>
+        tx.product.create({
+          data: {
+            tenant_id:     tenantId,
+            product_code:  data.product_code,
+            name:          data.name,
+            description:   data.description ?? null,
+            product_type:  data.product_type,
+            status:        "ACTIVE",
+            is_stockable:  data.is_stockable,
+            allow_purchase: data.allow_purchase,
+            allow_sale:    data.allow_sale,
+            category_id:   data.category_id,
+            line_id:       data.line_id ?? null,
+            subline_id:    data.subline_id ?? null,
+            brand:         data.brand ?? null,
+            unit_id:       data.unit_id,
+            package_unit:  data.package_unit ?? null,
+            supplier_id:   data.supplier_id ?? null,
+            sku:           data.sku ?? null,
+            cost_price:    data.cost_price ?? null,
+            sale_price:    data.sale_price ?? null,
+            tax_rate_id:   data.tax_rate_id ?? null,
+            created_by:    sessionUser.id,
+            updated_by:    sessionUser.id,
+          },
+        }),
+    );
   } catch (e) {
+    if (e instanceof CommercialEnforcementError) {
+      return { error: e.userMessage };
+    }
     if (
       e instanceof Prisma.PrismaClientKnownRequestError &&
       e.code === "P2002"

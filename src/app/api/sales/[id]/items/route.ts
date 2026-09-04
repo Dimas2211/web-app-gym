@@ -12,6 +12,11 @@ import { getEffectiveLocationId } from "@/lib/location/active-location";
 import { addSaleItemSchema } from "@/modules/commerce/sales/schemas/sale.schemas";
 import { addSaleItemToDraft } from "@/modules/commerce/sales/services/sale.service";
 import { isRuntimeReadOnlyActive, RUNTIME_READONLY_MESSAGE } from "@/modules/platform/runtime/runtime-session";
+import {
+  resolveCommercialEnforcementContext,
+  assertOrganizationModule,
+  CommercialEnforcementError,
+} from "@/modules/platform/runtime/commercial-enforcement";
 
 // ── POST — agregar línea ───────────────────────────────────────────
 
@@ -31,6 +36,16 @@ export async function POST(
   // PASO 6A: bloquear escritura bajo sesión runtime "Operar como cliente"
   if (await isRuntimeReadOnlyActive()) {
     return NextResponse.json({ ok: false, error: RUNTIME_READONLY_MESSAGE }, { status: 403 });
+  }
+
+  try {
+    const commercialCtx = await resolveCommercialEnforcementContext(tenant_id);
+    assertOrganizationModule(commercialCtx, "commerce.sales");
+  } catch (err) {
+    if (err instanceof CommercialEnforcementError) {
+      return NextResponse.json({ ok: false, error: err.userMessage }, { status: err.httpStatus });
+    }
+    throw err;
   }
 
   const body = await req.json().catch(() => null);

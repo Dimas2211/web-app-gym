@@ -7,6 +7,7 @@ import { DeleteAuthorizationDialog } from "@/components/forms/delete-authorizati
 import { StatusBadge } from "@/components/ui/status-badge";
 import { ACCESS_TYPE_LABELS } from "@/lib/utils/labels";
 import type { Status } from "@prisma/client";
+import { requireOrganizationModule } from "@/modules/platform/runtime/commercial-enforcement";
 
 type SearchParams = Promise<{ search?: string; status?: string; branch_id?: string }>;
 
@@ -16,6 +17,7 @@ export default async function MembershipPlansPage({
   searchParams: SearchParams;
 }) {
   const sessionUser = await requireAdmin();
+  await requireOrganizationModule(sessionUser.tenant_id, "gym.memberships");
   const params = await searchParams;
 
   const plans = await getMembershipPlans(sessionUser, {

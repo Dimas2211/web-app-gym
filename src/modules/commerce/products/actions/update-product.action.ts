@@ -19,6 +19,11 @@ import { prisma } from "@/lib/db/prisma";
 import { requireAdmin } from "@/lib/permissions/guards";
 import { isRuntimeReadOnlyActive, RUNTIME_READONLY_MESSAGE } from "@/modules/platform/runtime/runtime-session";
 import { updateProductSchema } from "../schemas/update-product.schema";
+import {
+  resolveCommercialEnforcementContext,
+  assertOrganizationModule,
+  CommercialEnforcementError,
+} from "@/modules/platform/runtime/commercial-enforcement";
 
 export type ProductUpdateActionState =
   | { errors?: Record<string, string[]>; error?: string }
@@ -67,6 +72,15 @@ export async function updateProductAction(
   // PASO 6A: bloquear escritura bajo sesión runtime "Operar como cliente"
   if (await isRuntimeReadOnlyActive()) {
     return { error: RUNTIME_READONLY_MESSAGE };
+  }
+
+  // Bloque B: módulo commerce.products debe estar habilitado (edición no cambia cupo)
+  try {
+    const commercialCtx = await resolveCommercialEnforcementContext(tenantId);
+    assertOrganizationModule(commercialCtx, "commerce.products");
+  } catch (err) {
+    if (err instanceof CommercialEnforcementError) return { error: err.userMessage };
+    throw err;
   }
 
   // 2. Parseo y validación Zod

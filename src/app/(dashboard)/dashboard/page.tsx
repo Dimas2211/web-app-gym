@@ -1,24 +1,54 @@
 import Link from "next/link";
 import { auth } from "@/lib/auth/auth";
 import { ROLE_LABELS, ROLE_COLORS } from "@/lib/utils/roles";
-import { MODULE_GROUPS } from "@/lib/navigation/dashboard-nav";
+import { MODULE_GROUPS, filterModuleGroupsByAccess } from "@/lib/navigation/dashboard-nav";
+import { resolveCommercialEnforcementContext } from "@/modules/platform/runtime/commercial-enforcement";
 import type { UserRole } from "@prisma/client";
 
 function credentialHref(role: UserRole): string {
   return role === "client" ? "/portal/credencial" : "/dashboard/credential";
 }
 
-export default async function DashboardPage() {
+const COMMERCIAL_ERROR_MESSAGES: Record<string, string> = {
+  module_not_enabled: "Este módulo no está habilitado para tu organización.",
+  capacity_limit_reached: "Alcanzaste el límite de tu plan.",
+};
+
+export default async function DashboardPage({
+  searchParams,
+}: {
+  searchParams?: Promise<{ commercial_error?: string }>;
+}) {
   const session = await auth();
   const user = session!.user;
+  const params = await searchParams;
+  const commercialErrorMessage = params?.commercial_error
+    ? COMMERCIAL_ERROR_MESSAGES[params.commercial_error]
+    : undefined;
 
-  const visibleGroups = MODULE_GROUPS.map((group) => ({
-    ...group,
-    items: group.items.filter((m) => m.roles.includes(user.role)),
-  })).filter((group) => group.items.length > 0);
+  // Bloque B — module codes habilitados para el tenant de sesión (mismo
+  // criterio LEGACY_UNMANAGED que dashboard/layout.tsx: bypass = todos).
+  const ALL_NAV_MODULE_CODES = MODULE_GROUPS.flatMap((g) =>
+    g.items.map((i) => i.moduleCode).filter((c): c is string => Boolean(c)),
+  );
+  let enabledModuleCodes = new Set<string>();
+  if (user.tenant_id) {
+    const commercialCtx = await resolveCommercialEnforcementContext(user.tenant_id);
+    enabledModuleCodes =
+      commercialCtx.mode === "LEGACY_UNMANAGED"
+        ? new Set(ALL_NAV_MODULE_CODES)
+        : new Set(ALL_NAV_MODULE_CODES.filter((code) => commercialCtx.effectiveModules.get(code)?.enabled === true));
+  }
+
+  const visibleGroups = filterModuleGroupsByAccess(MODULE_GROUPS, user.role, enabledModuleCodes);
 
   return (
     <div className="space-y-6">
+      {commercialErrorMessage && (
+        <div className="bg-amber-50 border border-amber-200 text-amber-800 text-sm rounded-lg px-4 py-3">
+          {commercialErrorMessage}
+        </div>
+      )}
       {/* Bienvenida */}
       <div className="flex items-start justify-between flex-wrap gap-4">
         <div>

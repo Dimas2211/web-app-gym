@@ -21,6 +21,11 @@ import { requireAdmin }   from "@/lib/permissions/guards";
 import { getEffectiveLocationId } from "@/lib/location/active-location";
 import { generateAndPersistFseJsonForDte } from "../services/generate-fse-json-pipeline.service";
 import type { DteValidationError } from "../services/validate-dte-json-schema.service";
+import {
+  resolveCommercialEnforcementContext,
+  assertOrganizationModule,
+  CommercialEnforcementError,
+} from "@/modules/platform/runtime/commercial-enforcement";
 
 export type GenerateFseJsonForPurchaseActionResult =
   | { ok: true; dte_status: string; validation_errors?: DteValidationError[] }
@@ -36,6 +41,14 @@ export async function generateFseJsonForPurchaseAction(
   if (!tenant_id)       return { ok: false, error: "La sesión no tiene un tenant activo." };
   if (!location_id)     return { ok: false, error: "La sesión no tiene una location activa." };
   if (!dte_document_id) return { ok: false, error: "El ID del documento DTE es requerido." };
+
+  try {
+    const commercialCtx = await resolveCommercialEnforcementContext(tenant_id);
+    assertOrganizationModule(commercialCtx, "fiscal.dte");
+  } catch (err) {
+    if (err instanceof CommercialEnforcementError) return { ok: false, error: err.userMessage };
+    throw err;
+  }
 
   const result = await generateAndPersistFseJsonForDte({
     tenant_id,

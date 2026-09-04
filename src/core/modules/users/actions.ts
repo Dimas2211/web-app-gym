@@ -22,6 +22,13 @@ import bcrypt from "bcryptjs";
 import type { UserRole } from "@prisma/client";
 import { prisma } from "@/lib/db/prisma";
 import { updateCoreUserSchema } from "./schemas";
+import {
+  withCapacityCheckedTransaction,
+  isUserCountedForCapacity,
+  capacityDelta,
+  CommercialEnforcementError,
+  type CommercialEnforcementContext,
+} from "@/modules/platform/runtime/commercial-enforcement";
 
 // ─── Contratos de retorno ──────────────────────────────────────────────────────
 
@@ -58,9 +65,17 @@ export type CreateCoreUserInput = {
  * Crea un nuevo usuario dentro del tenant indicado.
  * La validación de roles permitidos ocurre en el caller (wrapper GYM).
  */
+/**
+ * `ctx` es el Commercial Enforcement Context ya resuelto por el caller
+ * (Bloque B) — se verifica core.users.max antes del write. El alta se
+ * crea siempre status:"active" hoy (delta calculado contra ese status
+ * real, no un booleano fijo, para quedar correcto si en el futuro se
+ * agrega un flujo de alta inactiva).
+ */
 export async function createCoreUser(
   tenantId: string,
-  input: CreateCoreUserInput
+  input: CreateCoreUserInput,
+  ctx: CommercialEnforcementContext,
 ): Promise<UserActionResult> {
   const existing = await prisma.user.findUnique({
     where: { email: input.email },
@@ -71,24 +86,38 @@ export async function createCoreUser(
   }
 
   const password_hash = await bcrypt.hash(input.password, 10);
+  const delta = capacityDelta(false, isUserCountedForCapacity("active"));
 
-  const newUser = await prisma.user.create({
-    data: {
-      gym_id: tenantId,
-      branch_id: input.location_id ?? null,
-      email: input.email,
-      password_hash,
-      first_name: input.first_name,
-      last_name: input.last_name,
-      role: input.role as UserRole,
-      status: "active",
-      operational_code: input.operational_code ?? null,
-      qr_token: input.qr_token ?? null,
-    },
-    select: { id: true },
-  });
-
-  return { success: true, id: newUser.id };
+  try {
+    const newUser = await withCapacityCheckedTransaction(
+      prisma,
+      "core.users.max",
+      delta,
+      ctx,
+      (tx) =>
+        tx.user.create({
+          data: {
+            gym_id: tenantId,
+            branch_id: input.location_id ?? null,
+            email: input.email,
+            password_hash,
+            first_name: input.first_name,
+            last_name: input.last_name,
+            role: input.role as UserRole,
+            status: "active",
+            operational_code: input.operational_code ?? null,
+            qr_token: input.qr_token ?? null,
+          },
+          select: { id: true },
+        }),
+    );
+    return { success: true, id: newUser.id };
+  } catch (err) {
+    if (err instanceof CommercialEnforcementError) {
+      return { success: false, error: err.userMessage };
+    }
+    throw err;
+  }
 }
 
 // ─── Actualizar usuario ────────────────────────────────────────────────────────
@@ -157,7 +186,8 @@ export async function updateCoreUser(
 export async function toggleCoreUserStatus(
   userId: string,
   callerId: string,
-  tenantId: string
+  tenantId: string,
+  ctx: CommercialEnforcementContext,
 ): Promise<UserActionResult> {
   if (userId === callerId) {
     return { success: false, error: "No puedes desactivar tu propia cuenta." };
@@ -171,10 +201,22 @@ export async function toggleCoreUserStatus(
     return { success: false, error: "Usuario no encontrado." };
   }
 
-  await prisma.user.update({
-    where: { id: userId },
-    data: { status: user.status === "active" ? "inactive" : "active" },
-  });
+  const nextStatus = user.status === "active" ? "inactive" : "active";
+  const delta = capacityDelta(isUserCountedForCapacity(user.status), isUserCountedForCapacity(nextStatus));
 
-  return { success: true, id: userId };
+  try {
+    if (delta > 0) {
+      await withCapacityCheckedTransaction(prisma, "core.users.max", delta, ctx, (tx) =>
+        tx.user.update({ where: { id: userId }, data: { status: nextStatus } }),
+      );
+    } else {
+      await prisma.user.update({ where: { id: userId }, data: { status: nextStatus } });
+    }
+    return { success: true, id: userId };
+  } catch (err) {
+    if (err instanceof CommercialEnforcementError) {
+      return { success: false, error: err.userMessage };
+    }
+    throw err;
+  }
 }

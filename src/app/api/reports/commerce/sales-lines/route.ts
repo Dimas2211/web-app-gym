@@ -13,6 +13,7 @@ import { auth } from "@/lib/auth/auth";
 import type { SessionUser } from "@/lib/permissions/guards";
 import { getEffectiveLocationId } from "@/lib/location/active-location";
 import { getSalesLineReport } from "@/modules/commerce/reports/queries/get-sales-line-report";
+import { assertReportModule } from "@/app/api/reports/reports-enforcement";
 
 const ALLOWED_ROLES = ["super_admin", "branch_admin", "reception"];
 
@@ -23,6 +24,9 @@ export async function GET(req: NextRequest) {
   const user = session.user as SessionUser;
   if (!ALLOWED_ROLES.includes(user.role))
     return NextResponse.json({ error: "Acceso denegado" }, { status: 403 });
+
+  const moduleCheck = await assertReportModule(user.tenant_id, "commerce.sales");
+  if (!moduleCheck.ok) return moduleCheck.response;
 
   const location_id = await getEffectiveLocationId(user);
   if (!location_id) return NextResponse.json({ error: "Sin location activa" }, { status: 400 });

@@ -31,6 +31,14 @@ import type { ProductStatus } from "../types/product.types";
 // Lógica de transiciones en utils para que cliente y servidor compartan
 // la misma fuente sin importar un archivo "use server" desde un componente.
 import { isValidTransition } from "../utils/product-status.utils";
+import {
+  resolveCommercialEnforcementContext,
+  assertOrganizationModule,
+  withCapacityCheckedTransaction,
+  isProductCountedForCapacity,
+  capacityDelta,
+  CommercialEnforcementError,
+} from "@/modules/platform/runtime/commercial-enforcement";
 
 // ── Estado de retorno ─────────────────────────────────────────────
 
@@ -51,6 +59,16 @@ export async function updateProductStatusAction(
   // PASO 6A: bloquear escritura bajo sesión runtime "Operar como cliente"
   if (await isRuntimeReadOnlyActive()) {
     return { error: RUNTIME_READONLY_MESSAGE };
+  }
+
+  // Bloque B: módulo commerce.products debe estar habilitado
+  let commercialCtx;
+  try {
+    commercialCtx = await resolveCommercialEnforcementContext(tenantId);
+    assertOrganizationModule(commercialCtx, "commerce.products");
+  } catch (err) {
+    if (err instanceof CommercialEnforcementError) return { error: err.userMessage };
+    throw err;
   }
 
   // 2. Validación Zod
@@ -89,15 +107,35 @@ export async function updateProductStatusAction(
     };
   }
 
-  // 5. Aplicar cambio de estado
-  await prisma.product.update({
-    where: { id },
-    data: {
-      status:     nextStatus,
-      updated_by: sessionUser.id,
-      // updated_at se actualiza automáticamente por @updatedAt en el schema
-    },
-  });
+  // 5. Aplicar cambio de estado — delta de capacidad calculado EXCLUSIVAMENTE
+  // desde isProductCountedForCapacity (todo estado excepto DISCONTINUED
+  // consume cupo); nunca se compara nextStatus contra "ACTIVE" literal.
+  const delta = capacityDelta(isProductCountedForCapacity(currentStatus), isProductCountedForCapacity(nextStatus));
+
+  try {
+    if (delta > 0) {
+      await withCapacityCheckedTransaction(prisma, "commerce.products.max", delta, commercialCtx, (tx) =>
+        tx.product.update({
+          where: { id },
+          data: { status: nextStatus, updated_by: sessionUser.id },
+        }),
+      );
+    } else {
+      await prisma.product.update({
+        where: { id },
+        data: {
+          status:     nextStatus,
+          updated_by: sessionUser.id,
+          // updated_at se actualiza automáticamente por @updatedAt en el schema
+        },
+      });
+    }
+  } catch (err) {
+    if (err instanceof CommercialEnforcementError) {
+      return { error: err.userMessage };
+    }
+    throw err;
+  }
 
   revalidatePath("/dashboard/products");
   revalidatePath(`/dashboard/products/${id}`);
