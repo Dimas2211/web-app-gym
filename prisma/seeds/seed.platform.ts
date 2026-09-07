@@ -44,14 +44,20 @@ import { PrismaClient } from "@prisma/client";
 // GENERAL — ver nota en el docblock de arriba. Una base existente que ya
 // tenga la fila GENERAL de un seed anterior no se ve afectada: este archivo
 // nunca hace DELETE.
-const VERTICALS = [
+// Exportadas (además de usarse en este archivo) para que
+// prisma/scripts/bootstrap-platform-commercial-catalog.ts pueda
+// reutilizar exactamente estas definiciones sin duplicarlas — ver ese
+// archivo para el runner de bootstrap comercial seguro/idempotente
+// para un Control Plane de producción ya existente (no crea
+// organizaciones, a diferencia de seedPlatform).
+export const VERTICALS = [
   { code: "GYM",        name: "Gimnasio",              description: "Gestión de membresías, clases y entrenadores" },
   { code: "RETAIL",     name: "Retail / Comercio",     description: "Punto de venta y gestión comercial" },
   { code: "CLINIC",     name: "Clínica / Salud",       description: "Gestión de pacientes, citas y expedientes médicos" },
   { code: "VETERINARY", name: "Veterinaria",           description: "Gestión de pacientes animales y consultas veterinarias" },
 ] as const;
 
-const PLANS = [
+export const PLANS = [
   {
     code:          "starter",
     name:          "Starter",
@@ -82,7 +88,7 @@ const PLANS = [
 ] as const;
 
 // Catálogo de módulos — uno por funcionalidad identificada
-const MODULES = [
+export const MODULES = [
   // Core — transversales, base de toda instancia
   { code: "core.users",       name: "Usuarios",          category: "CORE"     as const, is_core: true,  vertical_code: null },
   { code: "core.roles",       name: "Roles y permisos",  category: "CORE"     as const, is_core: true,  vertical_code: null },
@@ -108,7 +114,7 @@ const MODULES = [
 ] as const;
 
 // Bloque A — catálogo inicial de entitlements/límites comerciales.
-const ENTITLEMENT_DEFINITIONS = [
+export const ENTITLEMENT_DEFINITIONS = [
   { code: "core.users.max",              name: "Usuarios",       category: "core",     period: "NONE" as const },
   { code: "core.locations.max",          name: "Sucursales",     category: "core",     period: "NONE" as const },
   { code: "commerce.products.max",       name: "Productos",      category: "commerce", period: "NONE" as const },
