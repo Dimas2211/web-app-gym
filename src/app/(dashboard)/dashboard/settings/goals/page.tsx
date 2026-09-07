@@ -3,12 +3,24 @@ import { requireSuperAdmin } from "@/lib/permissions/guards";
 import { getGoals } from "@/modules/settings/queries";
 import { toggleGoalStatusAction } from "@/modules/settings/actions";
 import { StatusBadge } from "@/components/ui/status-badge";
+import { requireEffectiveVertical } from "@/modules/platform/runtime/effective-vertical";
+import { resolveEffectiveTenantContext } from "@/modules/platform/runtime/effective-tenant-context";
 
 export default async function GoalsPage() {
-  await requireSuperAdmin();
-  const goals = await getGoals();
+  const user = await requireSuperAdmin();
 
-  return (
+  // PASO 6F: superficie GYM-only (catálogo global de almacenamiento, pero
+  // funcionalidad GYM). Mientras haya sesión runtime "Operar como cliente"
+  // (siempre solo lectura), los controles de escritura se ocultan.
+  const { context, dispose } = await resolveEffectiveTenantContext(user);
+
+  try {
+    await requireEffectiveVertical(context.tenantId, "GYM");
+
+    const goals = await getGoals();
+    const canManage = !context.runtime;
+
+    return (
     <div className="space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between gap-4 flex-wrap">
@@ -25,12 +37,14 @@ export default async function GoalsPage() {
             {goals.length} meta(s) en el catálogo global
           </p>
         </div>
-        <Link
-          href="/dashboard/settings/goals/new"
-          className="bg-zinc-900 text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-zinc-800 transition-colors"
-        >
-          + Nueva meta
-        </Link>
+        {canManage && (
+          <Link
+            href="/dashboard/settings/goals/new"
+            className="bg-zinc-900 text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-zinc-800 transition-colors"
+          >
+            + Nueva meta
+          </Link>
+        )}
       </div>
 
       {/* Tabla */}
@@ -84,25 +98,31 @@ export default async function GoalsPage() {
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex items-center justify-end gap-2">
-                        <Link
-                          href={`/dashboard/settings/goals/${goal.id}/edit`}
-                          className="text-xs text-zinc-600 hover:text-zinc-900 px-2.5 py-1 rounded border border-zinc-200 hover:border-zinc-400 transition-colors"
-                        >
-                          Editar
-                        </Link>
-                        <form action={toggleGoalStatusAction}>
-                          <input type="hidden" name="id" value={goal.id} />
-                          <button
-                            type="submit"
-                            className={`text-xs px-2.5 py-1 rounded border transition-colors ${
-                              goal.status === "active"
-                                ? "text-amber-700 border-amber-200 hover:bg-amber-50"
-                                : "text-emerald-700 border-emerald-200 hover:bg-emerald-50"
-                            }`}
-                          >
-                            {goal.status === "active" ? "Desactivar" : "Activar"}
-                          </button>
-                        </form>
+                        {canManage ? (
+                          <>
+                            <Link
+                              href={`/dashboard/settings/goals/${goal.id}/edit`}
+                              className="text-xs text-zinc-600 hover:text-zinc-900 px-2.5 py-1 rounded border border-zinc-200 hover:border-zinc-400 transition-colors"
+                            >
+                              Editar
+                            </Link>
+                            <form action={toggleGoalStatusAction}>
+                              <input type="hidden" name="id" value={goal.id} />
+                              <button
+                                type="submit"
+                                className={`text-xs px-2.5 py-1 rounded border transition-colors ${
+                                  goal.status === "active"
+                                    ? "text-amber-700 border-amber-200 hover:bg-amber-50"
+                                    : "text-emerald-700 border-emerald-200 hover:bg-emerald-50"
+                                }`}
+                              >
+                                {goal.status === "active" ? "Desactivar" : "Activar"}
+                              </button>
+                            </form>
+                          </>
+                        ) : (
+                          <span className="text-xs text-zinc-300">Solo lectura</span>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -119,5 +139,8 @@ export default async function GoalsPage() {
         todos los entornos.
       </p>
     </div>
-  );
+    );
+  } finally {
+    await dispose();
+  }
 }

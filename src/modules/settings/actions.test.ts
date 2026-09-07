@@ -1,13 +1,17 @@
 // ─────────────────────────────────────────────────────────────────
 // settings — actions.test.ts
 //
-// PASO 6E — Microauditoría de superficies residuales:
-// - updateGymSettingsAction es tenant-scoped (GymSettings.gym_id) y NO
-//   tenía guard de sesión runtime "Operar como cliente" — corregido.
-// - toggleSportStatusAction opera sobre Sport, catálogo GLOBAL sin
-//   gym_id/tenant_id (no depende de tenant) — se clasifica
-//   SAFE_SHARED_NON_TENANT y deliberadamente NO se bloquea en runtime;
-//   este test fija esa distinción explícitamente.
+// PASO 6E — updateGymSettingsAction es tenant-scoped (GymSettings.gym_id)
+// y NO tenía guard de sesión runtime "Operar como cliente" — corregido.
+//
+// PASO 6F — Sport/Goal son catálogo GLOBAL de almacenamiento (sin
+// gym_id/tenant_id), pero esta superficie es funcionalidad GYM: aunque
+// el dato no dependa del tenant, mientras exista una sesión runtime
+// "Operar como cliente" (siempre solo lectura) las mutaciones deben
+// bloquearse igual que cualquier write operativo — "no es necesario
+// volver tenant-scoped Sport/Goal, solo impedir mutaciones desde el
+// modo cliente". Este test fija ese bloqueo (revierte la excepción
+// documentada en el PASO 6E, ya superada por esta instrucción explícita).
 // ─────────────────────────────────────────────────────────────────
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
@@ -74,9 +78,18 @@ describe('updateGymSettingsAction (tenant-scoped) — sesión runtime "Operar co
   });
 });
 
-describe("toggleSportStatusAction (catálogo global, SAFE_SHARED_NON_TENANT) — no se bloquea en runtime", () => {
-  it("procede aunque isRuntimeReadOnlyActive() sea true — Sport no tiene tenant_id/gym_id", async () => {
+describe('toggleSportStatusAction (catálogo global, superficie GYM) — sesión runtime bloquea el write', () => {
+  it("isRuntimeReadOnlyActive() true -> bloquea ANTES de tocar prisma.sport.findUnique/update", async () => {
     isRuntimeReadOnlyActiveMock.mockResolvedValue(true);
+
+    await toggleSportStatusAction(fd({ id: "sport-1" }));
+
+    expect(sportFindUniqueSpy).not.toHaveBeenCalled();
+    expect(sportUpdateSpy).not.toHaveBeenCalled();
+  });
+
+  it("modo normal (sin sesión runtime) -> el write procede normalmente", async () => {
+    isRuntimeReadOnlyActiveMock.mockResolvedValue(false);
 
     await toggleSportStatusAction(fd({ id: "sport-1" }));
 

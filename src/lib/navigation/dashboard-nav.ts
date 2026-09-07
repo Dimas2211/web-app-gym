@@ -14,6 +14,19 @@ export type ModuleItem = {
    * Admin, que siempre queda exento del contrato del cliente).
    */
   moduleCode?: string;
+  /**
+   * PASO 6F — código de vertical (ej. "GYM") requerido para que este
+   * item sea visible, ADEMÁS del filtro por rol y moduleCode. Uso
+   * exclusivo: superficies de una vertical que NO tienen module code
+   * propio (Clientes GYM, Reportes GYM) — nunca se inventa un module
+   * code ficticio (gym.clients, gym.reports) solo para encajar en el
+   * filtro existente. Si el item YA tiene moduleCode propio de esa
+   * vertical (gym.memberships, ...), NO se agrega requiredVerticalCode:
+   * sería redundante, ese módulo nunca está habilitado fuera de su
+   * vertical. Omitido = el item no depende de ninguna vertical
+   * (Commerce es transversal; Platform Admin queda exento por rol).
+   */
+  requiredVerticalCode?: string;
 };
 
 export type ModuleGroup = {
@@ -31,14 +44,17 @@ export const MODULE_GROUPS: ModuleGroup[] = [
     items: [
       // "Clientes" (gym) no tiene module code propio en el catálogo Platform
       // (solo existen gym.memberships/trainers/classes/weekly_plans) — no se
-      // inventa un módulo nuevo solo para encajar esta pantalla.
-      { label: "Clientes", href: "/dashboard/clients", roles: ["super_admin", "branch_admin", "reception"] },
+      // inventa un módulo nuevo solo para encajar esta pantalla. En su lugar,
+      // depende de la vertical efectiva (PASO 6F).
+      { label: "Clientes", href: "/dashboard/clients", roles: ["super_admin", "branch_admin", "reception"], requiredVerticalCode: "GYM" },
       { label: "Membresías", href: "/dashboard/memberships/client-memberships", roles: ["super_admin", "branch_admin", "reception"], moduleCode: "gym.memberships" },
       { label: "Entrenadores", href: "/dashboard/trainers", roles: ["super_admin", "branch_admin"], moduleCode: "gym.trainers" },
       { label: "Agenda", href: "/dashboard/classes", roles: ["super_admin", "branch_admin", "reception", "trainer"], moduleCode: "gym.classes" },
       { label: "Planes semanales", href: "/dashboard/weekly-plans/client-plans", roles: ["super_admin", "branch_admin", "reception", "trainer"], moduleCode: "gym.weekly_plans" },
-      // Reportes es transversal a varios módulos gym — no se amarra a uno solo.
-      { label: "Reportes", href: "/dashboard/reports", roles: ["super_admin", "branch_admin"] },
+      // Reportes GYM es transversal a varios módulos gym (no se amarra a uno
+      // solo) pero SÍ depende de la vertical efectiva (PASO 6F) — sin ella
+      // no tiene sentido (TrustMe es Commerce-only, vertical null).
+      { label: "Reportes", href: "/dashboard/reports", roles: ["super_admin", "branch_admin"], requiredVerticalCode: "GYM" },
     ],
   },
   {
@@ -96,12 +112,29 @@ export const MODULE_GROUPS: ModuleGroup[] = [
 ];
 
 /**
- * Bloque B — filtra MODULE_GROUPS por rol (como siempre) Y por módulo
- * comercial habilitado. `enabledModuleCodes` es el set de module codes
- * efectivamente habilitados para el tenant actual (ya resuelto por el
- * caller vía Commercial Enforcement Context) — items sin `moduleCode`
- * pasan siempre (no dependen de ningún módulo opcional). El grupo
- * `platform` nunca se filtra por módulo (ver comentario arriba).
+ * Bloque B / PASO 6F — filtra MODULE_GROUPS por rol (como siempre), por
+ * módulo comercial habilitado Y por vertical efectiva. `enabledModuleCodes`
+ * es el set de module codes efectivamente habilitados para la
+ * organización EFECTIVA (ya resuelto por el caller vía Commercial
+ * Enforcement Context — nunca el tenant autenticado directo si hay
+ * sesión runtime). `effectiveVerticalCode` es el código de vertical
+ * efectivo (ej. "GYM"), o null si la organización no tiene vertical
+ * (ej. TrustMe: Commerce-only).
+ *
+ * - Item sin `moduleCode` ni `requiredVerticalCode` → pasa siempre (no
+ *   depende de ningún módulo/vertical opcional — ej. Commerce es
+ *   transversal, Configuración es contenedor transversal).
+ * - Item con `moduleCode` → pasa solo si ese módulo está habilitado.
+ * - Item con `requiredVerticalCode` → pasa solo si coincide con
+ *   `effectiveVerticalCode` (ambos requisitos se aplican si el item
+ *   tuviera los dos, aunque hoy ningún item los combina).
+ * - El grupo `platform` nunca se filtra por módulo ni vertical (ver
+ *   comentario arriba de MODULE_GROUPS).
+ *
+ * `isLegacyUnmanaged` (mismo criterio que el bypass de `enabledModuleCodes`
+ * en LEGACY_UNMANAGED): cuando es true, ningún `requiredVerticalCode` oculta
+ * items — un tenant sin fila PlatformOrganization no debe perder superficies
+ * por no tener vertical asignada.
  *
  * Grupos que quedan sin items visibles se omiten del resultado.
  */
@@ -109,6 +142,8 @@ export function filterModuleGroupsByAccess(
   groups: ModuleGroup[],
   role: UserRole,
   enabledModuleCodes: Set<string>,
+  effectiveVerticalCode: string | null = null,
+  isLegacyUnmanaged: boolean = false,
 ): ModuleGroup[] {
   return groups
     .map((group) => ({
@@ -116,8 +151,15 @@ export function filterModuleGroupsByAccess(
       items: group.items.filter((item) => {
         if (!item.roles.includes(role)) return false;
         if (group.id === "platform") return true;
-        if (!item.moduleCode) return true;
-        return enabledModuleCodes.has(item.moduleCode);
+        if (item.moduleCode && !enabledModuleCodes.has(item.moduleCode)) return false;
+        if (
+          item.requiredVerticalCode &&
+          !isLegacyUnmanaged &&
+          item.requiredVerticalCode !== effectiveVerticalCode
+        ) {
+          return false;
+        }
+        return true;
       }),
     }))
     .filter((group) => group.items.length > 0);

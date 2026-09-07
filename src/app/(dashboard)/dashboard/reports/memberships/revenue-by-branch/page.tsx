@@ -4,6 +4,7 @@ import { getSessionOrRedirect } from "@/lib/permissions/guards";
 import { prisma } from "@/lib/db/prisma";
 import { RevenueByBranchReport } from "./RevenueByBranchReport";
 import { resolveEffectiveTenantContext } from "@/modules/platform/runtime/effective-tenant-context";
+import { requireEffectiveVertical } from "@/modules/platform/runtime/effective-vertical";
 
 const ALLOWED_ROLES = ["super_admin", "branch_admin", "reception"];
 
@@ -19,6 +20,9 @@ export default async function RevenueByBranchPage() {
   const db = context.client ?? prisma;
 
   try {
+    // PASO 6F: reporte GYM — requiere la vertical efectiva GYM.
+    await requireEffectiveVertical(context.tenantId, "GYM");
+
     // super_admin puede filtrar por sucursal — se le pasa la lista para el select
     const branches =
       user.role === "super_admin"

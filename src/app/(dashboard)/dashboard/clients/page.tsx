@@ -9,6 +9,7 @@ import { StatusBadge } from "@/components/ui/status-badge";
 import { ClientFilters } from "@/components/ui/client-filters";
 import type { Status } from "@prisma/client";
 import { resolveEffectiveTenantContext } from "@/modules/platform/runtime/effective-tenant-context";
+import { requireEffectiveVertical } from "@/modules/platform/runtime/effective-vertical";
 
 type SearchParams = Promise<{
   search?: string;
@@ -37,6 +38,10 @@ export default async function ClientsPage({
     : sessionUser;
 
   try {
+    // PASO 6F: "Clientes" es superficie GYM sin module code propio — depende
+    // de la vertical efectiva (nunca se inventa gym.clients).
+    await requireEffectiveVertical(context.tenantId, "GYM");
+
     const filters = {
       search: params.search,
       status: params.status as Status | undefined,

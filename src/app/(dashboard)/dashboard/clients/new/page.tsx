@@ -6,6 +6,7 @@ import { getTrainersForClient, getGoalOptions, getSportOptions } from "@/modules
 import { ClientForm } from "@/components/forms/client-form";
 import { createClientAction } from "@/modules/clients/actions";
 import { resolveEffectiveTenantContext } from "@/modules/platform/runtime/effective-tenant-context";
+import { requireEffectiveVertical } from "@/modules/platform/runtime/effective-vertical";
 
 export default async function NewClientPage() {
   const sessionUser = await requireClientManager();
@@ -19,6 +20,9 @@ export default async function NewClientPage() {
     : sessionUser;
 
   try {
+    // PASO 6F: "Clientes" es superficie GYM sin module code propio.
+    await requireEffectiveVertical(context.tenantId, "GYM");
+
     if (context.runtime) {
       redirect("/dashboard/clients");
     }

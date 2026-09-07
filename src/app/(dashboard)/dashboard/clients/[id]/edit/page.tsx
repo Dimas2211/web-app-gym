@@ -6,6 +6,7 @@ import { getBranchOptions } from "@/modules/branches/queries";
 import { ClientForm } from "@/components/forms/client-form";
 import { updateClientAction } from "@/modules/clients/actions";
 import { resolveEffectiveTenantContext } from "@/modules/platform/runtime/effective-tenant-context";
+import { requireEffectiveVertical } from "@/modules/platform/runtime/effective-vertical";
 
 type Props = { params: Promise<{ id: string }> };
 
@@ -21,6 +22,9 @@ export default async function EditClientPage({ params }: Props) {
     : sessionUser;
 
   try {
+    // PASO 6F: "Clientes" es superficie GYM sin module code propio.
+    await requireEffectiveVertical(context.tenantId, "GYM");
+
     if (context.runtime) {
       redirect(`/dashboard/clients/${id}`);
     }

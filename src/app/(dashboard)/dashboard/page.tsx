@@ -2,7 +2,8 @@ import Link from "next/link";
 import { auth } from "@/lib/auth/auth";
 import { ROLE_LABELS, ROLE_COLORS } from "@/lib/utils/roles";
 import { MODULE_GROUPS, filterModuleGroupsByAccess } from "@/lib/navigation/dashboard-nav";
-import { resolveCommercialEnforcementContext } from "@/modules/platform/runtime/commercial-enforcement";
+import { resolveEffectiveDashboardContext } from "@/modules/platform/runtime/resolve-effective-dashboard-context";
+import type { SessionUser } from "@/lib/permissions/guards";
 import type { UserRole } from "@prisma/client";
 
 function credentialHref(role: UserRole): string {
@@ -12,7 +13,12 @@ function credentialHref(role: UserRole): string {
 const COMMERCIAL_ERROR_MESSAGES: Record<string, string> = {
   module_not_enabled: "Este módulo no está habilitado para tu organización.",
   capacity_limit_reached: "Alcanzaste el límite de tu plan.",
+  vertical_not_enabled: "Esta sección no está disponible para tu organización.",
 };
+
+const ALL_NAV_MODULE_CODES = MODULE_GROUPS.flatMap((g) =>
+  g.items.map((i) => i.moduleCode).filter((c): c is string => Boolean(c)),
+);
 
 export default async function DashboardPage({
   searchParams,
@@ -26,21 +32,22 @@ export default async function DashboardPage({
     ? COMMERCIAL_ERROR_MESSAGES[params.commercial_error]
     : undefined;
 
-  // Bloque B — module codes habilitados para el tenant de sesión (mismo
-  // criterio LEGACY_UNMANAGED que dashboard/layout.tsx: bypass = todos).
-  const ALL_NAV_MODULE_CODES = MODULE_GROUPS.flatMap((g) =>
-    g.items.map((i) => i.moduleCode).filter((c): c is string => Boolean(c)),
+  // PASO 6F — mismo contexto EFECTIVO que dashboard/layout.tsx (nunca
+  // user.tenant_id directo cuando hay sesión runtime "Operar como
+  // cliente"). Evita duplicar el filtrado entre sidebar y home dashboard.
+  const { context: dashCtx, dispose } = await resolveEffectiveDashboardContext(
+    user as SessionUser,
+    ALL_NAV_MODULE_CODES,
   );
-  let enabledModuleCodes = new Set<string>();
-  if (user.tenant_id) {
-    const commercialCtx = await resolveCommercialEnforcementContext(user.tenant_id);
-    enabledModuleCodes =
-      commercialCtx.mode === "LEGACY_UNMANAGED"
-        ? new Set(ALL_NAV_MODULE_CODES)
-        : new Set(ALL_NAV_MODULE_CODES.filter((code) => commercialCtx.effectiveModules.get(code)?.enabled === true));
-  }
 
-  const visibleGroups = filterModuleGroupsByAccess(MODULE_GROUPS, user.role, enabledModuleCodes);
+  const visibleGroups = filterModuleGroupsByAccess(
+    MODULE_GROUPS,
+    user.role,
+    dashCtx.enabledModuleCodes,
+    dashCtx.verticalCode,
+    dashCtx.isLegacyUnmanaged,
+  );
+  await dispose();
 
   return (
     <div className="space-y-6">

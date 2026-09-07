@@ -1,21 +1,25 @@
 import Link from "next/link";
 import { requireSuperAdmin } from "@/lib/permissions/guards";
 import { getGym, getSports, getGoals } from "@/modules/settings/queries";
-import { resolveEffectiveTenantContext } from "@/modules/platform/runtime/effective-tenant-context";
+import { resolveEffectiveDashboardContext } from "@/modules/platform/runtime/resolve-effective-dashboard-context";
 
 export default async function SettingsPage() {
   const user = await requireSuperAdmin();
 
-  // PASO 6E: getGym es tenant-scoped (nombre/contacto del gimnasio del
-  // tenant). getSports/getGoals son catálogo global — no requieren tenant
-  // efectivo (SAFE_SHARED_NON_TENANT, ver auditoría).
-  const { context, dispose } = await resolveEffectiveTenantContext(user);
+  // PASO 6F: getGym es tenant-scoped (nombre/contacto del gimnasio del
+  // tenant) Y GYM-only (contenido funcional, no solo dato). getSports/
+  // getGoals son catálogo global de almacenamiento, pero su tarjeta aquí
+  // es funcionalidad GYM — visible solo cuando la vertical efectiva es
+  // GYM (ver requireEffectiveVertical en las subrutas para el bloqueo
+  // server-side real; aquí solo se oculta la tarjeta).
+  const { context, dispose } = await resolveEffectiveDashboardContext(user, []);
   const effectiveUser = context.runtime ? { ...user, tenant_id: context.tenantId } : user;
+  const isGym = context.verticalCode === "GYM";
 
   const [gym, sports, goals] = await Promise.all([
-    getGym(effectiveUser, context.client),
-    getSports(),
-    getGoals(),
+    isGym ? getGym(effectiveUser, context.client) : Promise.resolve(null),
+    isGym ? getSports() : Promise.resolve([]),
+    isGym ? getGoals() : Promise.resolve([]),
   ]);
   await dispose();
 
@@ -51,7 +55,8 @@ export default async function SettingsPage() {
       {/* Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
 
-        {/* Card: Gimnasio */}
+        {/* Card: Gimnasio — GYM-only */}
+        {isGym && (
         <Link
           href="/dashboard/settings/gym"
           className="bg-white rounded-xl border border-zinc-200 shadow-sm p-5 hover:border-zinc-400 hover:shadow-md transition-all group flex flex-col justify-between"
@@ -92,8 +97,10 @@ export default async function SettingsPage() {
             Editar →
           </div>
         </Link>
+        )}
 
-        {/* Card: Deportes */}
+        {/* Card: Deportes — GYM-only (catálogo global, funcionalidad GYM) */}
+        {isGym && (
         <Link
           href="/dashboard/settings/sports"
           className="bg-white rounded-xl border border-zinc-200 shadow-sm p-5 hover:border-zinc-400 hover:shadow-md transition-all group flex flex-col justify-between"
@@ -127,8 +134,10 @@ export default async function SettingsPage() {
             Gestionar →
           </div>
         </Link>
+        )}
 
-        {/* Card: Metas */}
+        {/* Card: Metas — GYM-only (catálogo global, funcionalidad GYM) */}
+        {isGym && (
         <Link
           href="/dashboard/settings/goals"
           className="bg-white rounded-xl border border-zinc-200 shadow-sm p-5 hover:border-zinc-400 hover:shadow-md transition-all group flex flex-col justify-between"
@@ -162,8 +171,9 @@ export default async function SettingsPage() {
             Gestionar →
           </div>
         </Link>
+        )}
 
-        {/* Card: Códigos operativos */}
+        {/* Card: Códigos operativos — transversal/core, visible siempre */}
         <Link
           href="/dashboard/settings/codes"
           className="bg-white rounded-xl border border-zinc-200 shadow-sm p-5 hover:border-zinc-400 hover:shadow-md transition-all group flex flex-col justify-between"
@@ -198,10 +208,12 @@ export default async function SettingsPage() {
       </div>
 
       {/* Nota de alcance */}
-      <p className="text-xs text-zinc-400">
-        Los cambios en catálogos globales (deportes, metas) afectan a todos los entornos del sistema.
-        Solo el Super Admin puede modificarlos.
-      </p>
+      {isGym && (
+        <p className="text-xs text-zinc-400">
+          Los cambios en catálogos globales (deportes, metas) afectan a todos los entornos del sistema.
+          Solo el Super Admin puede modificarlos.
+        </p>
+      )}
     </div>
   );
 }

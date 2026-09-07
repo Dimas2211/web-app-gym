@@ -67,6 +67,13 @@ export async function createSportAction(
 ): Promise<SettingsActionState> {
   await requireSuperAdmin();
 
+  // PASO 6F: Sport es catálogo global (sin tenant_id), pero esta superficie
+  // es funcionalidad GYM — bajo sesión runtime "Operar como cliente" (siempre
+  // solo lectura) se bloquea igual que cualquier write operativo.
+  if (await isRuntimeReadOnlyActive()) {
+    return { error: RUNTIME_READONLY_MESSAGE };
+  }
+
   const parsed = sportSchema.safeParse({
     name: formData.get("name"),
     description: formData.get("description") || undefined,
@@ -96,6 +103,11 @@ export async function updateSportAction(
   formData: FormData
 ): Promise<SettingsActionState> {
   await requireSuperAdmin();
+
+  // PASO 6F: bloquear escritura bajo sesión runtime "Operar como cliente"
+  if (await isRuntimeReadOnlyActive()) {
+    return { error: RUNTIME_READONLY_MESSAGE };
+  }
 
   const id = formData.get("id") as string;
   if (!id) return { error: "ID de deporte requerido." };
@@ -130,6 +142,10 @@ export async function updateSportAction(
 
 export async function toggleSportStatusAction(formData: FormData): Promise<void> {
   await requireSuperAdmin();
+
+  // PASO 6F: bloquear escritura bajo sesión runtime "Operar como cliente"
+  if (await isRuntimeReadOnlyActive()) return;
+
   const id = formData.get("id") as string;
   if (!id) return;
 
@@ -153,6 +169,13 @@ export async function createGoalAction(
   formData: FormData
 ): Promise<SettingsActionState> {
   await requireSuperAdmin();
+
+  // PASO 6F: Goal es catálogo global (sin tenant_id), pero esta superficie
+  // es funcionalidad GYM — bajo sesión runtime "Operar como cliente" se
+  // bloquea igual que cualquier write operativo.
+  if (await isRuntimeReadOnlyActive()) {
+    return { error: RUNTIME_READONLY_MESSAGE };
+  }
 
   const parsed = goalSchema.safeParse({
     name: formData.get("name"),
@@ -183,6 +206,11 @@ export async function updateGoalAction(
   formData: FormData
 ): Promise<SettingsActionState> {
   await requireSuperAdmin();
+
+  // PASO 6F: bloquear escritura bajo sesión runtime "Operar como cliente"
+  if (await isRuntimeReadOnlyActive()) {
+    return { error: RUNTIME_READONLY_MESSAGE };
+  }
 
   const id = formData.get("id") as string;
   if (!id) return { error: "ID de meta requerido." };
@@ -217,6 +245,10 @@ export async function updateGoalAction(
 
 export async function toggleGoalStatusAction(formData: FormData): Promise<void> {
   await requireSuperAdmin();
+
+  // PASO 6F: bloquear escritura bajo sesión runtime "Operar como cliente"
+  if (await isRuntimeReadOnlyActive()) return;
+
   const id = formData.get("id") as string;
   if (!id) return;
 

@@ -5,18 +5,25 @@ import { getGym } from "@/modules/settings/queries";
 import { GymForm } from "@/components/forms/gym-form";
 import { updateGymAction } from "@/modules/settings/actions";
 import { resolveEffectiveTenantContext } from "@/modules/platform/runtime/effective-tenant-context";
+import { requireEffectiveVertical } from "@/modules/platform/runtime/effective-vertical";
 
 export default async function GymSettingsPage() {
   const user = await requireSuperAdmin();
 
-  // PASO 6E: página de escritura pura (edición del único registro Gym del
-  // tenant). Bajo sesión runtime "Operar como cliente" redirige ANTES de
-  // cargarlo — nunca se renderiza el formulario contra el gimnasio real
-  // del super_admin ni contra el del tenant runtime (edición deshabilitada).
+  // PASO 6F: superficie GYM-only — bloquea server-side si la organización
+  // efectiva no tiene vertical GYM (ej. TrustMe: Commerce-only), sin
+  // importar si hay o no sesión runtime (reusable cuando exista login
+  // normal como una organización Commerce-only, ver Fase 10).
+  // PASO 6E: además, página de escritura pura (edición del único registro
+  // Gym del tenant). Bajo sesión runtime "Operar como cliente" redirige
+  // ANTES de cargarlo — nunca se renderiza el formulario contra el
+  // gimnasio real del super_admin ni contra el del tenant runtime.
   const { context, dispose } = await resolveEffectiveTenantContext(user);
   const effectiveUser = context.runtime ? { ...user, tenant_id: context.tenantId } : user;
 
   try {
+    await requireEffectiveVertical(context.tenantId, "GYM");
+
     if (context.runtime) {
       redirect("/dashboard/settings");
     }

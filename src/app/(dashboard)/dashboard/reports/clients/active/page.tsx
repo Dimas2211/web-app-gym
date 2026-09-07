@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db/prisma";
 import { ReportPageHeader } from "@/components/reports/ReportPageHeader";
 import { ActiveClientsReport } from "./ActiveClientsReport";
 import { resolveEffectiveTenantContext } from "@/modules/platform/runtime/effective-tenant-context";
+import { requireEffectiveVertical } from "@/modules/platform/runtime/effective-vertical";
 
 const ALLOWED_ROLES = ["super_admin", "branch_admin", "reception"];
 
@@ -16,6 +17,9 @@ export default async function ActiveClientsPage() {
   const db = context.client ?? prisma;
 
   try {
+    // PASO 6F: reporte GYM — requiere la vertical efectiva GYM.
+    await requireEffectiveVertical(context.tenantId, "GYM");
+
     const [branches, plans] = await Promise.all([
       user.role === "super_admin"
         ? db.branch.findMany({

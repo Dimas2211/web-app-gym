@@ -10,15 +10,29 @@ import type { UserRole } from "@prisma/client";
 type Props = {
   role: UserRole;
   /**
-   * Bloque B — module codes efectivamente habilitados para el tenant
-   * actual (resuelto server-side en layout.tsx contra el Commercial
-   * Enforcement Context). En LEGACY_UNMANAGED, el layout ya incluye
-   * todos los codes referenciados en MODULE_GROUPS (bypass explícito).
+   * Bloque B — module codes efectivamente habilitados para la
+   * organización EFECTIVA (resuelto server-side en layout.tsx contra el
+   * Commercial Enforcement Context del tenant efectivo — el de la
+   * sesión runtime "Operar como cliente" si hay una activa). En
+   * LEGACY_UNMANAGED, el layout ya incluye todos los codes referenciados
+   * en MODULE_GROUPS (bypass explícito).
    */
   enabledModuleCodes: string[];
+  /**
+   * PASO 6F — código de vertical efectivo (ej. "GYM"), o null si la
+   * organización efectiva no tiene vertical (ej. TrustMe: Commerce-only).
+   * Gobierna items con `requiredVerticalCode` (Clientes/Reportes GYM).
+   */
+  effectiveVerticalCode: string | null;
+  /**
+   * PASO 6F — true si el tenant efectivo no tiene fila PlatformOrganization
+   * (bypass legacy, mismo criterio que enabledModuleCodes en ese modo):
+   * ningún `requiredVerticalCode` oculta items.
+   */
+  isLegacyUnmanaged: boolean;
 };
 
-export function DashboardSidebar({ role, enabledModuleCodes }: Props) {
+export function DashboardSidebar({ role, enabledModuleCodes, effectiveVerticalCode, isLegacyUnmanaged }: Props) {
   const { open, close } = useSidebar();
   const pathname = usePathname();
 
@@ -26,6 +40,8 @@ export function DashboardSidebar({ role, enabledModuleCodes }: Props) {
     MODULE_GROUPS,
     role,
     new Set(enabledModuleCodes),
+    effectiveVerticalCode,
+    isLegacyUnmanaged,
   );
 
   return (

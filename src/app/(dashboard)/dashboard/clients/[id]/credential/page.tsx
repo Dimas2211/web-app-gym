@@ -13,6 +13,7 @@ import {
 import { suggestNextClientCode } from "@/lib/utils/operational-codes";
 import { PrintButton } from "@/components/ui/print-button";
 import { resolveEffectiveTenantContext } from "@/modules/platform/runtime/effective-tenant-context";
+import { requireEffectiveVertical } from "@/modules/platform/runtime/effective-vertical";
 
 type Props = { params: Promise<{ id: string }> };
 
@@ -29,6 +30,9 @@ export default async function ClientCredentialPage({ params }: Props) {
     : sessionUser;
 
   try {
+    // PASO 6F: "Clientes" es superficie GYM sin module code propio.
+    await requireEffectiveVertical(context.tenantId, "GYM");
+
     const canManage = !context.runtime;
 
     const [client, gym, nextCode] = await Promise.all([

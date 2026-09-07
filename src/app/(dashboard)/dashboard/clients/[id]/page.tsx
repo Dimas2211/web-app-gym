@@ -23,6 +23,7 @@ import {
 } from "@/lib/utils/labels";
 import type { PaymentStatus, MembershipStatus, ExecutionStatus } from "@prisma/client";
 import { resolveEffectiveTenantContext } from "@/modules/platform/runtime/effective-tenant-context";
+import { requireEffectiveVertical } from "@/modules/platform/runtime/effective-vertical";
 
 type Props = { params: Promise<{ id: string }> };
 
@@ -68,6 +69,9 @@ export default async function ClientDetailPage({ params }: Props) {
     : sessionUser;
 
   try {
+    // PASO 6F: "Clientes" es superficie GYM sin module code propio.
+    await requireEffectiveVertical(context.tenantId, "GYM");
+
     const [client, memberships, weeklyPlans] = await Promise.all([
       getClientById(id, effectiveUser, context.client),
       getClientMembershipsByClientId(id, effectiveUser, context.client),
