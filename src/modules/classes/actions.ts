@@ -22,6 +22,7 @@ import {
   assertOrganizationModule,
   CommercialEnforcementError,
 } from "@/modules/platform/runtime/commercial-enforcement";
+import { isRuntimeReadOnlyActive, RUNTIME_READONLY_MESSAGE } from "@/modules/platform/runtime/runtime-session";
 
 // Bloque B — guard central de este archivo: class types, clases
 // programadas, reservas y asistencia requieren gym.classes.
@@ -48,6 +49,11 @@ export async function createClassTypeAction(
   formData: FormData
 ): Promise<ClassActionState> {
   const sessionUser = await requireAdmin();
+
+  // PASO 6C: bloquear escritura bajo sesión runtime "Operar como cliente"
+  if (await isRuntimeReadOnlyActive()) {
+    return { error: RUNTIME_READONLY_MESSAGE };
+  }
 
   try {
     await assertClassesModule(sessionUser.tenant_id);
@@ -80,6 +86,12 @@ export async function updateClassTypeAction(
   formData: FormData
 ): Promise<ClassActionState> {
   const sessionUser = await requireAdmin();
+
+  // PASO 6C: bloquear escritura bajo sesión runtime "Operar como cliente"
+  if (await isRuntimeReadOnlyActive()) {
+    return { error: RUNTIME_READONLY_MESSAGE };
+  }
+
   const id = formData.get("id") as string;
   if (!id) return { error: "ID requerido." };
 
@@ -116,6 +128,10 @@ export async function toggleClassTypeStatusAction(
   formData: FormData
 ): Promise<void> {
   const sessionUser = await requireAdmin();
+
+  // PASO 6C: bloquear escritura bajo sesión runtime "Operar como cliente"
+  if (await isRuntimeReadOnlyActive()) return;
+
   const id = formData.get("id") as string;
   if (!id) return;
 
@@ -185,6 +201,11 @@ export async function createScheduledClassAction(
   formData: FormData
 ): Promise<ClassActionState> {
   const sessionUser = await requireAdmin();
+
+  // PASO 6C: bloquear escritura bajo sesión runtime "Operar como cliente"
+  if (await isRuntimeReadOnlyActive()) {
+    return { error: RUNTIME_READONLY_MESSAGE };
+  }
 
   try {
     await assertClassesModule(sessionUser.tenant_id);
@@ -282,6 +303,12 @@ export async function updateScheduledClassAction(
   formData: FormData
 ): Promise<ClassActionState> {
   const sessionUser = await requireAdmin();
+
+  // PASO 6C: bloquear escritura bajo sesión runtime "Operar como cliente"
+  if (await isRuntimeReadOnlyActive()) {
+    return { error: RUNTIME_READONLY_MESSAGE };
+  }
+
   const id = formData.get("id") as string;
   if (!id) return { error: "ID requerido." };
 
@@ -369,6 +396,10 @@ export async function toggleScheduledClassStatusAction(
   formData: FormData
 ): Promise<void> {
   const sessionUser = await requireAdmin();
+
+  // PASO 6C: bloquear escritura bajo sesión runtime "Operar como cliente"
+  if (await isRuntimeReadOnlyActive()) return;
+
   const id = formData.get("id") as string;
   if (!id) return;
 
@@ -396,6 +427,10 @@ export async function deleteScheduledClassAction(
   formData: FormData
 ): Promise<void> {
   const sessionUser = await requireAdmin();
+
+  // PASO 6C: bloquear escritura bajo sesión runtime "Operar como cliente"
+  if (await isRuntimeReadOnlyActive()) return;
+
   const id = formData.get("id") as string;
   const date = (formData.get("date") as string) || "";
   const view = (formData.get("view") as string) || "";
@@ -455,6 +490,11 @@ export async function createBookingAction(
   formData: FormData
 ): Promise<ClassActionState> {
   const sessionUser = await requireMembershipManager();
+
+  // PASO 6C: bloquear escritura bajo sesión runtime "Operar como cliente"
+  if (await isRuntimeReadOnlyActive()) {
+    return { error: RUNTIME_READONLY_MESSAGE };
+  }
 
   try {
     await assertClassesModule(sessionUser.tenant_id);
@@ -548,6 +588,10 @@ export async function createBookingAction(
 
 export async function cancelBookingAction(formData: FormData): Promise<void> {
   const sessionUser = await requireMembershipManager();
+
+  // PASO 6C: bloquear escritura bajo sesión runtime "Operar como cliente"
+  if (await isRuntimeReadOnlyActive()) return;
+
   const booking_id = formData.get("booking_id") as string;
   if (!booking_id) return;
 
@@ -581,6 +625,9 @@ export async function recordAttendanceAction(
   formData: FormData
 ): Promise<void> {
   const sessionUser = await requireMembershipManager();
+
+  // PASO 6C: bloquear escritura bajo sesión runtime "Operar como cliente"
+  if (await isRuntimeReadOnlyActive()) return;
 
   const raw = {
     scheduled_class_id: formData.get("scheduled_class_id"),

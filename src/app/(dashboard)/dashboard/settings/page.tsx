@@ -1,11 +1,23 @@
 import Link from "next/link";
 import { requireSuperAdmin } from "@/lib/permissions/guards";
 import { getGym, getSports, getGoals } from "@/modules/settings/queries";
+import { resolveEffectiveTenantContext } from "@/modules/platform/runtime/effective-tenant-context";
 
 export default async function SettingsPage() {
   const user = await requireSuperAdmin();
 
-  const [gym, sports, goals] = await Promise.all([getGym(user), getSports(), getGoals()]);
+  // PASO 6E: getGym es tenant-scoped (nombre/contacto del gimnasio del
+  // tenant). getSports/getGoals son catálogo global — no requieren tenant
+  // efectivo (SAFE_SHARED_NON_TENANT, ver auditoría).
+  const { context, dispose } = await resolveEffectiveTenantContext(user);
+  const effectiveUser = context.runtime ? { ...user, tenant_id: context.tenantId } : user;
+
+  const [gym, sports, goals] = await Promise.all([
+    getGym(effectiveUser, context.client),
+    getSports(),
+    getGoals(),
+  ]);
+  await dispose();
 
   // Métricas deportes
   const sportsActive = sports.filter((s) => s.status === "active").length;

@@ -1,6 +1,14 @@
 import { prisma } from "@/lib/db/prisma";
+import type { PrismaClient } from "@prisma/client";
 import type { SessionUser } from "@/lib/permissions/guards";
 import type { Status } from "@prisma/client";
+
+// PASO 6C — `client` opcional en toda query exportada: en modo normal
+// usa el singleton `prisma` (sin cambios); en páginas runtime-aware
+// ("Operar como cliente") el caller pasa `context.client` junto con un
+// `user` cuyo tenant_id ya es el tenant EFECTIVO (ver
+// resolveEffectiveTenantContext), para que scope y fuente de datos
+// queden siempre alineados al mismo tenant.
 
 // ── Tipos de filtros ─────────────────────────────────────────
 
@@ -29,7 +37,8 @@ function branchScope(user: SessionUser): Record<string, unknown> {
 
 export async function getClassTypes(
   user: SessionUser,
-  filters: ClassTypeFilters = {}
+  filters: ClassTypeFilters = {},
+  client: PrismaClient = prisma,
 ) {
   const where: Record<string, unknown> = { tenant_id: user.tenant_id };
 
@@ -46,20 +55,20 @@ export async function getClassTypes(
     ];
   }
 
-  return prisma.classType.findMany({
+  return client.classType.findMany({
     where,
     orderBy: { name: "asc" },
   });
 }
 
-export async function getClassTypeById(id: string, user: SessionUser) {
-  return prisma.classType.findFirst({
+export async function getClassTypeById(id: string, user: SessionUser, client: PrismaClient = prisma) {
+  return client.classType.findFirst({
     where: { id, tenant_id: user.tenant_id },
   });
 }
 
-export async function getClassTypeOptions(user: SessionUser) {
-  return prisma.classType.findMany({
+export async function getClassTypeOptions(user: SessionUser, client: PrismaClient = prisma) {
+  return client.classType.findMany({
     where: { tenant_id: user.tenant_id, status: "active" },
     select: {
       id: true,
@@ -75,7 +84,8 @@ export async function getClassTypeOptions(user: SessionUser) {
 
 export async function getScheduledClasses(
   user: SessionUser,
-  filters: ScheduledClassFilters = {}
+  filters: ScheduledClassFilters = {},
+  client: PrismaClient = prisma,
 ) {
   const where: Record<string, unknown> = {
     tenant_id: user.tenant_id,
@@ -101,7 +111,7 @@ export async function getScheduledClasses(
     where.class_date = new Date(filters.date + "T00:00:00.000Z");
   }
 
-  return prisma.scheduledClass.findMany({
+  return client.scheduledClass.findMany({
     where,
     include: {
       branch: { select: { id: true, name: true } },
@@ -118,14 +128,14 @@ export async function getScheduledClasses(
   });
 }
 
-export async function getScheduledClassById(id: string, user: SessionUser) {
+export async function getScheduledClassById(id: string, user: SessionUser, client: PrismaClient = prisma) {
   const where: Record<string, unknown> = {
     id,
     tenant_id: user.tenant_id,
     ...branchScope(user),
   };
 
-  return prisma.scheduledClass.findFirst({
+  return client.scheduledClass.findFirst({
     where,
     include: {
       branch: { select: { id: true, name: true } },
@@ -156,7 +166,7 @@ export async function getScheduledClassById(id: string, user: SessionUser) {
 
 // ── Form helpers ──────────────────────────────────────────────
 
-export async function getTrainerOptionsForClass(user: SessionUser) {
+export async function getTrainerOptionsForClass(user: SessionUser, client: PrismaClient = prisma) {
   const where: Record<string, unknown> = {
     tenant_id: user.tenant_id,
     status: "active",
@@ -164,7 +174,7 @@ export async function getTrainerOptionsForClass(user: SessionUser) {
   if (user.role === "branch_admin" || user.role === "reception") {
     where.branch_id = user.location_id!;
   }
-  return prisma.trainer.findMany({
+  return client.trainer.findMany({
     where,
     select: {
       id: true,
@@ -177,7 +187,7 @@ export async function getTrainerOptionsForClass(user: SessionUser) {
   });
 }
 
-export async function getBranchOptionsForClass(user: SessionUser) {
+export async function getBranchOptionsForClass(user: SessionUser, client: PrismaClient = prisma) {
   const where: Record<string, unknown> = {
     tenant_id: user.tenant_id,
     status: "active",
@@ -185,7 +195,7 @@ export async function getBranchOptionsForClass(user: SessionUser) {
   if (user.role === "branch_admin" || user.role === "reception") {
     where.id = user.location_id!;
   }
-  return prisma.branch.findMany({
+  return client.branch.findMany({
     where,
     select: { id: true, name: true },
     orderBy: { name: "asc" },
@@ -195,10 +205,11 @@ export async function getBranchOptionsForClass(user: SessionUser) {
 // Clientes de una sucursal no reservados aún para esta clase
 export async function getAvailableClientsForBooking(
   scheduledClassId: string,
-  user: SessionUser
+  user: SessionUser,
+  client: PrismaClient = prisma,
 ) {
   // IDs ya reservados
-  const bookedIds = await prisma.classBooking.findMany({
+  const bookedIds = await client.classBooking.findMany({
     where: {
       scheduled_class_id: scheduledClassId,
       booking_status: "confirmed",
@@ -214,7 +225,7 @@ export async function getAvailableClientsForBooking(
     ...branchScope(user),
   };
 
-  return prisma.client.findMany({
+  return client.client.findMany({
     where,
     select: { id: true, first_name: true, last_name: true, email: true },
     orderBy: [{ last_name: "asc" }, { first_name: "asc" }],
@@ -231,7 +242,8 @@ export interface UpcomingClassFilters {
 
 export async function getUpcomingClasses(
   user: SessionUser,
-  filters: UpcomingClassFilters = {}
+  filters: UpcomingClassFilters = {},
+  client: PrismaClient = prisma,
 ) {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -252,7 +264,7 @@ export async function getUpcomingClasses(
     where.status = { not: "cancelled" };
   }
 
-  return prisma.scheduledClass.findMany({
+  return client.scheduledClass.findMany({
     where,
     include: {
       branch: { select: { id: true, name: true } },
@@ -274,9 +286,10 @@ export async function getUpcomingClasses(
 
 export async function getLinkedTrainerId(
   userId: string,
-  tenantId: string
+  tenantId: string,
+  client: PrismaClient = prisma,
 ): Promise<string | null> {
-  const trainer = await prisma.trainer.findFirst({
+  const trainer = await client.trainer.findFirst({
     where: { user_id: userId, tenant_id: tenantId, status: "active" },
     select: { id: true },
   });
@@ -287,7 +300,8 @@ export async function getLinkedTrainerId(
 
 export async function getTrainerUpcomingClasses(
   trainerId: string,
-  user: SessionUser
+  user: SessionUser,
+  client: PrismaClient = prisma,
 ) {
   const today = new Date();
   today.setUTCHours(0, 0, 0, 0);
@@ -300,7 +314,7 @@ export async function getTrainerUpcomingClasses(
     ...branchScope(user),
   };
 
-  return prisma.scheduledClass.findMany({
+  return client.scheduledClass.findMany({
     where,
     include: {
       class_type: { select: { name: true } },

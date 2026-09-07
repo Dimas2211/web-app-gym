@@ -36,12 +36,23 @@ vi.mock("@/modules/platform/runtime/commercial-enforcement", async () => {
   return { ...actual, resolveCommercialEnforcementContext: resolveCommercialEnforcementContextMock };
 });
 
+const { isRuntimeReadOnlyActiveMock } = vi.hoisted(() => ({
+  isRuntimeReadOnlyActiveMock: vi.fn(async () => false),
+}));
+
+vi.mock("@/modules/platform/runtime/runtime-session", () => ({
+  isRuntimeReadOnlyActive: isRuntimeReadOnlyActiveMock,
+  RUNTIME_READONLY_MESSAGE: "Modo \"Operar como cliente\" activo (solo lectura).",
+}));
+
 import { toggleTrainerStatusAction } from "./actions";
 
 beforeEach(() => {
   trainerUpdateSpy.mockReset();
   trainerFindUniqueSpy.mockClear();
   resolveCommercialEnforcementContextMock.mockReset();
+  isRuntimeReadOnlyActiveMock.mockReset();
+  isRuntimeReadOnlyActiveMock.mockResolvedValue(false);
 });
 
 function fd(entries: Record<string, string>): FormData {
@@ -64,6 +75,17 @@ describe("toggleTrainerStatusAction — módulo GYM (gym.trainers) deshabilitado
 
     await toggleTrainerStatusAction(fd({ id: "trainer-1" }));
 
+    expect(trainerUpdateSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe('toggleTrainerStatusAction — sesión runtime "Operar como cliente" activa bloquea el write', () => {
+  it("isRuntimeReadOnlyActive() true -> bloquea ANTES de tocar prisma.trainer.findUnique/update", async () => {
+    isRuntimeReadOnlyActiveMock.mockResolvedValue(true);
+
+    await toggleTrainerStatusAction(fd({ id: "trainer-1" }));
+
+    expect(trainerFindUniqueSpy).not.toHaveBeenCalled();
     expect(trainerUpdateSpy).not.toHaveBeenCalled();
   });
 });

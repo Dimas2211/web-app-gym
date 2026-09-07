@@ -4,6 +4,7 @@ import { getBranches } from "@/modules/branches/queries";
 import { toggleBranchStatusAction } from "@/modules/branches/actions";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { requireOrganizationModule } from "@/modules/platform/runtime/commercial-enforcement";
+import { resolveEffectiveTenantContext } from "@/modules/platform/runtime/effective-tenant-context";
 
 const COMMERCIAL_ERROR_MESSAGES: Record<string, string> = {
   module_not_enabled: "Este módulo no está habilitado para tu organización.",
@@ -16,14 +17,26 @@ export default async function BranchesPage({
   searchParams?: Promise<{ commercial_error?: string }>;
 }) {
   const user = await requireAdmin();
-  await requireOrganizationModule(user.tenant_id, "core.locations");
-  const branches = await getBranches(user);
   const params = await searchParams;
-  const commercialErrorMessage = params?.commercial_error
-    ? COMMERCIAL_ERROR_MESSAGES[params.commercial_error]
-    : undefined;
 
-  return (
+  // PASO 6E: tenant/PrismaClient EFECTIVOS bajo sesión runtime "Operar como
+  // cliente". core.locations ya es un module code existente (no se crea
+  // ninguno nuevo) — solo se evalúa contra el tenant EFECTIVO.
+  const { context, dispose } = await resolveEffectiveTenantContext(user);
+  const effectiveUser = context.runtime ? { ...user, tenant_id: context.tenantId } : user;
+
+  try {
+    await requireOrganizationModule(context.tenantId, "core.locations");
+
+    const branches = await getBranches(effectiveUser, context.client);
+    const commercialErrorMessage = params?.commercial_error
+      ? COMMERCIAL_ERROR_MESSAGES[params.commercial_error]
+      : undefined;
+
+    // canManage se fuerza a false en modo runtime: la sesión es siempre solo lectura.
+    const canManage = !context.runtime;
+
+    return (
     <div className="space-y-6">
       {commercialErrorMessage && (
         <div className="bg-amber-50 border border-amber-200 text-amber-800 text-sm rounded-lg px-4 py-3">
@@ -36,7 +49,7 @@ export default async function BranchesPage({
           <h1 className="text-xl font-bold text-zinc-800">Sucursales</h1>
           <p className="text-sm text-zinc-500 mt-0.5">{branches.length} sucursal(es) registrada(s)</p>
         </div>
-        {user.role === "super_admin" && (
+        {canManage && user.role === "super_admin" && (
           <Link
             href="/dashboard/branches/new"
             className="bg-zinc-900 text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-zinc-800 transition-colors"
@@ -95,25 +108,31 @@ export default async function BranchesPage({
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex items-center justify-end gap-2">
-                        <Link
-                          href={`/dashboard/branches/${branch.id}/edit`}
-                          className="text-xs text-zinc-600 hover:text-zinc-900 px-2.5 py-1 rounded border border-zinc-200 hover:border-zinc-400 transition-colors"
-                        >
-                          Editar
-                        </Link>
-                        <form action={toggleBranchStatusAction}>
-                          <input type="hidden" name="id" value={branch.id} />
-                          <button
-                            type="submit"
-                            className={`text-xs px-2.5 py-1 rounded border transition-colors ${
-                              branch.status === "active"
-                                ? "text-amber-700 border-amber-200 hover:bg-amber-50"
-                                : "text-emerald-700 border-emerald-200 hover:bg-emerald-50"
-                            }`}
-                          >
-                            {branch.status === "active" ? "Desactivar" : "Activar"}
-                          </button>
-                        </form>
+                        {canManage ? (
+                          <>
+                            <Link
+                              href={`/dashboard/branches/${branch.id}/edit`}
+                              className="text-xs text-zinc-600 hover:text-zinc-900 px-2.5 py-1 rounded border border-zinc-200 hover:border-zinc-400 transition-colors"
+                            >
+                              Editar
+                            </Link>
+                            <form action={toggleBranchStatusAction}>
+                              <input type="hidden" name="id" value={branch.id} />
+                              <button
+                                type="submit"
+                                className={`text-xs px-2.5 py-1 rounded border transition-colors ${
+                                  branch.status === "active"
+                                    ? "text-amber-700 border-amber-200 hover:bg-amber-50"
+                                    : "text-emerald-700 border-emerald-200 hover:bg-emerald-50"
+                                }`}
+                              >
+                                {branch.status === "active" ? "Desactivar" : "Activar"}
+                              </button>
+                            </form>
+                          </>
+                        ) : (
+                          <span className="text-xs text-zinc-300">Solo lectura</span>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -124,5 +143,8 @@ export default async function BranchesPage({
         </div>
       )}
     </div>
-  );
+    );
+  } finally {
+    await dispose();
+  }
 }

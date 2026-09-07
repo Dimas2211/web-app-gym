@@ -25,6 +25,7 @@ import {
   assertOrganizationModule,
   CommercialEnforcementError,
 } from "@/modules/platform/runtime/commercial-enforcement";
+import { isRuntimeReadOnlyActive, RUNTIME_READONLY_MESSAGE } from "@/modules/platform/runtime/runtime-session";
 
 export type UserActionState =
   | { errors?: Record<string, string[]>; error?: string }
@@ -38,6 +39,11 @@ export async function createUserAction(
   formData: FormData
 ): Promise<UserActionState> {
   const sessionUser = await requireAdmin();
+
+  // PASO 6E: bloquear escritura bajo sesión runtime "Operar como cliente"
+  if (await isRuntimeReadOnlyActive()) {
+    return { error: RUNTIME_READONLY_MESSAGE };
+  }
 
   const raw = {
     email: formData.get("email"),
@@ -118,6 +124,12 @@ export async function updateUserAction(
   formData: FormData
 ): Promise<UserActionState> {
   const sessionUser = await requireAdmin();
+
+  // PASO 6E: bloquear escritura bajo sesión runtime "Operar como cliente"
+  if (await isRuntimeReadOnlyActive()) {
+    return { error: RUNTIME_READONLY_MESSAGE };
+  }
+
   const id = formData.get("id") as string;
   if (!id) return { error: "ID de usuario requerido." };
 
@@ -219,6 +231,12 @@ export async function deleteUserAction(
   formData: FormData
 ): Promise<DeleteAuthActionState> {
   const sessionUser = await getSessionOrRedirect();
+
+  // PASO 6E: bloquear escritura bajo sesión runtime "Operar como cliente"
+  if (await isRuntimeReadOnlyActive()) {
+    return { error: RUNTIME_READONLY_MESSAGE };
+  }
+
   const id = formData.get("id") as string;
   if (!id) return { error: "Datos inválidos" };
 
@@ -277,6 +295,10 @@ export async function deleteUserAction(
 // con redirect + query param, leído como banner en users/page.tsx.
 export async function toggleUserStatusAction(formData: FormData): Promise<void> {
   const sessionUser = await requireAdmin();
+
+  // PASO 6E: bloquear escritura bajo sesión runtime "Operar como cliente"
+  if (await isRuntimeReadOnlyActive()) return;
+
   const id = formData.get("id") as string;
   if (!id) return;
 

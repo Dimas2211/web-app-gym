@@ -1,6 +1,14 @@
 import { prisma } from "@/lib/db/prisma";
+import type { PrismaClient } from "@prisma/client";
 import type { SessionUser } from "@/lib/permissions/guards";
 import type { Status } from "@prisma/client";
+
+// PASO 6C — `client` opcional en toda query exportada: en modo normal
+// usa el singleton `prisma` (sin cambios); en páginas runtime-aware
+// ("Operar como cliente") el caller pasa `context.client` junto con un
+// `user` cuyo tenant_id ya es el tenant EFECTIVO (ver
+// resolveEffectiveTenantContext), para que scope y fuente de datos
+// queden siempre alineados al mismo tenant.
 
 // ── Helpers de scope ─────────────────────────────────────────
 
@@ -40,7 +48,8 @@ export interface ClientPlanFilters {
 
 export async function getWeeklyPlanTemplates(
   user: SessionUser,
-  filters: TemplateFilters = {}
+  filters: TemplateFilters = {},
+  client: PrismaClient = prisma,
 ) {
   const where: Record<string, unknown> = { ...gymScope(user) };
 
@@ -78,7 +87,7 @@ export async function getWeeklyPlanTemplates(
   if (filters.target_goal_id) where.target_goal_id = filters.target_goal_id;
   if (filters.target_level) where.target_level = filters.target_level;
 
-  return prisma.weeklyPlanTemplate.findMany({
+  return client.weeklyPlanTemplate.findMany({
     where,
     include: {
       branch: { select: { id: true, name: true } },
@@ -90,8 +99,8 @@ export async function getWeeklyPlanTemplates(
   });
 }
 
-export async function getWeeklyPlanTemplateById(id: string, user: SessionUser) {
-  const template = await prisma.weeklyPlanTemplate.findFirst({
+export async function getWeeklyPlanTemplateById(id: string, user: SessionUser, client: PrismaClient = prisma) {
+  const template = await client.weeklyPlanTemplate.findFirst({
     where: { id, ...gymScope(user) },
     include: {
       branch: { select: { id: true, name: true } },
@@ -104,7 +113,7 @@ export async function getWeeklyPlanTemplateById(id: string, user: SessionUser) {
   return template;
 }
 
-export async function getTemplateOptions(user: SessionUser) {
+export async function getTemplateOptions(user: SessionUser, client: PrismaClient = prisma) {
   const where: Record<string, unknown> = {
     ...gymScope(user),
     status: "active",
@@ -114,7 +123,7 @@ export async function getTemplateOptions(user: SessionUser) {
     where.OR = [{ branch_id: null }, { branch_id: user.location_id }];
   }
 
-  return prisma.weeklyPlanTemplate.findMany({
+  return client.weeklyPlanTemplate.findMany({
     where,
     select: {
       id: true,
@@ -131,7 +140,8 @@ export async function getTemplateOptions(user: SessionUser) {
 
 export async function getClientWeeklyPlans(
   user: SessionUser,
-  filters: ClientPlanFilters = {}
+  filters: ClientPlanFilters = {},
+  client: PrismaClient = prisma,
 ) {
   const where: Record<string, unknown> = {
     ...gymScope(user),
@@ -144,7 +154,7 @@ export async function getClientWeeklyPlans(
 
   // trainer: solo sus planes asignados
   if (user.role === "trainer") {
-    const linked = await getLinkedTrainerId(user.id, user.tenant_id);
+    const linked = await getLinkedTrainerId(user.id, user.tenant_id, client);
     where.trainer_id = linked ?? "__none__";
   } else if (filters.trainer_id) {
     where.trainer_id = filters.trainer_id;
@@ -173,7 +183,7 @@ export async function getClientWeeklyPlans(
     };
   }
 
-  return prisma.clientWeeklyPlan.findMany({
+  return client.clientWeeklyPlan.findMany({
     where,
     include: {
       client: { select: { id: true, first_name: true, last_name: true, email: true } },
@@ -186,7 +196,7 @@ export async function getClientWeeklyPlans(
   });
 }
 
-export async function getClientWeeklyPlanById(id: string, user: SessionUser) {
+export async function getClientWeeklyPlanById(id: string, user: SessionUser, client: PrismaClient = prisma) {
   const where: Record<string, unknown> = {
     id,
     ...gymScope(user),
@@ -195,11 +205,11 @@ export async function getClientWeeklyPlanById(id: string, user: SessionUser) {
 
   // trainer: solo sus planes
   if (user.role === "trainer") {
-    const linked = await getLinkedTrainerId(user.id, user.tenant_id);
+    const linked = await getLinkedTrainerId(user.id, user.tenant_id, client);
     where.trainer_id = linked ?? "__none__";
   }
 
-  return prisma.clientWeeklyPlan.findFirst({
+  return client.clientWeeklyPlan.findFirst({
     where,
     include: {
       client: {
@@ -222,9 +232,10 @@ export async function getClientWeeklyPlanById(id: string, user: SessionUser) {
 /** Planes de un cliente para su ficha */
 export async function getClientWeeklyPlansByClientId(
   clientId: string,
-  user: SessionUser
+  user: SessionUser,
+  client: PrismaClient = prisma,
 ) {
-  return prisma.clientWeeklyPlan.findMany({
+  return client.clientWeeklyPlan.findMany({
     where: {
       client_id: clientId,
       ...gymScope(user),
@@ -243,7 +254,7 @@ export async function getClientWeeklyPlansByClientId(
 
 // ── Helpers de formularios ────────────────────────────────────
 
-export async function getTrainerOptionsForPlan(user: SessionUser) {
+export async function getTrainerOptionsForPlan(user: SessionUser, client: PrismaClient = prisma) {
   const where: Record<string, unknown> = {
     ...gymScope(user),
     status: "active",
@@ -251,14 +262,14 @@ export async function getTrainerOptionsForPlan(user: SessionUser) {
   if (user.role === "branch_admin" || user.role === "reception") {
     where.branch_id = user.location_id!;
   }
-  return prisma.trainer.findMany({
+  return client.trainer.findMany({
     where,
     select: { id: true, first_name: true, last_name: true, branch_id: true },
     orderBy: [{ last_name: "asc" }, { first_name: "asc" }],
   });
 }
 
-export async function getBranchOptionsForPlan(user: SessionUser) {
+export async function getBranchOptionsForPlan(user: SessionUser, client: PrismaClient = prisma) {
   const where: Record<string, unknown> = {
     ...gymScope(user),
     status: "active",
@@ -266,20 +277,20 @@ export async function getBranchOptionsForPlan(user: SessionUser) {
   if (user.role === "branch_admin" || user.role === "reception") {
     where.id = user.location_id!;
   }
-  return prisma.branch.findMany({
+  return client.branch.findMany({
     where,
     select: { id: true, name: true },
     orderBy: { name: "asc" },
   });
 }
 
-export async function getClientOptionsForPlan(user: SessionUser) {
+export async function getClientOptionsForPlan(user: SessionUser, client: PrismaClient = prisma) {
   const where: Record<string, unknown> = {
     ...gymScope(user),
     ...branchScope(user),
     status: "active",
   };
-  return prisma.client.findMany({
+  return client.client.findMany({
     where,
     select: { id: true, first_name: true, last_name: true, document_id: true, branch_id: true },
     orderBy: [{ last_name: "asc" }, { first_name: "asc" }],
@@ -287,16 +298,16 @@ export async function getClientOptionsForPlan(user: SessionUser) {
   });
 }
 
-export async function getSportOptions() {
-  return prisma.sport.findMany({
+export async function getSportOptions(client: PrismaClient = prisma) {
+  return client.sport.findMany({
     where: { status: "active" },
     select: { id: true, name: true },
     orderBy: { name: "asc" },
   });
 }
 
-export async function getGoalOptions() {
-  return prisma.goal.findMany({
+export async function getGoalOptions(client: PrismaClient = prisma) {
+  return client.goal.findMany({
     where: { status: "active" },
     select: { id: true, name: true },
     orderBy: { name: "asc" },
@@ -309,7 +320,7 @@ export async function getGoalOptions() {
  * Retorna plantillas activas visibles para el usuario según su scope.
  * Usada por entrenadores y admins para ver la programación general del gimnasio.
  */
-export async function getGeneralTemplatesForScope(user: SessionUser) {
+export async function getGeneralTemplatesForScope(user: SessionUser, client: PrismaClient = prisma) {
   const where: Record<string, unknown> = {
     ...gymScope(user),
     status: "active",
@@ -323,7 +334,7 @@ export async function getGeneralTemplatesForScope(user: SessionUser) {
     where.OR = [{ branch_id: null }, { branch_id: user.location_id }];
   }
 
-  return prisma.weeklyPlanTemplate.findMany({
+  return client.weeklyPlanTemplate.findMany({
     where,
     include: {
       branch: { select: { id: true, name: true } },
@@ -339,9 +350,10 @@ export async function getGeneralTemplatesForScope(user: SessionUser) {
 
 export async function getLinkedTrainerId(
   userId: string,
-  tenantId: string
+  tenantId: string,
+  client: PrismaClient = prisma,
 ): Promise<string | null> {
-  const trainer = await prisma.trainer.findFirst({
+  const trainer = await client.trainer.findFirst({
     where: { user_id: userId, tenant_id: tenantId, status: "active" },
     select: { id: true },
   });

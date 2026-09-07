@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { requireAdmin, canManageTrainer } from "@/lib/permissions/guards";
 import {
   getTrainerById,
@@ -8,6 +8,8 @@ import {
 } from "@/modules/trainers/queries";
 import { updateTrainerAction } from "@/modules/trainers/actions";
 import { TrainerForm } from "@/components/forms/trainer-form";
+import { requireOrganizationModule } from "@/modules/platform/runtime/commercial-enforcement";
+import { resolveEffectiveTenantContext } from "@/modules/platform/runtime/effective-tenant-context";
 
 type Props = { params: Promise<{ id: string }> };
 
@@ -15,59 +17,76 @@ export default async function EditTrainerPage({ params }: Props) {
   const sessionUser = await requireAdmin();
   const { id } = await params;
 
-  const [trainer, branches] = await Promise.all([
-    getTrainerById(id, sessionUser),
-    getBranchOptions(sessionUser),
-  ]);
+  // PASO 6D: página de escritura pura. Bajo sesión runtime "Operar como
+  // cliente" redirige ANTES de cargar el registro/selectores — nunca se
+  // renderiza un formulario de edición contra el tenant real del super_admin.
+  const { context, dispose } = await resolveEffectiveTenantContext(sessionUser);
+  const effectiveUser = context.runtime
+    ? { ...sessionUser, tenant_id: context.tenantId }
+    : sessionUser;
 
-  if (!trainer || !canManageTrainer(sessionUser, trainer)) notFound();
+  try {
+    await requireOrganizationModule(context.tenantId, "gym.trainers");
+    if (context.runtime) {
+      redirect(`/dashboard/trainers/${id}`);
+    }
 
-  // Solo buscar usuarios disponibles si el entrenador no tiene cuenta vinculada
-  const userOptions = !trainer.user_id
-    ? await getAvailableUserOptions(sessionUser, id)
-    : [];
+    const [trainer, branches] = await Promise.all([
+      getTrainerById(id, effectiveUser, context.client),
+      getBranchOptions(effectiveUser, context.client),
+    ]);
 
-  const fixedBranchId =
-    sessionUser.role === "branch_admin" ? sessionUser.location_id! : undefined;
+    if (!trainer || !canManageTrainer(sessionUser, trainer)) notFound();
 
-  return (
-    <div className="space-y-6 max-w-3xl">
-      {/* Breadcrumb */}
-      <div className="flex items-center gap-2 text-sm text-zinc-500">
-        <Link href="/dashboard/trainers" className="hover:text-zinc-800 transition-colors">
-          Entrenadores
-        </Link>
-        <span>/</span>
-        <Link
-          href={`/dashboard/trainers/${id}`}
-          className="hover:text-zinc-800 transition-colors"
-        >
-          {trainer.first_name} {trainer.last_name}
-        </Link>
-        <span>/</span>
-        <span className="text-zinc-800 font-medium">Editar</span>
+    // Solo buscar usuarios disponibles si el entrenador no tiene cuenta vinculada
+    const userOptions = !trainer.user_id
+      ? await getAvailableUserOptions(effectiveUser, id, context.client)
+      : [];
+
+    const fixedBranchId =
+      sessionUser.role === "branch_admin" ? sessionUser.location_id! : undefined;
+
+    return (
+      <div className="space-y-6 max-w-3xl">
+        {/* Breadcrumb */}
+        <div className="flex items-center gap-2 text-sm text-zinc-500">
+          <Link href="/dashboard/trainers" className="hover:text-zinc-800 transition-colors">
+            Entrenadores
+          </Link>
+          <span>/</span>
+          <Link
+            href={`/dashboard/trainers/${id}`}
+            className="hover:text-zinc-800 transition-colors"
+          >
+            {trainer.first_name} {trainer.last_name}
+          </Link>
+          <span>/</span>
+          <span className="text-zinc-800 font-medium">Editar</span>
+        </div>
+
+        <h1 className="text-xl font-bold text-zinc-800">Editar entrenador</h1>
+
+        <TrainerForm
+          action={updateTrainerAction}
+          trainerId={id}
+          branches={branches}
+          linkedUser={trainer.user ?? null}
+          userOptions={userOptions}
+          fixedBranchId={fixedBranchId}
+          defaultValues={{
+            first_name: trainer.first_name,
+            last_name: trainer.last_name,
+            email: trainer.email,
+            phone: trainer.phone,
+            specialty: trainer.specialty,
+            notes: trainer.notes,
+            branch_id: trainer.branch_id,
+          }}
+          submitLabel="Guardar cambios"
+        />
       </div>
-
-      <h1 className="text-xl font-bold text-zinc-800">Editar entrenador</h1>
-
-      <TrainerForm
-        action={updateTrainerAction}
-        trainerId={id}
-        branches={branches}
-        linkedUser={trainer.user ?? null}
-        userOptions={userOptions}
-        fixedBranchId={fixedBranchId}
-        defaultValues={{
-          first_name: trainer.first_name,
-          last_name: trainer.last_name,
-          email: trainer.email,
-          phone: trainer.phone,
-          specialty: trainer.specialty,
-          notes: trainer.notes,
-          branch_id: trainer.branch_id,
-        }}
-        submitLabel="Guardar cambios"
-      />
-    </div>
-  );
+    );
+  } finally {
+    await dispose();
+  }
 }

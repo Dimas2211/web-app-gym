@@ -1,23 +1,34 @@
 import { prisma } from "@/lib/db/prisma";
+import type { PrismaClient } from "@prisma/client";
 import type { SessionUser } from "@/lib/permissions/guards";
 
 // ──────────────────────────────────────────────
 // Gym
 // ──────────────────────────────────────────────
 
-/** Obtiene el gimnasio del usuario de sesión */
-export async function getGym(user: SessionUser) {
+/**
+ * Obtiene el gimnasio del tenant EFECTIVO. `client` opcional: en modo
+ * normal usa el singleton `prisma`; en páginas runtime-aware ("Operar
+ * como cliente") el caller pasa `context.client` junto con un `user`
+ * cuyo tenant_id ya es el tenant EFECTIVO — evita mostrar el nombre del
+ * gimnasio real del super_admin en credenciales de otro tenant.
+ */
+export async function getGym(user: SessionUser, client: PrismaClient = prisma) {
   if (!user.tenant_id) return null;
-  return prisma.gym.findUnique({ where: { id: user.tenant_id } });
+  return client.gym.findUnique({ where: { id: user.tenant_id } });
 }
 
 // ──────────────────────────────────────────────
 // GymSettings
 // ──────────────────────────────────────────────
 
-/** Devuelve la configuración del gym o los valores por defecto si no existe */
-export async function getGymSettings(tenantId: string) {
-  const s = await prisma.gymSettings.findUnique({ where: { gym_id: tenantId } });
+/**
+ * Devuelve la configuración del gym o los valores por defecto si no existe.
+ * `client` opcional: en modo runtime ("Operar como cliente") el caller pasa
+ * `context.client` junto con el tenantId EFECTIVO.
+ */
+export async function getGymSettings(tenantId: string, client: PrismaClient = prisma) {
+  const s = await client.gymSettings.findUnique({ where: { gym_id: tenantId } });
   return {
     id: s?.id ?? null,
     gym_id: tenantId,

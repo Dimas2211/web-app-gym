@@ -8,6 +8,7 @@ import { StatusBadge } from "@/components/ui/status-badge";
 import { ACCESS_TYPE_LABELS } from "@/lib/utils/labels";
 import type { Status } from "@prisma/client";
 import { requireOrganizationModule } from "@/modules/platform/runtime/commercial-enforcement";
+import { resolveEffectiveTenantContext } from "@/modules/platform/runtime/effective-tenant-context";
 
 type SearchParams = Promise<{ search?: string; status?: string; branch_id?: string }>;
 
@@ -17,19 +18,29 @@ export default async function MembershipPlansPage({
   searchParams: SearchParams;
 }) {
   const sessionUser = await requireAdmin();
-  await requireOrganizationModule(sessionUser.tenant_id, "gym.memberships");
   const params = await searchParams;
 
-  const plans = await getMembershipPlans(sessionUser, {
-    search: params.search,
-    status: params.status as Status | undefined,
-    branch_id: params.branch_id,
-  });
+  // PASO 6C: tenant/PrismaClient EFECTIVOS bajo sesión runtime "Operar como cliente".
+  const { context, dispose } = await resolveEffectiveTenantContext(sessionUser);
+  const effectiveUser = context.runtime
+    ? { ...sessionUser, tenant_id: context.tenantId }
+    : sessionUser;
 
-  const branches = await getBranchOptions(sessionUser);
-  const showBranchFilter = sessionUser.role === "super_admin";
+  try {
+    await requireOrganizationModule(context.tenantId, "gym.memberships");
 
-  return (
+    const plans = await getMembershipPlans(effectiveUser, {
+      search: params.search,
+      status: params.status as Status | undefined,
+      branch_id: params.branch_id,
+    }, context.client);
+
+    const branches = await getBranchOptions(effectiveUser, context.client);
+    const showBranchFilter = sessionUser.role === "super_admin";
+    // canManage se fuerza a false en modo runtime: la sesión es siempre solo lectura.
+    const canManage = !context.runtime;
+
+    return (
     <div className="space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between gap-4 flex-wrap">
@@ -44,12 +55,14 @@ export default async function MembershipPlansPage({
           >
             Ver membresías de clientes
           </Link>
-          <Link
-            href="/dashboard/memberships/plans/new"
-            className="bg-zinc-900 text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-zinc-800 transition-colors"
-          >
-            + Nuevo plan
-          </Link>
+          {canManage && (
+            <Link
+              href="/dashboard/memberships/plans/new"
+              className="bg-zinc-900 text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-zinc-800 transition-colors"
+            >
+              + Nuevo plan
+            </Link>
+          )}
         </div>
       </div>
 
@@ -171,31 +184,37 @@ export default async function MembershipPlansPage({
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex items-center justify-end gap-2">
-                        <Link
-                          href={`/dashboard/memberships/plans/${p.id}/edit`}
-                          className="text-xs text-zinc-600 hover:text-zinc-900 px-2.5 py-1 rounded border border-zinc-200 hover:border-zinc-400 transition-colors"
-                        >
-                          Editar
-                        </Link>
-                        <form action={togglePlanStatusAction}>
-                          <input type="hidden" name="id" value={p.id} />
-                          <button
-                            type="submit"
-                            className={`text-xs px-2.5 py-1 rounded border transition-colors ${
-                              p.status === "active"
-                                ? "text-amber-700 border-amber-200 hover:bg-amber-50"
-                                : "text-emerald-700 border-emerald-200 hover:bg-emerald-50"
-                            }`}
-                          >
-                            {p.status === "active" ? "Desactivar" : "Activar"}
-                          </button>
-                        </form>
-                        <DeleteAuthorizationDialog
-                          entityLabel={`el plan "${p.name}"`}
-                          userRole={sessionUser.role}
-                          hiddenFields={{ id: p.id }}
-                          action={deletePlanAction}
-                        />
+                        {canManage ? (
+                          <>
+                            <Link
+                              href={`/dashboard/memberships/plans/${p.id}/edit`}
+                              className="text-xs text-zinc-600 hover:text-zinc-900 px-2.5 py-1 rounded border border-zinc-200 hover:border-zinc-400 transition-colors"
+                            >
+                              Editar
+                            </Link>
+                            <form action={togglePlanStatusAction}>
+                              <input type="hidden" name="id" value={p.id} />
+                              <button
+                                type="submit"
+                                className={`text-xs px-2.5 py-1 rounded border transition-colors ${
+                                  p.status === "active"
+                                    ? "text-amber-700 border-amber-200 hover:bg-amber-50"
+                                    : "text-emerald-700 border-emerald-200 hover:bg-emerald-50"
+                                }`}
+                              >
+                                {p.status === "active" ? "Desactivar" : "Activar"}
+                              </button>
+                            </form>
+                            <DeleteAuthorizationDialog
+                              entityLabel={`el plan "${p.name}"`}
+                              userRole={sessionUser.role}
+                              hiddenFields={{ id: p.id }}
+                              action={deletePlanAction}
+                            />
+                          </>
+                        ) : (
+                          <span className="text-xs text-zinc-300">Solo lectura</span>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -206,5 +225,8 @@ export default async function MembershipPlansPage({
         </div>
       )}
     </div>
-  );
+    );
+  } finally {
+    await dispose();
+  }
 }

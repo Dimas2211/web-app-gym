@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { requireAdmin, canManageTrainer } from "@/lib/permissions/guards";
 import { getTrainerById, getTrainerAvailability } from "@/modules/trainers/queries";
 import {
@@ -9,6 +9,8 @@ import {
 import { AvailabilitySlotForm } from "@/components/forms/availability-slot-form";
 import { RemoveAvailabilitySlotButton } from "@/components/forms/remove-availability-slot-button";
 import { DAY_OF_WEEK_LABELS, WEEK_DAYS_ORDER } from "@/lib/utils/labels";
+import { requireOrganizationModule } from "@/modules/platform/runtime/commercial-enforcement";
+import { resolveEffectiveTenantContext } from "@/modules/platform/runtime/effective-tenant-context";
 
 type Props = { params: Promise<{ id: string }> };
 
@@ -16,122 +18,140 @@ export default async function TrainerAvailabilityPage({ params }: Props) {
   const sessionUser = await requireAdmin();
   const { id } = await params;
 
-  const trainer = await getTrainerById(id, sessionUser);
-  if (!trainer || !canManageTrainer(sessionUser, trainer)) notFound();
+  // PASO 6D: página de escritura pura. Bajo sesión runtime "Operar como
+  // cliente" redirige ANTES de cargar el registro/bloques — nunca se
+  // renderiza un formulario de disponibilidad contra el tenant real del
+  // super_admin.
+  const { context, dispose } = await resolveEffectiveTenantContext(sessionUser);
+  const effectiveUser = context.runtime
+    ? { ...sessionUser, tenant_id: context.tenantId }
+    : sessionUser;
 
-  const slots = await getTrainerAvailability(id);
+  try {
+    await requireOrganizationModule(context.tenantId, "gym.trainers");
+    if (context.runtime) {
+      redirect(`/dashboard/trainers/${id}`);
+    }
 
-  // Agrupar por día
-  const byDay: Record<number, typeof slots> = {};
-  for (const slot of slots) {
-    if (!byDay[slot.day_of_week]) byDay[slot.day_of_week] = [];
-    byDay[slot.day_of_week].push(slot);
-  }
+    const trainer = await getTrainerById(id, effectiveUser, context.client);
+    if (!trainer || !canManageTrainer(sessionUser, trainer)) notFound();
 
-  const daysWithSlots = WEEK_DAYS_ORDER.filter((d) => byDay[d]);
-  const daysWithoutSlots = WEEK_DAYS_ORDER.filter((d) => !byDay[d]);
+    const slots = await getTrainerAvailability(id, context.client);
 
-  return (
-    <div className="space-y-6 max-w-2xl">
-      {/* Breadcrumb */}
-      <div className="flex items-center gap-2 text-sm text-zinc-500">
-        <Link href="/dashboard/trainers" className="hover:text-zinc-800 transition-colors">
-          Entrenadores
-        </Link>
-        <span>/</span>
-        <Link
-          href={`/dashboard/trainers/${id}`}
-          className="hover:text-zinc-800 transition-colors"
-        >
-          {trainer.first_name} {trainer.last_name}
-        </Link>
-        <span>/</span>
-        <span className="text-zinc-800 font-medium">Disponibilidad</span>
-      </div>
+    // Agrupar por día
+    const byDay: Record<number, typeof slots> = {};
+    for (const slot of slots) {
+      if (!byDay[slot.day_of_week]) byDay[slot.day_of_week] = [];
+      byDay[slot.day_of_week].push(slot);
+    }
 
-      <div>
-        <h1 className="text-xl font-bold text-zinc-800">Disponibilidad semanal</h1>
-        <p className="text-sm text-zinc-500 mt-0.5">
-          Define los bloques horarios en que {trainer.first_name} está disponible. Esta información
-          se usará en la agenda de clases.
-        </p>
-      </div>
+    const daysWithSlots = WEEK_DAYS_ORDER.filter((d) => byDay[d]);
+    const daysWithoutSlots = WEEK_DAYS_ORDER.filter((d) => !byDay[d]);
 
-      {/* Horarios actuales */}
-      <div className="bg-white rounded-xl border border-zinc-200 shadow-sm p-5 space-y-4">
-        <h2 className="text-xs font-semibold text-zinc-400 uppercase tracking-wide">
-          Bloques registrados · {slots.length} en total
-        </h2>
+    return (
+      <div className="space-y-6 max-w-2xl">
+        {/* Breadcrumb */}
+        <div className="flex items-center gap-2 text-sm text-zinc-500">
+          <Link href="/dashboard/trainers" className="hover:text-zinc-800 transition-colors">
+            Entrenadores
+          </Link>
+          <span>/</span>
+          <Link
+            href={`/dashboard/trainers/${id}`}
+            className="hover:text-zinc-800 transition-colors"
+          >
+            {trainer.first_name} {trainer.last_name}
+          </Link>
+          <span>/</span>
+          <span className="text-zinc-800 font-medium">Disponibilidad</span>
+        </div>
 
-        {slots.length === 0 ? (
-          <p className="text-sm text-zinc-400">
-            No hay bloques de disponibilidad registrados aún.
-          </p>
-        ) : (
-          <div className="space-y-4">
-            {daysWithSlots.map((day) => (
-              <div key={day}>
-                <p className="text-xs font-semibold text-zinc-500 mb-2">
-                  {DAY_OF_WEEK_LABELS[day]}
-                </p>
-                <div className="space-y-1.5">
-                  {byDay[day].map((slot) => (
-                    <div
-                      key={slot.id}
-                      className="flex items-center justify-between gap-3 bg-zinc-50 rounded-lg px-3 py-2"
-                    >
-                      <span className="text-sm font-medium text-zinc-700">
-                        {slot.start_time} – {slot.end_time}
-                      </span>
-                      <RemoveAvailabilitySlotButton
-                        slotId={slot.id}
-                        trainerId={id}
-                        action={removeAvailabilitySlotAction}
-                      />
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-
-      {/* Resumen de días sin bloques */}
-      {daysWithoutSlots.length > 0 && (
-        <div className="bg-zinc-50 rounded-xl border border-zinc-200 px-4 py-3">
-          <p className="text-xs text-zinc-400">
-            Sin bloques: {daysWithoutSlots.map((d) => DAY_OF_WEEK_LABELS[d]).join(", ")}
+        <div>
+          <h1 className="text-xl font-bold text-zinc-800">Disponibilidad semanal</h1>
+          <p className="text-sm text-zinc-500 mt-0.5">
+            Define los bloques horarios en que {trainer.first_name} está disponible. Esta información
+            se usará en la agenda de clases.
           </p>
         </div>
-      )}
 
-      {/* Formulario para agregar bloque */}
-      <div className="bg-white rounded-xl border border-zinc-200 shadow-sm p-5 space-y-4">
-        <h2 className="text-xs font-semibold text-zinc-400 uppercase tracking-wide">
-          Agregar bloque de disponibilidad
-        </h2>
-        <AvailabilitySlotForm trainerId={id} action={addAvailabilitySlotAction} />
-      </div>
+        {/* Horarios actuales */}
+        <div className="bg-white rounded-xl border border-zinc-200 shadow-sm p-5 space-y-4">
+          <h2 className="text-xs font-semibold text-zinc-400 uppercase tracking-wide">
+            Bloques registrados · {slots.length} en total
+          </h2>
 
-      {/* Nota informativa */}
-      <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3">
-        <p className="text-xs text-amber-700">
-          <strong>Nota:</strong> El sistema valida que los bloques de disponibilidad no se crucen
-          entre sí y que las clases programadas queden cubiertas por la disponibilidad del
-          entrenador.
-        </p>
-      </div>
+          {slots.length === 0 ? (
+            <p className="text-sm text-zinc-400">
+              No hay bloques de disponibilidad registrados aún.
+            </p>
+          ) : (
+            <div className="space-y-4">
+              {daysWithSlots.map((day) => (
+                <div key={day}>
+                  <p className="text-xs font-semibold text-zinc-500 mb-2">
+                    {DAY_OF_WEEK_LABELS[day]}
+                  </p>
+                  <div className="space-y-1.5">
+                    {byDay[day].map((slot) => (
+                      <div
+                        key={slot.id}
+                        className="flex items-center justify-between gap-3 bg-zinc-50 rounded-lg px-3 py-2"
+                      >
+                        <span className="text-sm font-medium text-zinc-700">
+                          {slot.start_time} – {slot.end_time}
+                        </span>
+                        <RemoveAvailabilitySlotButton
+                          slotId={slot.id}
+                          trainerId={id}
+                          action={removeAvailabilitySlotAction}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
 
-      {/* Volver */}
-      <div>
-        <Link
-          href={`/dashboard/trainers/${id}`}
-          className="text-sm text-zinc-600 hover:text-zinc-900 transition-colors"
-        >
-          ← Volver a la ficha del entrenador
-        </Link>
+        {/* Resumen de días sin bloques */}
+        {daysWithoutSlots.length > 0 && (
+          <div className="bg-zinc-50 rounded-xl border border-zinc-200 px-4 py-3">
+            <p className="text-xs text-zinc-400">
+              Sin bloques: {daysWithoutSlots.map((d) => DAY_OF_WEEK_LABELS[d]).join(", ")}
+            </p>
+          </div>
+        )}
+
+        {/* Formulario para agregar bloque */}
+        <div className="bg-white rounded-xl border border-zinc-200 shadow-sm p-5 space-y-4">
+          <h2 className="text-xs font-semibold text-zinc-400 uppercase tracking-wide">
+            Agregar bloque de disponibilidad
+          </h2>
+          <AvailabilitySlotForm trainerId={id} action={addAvailabilitySlotAction} />
+        </div>
+
+        {/* Nota informativa */}
+        <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3">
+          <p className="text-xs text-amber-700">
+            <strong>Nota:</strong> El sistema valida que los bloques de disponibilidad no se crucen
+            entre sí y que las clases programadas queden cubiertas por la disponibilidad del
+            entrenador.
+          </p>
+        </div>
+
+        {/* Volver */}
+        <div>
+          <Link
+            href={`/dashboard/trainers/${id}`}
+            className="text-sm text-zinc-600 hover:text-zinc-900 transition-colors"
+          >
+            ← Volver a la ficha del entrenador
+          </Link>
+        </div>
       </div>
-    </div>
-  );
+    );
+  } finally {
+    await dispose();
+  }
 }

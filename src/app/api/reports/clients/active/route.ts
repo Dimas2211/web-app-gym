@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth/auth";
 import type { SessionUser } from "@/lib/permissions/guards";
 import { getActiveClients } from "@/modules/reports/queries";
+import { resolveEffectiveApiContext } from "@/modules/platform/runtime/effective-tenant-context";
 
 // Bloque B (cierre reporting) — Client no tiene module code propio en el
 // catálogo de 15 (mismo criterio ya aplicado a la navegación de
@@ -18,14 +19,21 @@ export async function GET(req: NextRequest) {
   const user = session.user as SessionUser;
   if (!ALLOWED_ROLES.includes(user.role)) return NextResponse.json({ error: "Acceso denegado" }, { status: 403 });
 
-  const { searchParams } = req.nextUrl;
-  const branchIdParam = searchParams.get("branchId") ?? undefined;
+  // PASO 6C: tenant/PrismaClient EFECTIVOS bajo sesión runtime "Operar como cliente".
+  const { context, dispose } = await resolveEffectiveApiContext({ tenantId: user.tenant_id });
 
-  const branchId =
-    user.role === "branch_admin" || user.role === "reception"
-      ? (user.location_id ?? undefined)
-      : branchIdParam;
+  try {
+    const { searchParams } = req.nextUrl;
+    const branchIdParam = searchParams.get("branchId") ?? undefined;
 
-  const data = await getActiveClients({ tenantId: user.tenant_id, branchId });
-  return NextResponse.json(data);
+    const branchId =
+      user.role === "branch_admin" || user.role === "reception"
+        ? (user.location_id ?? undefined)
+        : branchIdParam;
+
+    const data = await getActiveClients({ tenantId: context.tenantId, branchId }, context.client);
+    return NextResponse.json(data);
+  } finally {
+    await dispose();
+  }
 }

@@ -13,6 +13,7 @@ import {
   assertOrganizationModule,
   CommercialEnforcementError,
 } from "@/modules/platform/runtime/commercial-enforcement";
+import { isRuntimeReadOnlyActive, RUNTIME_READONLY_MESSAGE } from "@/modules/platform/runtime/runtime-session";
 
 export type BranchActionState =
   | { errors?: Record<string, string[]>; error?: string }
@@ -26,6 +27,11 @@ export async function createBranchAction(
   formData: FormData
 ): Promise<BranchActionState> {
   const user = await requireSuperAdmin();
+
+  // PASO 6E: bloquear escritura bajo sesión runtime "Operar como cliente"
+  if (await isRuntimeReadOnlyActive()) {
+    return { error: RUNTIME_READONLY_MESSAGE };
+  }
 
   try {
     const commercialCtx = await resolveCommercialEnforcementContext(user.tenant_id);
@@ -59,6 +65,12 @@ export async function updateBranchAction(
   formData: FormData
 ): Promise<BranchActionState> {
   const user = await requireAdmin();
+
+  // PASO 6E: bloquear escritura bajo sesión runtime "Operar como cliente"
+  if (await isRuntimeReadOnlyActive()) {
+    return { error: RUNTIME_READONLY_MESSAGE };
+  }
+
   const id = formData.get("id") as string;
 
   if (!id) return { error: "ID de sucursal requerido." };
@@ -94,6 +106,10 @@ export async function updateBranchAction(
 // redirect + query param, leído como banner en branches/page.tsx.
 export async function toggleBranchStatusAction(formData: FormData): Promise<void> {
   const user = await requireAdmin();
+
+  // PASO 6E: bloquear escritura bajo sesión runtime "Operar como cliente"
+  if (await isRuntimeReadOnlyActive()) return;
+
   const id = formData.get("id") as string;
 
   if (!id || !canManageBranch(user, id)) return;

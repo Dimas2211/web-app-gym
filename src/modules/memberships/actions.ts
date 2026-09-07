@@ -24,6 +24,7 @@ import {
   assertOrganizationModule,
   CommercialEnforcementError,
 } from "@/modules/platform/runtime/commercial-enforcement";
+import { isRuntimeReadOnlyActive, RUNTIME_READONLY_MESSAGE } from "@/modules/platform/runtime/runtime-session";
 
 export type MembershipActionState =
   | { errors?: Record<string, string[]>; error?: string }
@@ -58,6 +59,11 @@ export async function createPlanAction(
   formData: FormData
 ): Promise<MembershipActionState> {
   const sessionUser = await requireAdmin();
+
+  // PASO 6C: bloquear escritura bajo sesión runtime "Operar como cliente"
+  if (await isRuntimeReadOnlyActive()) {
+    return { error: RUNTIME_READONLY_MESSAGE };
+  }
 
   try {
     await assertMembershipsModule(sessionUser.tenant_id);
@@ -120,6 +126,12 @@ export async function updatePlanAction(
   formData: FormData
 ): Promise<MembershipActionState> {
   const sessionUser = await requireAdmin();
+
+  // PASO 6C: bloquear escritura bajo sesión runtime "Operar como cliente"
+  if (await isRuntimeReadOnlyActive()) {
+    return { error: RUNTIME_READONLY_MESSAGE };
+  }
+
   const id = formData.get("id") as string;
   if (!id) return { error: "ID de plan requerido." };
 
@@ -173,6 +185,10 @@ export async function updatePlanAction(
 
 export async function togglePlanStatusAction(formData: FormData): Promise<void> {
   const sessionUser = await requireAdmin();
+
+  // PASO 6C: bloquear escritura bajo sesión runtime "Operar como cliente"
+  if (await isRuntimeReadOnlyActive()) return;
+
   const id = formData.get("id") as string;
   if (!id) return;
 
@@ -201,6 +217,11 @@ export async function createClientMembershipAction(
   formData: FormData
 ): Promise<MembershipActionState> {
   const sessionUser = await requireMembershipManager();
+
+  // PASO 6C: bloquear escritura bajo sesión runtime "Operar como cliente"
+  if (await isRuntimeReadOnlyActive()) {
+    return { error: RUNTIME_READONLY_MESSAGE };
+  }
 
   try {
     await assertMembershipsModule(sessionUser.tenant_id);
@@ -285,6 +306,12 @@ export async function updateClientMembershipAction(
   formData: FormData
 ): Promise<MembershipActionState> {
   const sessionUser = await requireMembershipManager();
+
+  // PASO 6C: bloquear escritura bajo sesión runtime "Operar como cliente"
+  if (await isRuntimeReadOnlyActive()) {
+    return { error: RUNTIME_READONLY_MESSAGE };
+  }
+
   const id = formData.get("id") as string;
   if (!id) return { error: "ID de membresía requerido." };
 
@@ -355,6 +382,12 @@ export async function deletePlanAction(
   formData: FormData
 ): Promise<DeleteAuthActionState> {
   const sessionUser = await getSessionOrRedirect();
+
+  // PASO 6C: bloquear escritura bajo sesión runtime "Operar como cliente"
+  if (await isRuntimeReadOnlyActive()) {
+    return { error: RUNTIME_READONLY_MESSAGE };
+  }
+
   const id = formData.get("id") as string;
   if (!id) return { error: "Datos inválidos" };
 
@@ -396,6 +429,12 @@ export async function deleteClientMembershipAction(
   formData: FormData
 ): Promise<DeleteAuthActionState> {
   const sessionUser = await getSessionOrRedirect();
+
+  // PASO 6C: bloquear escritura bajo sesión runtime "Operar como cliente"
+  if (await isRuntimeReadOnlyActive()) {
+    return { error: RUNTIME_READONLY_MESSAGE };
+  }
+
   const id = formData.get("id") as string;
   if (!id) return { error: "Datos inválidos" };
 
@@ -428,6 +467,10 @@ export async function toggleClientMembershipStatusAction(
   formData: FormData
 ): Promise<void> {
   const sessionUser = await requireMembershipManager();
+
+  // PASO 6C: bloquear escritura bajo sesión runtime "Operar como cliente"
+  if (await isRuntimeReadOnlyActive()) return;
+
   const id = formData.get("id") as string;
   if (!id) return;
 

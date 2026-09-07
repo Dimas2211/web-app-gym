@@ -16,6 +16,7 @@ import {
 } from "@/lib/permissions/delete-authorization";
 import { createClientSchema, updateClientSchema } from "./schemas";
 import { suggestNextClientCode, generateQrToken } from "@/lib/utils/operational-codes";
+import { isRuntimeReadOnlyActive, RUNTIME_READONLY_MESSAGE } from "@/modules/platform/runtime/runtime-session";
 
 export type ClientActionState =
   | { errors?: Record<string, string[]>; error?: string }
@@ -55,6 +56,11 @@ export async function createClientAction(
   formData: FormData
 ): Promise<ClientActionState> {
   const sessionUser = await requireClientManager();
+
+  // PASO 6D: bloquear escritura bajo sesión runtime "Operar como cliente"
+  if (await isRuntimeReadOnlyActive()) {
+    return { error: RUNTIME_READONLY_MESSAGE };
+  }
 
   const raw = parseFormData(formData);
 
@@ -102,6 +108,12 @@ export async function updateClientAction(
   formData: FormData
 ): Promise<ClientActionState> {
   const sessionUser = await requireClientManager();
+
+  // PASO 6D: bloquear escritura bajo sesión runtime "Operar como cliente"
+  if (await isRuntimeReadOnlyActive()) {
+    return { error: RUNTIME_READONLY_MESSAGE };
+  }
+
   const id = formData.get("id") as string;
   if (!id) return { error: "ID de cliente requerido." };
 
@@ -155,6 +167,12 @@ export async function enableClientPortalAction(
   formData: FormData
 ): Promise<ClientActionState> {
   const sessionUser = await requireClientManager();
+
+  // PASO 6D: bloquear escritura bajo sesión runtime "Operar como cliente"
+  if (await isRuntimeReadOnlyActive()) {
+    return { error: RUNTIME_READONLY_MESSAGE };
+  }
+
   const clientId = formData.get("client_id") as string;
   if (!clientId) return { error: "ID de cliente requerido." };
 
@@ -221,6 +239,10 @@ export async function toggleClientPortalStatusAction(
   formData: FormData
 ): Promise<void> {
   const sessionUser = await requireClientManager();
+
+  // PASO 6D: bloquear escritura bajo sesión runtime "Operar como cliente"
+  if (await isRuntimeReadOnlyActive()) return;
+
   const clientId = formData.get("client_id") as string;
   if (!clientId) return;
 
@@ -251,6 +273,12 @@ export async function deleteClientAction(
   formData: FormData
 ): Promise<DeleteAuthActionState> {
   const sessionUser = await getSessionOrRedirect();
+
+  // PASO 6D: bloquear escritura bajo sesión runtime "Operar como cliente"
+  if (await isRuntimeReadOnlyActive()) {
+    return { error: RUNTIME_READONLY_MESSAGE };
+  }
+
   const id = formData.get("id") as string;
   if (!id) return { error: "Datos inválidos" };
 
@@ -305,6 +333,10 @@ export async function deleteClientAction(
 // ──────────────────────────────────────────────
 export async function toggleClientStatusAction(formData: FormData): Promise<void> {
   const sessionUser = await requireClientManager();
+
+  // PASO 6D: bloquear escritura bajo sesión runtime "Operar como cliente"
+  if (await isRuntimeReadOnlyActive()) return;
+
   const id = formData.get("id") as string;
   if (!id) return;
 

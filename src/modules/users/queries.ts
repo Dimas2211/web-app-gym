@@ -1,11 +1,17 @@
 import { prisma } from "@/lib/db/prisma";
+import type { PrismaClient } from "@prisma/client";
 import type { SessionUser } from "@/lib/permissions/guards";
+
+// PASO 6E — `client` opcional en toda query exportada: en modo normal usa
+// el singleton `prisma` (sin cambios); en páginas runtime-aware ("Operar
+// como cliente") el caller pasa `context.client` junto con un `user` cuyo
+// tenant_id ya es el tenant EFECTIVO.
 
 /**
  * Lista de usuarios de staff filtrada por permisos.
  * Excluye usuarios con rol `client`: se gestionan desde el módulo de Clientes.
  */
-export async function getAdminUsers(user: SessionUser) {
+export async function getAdminUsers(user: SessionUser, client: PrismaClient = prisma) {
   const include = {
     branch: { select: { name: true } },
     trainer_profile: { select: { id: true } },
@@ -13,7 +19,7 @@ export async function getAdminUsers(user: SessionUser) {
   };
 
   if (user.role === "super_admin") {
-    return prisma.user.findMany({
+    return client.user.findMany({
       where: {
         gym_id: user.tenant_id,
         status: { not: "deleted" },
@@ -26,7 +32,7 @@ export async function getAdminUsers(user: SessionUser) {
 
   if (user.role === "branch_admin" && user.location_id) {
     // branch_admin solo ve reception y trainer de su sucursal
-    return prisma.user.findMany({
+    return client.user.findMany({
       where: {
         gym_id: user.tenant_id,
         branch_id: user.location_id,
@@ -42,8 +48,8 @@ export async function getAdminUsers(user: SessionUser) {
 }
 
 /** Obtiene un usuario por id, validando pertenencia al gym */
-export async function getUserById(id: string, user: SessionUser) {
-  return prisma.user.findFirst({
+export async function getUserById(id: string, user: SessionUser, client: PrismaClient = prisma) {
+  return client.user.findFirst({
     where: { id, gym_id: user.tenant_id },
     include: {
       trainer_profile: { select: { id: true } },

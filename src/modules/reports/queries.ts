@@ -1,4 +1,5 @@
 import { Prisma } from "@prisma/client";
+import type { PrismaClient } from "@prisma/client";
 import { prisma } from "@/lib/db/prisma";
 import type {
   ActiveClientItem,
@@ -30,7 +31,8 @@ import type {
 // ─── Membresías: Ingresos por sucursal ────────────────────────────────────────
 
 export async function getRevenueByBranch(
-  filters: RevenueByBranchFilters
+  filters: RevenueByBranchFilters,
+  client: PrismaClient = prisma,
 ): Promise<RevenueByBranchResponse> {
   const { tenantId, branchId, dateFrom, dateTo } = filters;
 
@@ -50,7 +52,7 @@ export async function getRevenueByBranch(
   };
 
   // Group by branch + plan to build nested breakdown
-  const grouped = await prisma.clientMembership.groupBy({
+  const grouped = await client.clientMembership.groupBy({
     by: ["branch_id", "membership_plan_id"],
     where,
     _sum: { final_amount: true },
@@ -68,8 +70,8 @@ export async function getRevenueByBranch(
   const planIds = [...new Set(grouped.map((g) => g.membership_plan_id))];
 
   const [branches, plans] = await Promise.all([
-    prisma.branch.findMany({ where: { id: { in: branchIds } }, select: { id: true, name: true } }),
-    prisma.membershipPlan.findMany({ where: { id: { in: planIds } }, select: { id: true, name: true } }),
+    client.branch.findMany({ where: { id: { in: branchIds } }, select: { id: true, name: true } }),
+    client.membershipPlan.findMany({ where: { id: { in: planIds } }, select: { id: true, name: true } }),
   ]);
 
   const branchMap = new Map(branches.map((b) => [b.id, b.name]));
@@ -135,7 +137,8 @@ export async function getRevenueByBranch(
 // ─── Membresías: Por vencer ────────────────────────────────────────────────────
 
 export async function getExpiringMemberships(
-  filters: ExpiringMembershipsFilters
+  filters: ExpiringMembershipsFilters,
+  client: PrismaClient = prisma,
 ): Promise<ExpiringMembershipsResponse> {
   const { tenantId, branchId, daysAhead = 30 } = filters;
 
@@ -147,7 +150,7 @@ export async function getExpiringMemberships(
   const oneWeekAhead = new Date(today);
   oneWeekAhead.setDate(oneWeekAhead.getDate() + 7);
 
-  const records = await prisma.clientMembership.findMany({
+  const records = await client.clientMembership.findMany({
     where: {
       gym_id: tenantId,
       status: "active",
@@ -192,11 +195,12 @@ export async function getExpiringMemberships(
 // ─── Membresías: Activas por sucursal ─────────────────────────────────────────
 
 export async function getActiveMembershipsByBranch(
-  filters: ActiveMembershipsByBranchFilters
+  filters: ActiveMembershipsByBranchFilters,
+  client: PrismaClient = prisma,
 ): Promise<ActiveMembershipsByBranchResponse> {
   const { tenantId, branchId } = filters;
 
-  const grouped = await prisma.clientMembership.groupBy({
+  const grouped = await client.clientMembership.groupBy({
     by: ["branch_id", "membership_plan_id"],
     where: {
       gym_id: tenantId,
@@ -218,8 +222,8 @@ export async function getActiveMembershipsByBranch(
   const planIds = [...new Set(grouped.map((g) => g.membership_plan_id))];
 
   const [branches, plans] = await Promise.all([
-    prisma.branch.findMany({ where: { id: { in: branchIds } }, select: { id: true, name: true } }),
-    prisma.membershipPlan.findMany({ where: { id: { in: planIds } }, select: { id: true, name: true } }),
+    client.branch.findMany({ where: { id: { in: branchIds } }, select: { id: true, name: true } }),
+    client.membershipPlan.findMany({ where: { id: { in: planIds } }, select: { id: true, name: true } }),
   ]);
 
   const branchMap = new Map(branches.map((b) => [b.id, b.name]));
@@ -271,11 +275,12 @@ export async function getActiveMembershipsByBranch(
 // ─── Clientes: Activos ────────────────────────────────────────────────────────
 
 export async function getActiveClients(
-  filters: ActiveClientsFilters
+  filters: ActiveClientsFilters,
+  client: PrismaClient = prisma,
 ): Promise<ActiveClientsResponse> {
   const { tenantId, branchId } = filters;
 
-  const clients = await prisma.client.findMany({
+  const clients = await client.client.findMany({
     where: {
       gym_id: tenantId,
       status: "active",
@@ -328,11 +333,12 @@ export async function getActiveClients(
 // ─── Clientes: Baja adherencia ────────────────────────────────────────────────
 
 export async function getLowAdherenceClients(
-  filters: LowAdherenceFilters
+  filters: LowAdherenceFilters,
+  client: PrismaClient = prisma,
 ): Promise<LowAdherenceResponse> {
   const { tenantId, branchId, dateFrom, dateTo, threshold = 50 } = filters;
 
-  const attendances = await prisma.classAttendance.findMany({
+  const attendances = await client.classAttendance.findMany({
     where: {
       scheduled_class: {
         gym_id: tenantId,
@@ -426,7 +432,8 @@ export async function getLowAdherenceClients(
 // ─── Entrenadores: Clases impartidas ──────────────────────────────────────────
 
 export async function getTrainerClassesTaught(
-  filters: TrainerClassesTaughtFilters
+  filters: TrainerClassesTaughtFilters,
+  client: PrismaClient = prisma,
 ): Promise<TrainerClassesTaughtResponse> {
   const { tenantId, branchId, trainerId, dateFrom, dateTo } = filters;
 
@@ -445,7 +452,7 @@ export async function getTrainerClassesTaught(
       : {}),
   };
 
-  const classes = await prisma.scheduledClass.findMany({
+  const classes = await client.scheduledClass.findMany({
     where: classWhere,
     select: {
       id: true,
@@ -517,11 +524,12 @@ export async function getTrainerClassesTaught(
 // ─── Asistencia: Por período ───────────────────────────────────────────────────
 
 export async function getAttendanceByPeriod(
-  filters: AttendanceByPeriodFilters
+  filters: AttendanceByPeriodFilters,
+  client: PrismaClient = prisma,
 ): Promise<AttendanceByPeriodResponse> {
   const { tenantId, branchId, dateFrom, dateTo } = filters;
 
-  const classes = await prisma.scheduledClass.findMany({
+  const classes = await client.scheduledClass.findMany({
     where: {
       gym_id: tenantId,
       class_date: { gte: new Date(dateFrom), lte: new Date(dateTo) },

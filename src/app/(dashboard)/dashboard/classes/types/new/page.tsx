@@ -1,10 +1,26 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { requireAdmin } from "@/lib/permissions/guards";
 import { createClassTypeAction } from "@/modules/classes/actions";
 import { ClassTypeForm } from "@/components/forms/class-type-form";
+import { requireOrganizationModule } from "@/modules/platform/runtime/commercial-enforcement";
+import { resolveEffectiveTenantContext } from "@/modules/platform/runtime/effective-tenant-context";
 
 export default async function NewClassTypePage() {
-  await requireAdmin();
+  const sessionUser = await requireAdmin();
+
+  // PASO 6D: página de escritura pura. Bajo sesión runtime "Operar como
+  // cliente" (siempre solo lectura) redirige ANTES de cargar nada — nunca
+  // se renderiza un formulario de alta contra el tenant real del super_admin.
+  const { context, dispose } = await resolveEffectiveTenantContext(sessionUser);
+  try {
+    await requireOrganizationModule(context.tenantId, "gym.classes");
+    if (context.runtime) {
+      redirect("/dashboard/classes/types");
+    }
+  } finally {
+    await dispose();
+  }
 
   return (
     <div className="space-y-6 max-w-2xl">

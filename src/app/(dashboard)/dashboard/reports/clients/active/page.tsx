@@ -3,6 +3,7 @@ import { getSessionOrRedirect } from "@/lib/permissions/guards";
 import { prisma } from "@/lib/db/prisma";
 import { ReportPageHeader } from "@/components/reports/ReportPageHeader";
 import { ActiveClientsReport } from "./ActiveClientsReport";
+import { resolveEffectiveTenantContext } from "@/modules/platform/runtime/effective-tenant-context";
 
 const ALLOWED_ROLES = ["super_admin", "branch_admin", "reception"];
 
@@ -10,33 +11,41 @@ export default async function ActiveClientsPage() {
   const user = await getSessionOrRedirect();
   if (!ALLOWED_ROLES.includes(user.role)) redirect("/dashboard/reports");
 
-  const [branches, plans] = await Promise.all([
-    user.role === "super_admin"
-      ? prisma.branch.findMany({
-          where: { gym_id: user.tenant_id, status: "active" },
-          select: { id: true, name: true },
-          orderBy: { name: "asc" },
-        })
-      : Promise.resolve([]),
-    prisma.membershipPlan.findMany({
-      where: { gym_id: user.tenant_id, status: "active" },
-      select: { id: true, name: true },
-      orderBy: { name: "asc" },
-    }),
-  ]);
+  // PASO 6D: tenant/PrismaClient EFECTIVOS bajo sesión runtime "Operar como cliente".
+  const { context, dispose } = await resolveEffectiveTenantContext(user);
+  const db = context.client ?? prisma;
 
-  return (
-    <main className="p-4 md:p-8 max-w-6xl mx-auto">
-      <ReportPageHeader
-        crumbs={[
-          { label: "Reportes", href: "/dashboard/reports" },
-          { label: "Clientes" },
-          { label: "Activos" },
-        ]}
-        title="Clientes activos"
-        description="Listado de clientes con estado activo en el sistema."
-      />
-      <ActiveClientsReport branches={branches} plans={plans} isSuperAdmin={user.role === "super_admin"} />
-    </main>
-  );
+  try {
+    const [branches, plans] = await Promise.all([
+      user.role === "super_admin"
+        ? db.branch.findMany({
+            where: { gym_id: context.tenantId, status: "active" },
+            select: { id: true, name: true },
+            orderBy: { name: "asc" },
+          })
+        : Promise.resolve([]),
+      db.membershipPlan.findMany({
+        where: { gym_id: context.tenantId, status: "active" },
+        select: { id: true, name: true },
+        orderBy: { name: "asc" },
+      }),
+    ]);
+
+    return (
+      <main className="p-4 md:p-8 max-w-6xl mx-auto">
+        <ReportPageHeader
+          crumbs={[
+            { label: "Reportes", href: "/dashboard/reports" },
+            { label: "Clientes" },
+            { label: "Activos" },
+          ]}
+          title="Clientes activos"
+          description="Listado de clientes con estado activo en el sistema."
+        />
+        <ActiveClientsReport branches={branches} plans={plans} isSuperAdmin={user.role === "super_admin"} />
+      </main>
+    );
+  } finally {
+    await dispose();
+  }
 }

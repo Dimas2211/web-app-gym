@@ -4,7 +4,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth/auth";
 import type { SessionUser } from "@/lib/permissions/guards";
 import { getRevenueByBranch } from "@/modules/reports/queries";
-import { assertReportModule } from "@/app/api/reports/reports-enforcement";
+import { resolveReportApiContext } from "@/app/api/reports/reports-enforcement";
 
 const ALLOWED_ROLES = ["super_admin", "branch_admin", "reception"];
 
@@ -20,26 +20,34 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Acceso denegado" }, { status: 403 });
   }
 
-  const moduleCheck = await assertReportModule(user.tenant_id, "gym.memberships");
-  if (!moduleCheck.ok) return moduleCheck.response;
+  // PASO 6C: tenant/PrismaClient EFECTIVOS bajo sesión runtime "Operar como cliente".
+  const reportCtx = await resolveReportApiContext(user.tenant_id, "gym.memberships");
+  if (!reportCtx.ok) return reportCtx.response;
 
-  const { searchParams } = req.nextUrl;
-  const dateFrom = searchParams.get("dateFrom") ?? undefined;
-  const dateTo = searchParams.get("dateTo") ?? undefined;
-  const branchIdParam = searchParams.get("branchId") ?? undefined;
+  try {
+    const { searchParams } = req.nextUrl;
+    const dateFrom = searchParams.get("dateFrom") ?? undefined;
+    const dateTo = searchParams.get("dateTo") ?? undefined;
+    const branchIdParam = searchParams.get("branchId") ?? undefined;
 
-  // branch_admin y reception solo ven su propia sucursal
-  const branchId =
-    user.role === "branch_admin" || user.role === "reception"
-      ? (user.location_id ?? undefined)
-      : branchIdParam;
+    // branch_admin y reception solo ven su propia sucursal
+    const branchId =
+      user.role === "branch_admin" || user.role === "reception"
+        ? (user.location_id ?? undefined)
+        : branchIdParam;
 
-  const data = await getRevenueByBranch({
-    tenantId: user.tenant_id,
-    branchId,
-    dateFrom,
-    dateTo,
-  });
+    const data = await getRevenueByBranch(
+      {
+        tenantId: reportCtx.tenantId,
+        branchId,
+        dateFrom,
+        dateTo,
+      },
+      reportCtx.client,
+    );
 
-  return NextResponse.json(data);
+    return NextResponse.json(data);
+  } finally {
+    await reportCtx.dispose();
+  }
 }

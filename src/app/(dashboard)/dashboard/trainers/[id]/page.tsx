@@ -9,6 +9,8 @@ import { getTrainerUpcomingClasses } from "@/modules/classes/queries";
 import { toggleTrainerStatusAction } from "@/modules/trainers/actions";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { DAY_OF_WEEK_LABELS, WEEK_DAYS_ORDER, CLASS_STATUS_LABELS, CLASS_STATUS_COLORS } from "@/lib/utils/labels";
+import { requireOrganizationModule } from "@/modules/platform/runtime/commercial-enforcement";
+import { resolveEffectiveTenantContext } from "@/modules/platform/runtime/effective-tenant-context";
 
 type Props = { params: Promise<{ id: string }> };
 
@@ -36,27 +38,41 @@ export default async function TrainerDetailPage({ params }: Props) {
   const sessionUser = await requireAdmin();
   const { id } = await params;
 
-  const trainer = await getTrainerById(id, sessionUser);
-  if (!trainer || !canManageTrainer(sessionUser, trainer)) notFound();
+  // PASO 6D: tenant/PrismaClient EFECTIVOS bajo sesión runtime "Operar como
+  // cliente". El guard corre ANTES de buscar el registro; la búsqueda usa
+  // context.client, con lo que un ID de otro tenant nunca puede resolverse.
+  const { context, dispose } = await resolveEffectiveTenantContext(sessionUser);
+  const effectiveUser = context.runtime
+    ? { ...sessionUser, tenant_id: context.tenantId }
+    : sessionUser;
 
-  const [assignedClients, upcomingClasses] = await Promise.all([
-    getAssignedClients(trainer, sessionUser),
-    getTrainerUpcomingClasses(id, sessionUser),
-  ]);
+  try {
+    await requireOrganizationModule(context.tenantId, "gym.trainers");
 
-  // Disponibilidad agrupada por día
-  const availabilityByDay: Record<number, typeof trainer.availability> = {};
-  for (const slot of trainer.availability) {
-    if (!availabilityByDay[slot.day_of_week]) {
-      availabilityByDay[slot.day_of_week] = [];
+    const trainer = await getTrainerById(id, effectiveUser, context.client);
+    if (!trainer || !canManageTrainer(sessionUser, trainer)) notFound();
+
+    const [assignedClients, upcomingClasses] = await Promise.all([
+      getAssignedClients(trainer, effectiveUser, context.client),
+      getTrainerUpcomingClasses(id, effectiveUser, context.client),
+    ]);
+
+    // canManage se fuerza a false en modo runtime: la sesión es siempre solo lectura.
+    const canManage = !context.runtime;
+
+    // Disponibilidad agrupada por día
+    const availabilityByDay: Record<number, typeof trainer.availability> = {};
+    for (const slot of trainer.availability) {
+      if (!availabilityByDay[slot.day_of_week]) {
+        availabilityByDay[slot.day_of_week] = [];
+      }
+      availabilityByDay[slot.day_of_week].push(slot);
     }
-    availabilityByDay[slot.day_of_week].push(slot);
-  }
 
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
 
-  return (
+    return (
     <div className="space-y-6">
       {/* Breadcrumb + acciones */}
       <div className="flex items-start justify-between flex-wrap gap-4">
@@ -70,33 +86,35 @@ export default async function TrainerDetailPage({ params }: Props) {
           </span>
         </div>
 
-        <div className="flex items-center gap-2 flex-wrap">
-          <Link
-            href={`/dashboard/trainers/${id}/availability`}
-            className="text-sm text-zinc-600 border border-zinc-300 px-4 py-2 rounded-lg hover:border-zinc-400 hover:bg-zinc-50 transition-colors"
-          >
-            Disponibilidad
-          </Link>
-          <Link
-            href={`/dashboard/trainers/${id}/edit`}
-            className="bg-zinc-900 text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-zinc-800 transition-colors"
-          >
-            Editar
-          </Link>
-          <form action={toggleTrainerStatusAction}>
-            <input type="hidden" name="id" value={id} />
-            <button
-              type="submit"
-              className={`px-4 py-2 rounded-lg text-sm font-semibold border transition-colors ${
-                trainer.status === "active"
-                  ? "text-amber-700 border-amber-300 hover:bg-amber-50"
-                  : "text-emerald-700 border-emerald-300 hover:bg-emerald-50"
-              }`}
+        {canManage && (
+          <div className="flex items-center gap-2 flex-wrap">
+            <Link
+              href={`/dashboard/trainers/${id}/availability`}
+              className="text-sm text-zinc-600 border border-zinc-300 px-4 py-2 rounded-lg hover:border-zinc-400 hover:bg-zinc-50 transition-colors"
             >
-              {trainer.status === "active" ? "Desactivar" : "Activar"}
-            </button>
-          </form>
-        </div>
+              Disponibilidad
+            </Link>
+            <Link
+              href={`/dashboard/trainers/${id}/edit`}
+              className="bg-zinc-900 text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-zinc-800 transition-colors"
+            >
+              Editar
+            </Link>
+            <form action={toggleTrainerStatusAction}>
+              <input type="hidden" name="id" value={id} />
+              <button
+                type="submit"
+                className={`px-4 py-2 rounded-lg text-sm font-semibold border transition-colors ${
+                  trainer.status === "active"
+                    ? "text-amber-700 border-amber-300 hover:bg-amber-50"
+                    : "text-emerald-700 border-emerald-300 hover:bg-emerald-50"
+                }`}
+              >
+                {trainer.status === "active" ? "Desactivar" : "Activar"}
+              </button>
+            </form>
+          </div>
+        )}
       </div>
 
       {/* Encabezado */}
@@ -157,23 +175,30 @@ export default async function TrainerDetailPage({ params }: Props) {
           <h2 className="text-xs font-semibold text-zinc-400 uppercase tracking-wide">
             Disponibilidad semanal
           </h2>
-          <Link
-            href={`/dashboard/trainers/${id}/availability`}
-            className="text-xs text-zinc-600 hover:text-zinc-900 px-2.5 py-1 rounded border border-zinc-200 hover:border-zinc-400 transition-colors"
-          >
-            Gestionar
-          </Link>
+          {canManage && (
+            <Link
+              href={`/dashboard/trainers/${id}/availability`}
+              className="text-xs text-zinc-600 hover:text-zinc-900 px-2.5 py-1 rounded border border-zinc-200 hover:border-zinc-400 transition-colors"
+            >
+              Gestionar
+            </Link>
+          )}
         </div>
 
         {trainer.availability.length === 0 ? (
           <p className="text-sm text-zinc-400">
-            No hay bloques de disponibilidad registrados.{" "}
-            <Link
-              href={`/dashboard/trainers/${id}/availability`}
-              className="text-zinc-600 hover:underline"
-            >
-              Agregar disponibilidad
-            </Link>
+            No hay bloques de disponibilidad registrados.
+            {canManage && (
+              <>
+                {" "}
+                <Link
+                  href={`/dashboard/trainers/${id}/availability`}
+                  className="text-zinc-600 hover:underline"
+                >
+                  Agregar disponibilidad
+                </Link>
+              </>
+            )}
           </p>
         ) : (
           <div className="space-y-3">
@@ -359,5 +384,8 @@ export default async function TrainerDetailPage({ params }: Props) {
         })}
       </div>
     </div>
-  );
+    );
+  } finally {
+    await dispose();
+  }
 }

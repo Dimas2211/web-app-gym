@@ -4,6 +4,8 @@ import { getClassTypes } from "@/modules/classes/queries";
 import { toggleClassTypeStatusAction } from "@/modules/classes/actions";
 import { StatusBadge } from "@/components/ui/status-badge";
 import type { Status } from "@prisma/client";
+import { requireOrganizationModule } from "@/modules/platform/runtime/commercial-enforcement";
+import { resolveEffectiveTenantContext } from "@/modules/platform/runtime/effective-tenant-context";
 
 type Props = {
   searchParams: Promise<{ search?: string; status?: string }>;
@@ -13,12 +15,24 @@ export default async function ClassTypesPage({ searchParams }: Props) {
   const sessionUser = await requireAdmin();
   const sp = await searchParams;
 
-  const types = await getClassTypes(sessionUser, {
-    search: sp.search,
-    status: sp.status as Status | undefined,
-  });
+  // PASO 6D: tenant/PrismaClient EFECTIVOS bajo sesión runtime "Operar como cliente".
+  const { context, dispose } = await resolveEffectiveTenantContext(sessionUser);
+  const effectiveUser = context.runtime
+    ? { ...sessionUser, tenant_id: context.tenantId }
+    : sessionUser;
 
-  return (
+  try {
+    await requireOrganizationModule(context.tenantId, "gym.classes");
+
+    const types = await getClassTypes(effectiveUser, {
+      search: sp.search,
+      status: sp.status as Status | undefined,
+    }, context.client);
+
+    // canManage se fuerza a false en modo runtime: la sesión es siempre solo lectura.
+    const canManage = !context.runtime;
+
+    return (
     <div className="space-y-6">
       <div className="flex items-center justify-between flex-wrap gap-4">
         <div>
@@ -34,12 +48,14 @@ export default async function ClassTypesPage({ searchParams }: Props) {
           >
             ← Agenda
           </Link>
-          <Link
-            href="/dashboard/classes/types/new"
-            className="bg-zinc-900 text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-zinc-800 transition-colors"
-          >
-            + Nuevo tipo
-          </Link>
+          {canManage && (
+            <Link
+              href="/dashboard/classes/types/new"
+              className="bg-zinc-900 text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-zinc-800 transition-colors"
+            >
+              + Nuevo tipo
+            </Link>
+          )}
         </div>
       </div>
 
@@ -77,12 +93,14 @@ export default async function ClassTypesPage({ searchParams }: Props) {
       {types.length === 0 ? (
         <div className="bg-white rounded-xl border border-zinc-200 shadow-sm p-10 text-center">
           <p className="text-zinc-400 text-sm">No se encontraron tipos de clase.</p>
-          <Link
-            href="/dashboard/classes/types/new"
-            className="inline-block mt-4 text-sm text-zinc-600 border border-zinc-300 px-4 py-2 rounded-lg hover:bg-zinc-50 transition-colors"
-          >
-            Crear primer tipo de clase
-          </Link>
+          {canManage && (
+            <Link
+              href="/dashboard/classes/types/new"
+              className="inline-block mt-4 text-sm text-zinc-600 border border-zinc-300 px-4 py-2 rounded-lg hover:bg-zinc-50 transition-colors"
+            >
+              Crear primer tipo de clase
+            </Link>
+          )}
         </div>
       ) : (
         <div className="bg-white rounded-xl border border-zinc-200 shadow-sm overflow-hidden">
@@ -119,25 +137,31 @@ export default async function ClassTypesPage({ searchParams }: Props) {
                     <td className="px-4 py-3"><StatusBadge status={t.status} /></td>
                     <td className="px-4 py-3 text-right">
                       <div className="flex items-center justify-end gap-2">
-                        <Link
-                          href={`/dashboard/classes/types/${t.id}/edit`}
-                          className="text-xs text-zinc-600 hover:text-zinc-900 px-2.5 py-1 rounded border border-zinc-200 hover:border-zinc-400 transition-colors"
-                        >
-                          Editar
-                        </Link>
-                        <form action={toggleClassTypeStatusAction}>
-                          <input type="hidden" name="id" value={t.id} />
-                          <button
-                            type="submit"
-                            className={`text-xs px-2.5 py-1 rounded border transition-colors ${
-                              t.status === "active"
-                                ? "text-amber-700 border-amber-200 hover:bg-amber-50"
-                                : "text-emerald-700 border-emerald-200 hover:bg-emerald-50"
-                            }`}
-                          >
-                            {t.status === "active" ? "Desactivar" : "Activar"}
-                          </button>
-                        </form>
+                        {canManage ? (
+                          <>
+                            <Link
+                              href={`/dashboard/classes/types/${t.id}/edit`}
+                              className="text-xs text-zinc-600 hover:text-zinc-900 px-2.5 py-1 rounded border border-zinc-200 hover:border-zinc-400 transition-colors"
+                            >
+                              Editar
+                            </Link>
+                            <form action={toggleClassTypeStatusAction}>
+                              <input type="hidden" name="id" value={t.id} />
+                              <button
+                                type="submit"
+                                className={`text-xs px-2.5 py-1 rounded border transition-colors ${
+                                  t.status === "active"
+                                    ? "text-amber-700 border-amber-200 hover:bg-amber-50"
+                                    : "text-emerald-700 border-emerald-200 hover:bg-emerald-50"
+                                }`}
+                              >
+                                {t.status === "active" ? "Desactivar" : "Activar"}
+                              </button>
+                            </form>
+                          </>
+                        ) : (
+                          <span className="text-xs text-zinc-300">Solo lectura</span>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -148,5 +172,8 @@ export default async function ClassTypesPage({ searchParams }: Props) {
         </div>
       )}
     </div>
-  );
+    );
+  } finally {
+    await dispose();
+  }
 }

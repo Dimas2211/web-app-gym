@@ -12,6 +12,7 @@ import { DeleteAuthorizationDialog } from "@/components/forms/delete-authorizati
 import { StatusBadge } from "@/components/ui/status-badge";
 import type { Status, AssignmentType } from "@prisma/client";
 import { requireOrganizationModule } from "@/modules/platform/runtime/commercial-enforcement";
+import { resolveEffectiveTenantContext } from "@/modules/platform/runtime/effective-tenant-context";
 
 function AssignmentTypeBadge({ type }: { type: AssignmentType }) {
   if (type === "segmented") {
@@ -49,37 +50,48 @@ export default async function ClientWeeklyPlansPage({
   searchParams: SearchParams;
 }) {
   const sessionUser = await requireClassViewer();
-  await requireOrganizationModule(sessionUser.tenant_id, "gym.weekly_plans");
   const sp = await searchParams;
 
-  // Sin filtro de estado explícito → vista operativa: solo planes vigentes (end_date >= hoy)
-  // Con filtro de estado explícito → historial visible completo
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
+  // PASO 6C: tenant/PrismaClient EFECTIVOS bajo sesión runtime "Operar como cliente".
+  const { context, dispose } = await resolveEffectiveTenantContext(sessionUser);
+  const effectiveUser = context.runtime
+    ? { ...sessionUser, tenant_id: context.tenantId }
+    : sessionUser;
 
-  const [plans, generalTemplates] = await Promise.all([
-    getClientWeeklyPlans(sessionUser, {
-      search: sp.search,
-      status: sp.status as Status | undefined,
-      trainer_id: sp.trainer_id,
-      client_id: sp.client_id,
-      end_date_gte: sp.status ? undefined : today,
-    }),
-    getGeneralTemplatesForScope(sessionUser),
-  ]);
+  try {
+    await requireOrganizationModule(context.tenantId, "gym.weekly_plans");
 
-  // Para entrenadores: mapa de cuántos de sus planes usan cada plantilla general
-  const trainerPlansByTemplate: Record<string, number> = {};
-  if (sessionUser.role === "trainer") {
-    for (const p of plans) {
-      if (p.template?.id) {
-        trainerPlansByTemplate[p.template.id] =
-          (trainerPlansByTemplate[p.template.id] ?? 0) + 1;
+    // Sin filtro de estado explícito → vista operativa: solo planes vigentes (end_date >= hoy)
+    // Con filtro de estado explícito → historial visible completo
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const [plans, generalTemplates] = await Promise.all([
+      getClientWeeklyPlans(effectiveUser, {
+        search: sp.search,
+        status: sp.status as Status | undefined,
+        trainer_id: sp.trainer_id,
+        client_id: sp.client_id,
+        end_date_gte: sp.status ? undefined : today,
+      }, context.client),
+      getGeneralTemplatesForScope(effectiveUser, context.client),
+    ]);
+
+    // canManage se fuerza a false en modo runtime: la sesión es siempre solo lectura.
+    const canManage = !context.runtime;
+
+    // Para entrenadores: mapa de cuántos de sus planes usan cada plantilla general
+    const trainerPlansByTemplate: Record<string, number> = {};
+    if (sessionUser.role === "trainer") {
+      for (const p of plans) {
+        if (p.template?.id) {
+          trainerPlansByTemplate[p.template.id] =
+            (trainerPlansByTemplate[p.template.id] ?? 0) + 1;
+        }
       }
     }
-  }
 
-  return (
+    return (
     <div className="space-y-6">
       {/* Encabezado */}
       <div className="flex items-start justify-between flex-wrap gap-4">
@@ -89,12 +101,14 @@ export default async function ClientWeeklyPlansPage({
             Planes de entrenamiento asignados a clientes.
           </p>
         </div>
-        <Link
-          href="/dashboard/weekly-plans/client-plans/new"
-          className="bg-zinc-900 text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-zinc-800 transition-colors"
-        >
-          + Asignar plan
-        </Link>
+        {canManage && (
+          <Link
+            href="/dashboard/weekly-plans/client-plans/new"
+            className="bg-zinc-900 text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-zinc-800 transition-colors"
+          >
+            + Asignar plan
+          </Link>
+        )}
       </div>
 
       {/* Filtros */}
@@ -134,12 +148,14 @@ export default async function ClientWeeklyPlansPage({
       {plans.length === 0 ? (
         <div className="bg-white rounded-xl border border-zinc-200 p-12 text-center">
           <p className="text-zinc-400 text-sm">No se encontraron planes.</p>
-          <Link
-            href="/dashboard/weekly-plans/client-plans/new"
-            className="mt-3 inline-block text-sm text-zinc-600 border border-zinc-300 px-4 py-2 rounded-lg hover:bg-zinc-50"
-          >
-            Asignar primer plan
-          </Link>
+          {canManage && (
+            <Link
+              href="/dashboard/weekly-plans/client-plans/new"
+              className="mt-3 inline-block text-sm text-zinc-600 border border-zinc-300 px-4 py-2 rounded-lg hover:bg-zinc-50"
+            >
+              Asignar primer plan
+            </Link>
+          )}
         </div>
       ) : (
         <div className="bg-white rounded-xl border border-zinc-200 shadow-sm overflow-hidden">
@@ -216,31 +232,35 @@ export default async function ClientWeeklyPlansPage({
                         >
                           Ver
                         </Link>
-                        <Link
-                          href={`/dashboard/weekly-plans/client-plans/${p.id}/edit`}
-                          className="text-xs text-zinc-500 hover:text-zinc-800 px-2.5 py-1 rounded border border-zinc-200 hover:border-zinc-400 transition-colors"
-                        >
-                          Editar
-                        </Link>
-                        <form action={toggleClientPlanStatusAction}>
-                          <input type="hidden" name="id" value={p.id} />
-                          <button
-                            type="submit"
-                            className={`text-xs px-2.5 py-1 rounded border transition-colors ${
-                              p.status === "active"
-                                ? "border-amber-200 text-amber-700 hover:bg-amber-50"
-                                : "border-emerald-200 text-emerald-700 hover:bg-emerald-50"
-                            }`}
-                          >
-                            {p.status === "active" ? "Desactivar" : "Activar"}
-                          </button>
-                        </form>
-                        <DeleteAuthorizationDialog
-                          entityLabel={`el plan de ${p.client.first_name} ${p.client.last_name}`}
-                          userRole={sessionUser.role}
-                          hiddenFields={{ id: p.id }}
-                          action={deleteClientPlanAction}
-                        />
+                        {canManage && (
+                          <>
+                            <Link
+                              href={`/dashboard/weekly-plans/client-plans/${p.id}/edit`}
+                              className="text-xs text-zinc-500 hover:text-zinc-800 px-2.5 py-1 rounded border border-zinc-200 hover:border-zinc-400 transition-colors"
+                            >
+                              Editar
+                            </Link>
+                            <form action={toggleClientPlanStatusAction}>
+                              <input type="hidden" name="id" value={p.id} />
+                              <button
+                                type="submit"
+                                className={`text-xs px-2.5 py-1 rounded border transition-colors ${
+                                  p.status === "active"
+                                    ? "border-amber-200 text-amber-700 hover:bg-amber-50"
+                                    : "border-emerald-200 text-emerald-700 hover:bg-emerald-50"
+                                }`}
+                              >
+                                {p.status === "active" ? "Desactivar" : "Activar"}
+                              </button>
+                            </form>
+                            <DeleteAuthorizationDialog
+                              entityLabel={`el plan de ${p.client.first_name} ${p.client.last_name}`}
+                              userRole={sessionUser.role}
+                              hiddenFields={{ id: p.id }}
+                              action={deleteClientPlanAction}
+                            />
+                          </>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -277,12 +297,14 @@ export default async function ClientWeeklyPlansPage({
                   >
                     Ver
                   </Link>
-                  <Link
-                    href={`/dashboard/weekly-plans/client-plans/${p.id}/edit`}
-                    className="text-xs text-zinc-600 border border-zinc-200 px-2.5 py-1 rounded hover:bg-zinc-50"
-                  >
-                    Editar
-                  </Link>
+                  {canManage && (
+                    <Link
+                      href={`/dashboard/weekly-plans/client-plans/${p.id}/edit`}
+                      className="text-xs text-zinc-600 border border-zinc-200 px-2.5 py-1 rounded hover:bg-zinc-50"
+                    >
+                      Editar
+                    </Link>
+                  )}
                 </div>
               </div>
             ))}
@@ -323,8 +345,9 @@ export default async function ClientWeeklyPlansPage({
             <p className="text-zinc-400 text-sm">
               No hay plantillas activas publicadas para este scope.
             </p>
-            {(sessionUser.role === "super_admin" ||
-              sessionUser.role === "branch_admin") && (
+            {canManage &&
+              (sessionUser.role === "super_admin" ||
+                sessionUser.role === "branch_admin") && (
               <Link
                 href="/dashboard/weekly-plans/templates"
                 className="mt-2 inline-block text-sm text-zinc-600 border border-zinc-300 px-4 py-2 rounded-lg hover:bg-zinc-50"
@@ -359,8 +382,9 @@ export default async function ClientWeeklyPlansPage({
                     <th className="text-left px-4 py-3 text-xs font-semibold text-sky-700 uppercase tracking-wide">
                       Alcance
                     </th>
-                    {(sessionUser.role === "super_admin" ||
-                      sessionUser.role === "branch_admin") && (
+                    {canManage &&
+                      (sessionUser.role === "super_admin" ||
+                        sessionUser.role === "branch_admin") && (
                       <th className="text-right px-5 py-3" />
                     )}
                   </tr>
@@ -415,8 +439,9 @@ export default async function ClientWeeklyPlansPage({
                           <span className="italic text-zinc-400">Global</span>
                         )}
                       </td>
-                      {(sessionUser.role === "super_admin" ||
-                        sessionUser.role === "branch_admin") && (
+                      {canManage &&
+                        (sessionUser.role === "super_admin" ||
+                          sessionUser.role === "branch_admin") && (
                         <td className="px-5 py-3.5 text-right">
                           <Link
                             href={`/dashboard/weekly-plans/templates/${t.id}/assign-segmented`}
@@ -463,8 +488,9 @@ export default async function ClientWeeklyPlansPage({
                         </span>
                       )}
                   </p>
-                  {(sessionUser.role === "super_admin" ||
-                    sessionUser.role === "branch_admin") && (
+                  {canManage &&
+                    (sessionUser.role === "super_admin" ||
+                      sessionUser.role === "branch_admin") && (
                     <Link
                       href={`/dashboard/weekly-plans/templates/${t.id}/assign-segmented`}
                       className="inline-block text-xs text-indigo-600 border border-indigo-200 px-2.5 py-1 rounded hover:bg-indigo-50"
@@ -479,5 +505,8 @@ export default async function ClientWeeklyPlansPage({
         )}
       </div>
     </div>
-  );
+    );
+  } finally {
+    await dispose();
+  }
 }

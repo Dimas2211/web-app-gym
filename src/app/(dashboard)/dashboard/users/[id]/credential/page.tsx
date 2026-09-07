@@ -13,6 +13,7 @@ import {
 import { suggestNextStaffCode } from "@/lib/utils/operational-codes";
 import { ROLE_LABELS } from "@/lib/utils/roles";
 import { PrintButton } from "@/components/ui/print-button";
+import { resolveEffectiveTenantContext } from "@/modules/platform/runtime/effective-tenant-context";
 
 type Props = { params: Promise<{ id: string }> };
 
@@ -20,17 +21,28 @@ export default async function UserCredentialPage({ params }: Props) {
   const sessionUser = await requireAdmin();
   const { id } = await params;
 
-  const [target, gym, nextCode] = await Promise.all([
-    getUserById(id, sessionUser),
-    getGym(sessionUser),
-    suggestNextStaffCode(sessionUser.tenant_id),
-  ]);
+  // PASO 6E: tenant/PrismaClient EFECTIVOS bajo sesión runtime "Operar como
+  // cliente". La ficha (lectura) usa context.client; la columna de gestión
+  // de identidad (super_admin, escritura) se oculta por completo en runtime.
+  const { context, dispose } = await resolveEffectiveTenantContext(sessionUser);
+  const effectiveUser = context.runtime
+    ? { ...sessionUser, tenant_id: context.tenantId }
+    : sessionUser;
 
-  if (!target || !canManageUser(sessionUser, target) || target.role === "client") notFound();
+  try {
+    const canManage = !context.runtime;
 
-  const isSuperAdmin = sessionUser.role === "super_admin";
+    const [target, gym, nextCode] = await Promise.all([
+      getUserById(id, effectiveUser, context.client),
+      getGym(effectiveUser, context.client),
+      canManage ? suggestNextStaffCode(effectiveUser.tenant_id) : Promise.resolve(""),
+    ]);
 
-  return (
+    if (!target || !canManageUser(sessionUser, target) || target.role === "client") notFound();
+
+    const isSuperAdmin = canManage && sessionUser.role === "super_admin";
+
+    return (
     <div className="space-y-6">
       {/* Breadcrumb */}
       <div className="flex items-center gap-2 text-sm text-zinc-500">
@@ -134,11 +146,16 @@ export default async function UserCredentialPage({ params }: Props) {
         {!isSuperAdmin && (
           <div className="bg-zinc-50 rounded-xl border border-dashed border-zinc-200 p-5 flex items-center justify-center">
             <p className="text-sm text-zinc-400 text-center">
-              Solo el Super Admin puede editar la identidad operativa.
+              {context.runtime
+                ? "Modo \"Operar como cliente\" activo (solo lectura): la gestión de identidad está deshabilitada."
+                : "Solo el Super Admin puede editar la identidad operativa."}
             </p>
           </div>
         )}
       </div>
     </div>
-  );
+    );
+  } finally {
+    await dispose();
+  }
 }

@@ -14,6 +14,7 @@ import {
 } from "@/lib/utils/labels";
 import type { PlanLevel, Gender, Status } from "@prisma/client";
 import { requireOrganizationModule } from "@/modules/platform/runtime/commercial-enforcement";
+import { resolveEffectiveTenantContext } from "@/modules/platform/runtime/effective-tenant-context";
 
 type SearchParams = Promise<{
   search?: string;
@@ -27,16 +28,27 @@ export default async function WeeklyPlanTemplatesPage({
   searchParams: SearchParams;
 }) {
   const sessionUser = await requireAdmin();
-  await requireOrganizationModule(sessionUser.tenant_id, "gym.weekly_plans");
   const sp = await searchParams;
 
-  const templates = await getWeeklyPlanTemplates(sessionUser, {
-    search: sp.search,
-    status: sp.status as Status | undefined,
-    target_level: sp.target_level,
-  });
+  // PASO 6C: tenant/PrismaClient EFECTIVOS bajo sesión runtime "Operar como cliente".
+  const { context, dispose } = await resolveEffectiveTenantContext(sessionUser);
+  const effectiveUser = context.runtime
+    ? { ...sessionUser, tenant_id: context.tenantId }
+    : sessionUser;
 
-  return (
+  try {
+    await requireOrganizationModule(context.tenantId, "gym.weekly_plans");
+
+    const templates = await getWeeklyPlanTemplates(effectiveUser, {
+      search: sp.search,
+      status: sp.status as Status | undefined,
+      target_level: sp.target_level,
+    }, context.client);
+
+    // canManage se fuerza a false en modo runtime: la sesión es siempre solo lectura.
+    const canManage = !context.runtime;
+
+    return (
     <div className="space-y-6">
       {/* Encabezado */}
       <div className="flex items-start justify-between flex-wrap gap-4">
@@ -46,12 +58,14 @@ export default async function WeeklyPlanTemplatesPage({
             Gestiona las plantillas reutilizables para planes semanales de entrenamiento.
           </p>
         </div>
-        <Link
-          href="/dashboard/weekly-plans/templates/new"
-          className="bg-zinc-900 text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-zinc-800 transition-colors"
-        >
-          + Nueva plantilla
-        </Link>
+        {canManage && (
+          <Link
+            href="/dashboard/weekly-plans/templates/new"
+            className="bg-zinc-900 text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-zinc-800 transition-colors"
+          >
+            + Nueva plantilla
+          </Link>
+        )}
       </div>
 
       {/* Filtros */}
@@ -100,12 +114,14 @@ export default async function WeeklyPlanTemplatesPage({
       {templates.length === 0 ? (
         <div className="bg-white rounded-xl border border-zinc-200 p-12 text-center">
           <p className="text-zinc-400 text-sm">No se encontraron plantillas.</p>
-          <Link
-            href="/dashboard/weekly-plans/templates/new"
-            className="mt-3 inline-block text-sm text-zinc-600 border border-zinc-300 px-4 py-2 rounded-lg hover:bg-zinc-50 transition-colors"
-          >
-            Crear primera plantilla
-          </Link>
+          {canManage && (
+            <Link
+              href="/dashboard/weekly-plans/templates/new"
+              className="mt-3 inline-block text-sm text-zinc-600 border border-zinc-300 px-4 py-2 rounded-lg hover:bg-zinc-50 transition-colors"
+            >
+              Crear primera plantilla
+            </Link>
+          )}
         </div>
       ) : (
         <div className="bg-white rounded-xl border border-zinc-200 shadow-sm overflow-hidden">
@@ -196,31 +212,35 @@ export default async function WeeklyPlanTemplatesPage({
                         >
                           Ver
                         </Link>
-                        <Link
-                          href={`/dashboard/weekly-plans/templates/${t.id}/edit`}
-                          className="text-xs text-zinc-500 hover:text-zinc-800 px-2.5 py-1 rounded border border-zinc-200 hover:border-zinc-400 transition-colors"
-                        >
-                          Editar
-                        </Link>
-                        <form action={toggleTemplateStatusAction}>
-                          <input type="hidden" name="id" value={t.id} />
-                          <button
-                            type="submit"
-                            className={`text-xs px-2.5 py-1 rounded border transition-colors ${
-                              t.status === "active"
-                                ? "border-amber-200 text-amber-700 hover:bg-amber-50"
-                                : "border-emerald-200 text-emerald-700 hover:bg-emerald-50"
-                            }`}
-                          >
-                            {t.status === "active" ? "Desactivar" : "Activar"}
-                          </button>
-                        </form>
-                        <DeleteAuthorizationDialog
-                          entityLabel={`la plantilla "${t.name}"`}
-                          userRole={sessionUser.role}
-                          hiddenFields={{ id: t.id }}
-                          action={deleteTemplateAction}
-                        />
+                        {canManage && (
+                          <>
+                            <Link
+                              href={`/dashboard/weekly-plans/templates/${t.id}/edit`}
+                              className="text-xs text-zinc-500 hover:text-zinc-800 px-2.5 py-1 rounded border border-zinc-200 hover:border-zinc-400 transition-colors"
+                            >
+                              Editar
+                            </Link>
+                            <form action={toggleTemplateStatusAction}>
+                              <input type="hidden" name="id" value={t.id} />
+                              <button
+                                type="submit"
+                                className={`text-xs px-2.5 py-1 rounded border transition-colors ${
+                                  t.status === "active"
+                                    ? "border-amber-200 text-amber-700 hover:bg-amber-50"
+                                    : "border-emerald-200 text-emerald-700 hover:bg-emerald-50"
+                                }`}
+                              >
+                                {t.status === "active" ? "Desactivar" : "Activar"}
+                              </button>
+                            </form>
+                            <DeleteAuthorizationDialog
+                              entityLabel={`la plantilla "${t.name}"`}
+                              userRole={sessionUser.role}
+                              hiddenFields={{ id: t.id }}
+                              action={deleteTemplateAction}
+                            />
+                          </>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -266,12 +286,14 @@ export default async function WeeklyPlanTemplatesPage({
                   >
                     Ver
                   </Link>
-                  <Link
-                    href={`/dashboard/weekly-plans/templates/${t.id}/edit`}
-                    className="text-xs text-zinc-600 border border-zinc-200 px-2.5 py-1 rounded hover:bg-zinc-50"
-                  >
-                    Editar
-                  </Link>
+                  {canManage && (
+                    <Link
+                      href={`/dashboard/weekly-plans/templates/${t.id}/edit`}
+                      className="text-xs text-zinc-600 border border-zinc-200 px-2.5 py-1 rounded hover:bg-zinc-50"
+                    >
+                      Editar
+                    </Link>
+                  )}
                 </div>
               </div>
             ))}
@@ -281,5 +303,8 @@ export default async function WeeklyPlanTemplatesPage({
 
       <p className="text-xs text-zinc-400">{templates.length} plantilla(s) encontrada(s).</p>
     </div>
-  );
+    );
+  } finally {
+    await dispose();
+  }
 }

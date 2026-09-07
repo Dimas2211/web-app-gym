@@ -22,6 +22,7 @@ import {
   EXECUTION_STATUS_COLORS,
 } from "@/lib/utils/labels";
 import type { PaymentStatus, MembershipStatus, ExecutionStatus } from "@prisma/client";
+import { resolveEffectiveTenantContext } from "@/modules/platform/runtime/effective-tenant-context";
 
 type Props = { params: Promise<{ id: string }> };
 
@@ -57,40 +58,51 @@ export default async function ClientDetailPage({ params }: Props) {
   const sessionUser = await requireClientManager();
   const { id } = await params;
 
-  const [client, memberships, weeklyPlans] = await Promise.all([
-    getClientById(id, sessionUser),
-    getClientMembershipsByClientId(id, sessionUser),
-    getClientWeeklyPlansByClientId(id, sessionUser),
-  ]);
+  // PASO 6D: tenant/PrismaClient EFECTIVOS bajo sesión runtime "Operar como
+  // cliente". Client no tiene module code comercial propio, pero SÍ es
+  // tenant-scoped: la búsqueda usa context.client, con lo que un ID de otro
+  // tenant nunca puede resolverse.
+  const { context, dispose } = await resolveEffectiveTenantContext(sessionUser);
+  const effectiveUser = context.runtime
+    ? { ...sessionUser, tenant_id: context.tenantId }
+    : sessionUser;
 
-  if (!client || !canManageClient(sessionUser, client)) notFound();
+  try {
+    const [client, memberships, weeklyPlans] = await Promise.all([
+      getClientById(id, effectiveUser, context.client),
+      getClientMembershipsByClientId(id, effectiveUser, context.client),
+      getClientWeeklyPlansByClientId(id, effectiveUser, context.client),
+    ]);
 
-  const birthDateStr = client.birth_date
-    ? new Date(client.birth_date).toLocaleDateString("es-MX", {
-        year: "numeric",
-        month: "long",
-        day: "numeric",
-      })
-    : null;
+    if (!client || !canManageClient(sessionUser, client)) notFound();
 
-  const canEdit = canManageClient(sessionUser, client);
+    const birthDateStr = client.birth_date
+      ? new Date(client.birth_date).toLocaleDateString("es-MX", {
+          year: "numeric",
+          month: "long",
+          day: "numeric",
+        })
+      : null;
 
-  // Membresía activa actual (primera activa vigente)
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const activeMembership = memberships.find(
-    (m) => m.status === "active" && new Date(m.end_date) >= today
-  );
+    // canEdit se fuerza a false en modo runtime: la sesión es siempre solo lectura.
+    const canEdit = !context.runtime && canManageClient(sessionUser, client);
 
-  // Plan semanal activo actual
-  const activeWeeklyPlan = weeklyPlans.find(
-    (p) =>
-      p.status === "active" &&
-      new Date(p.start_date) <= today &&
-      new Date(p.end_date) >= today
-  );
+    // Membresía activa actual (primera activa vigente)
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const activeMembership = memberships.find(
+      (m) => m.status === "active" && new Date(m.end_date) >= today
+    );
 
-  return (
+    // Plan semanal activo actual
+    const activeWeeklyPlan = weeklyPlans.find(
+      (p) =>
+        p.status === "active" &&
+        new Date(p.start_date) <= today &&
+        new Date(p.end_date) >= today
+    );
+
+    return (
     <div className="space-y-6">
       {/* Breadcrumb + acciones */}
       <div className="flex items-start justify-between flex-wrap gap-4">
@@ -489,5 +501,8 @@ export default async function ClientDetailPage({ params }: Props) {
         })}
       </div>
     </div>
-  );
+    );
+  } finally {
+    await dispose();
+  }
 }

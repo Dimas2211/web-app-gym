@@ -13,6 +13,8 @@ import {
   WEEK_DAYS_ORDER,
 } from "@/lib/utils/labels";
 import type { PlanLevel, Gender } from "@prisma/client";
+import { requireOrganizationModule } from "@/modules/platform/runtime/commercial-enforcement";
+import { resolveEffectiveTenantContext } from "@/modules/platform/runtime/effective-tenant-context";
 
 type Props = { params: Promise<{ id: string }> };
 
@@ -20,16 +22,28 @@ export default async function WeeklyPlanTemplateDetailPage({ params }: Props) {
   const sessionUser = await requireClassViewer();
   const { id } = await params;
 
-  const template = await getWeeklyPlanTemplateById(id, sessionUser);
-  if (!template) notFound();
+  // PASO 6D: tenant/PrismaClient EFECTIVOS bajo sesión runtime "Operar como
+  // cliente". El guard corre ANTES de buscar el registro; la búsqueda usa
+  // context.client, con lo que un ID de otro tenant nunca puede resolverse.
+  const { context, dispose } = await resolveEffectiveTenantContext(sessionUser);
+  const effectiveUser = context.runtime
+    ? { ...sessionUser, tenant_id: context.tenantId }
+    : sessionUser;
 
-  const canEdit = canManageWeeklyPlanTemplate(sessionUser, template);
+  try {
+    await requireOrganizationModule(context.tenantId, "gym.weekly_plans");
 
-  const daysByWeekday = Object.fromEntries(
-    template.days.map((d) => [d.weekday, d])
-  );
+    const template = await getWeeklyPlanTemplateById(id, effectiveUser, context.client);
+    if (!template) notFound();
 
-  return (
+    // canEdit se fuerza a false en modo runtime: la sesión es siempre solo lectura.
+    const canEdit = !context.runtime && canManageWeeklyPlanTemplate(sessionUser, template);
+
+    const daysByWeekday = Object.fromEntries(
+      template.days.map((d) => [d.weekday, d])
+    );
+
+    return (
     <div className="space-y-6">
       {/* Breadcrumb + acciones */}
       <div className="flex items-start justify-between flex-wrap gap-4">
@@ -246,5 +260,8 @@ export default async function WeeklyPlanTemplateDetailPage({ params }: Props) {
         )}
       </div>
     </div>
-  );
+    );
+  } finally {
+    await dispose();
+  }
 }

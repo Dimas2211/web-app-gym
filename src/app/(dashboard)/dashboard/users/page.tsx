@@ -6,6 +6,7 @@ import { StatusBadge } from "@/components/ui/status-badge";
 import { ROLE_LABELS, ROLE_COLORS } from "@/lib/utils/roles";
 import { DeleteAuthorizationDialog } from "@/components/forms/delete-authorization-dialog";
 import { requireOrganizationModule } from "@/modules/platform/runtime/commercial-enforcement";
+import { resolveEffectiveTenantContext } from "@/modules/platform/runtime/effective-tenant-context";
 
 const COMMERCIAL_ERROR_MESSAGES: Record<string, string> = {
   module_not_enabled: "Este módulo no está habilitado para tu organización.",
@@ -18,14 +19,24 @@ export default async function UsersPage({
   searchParams?: Promise<{ commercial_error?: string }>;
 }) {
   const user = await requireAdmin();
-  await requireOrganizationModule(user.tenant_id, "core.users");
-  const users = await getAdminUsers(user);
-  const params = await searchParams;
-  const commercialErrorMessage = params?.commercial_error
-    ? COMMERCIAL_ERROR_MESSAGES[params.commercial_error]
-    : undefined;
 
-  return (
+  // PASO 6E: tenant/PrismaClient EFECTIVOS bajo sesión runtime "Operar como cliente".
+  const { context, dispose } = await resolveEffectiveTenantContext(user);
+  const effectiveUser = context.runtime ? { ...user, tenant_id: context.tenantId } : user;
+
+  try {
+    await requireOrganizationModule(context.tenantId, "core.users");
+
+    const users = await getAdminUsers(effectiveUser, context.client);
+    const params = await searchParams;
+    const commercialErrorMessage = params?.commercial_error
+      ? COMMERCIAL_ERROR_MESSAGES[params.commercial_error]
+      : undefined;
+
+    // canManage se fuerza a false en modo runtime: la sesión es siempre solo lectura.
+    const canManage = !context.runtime;
+
+    return (
     <div className="space-y-6">
       {commercialErrorMessage && (
         <div className="bg-amber-50 border border-amber-200 text-amber-800 text-sm rounded-lg px-4 py-3">
@@ -38,12 +49,14 @@ export default async function UsersPage({
           <h1 className="text-xl font-bold text-zinc-800">Usuarios</h1>
           <p className="text-sm text-zinc-500 mt-0.5">{users.length} usuario(s) registrado(s)</p>
         </div>
-        <Link
-          href="/dashboard/users/new"
-          className="bg-zinc-900 text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-zinc-800 transition-colors"
-        >
-          + Nuevo usuario
-        </Link>
+        {canManage && (
+          <Link
+            href="/dashboard/users/new"
+            className="bg-zinc-900 text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-zinc-800 transition-colors"
+          >
+            + Nuevo usuario
+          </Link>
+        )}
       </div>
 
       {/* Tabla */}
@@ -115,7 +128,7 @@ export default async function UsersPage({
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex items-center justify-end gap-2">
-                        {u.role === "trainer" && (
+                        {u.role === "trainer" && canManage && (
                           u.trainer_profile ? (
                             <Link
                               href={`/dashboard/trainers/${u.trainer_profile.id}`}
@@ -129,19 +142,23 @@ export default async function UsersPage({
                             </span>
                           )
                         )}
-                        <Link
-                          href={`/dashboard/users/${u.id}/credential`}
-                          className="text-xs text-zinc-600 hover:text-zinc-900 px-2.5 py-1 rounded border border-zinc-200 hover:border-zinc-400 transition-colors"
-                        >
-                          ID
-                        </Link>
-                        <Link
-                          href={`/dashboard/users/${u.id}/edit`}
-                          className="text-xs text-zinc-600 hover:text-zinc-900 px-2.5 py-1 rounded border border-zinc-200 hover:border-zinc-400 transition-colors"
-                        >
-                          Editar
-                        </Link>
-                        {u.id !== user.id && (
+                        {canManage && (
+                          <>
+                            <Link
+                              href={`/dashboard/users/${u.id}/credential`}
+                              className="text-xs text-zinc-600 hover:text-zinc-900 px-2.5 py-1 rounded border border-zinc-200 hover:border-zinc-400 transition-colors"
+                            >
+                              ID
+                            </Link>
+                            <Link
+                              href={`/dashboard/users/${u.id}/edit`}
+                              className="text-xs text-zinc-600 hover:text-zinc-900 px-2.5 py-1 rounded border border-zinc-200 hover:border-zinc-400 transition-colors"
+                            >
+                              Editar
+                            </Link>
+                          </>
+                        )}
+                        {canManage && u.id !== user.id && (
                           <>
                             <form action={toggleUserStatusAction}>
                               <input type="hidden" name="id" value={u.id} />
@@ -164,6 +181,7 @@ export default async function UsersPage({
                             />
                           </>
                         )}
+                        {!canManage && <span className="text-xs text-zinc-300">Solo lectura</span>}
                       </div>
                     </td>
                   </tr>
@@ -174,5 +192,8 @@ export default async function UsersPage({
         </div>
       )}
     </div>
-  );
+    );
+  } finally {
+    await dispose();
+  }
 }

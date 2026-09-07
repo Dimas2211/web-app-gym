@@ -1,8 +1,18 @@
 import { prisma } from "@/lib/db/prisma";
+import type { PrismaClient } from "@prisma/client";
 import type { SessionUser } from "@/lib/permissions/guards";
 import type { Status, PaymentStatus, MembershipStatus } from "@prisma/client";
 
 // ── Helpers de scope ────────────────────────────────────────
+//
+// PASO 6C — Runtime awareness (Auditoría de aislamiento GYM):
+// Todas las queries exportadas de este archivo aceptan un `client`
+// opcional (PrismaClient). En modo normal se usa el singleton `prisma`
+// (comportamiento sin cambios). En páginas runtime-aware ("Operar como
+// cliente"), el caller resuelve `resolveEffectiveTenantContext(user)` y
+// pasa `context.client` aquí, junto con un `user` cuyo `tenant_id` ya es
+// el tenant EFECTIVO — así el scope (gymScope/branchScope) y la fuente
+// de datos (client) quedan siempre alineados al mismo tenant.
 
 function gymScope(user: SessionUser) {
   return { tenant_id: user.tenant_id };
@@ -21,7 +31,11 @@ export interface PlanFilters {
   branch_id?: string;
 }
 
-export async function getMembershipPlans(user: SessionUser, filters: PlanFilters = {}) {
+export async function getMembershipPlans(
+  user: SessionUser,
+  filters: PlanFilters = {},
+  client: PrismaClient = prisma,
+) {
   const where: Record<string, unknown> = { ...gymScope(user) };
 
   if (user.role !== "super_admin") {
@@ -48,7 +62,7 @@ export async function getMembershipPlans(user: SessionUser, filters: PlanFilters
     where.AND = [searchCondition];
   }
 
-  return prisma.membershipPlan.findMany({
+  return client.membershipPlan.findMany({
     where,
     include: {
       branch: { select: { id: true, name: true } },
@@ -58,14 +72,21 @@ export async function getMembershipPlans(user: SessionUser, filters: PlanFilters
   });
 }
 
-export async function getMembershipPlanById(id: string, user: SessionUser) {
-  return prisma.membershipPlan.findFirst({
+export async function getMembershipPlanById(
+  id: string,
+  user: SessionUser,
+  client: PrismaClient = prisma,
+) {
+  return client.membershipPlan.findFirst({
     where: { id, ...gymScope(user) },
   });
 }
 
 /** Planes activos disponibles para asignar (global + de la sucursal del usuario) */
-export async function getActivePlansForAssignment(user: SessionUser) {
+export async function getActivePlansForAssignment(
+  user: SessionUser,
+  client: PrismaClient = prisma,
+) {
   const where: Record<string, unknown> = {
     ...gymScope(user),
     status: "active",
@@ -75,7 +96,7 @@ export async function getActivePlansForAssignment(user: SessionUser) {
     where.OR = [{ branch_id: null }, { branch_id: user.location_id }];
   }
 
-  const plans = await prisma.membershipPlan.findMany({
+  const plans = await client.membershipPlan.findMany({
     where,
     select: {
       id: true,
@@ -109,7 +130,8 @@ export interface MembershipFilters {
 
 export async function getClientMemberships(
   user: SessionUser,
-  filters: MembershipFilters = {}
+  filters: MembershipFilters = {},
+  client: PrismaClient = prisma,
 ) {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -151,7 +173,7 @@ export async function getClientMemberships(
     };
   }
 
-  return prisma.clientMembership.findMany({
+  return client.clientMembership.findMany({
     where,
     include: {
       client: { select: { id: true, first_name: true, last_name: true, email: true } },
@@ -163,8 +185,12 @@ export async function getClientMemberships(
   });
 }
 
-export async function getClientMembershipById(id: string, user: SessionUser) {
-  return prisma.clientMembership.findFirst({
+export async function getClientMembershipById(
+  id: string,
+  user: SessionUser,
+  client: PrismaClient = prisma,
+) {
+  return client.clientMembership.findFirst({
     where: { id, ...gymScope(user), ...branchScope(user) },
     include: {
       client: { select: { id: true, first_name: true, last_name: true, email: true } },
@@ -180,9 +206,10 @@ export async function getClientMembershipById(id: string, user: SessionUser) {
 /** Membresías de un cliente específico (para ficha de cliente) */
 export async function getClientMembershipsByClientId(
   clientId: string,
-  user: SessionUser
+  user: SessionUser,
+  client: PrismaClient = prisma,
 ) {
-  return prisma.clientMembership.findMany({
+  return client.clientMembership.findMany({
     where: { client_id: clientId, ...gymScope(user), ...branchScope(user) },
     include: {
       membership_plan: { select: { id: true, name: true, access_type: true } },
@@ -193,14 +220,17 @@ export async function getClientMembershipsByClientId(
 }
 
 /** Clientes activos para selector (scope por sucursal) */
-export async function getActiveClientsForSelect(user: SessionUser) {
+export async function getActiveClientsForSelect(
+  user: SessionUser,
+  client: PrismaClient = prisma,
+) {
   const where: Record<string, unknown> = {
     ...gymScope(user),
     ...branchScope(user),
     status: "active",
   };
 
-  return prisma.client.findMany({
+  return client.client.findMany({
     where,
     select: { id: true, first_name: true, last_name: true, document_id: true },
     orderBy: [{ last_name: "asc" }, { first_name: "asc" }],

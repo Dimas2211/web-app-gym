@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db/prisma";
 import { requireSuperAdmin } from "@/lib/permissions/guards";
 import { gymSchema, sportSchema, goalSchema, gymSettingsSchema } from "./schemas";
+import { isRuntimeReadOnlyActive, RUNTIME_READONLY_MESSAGE } from "@/modules/platform/runtime/runtime-session";
 
 export type SettingsActionState =
   | { errors?: Record<string, string[]>; error?: string }
@@ -19,6 +20,11 @@ export async function updateGymAction(
   formData: FormData
 ): Promise<SettingsActionState> {
   const user = await requireSuperAdmin();
+
+  // PASO 6E: bloquear escritura bajo sesión runtime "Operar como cliente"
+  if (await isRuntimeReadOnlyActive()) {
+    return { error: RUNTIME_READONLY_MESSAGE };
+  }
 
   const parsed = gymSchema.safeParse({
     name: formData.get("name"),
@@ -235,6 +241,11 @@ export async function updateGymSettingsAction(
 ): Promise<SettingsActionState> {
   const user = await requireSuperAdmin();
 
+  // PASO 6E: bloquear escritura bajo sesión runtime "Operar como cliente"
+  if (await isRuntimeReadOnlyActive()) {
+    return { error: RUNTIME_READONLY_MESSAGE };
+  }
+
   const parsed = gymSettingsSchema.safeParse({
     staff_code_prefix: formData.get("staff_code_prefix"),
     staff_code_digits: formData.get("staff_code_digits"),
@@ -269,6 +280,11 @@ export async function updateUserOperationalCodeAction(
 ): Promise<SettingsActionState> {
   const sessionUser = await requireSuperAdmin();
 
+  // PASO 6E: bloquear escritura bajo sesión runtime "Operar como cliente"
+  if (await isRuntimeReadOnlyActive()) {
+    return { error: RUNTIME_READONLY_MESSAGE };
+  }
+
   const id = formData.get("entity_id") as string;
   if (!id) return { error: "ID requerido." };
 
@@ -302,6 +318,11 @@ export async function updateClientOperationalCodeAction(
 ): Promise<SettingsActionState> {
   const sessionUser = await requireSuperAdmin();
 
+  // PASO 6D: bloquear escritura bajo sesión runtime "Operar como cliente"
+  if (await isRuntimeReadOnlyActive()) {
+    return { error: RUNTIME_READONLY_MESSAGE };
+  }
+
   const id = formData.get("entity_id") as string;
   if (!id) return { error: "ID requerido." };
 
@@ -331,6 +352,10 @@ export async function updateClientOperationalCodeAction(
 
 export async function updateUserAvatarAction(formData: FormData): Promise<void> {
   await requireSuperAdmin();
+
+  // PASO 6E: bloquear escritura bajo sesión runtime "Operar como cliente"
+  if (await isRuntimeReadOnlyActive()) return;
+
   const id = formData.get("entity_id") as string;
   const url = formData.get("avatar_url") as string;
   if (!id || !url) return;
@@ -346,6 +371,10 @@ export async function updateUserAvatarAction(formData: FormData): Promise<void> 
 
 export async function updateClientAvatarAction(formData: FormData): Promise<void> {
   await requireSuperAdmin();
+
+  // PASO 6D: bloquear escritura bajo sesión runtime "Operar como cliente"
+  if (await isRuntimeReadOnlyActive()) return;
+
   const id = formData.get("entity_id") as string;
   const url = formData.get("avatar_url") as string;
   if (!id || !url) return;

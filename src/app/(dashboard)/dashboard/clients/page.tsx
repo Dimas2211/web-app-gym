@@ -8,6 +8,7 @@ import { DeleteAuthorizationDialog } from "@/components/forms/delete-authorizati
 import { StatusBadge } from "@/components/ui/status-badge";
 import { ClientFilters } from "@/components/ui/client-filters";
 import type { Status } from "@prisma/client";
+import { resolveEffectiveTenantContext } from "@/modules/platform/runtime/effective-tenant-context";
 
 type SearchParams = Promise<{
   search?: string;
@@ -26,25 +27,37 @@ export default async function ClientsPage({
   const sessionUser = await requireClientManager();
   const params = await searchParams;
 
-  const filters = {
-    search: params.search,
-    status: params.status as Status | undefined,
-    branch_id: params.branch_id,
-    goal_id: params.goal_id,
-    sport_id: params.sport_id,
-    trainer_id: params.trainer_id,
-  };
+  // PASO 6D: tenant/PrismaClient EFECTIVOS bajo sesión runtime "Operar como
+  // cliente". Client no tiene module code comercial propio (no aplica
+  // requireOrganizationModule), pero SÍ es tenant-scoped: nunca debe leerse
+  // desde el prisma singleton del super_admin cuando hay runtime activo.
+  const { context, dispose } = await resolveEffectiveTenantContext(sessionUser);
+  const effectiveUser = context.runtime
+    ? { ...sessionUser, tenant_id: context.tenantId }
+    : sessionUser;
 
-  const [clients, branches, goals, sports] = await Promise.all([
-    getClients(sessionUser, filters),
-    getBranchOptions(sessionUser),
-    getGoalOptions(),
-    getSportOptions(),
-  ]);
+  try {
+    const filters = {
+      search: params.search,
+      status: params.status as Status | undefined,
+      branch_id: params.branch_id,
+      goal_id: params.goal_id,
+      sport_id: params.sport_id,
+      trainer_id: params.trainer_id,
+    };
 
-  const showBranchFilter = sessionUser.role === "super_admin";
+    const [clients, branches, goals, sports] = await Promise.all([
+      getClients(effectiveUser, filters, context.client),
+      getBranchOptions(effectiveUser, context.client),
+      getGoalOptions(context.client),
+      getSportOptions(context.client),
+    ]);
 
-  return (
+    // canManage se fuerza a false en modo runtime: la sesión es siempre solo lectura.
+    const canManage = !context.runtime;
+    const showBranchFilter = sessionUser.role === "super_admin";
+
+    return (
     <div className="space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between gap-4 flex-wrap">
@@ -52,12 +65,14 @@ export default async function ClientsPage({
           <h1 className="text-xl font-bold text-zinc-800">Clientes</h1>
           <p className="text-sm text-zinc-500 mt-0.5">{clients.length} cliente(s) encontrado(s)</p>
         </div>
-        <Link
-          href="/dashboard/clients/new"
-          className="bg-zinc-900 text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-zinc-800 transition-colors"
-        >
-          + Nuevo cliente
-        </Link>
+        {canManage && (
+          <Link
+            href="/dashboard/clients/new"
+            className="bg-zinc-900 text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-zinc-800 transition-colors"
+          >
+            + Nuevo cliente
+          </Link>
+        )}
       </div>
 
       {/* Filtros */}
@@ -154,31 +169,35 @@ export default async function ClientsPage({
                         >
                           Ver
                         </Link>
-                        <Link
-                          href={`/dashboard/clients/${c.id}/edit`}
-                          className="text-xs text-zinc-600 hover:text-zinc-900 px-2.5 py-1 rounded border border-zinc-200 hover:border-zinc-400 transition-colors"
-                        >
-                          Editar
-                        </Link>
-                        <form action={toggleClientStatusAction}>
-                          <input type="hidden" name="id" value={c.id} />
-                          <button
-                            type="submit"
-                            className={`text-xs px-2.5 py-1 rounded border transition-colors ${
-                              c.status === "active"
-                                ? "text-amber-700 border-amber-200 hover:bg-amber-50"
-                                : "text-emerald-700 border-emerald-200 hover:bg-emerald-50"
-                            }`}
-                          >
-                            {c.status === "active" ? "Desactivar" : "Activar"}
-                          </button>
-                        </form>
-                        <DeleteAuthorizationDialog
-                          entityLabel={`al cliente ${c.first_name} ${c.last_name}`}
-                          userRole={sessionUser.role}
-                          hiddenFields={{ id: c.id }}
-                          action={deleteClientAction}
-                        />
+                        {canManage && (
+                          <>
+                            <Link
+                              href={`/dashboard/clients/${c.id}/edit`}
+                              className="text-xs text-zinc-600 hover:text-zinc-900 px-2.5 py-1 rounded border border-zinc-200 hover:border-zinc-400 transition-colors"
+                            >
+                              Editar
+                            </Link>
+                            <form action={toggleClientStatusAction}>
+                              <input type="hidden" name="id" value={c.id} />
+                              <button
+                                type="submit"
+                                className={`text-xs px-2.5 py-1 rounded border transition-colors ${
+                                  c.status === "active"
+                                    ? "text-amber-700 border-amber-200 hover:bg-amber-50"
+                                    : "text-emerald-700 border-emerald-200 hover:bg-emerald-50"
+                                }`}
+                              >
+                                {c.status === "active" ? "Desactivar" : "Activar"}
+                              </button>
+                            </form>
+                            <DeleteAuthorizationDialog
+                              entityLabel={`al cliente ${c.first_name} ${c.last_name}`}
+                              userRole={sessionUser.role}
+                              hiddenFields={{ id: c.id }}
+                              action={deleteClientAction}
+                            />
+                          </>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -189,5 +208,8 @@ export default async function ClientsPage({
         </div>
       )}
     </div>
-  );
+    );
+  } finally {
+    await dispose();
+  }
 }

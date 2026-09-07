@@ -13,6 +13,7 @@ import {
 import { CLASS_STATUS_LABELS, CLASS_STATUS_COLORS } from "@/lib/utils/labels";
 import { DeleteClassButton } from "./_components/delete-class-button";
 import { requireOrganizationModule } from "@/modules/platform/runtime/commercial-enforcement";
+import { resolveEffectiveTenantContext } from "@/modules/platform/runtime/effective-tenant-context";
 
 type Props = {
   searchParams: Promise<{
@@ -62,9 +63,34 @@ function CapacityBar({ used, total }: { used: number; total: number }) {
 
 export default async function ClassesAgendaPage({ searchParams }: Props) {
   const sessionUser = await requireClassViewer();
-  await requireOrganizationModule(sessionUser.tenant_id, "gym.classes");
   const sp = await searchParams;
 
+  // PASO 6C: tenant/PrismaClient EFECTIVOS bajo sesión runtime "Operar como cliente".
+  const { context, dispose } = await resolveEffectiveTenantContext(sessionUser);
+  const effectiveUser = context.runtime
+    ? { ...sessionUser, tenant_id: context.tenantId }
+    : sessionUser;
+
+  try {
+    await requireOrganizationModule(context.tenantId, "gym.classes");
+
+    return await renderClassesAgenda({ sessionUser, effectiveUser, context, sp });
+  } finally {
+    await dispose();
+  }
+}
+
+async function renderClassesAgenda({
+  sessionUser,
+  effectiveUser,
+  context,
+  sp,
+}: {
+  sessionUser: Awaited<ReturnType<typeof requireClassViewer>>;
+  effectiveUser: Awaited<ReturnType<typeof requireClassViewer>>;
+  context: Awaited<ReturnType<typeof resolveEffectiveTenantContext>>["context"];
+  sp: Awaited<Props["searchParams"]>;
+}) {
   const sp1 = (v: string | string[] | undefined): string | undefined => {
     const s = Array.isArray(v) ? v.find((x) => x !== "") : v;
     return s === "" ? undefined : s;
@@ -76,27 +102,30 @@ export default async function ClassesAgendaPage({ searchParams }: Props) {
   const nextDate = offsetDate(selectedDate, 1);
   const viewMode = sp1(sp.view) === "upcoming" ? "upcoming" : "day";
 
-  const isAdmin = sessionUser.role === "super_admin" || sessionUser.role === "branch_admin";
-  const isTrainer = sessionUser.role === "trainer";
+  // canManage se fuerza a false en modo runtime: la sesión es siempre solo lectura.
+  const canManage = !context.runtime;
+  const isAdmin =
+    canManage && (sessionUser.role === "super_admin" || sessionUser.role === "branch_admin");
+  const isTrainer = !context.runtime && sessionUser.role === "trainer";
 
   let forcedTrainerId: string | null = null;
   if (isTrainer) {
-    forcedTrainerId = await getLinkedTrainerId(sessionUser.id, sessionUser.tenant_id);
+    forcedTrainerId = await getLinkedTrainerId(sessionUser.id, effectiveUser.tenant_id, context.client);
   }
 
   const [classes, trainers] = await Promise.all([
     viewMode === "upcoming"
-      ? getUpcomingClasses(sessionUser, {
+      ? getUpcomingClasses(effectiveUser, {
           trainer_id: isTrainer ? (forcedTrainerId ?? "__none__") : sp1(sp.trainer_id),
           status: sp1(sp.status),
-        })
-      : getScheduledClasses(sessionUser, {
+        }, context.client)
+      : getScheduledClasses(effectiveUser, {
           date: selectedDate,
           branch_id: sp1(sp.branch_id),
           trainer_id: isTrainer ? (forcedTrainerId ?? "__none__") : sp1(sp.trainer_id),
           status: sp1(sp.status),
-        }),
-    isAdmin ? getTrainerOptionsForClass(sessionUser) : Promise.resolve([]),
+        }, context.client),
+    isAdmin ? getTrainerOptionsForClass(effectiveUser, context.client) : Promise.resolve([]),
   ]);
 
   if (isTrainer && !forcedTrainerId) {

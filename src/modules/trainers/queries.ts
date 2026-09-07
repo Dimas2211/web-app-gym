@@ -1,6 +1,14 @@
 import { prisma } from "@/lib/db/prisma";
+import type { PrismaClient } from "@prisma/client";
 import type { SessionUser } from "@/lib/permissions/guards";
 import type { Status } from "@prisma/client";
+
+// PASO 6C — `client` opcional en toda query exportada: en modo normal
+// usa el singleton `prisma` (sin cambios); en páginas runtime-aware
+// ("Operar como cliente") el caller pasa `context.client` junto con un
+// `user` cuyo tenant_id ya es el tenant EFECTIVO (ver
+// resolveEffectiveTenantContext), para que scope y fuente de datos
+// queden siempre alineados al mismo tenant.
 
 export interface TrainerFilters {
   search?: string;
@@ -41,11 +49,12 @@ function buildWhereClause(user: SessionUser, filters: TrainerFilters) {
 
 export async function getTrainers(
   user: SessionUser,
-  filters: TrainerFilters = {}
+  filters: TrainerFilters = {},
+  client: PrismaClient = prisma,
 ) {
   const where = buildWhereClause(user, filters);
 
-  return prisma.trainer.findMany({
+  return client.trainer.findMany({
     where,
     include: {
       branch: { select: { id: true, name: true } },
@@ -55,13 +64,13 @@ export async function getTrainers(
   });
 }
 
-export async function getTrainerById(id: string, user: SessionUser) {
+export async function getTrainerById(id: string, user: SessionUser, client: PrismaClient = prisma) {
   const where: Record<string, unknown> = { id, tenant_id: user.tenant_id };
   if (user.role === "branch_admin") {
     where.branch_id = user.location_id!;
   }
 
-  return prisma.trainer.findFirst({
+  return client.trainer.findFirst({
     where,
     include: {
       branch: { select: { id: true, name: true } },
@@ -76,15 +85,19 @@ export async function getTrainerById(id: string, user: SessionUser) {
   });
 }
 
-export async function getTrainerAvailability(trainerId: string) {
-  return prisma.trainerAvailability.findMany({
+export async function getTrainerAvailability(trainerId: string, client: PrismaClient = prisma) {
+  return client.trainerAvailability.findMany({
     where: { trainer_id: trainerId, status: "active" },
     orderBy: [{ day_of_week: "asc" }, { start_time: "asc" }],
   });
 }
 
 // Clientes asignados al entrenador mediante su user_id
-export async function getAssignedClients(trainer: { user_id: string | null }, user: SessionUser) {
+export async function getAssignedClients(
+  trainer: { user_id: string | null },
+  user: SessionUser,
+  client: PrismaClient = prisma,
+) {
   if (!trainer.user_id) return [];
 
   const where: Record<string, unknown> = {
@@ -97,7 +110,7 @@ export async function getAssignedClients(trainer: { user_id: string | null }, us
     where.branch_id = user.location_id!;
   }
 
-  return prisma.client.findMany({
+  return client.client.findMany({
     where,
     select: {
       id: true,
@@ -120,7 +133,11 @@ export async function getAssignedClients(trainer: { user_id: string | null }, us
 
 // Opciones de usuario con role=trainer disponibles para vincular a un trainer
 // (usuarios que aún no tienen perfil de entrenador)
-export async function getAvailableUserOptions(user: SessionUser, excludeTrainerId?: string) {
+export async function getAvailableUserOptions(
+  user: SessionUser,
+  excludeTrainerId?: string,
+  client: PrismaClient = prisma,
+) {
   const where: Record<string, unknown> = {
     tenant_id: user.tenant_id,
     role: "trainer",
@@ -133,7 +150,7 @@ export async function getAvailableUserOptions(user: SessionUser, excludeTrainerI
     where.branch_id = user.location_id!;
   }
 
-  const available = await prisma.user.findMany({
+  const available = await client.user.findMany({
     where,
     select: { id: true, first_name: true, last_name: true, email: true },
     orderBy: [{ last_name: "asc" }, { first_name: "asc" }],
@@ -141,7 +158,7 @@ export async function getAvailableUserOptions(user: SessionUser, excludeTrainerI
 
   // Si estamos editando, incluir también el usuario ya vinculado al trainer actual
   if (excludeTrainerId) {
-    const current = await prisma.trainer.findUnique({
+    const current = await client.trainer.findUnique({
       where: { id: excludeTrainerId },
       select: { user: { select: { id: true, first_name: true, last_name: true, email: true } } },
     });
@@ -154,7 +171,7 @@ export async function getAvailableUserOptions(user: SessionUser, excludeTrainerI
   return available;
 }
 
-export async function getBranchOptions(user: SessionUser) {
+export async function getBranchOptions(user: SessionUser, client: PrismaClient = prisma) {
   const where: Record<string, unknown> = {
     tenant_id: user.tenant_id,
     status: "active",
@@ -162,7 +179,7 @@ export async function getBranchOptions(user: SessionUser) {
   if (user.role === "branch_admin") {
     where.id = user.location_id!;
   }
-  return prisma.branch.findMany({
+  return client.branch.findMany({
     where,
     select: { id: true, name: true },
     orderBy: { name: "asc" },

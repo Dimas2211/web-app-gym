@@ -24,6 +24,7 @@ import {
   assertOrganizationModule,
   CommercialEnforcementError,
 } from "@/modules/platform/runtime/commercial-enforcement";
+import { isRuntimeReadOnlyActive, RUNTIME_READONLY_MESSAGE } from "@/modules/platform/runtime/runtime-session";
 
 // Bloque B — guard central de este archivo: todas las actions de
 // trainers (perfil + disponibilidad) requieren gym.trainers.
@@ -63,6 +64,11 @@ export async function createTrainerAction(
   formData: FormData
 ): Promise<TrainerActionState> {
   const sessionUser = await requireAdmin();
+
+  // PASO 6C: bloquear escritura bajo sesión runtime "Operar como cliente"
+  if (await isRuntimeReadOnlyActive()) {
+    return { error: RUNTIME_READONLY_MESSAGE };
+  }
 
   try {
     await assertTrainersModule(sessionUser.tenant_id);
@@ -130,6 +136,12 @@ export async function updateTrainerAction(
   formData: FormData
 ): Promise<TrainerActionState> {
   const sessionUser = await requireAdmin();
+
+  // PASO 6C: bloquear escritura bajo sesión runtime "Operar como cliente"
+  if (await isRuntimeReadOnlyActive()) {
+    return { error: RUNTIME_READONLY_MESSAGE };
+  }
+
   const id = formData.get("id") as string;
   if (!id) return { error: "ID de entrenador requerido." };
 
@@ -198,6 +210,12 @@ export async function deleteTrainerAction(
   formData: FormData
 ): Promise<DeleteAuthActionState> {
   const sessionUser = await getSessionOrRedirect();
+
+  // PASO 6C: bloquear escritura bajo sesión runtime "Operar como cliente"
+  if (await isRuntimeReadOnlyActive()) {
+    return { error: RUNTIME_READONLY_MESSAGE };
+  }
+
   const id = formData.get("id") as string;
   if (!id) return { error: "Datos inválidos" };
 
@@ -260,6 +278,10 @@ export async function toggleTrainerStatusAction(
   formData: FormData
 ): Promise<void> {
   const sessionUser = await requireAdmin();
+
+  // PASO 6C: bloquear escritura bajo sesión runtime "Operar como cliente"
+  if (await isRuntimeReadOnlyActive()) return;
+
   const id = formData.get("id") as string;
   if (!id) return;
 
@@ -290,6 +312,11 @@ export async function addAvailabilitySlotAction(
   formData: FormData
 ): Promise<TrainerActionState> {
   const sessionUser = await requireAdmin();
+
+  // PASO 6C: bloquear escritura bajo sesión runtime "Operar como cliente"
+  if (await isRuntimeReadOnlyActive()) {
+    return { error: RUNTIME_READONLY_MESSAGE };
+  }
 
   try {
     await assertTrainersModule(sessionUser.tenant_id);
@@ -362,6 +389,12 @@ export async function removeAvailabilitySlotAction(
   formData: FormData,
 ): Promise<TrainerActionState> {
   const sessionUser = await requireAdmin();
+
+  // PASO 6C: bloquear escritura bajo sesión runtime "Operar como cliente"
+  if (await isRuntimeReadOnlyActive()) {
+    return { error: RUNTIME_READONLY_MESSAGE };
+  }
+
   const slot_id = formData.get("slot_id") as string;
   const trainer_id = formData.get("trainer_id") as string;
   if (!slot_id || !trainer_id) return { error: "Datos inválidos." };

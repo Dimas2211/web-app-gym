@@ -5,6 +5,7 @@ import { toggleTrainerStatusAction, deleteTrainerAction } from "@/modules/traine
 import { DeleteAuthorizationDialog } from "@/components/forms/delete-authorization-dialog";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { requireOrganizationModule } from "@/modules/platform/runtime/commercial-enforcement";
+import { resolveEffectiveTenantContext } from "@/modules/platform/runtime/effective-tenant-context";
 
 type Props = {
   searchParams: Promise<{ search?: string; status?: string; branch_id?: string }>;
@@ -12,18 +13,28 @@ type Props = {
 
 export default async function TrainersPage({ searchParams }: Props) {
   const sessionUser = await requireAdmin();
-  await requireOrganizationModule(sessionUser.tenant_id, "gym.trainers");
   const sp = await searchParams;
 
-  const trainers = await getTrainers(sessionUser, {
-    search: sp.search,
-    status: sp.status,
-    branch_id: sp.branch_id,
-  });
+  // PASO 6C: tenant/PrismaClient EFECTIVOS bajo sesión runtime "Operar como cliente".
+  const { context, dispose } = await resolveEffectiveTenantContext(sessionUser);
+  const effectiveUser = context.runtime
+    ? { ...sessionUser, tenant_id: context.tenantId }
+    : sessionUser;
 
-  const isBranchAdmin = sessionUser.role === "branch_admin";
+  try {
+    await requireOrganizationModule(context.tenantId, "gym.trainers");
 
-  return (
+    const trainers = await getTrainers(effectiveUser, {
+      search: sp.search,
+      status: sp.status,
+      branch_id: sp.branch_id,
+    }, context.client);
+
+    const isBranchAdmin = sessionUser.role === "branch_admin";
+    // canManage se fuerza a false en modo runtime: la sesión es siempre solo lectura.
+    const canManage = !context.runtime;
+
+    return (
     <div className="space-y-6">
       {/* Encabezado */}
       <div className="flex items-center justify-between flex-wrap gap-4">
@@ -34,12 +45,14 @@ export default async function TrainersPage({ searchParams }: Props) {
             {trainers.length !== 1 ? "s" : ""}
           </p>
         </div>
-        <Link
-          href="/dashboard/users/new"
-          className="bg-zinc-900 text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-zinc-800 transition-colors"
-        >
-          + Nuevo entrenador
-        </Link>
+        {canManage && (
+          <Link
+            href="/dashboard/users/new"
+            className="bg-zinc-900 text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-zinc-800 transition-colors"
+          >
+            + Nuevo entrenador
+          </Link>
+        )}
       </div>
 
       {/* Filtros */}
@@ -81,12 +94,14 @@ export default async function TrainersPage({ searchParams }: Props) {
       {trainers.length === 0 ? (
         <div className="bg-white rounded-xl border border-zinc-200 shadow-sm p-10 text-center">
           <p className="text-zinc-400 text-sm">No se encontraron entrenadores.</p>
-          <Link
-            href="/dashboard/users/new"
-            className="inline-block mt-4 text-sm text-zinc-600 border border-zinc-300 px-4 py-2 rounded-lg hover:bg-zinc-50 transition-colors"
-          >
-            Registrar primer entrenador
-          </Link>
+          {canManage && (
+            <Link
+              href="/dashboard/users/new"
+              className="inline-block mt-4 text-sm text-zinc-600 border border-zinc-300 px-4 py-2 rounded-lg hover:bg-zinc-50 transition-colors"
+            >
+              Registrar primer entrenador
+            </Link>
+          )}
         </div>
       ) : (
         <div className="bg-white rounded-xl border border-zinc-200 shadow-sm overflow-hidden">
@@ -160,31 +175,35 @@ export default async function TrainersPage({ searchParams }: Props) {
                         >
                           Ver
                         </Link>
-                        <Link
-                          href={`/dashboard/trainers/${t.id}/edit`}
-                          className="text-xs text-zinc-600 hover:text-zinc-900 px-2.5 py-1 rounded border border-zinc-200 hover:border-zinc-400 transition-colors"
-                        >
-                          Editar
-                        </Link>
-                        <form action={toggleTrainerStatusAction}>
-                          <input type="hidden" name="id" value={t.id} />
-                          <button
-                            type="submit"
-                            className={`text-xs px-2.5 py-1 rounded border transition-colors ${
-                              t.status === "active"
-                                ? "text-amber-700 border-amber-200 hover:bg-amber-50"
-                                : "text-emerald-700 border-emerald-200 hover:bg-emerald-50"
-                            }`}
-                          >
-                            {t.status === "active" ? "Desactivar" : "Activar"}
-                          </button>
-                        </form>
-                        <DeleteAuthorizationDialog
-                          entityLabel={`al entrenador ${t.first_name} ${t.last_name}`}
-                          userRole={sessionUser.role}
-                          hiddenFields={{ id: t.id }}
-                          action={deleteTrainerAction}
-                        />
+                        {canManage && (
+                          <>
+                            <Link
+                              href={`/dashboard/trainers/${t.id}/edit`}
+                              className="text-xs text-zinc-600 hover:text-zinc-900 px-2.5 py-1 rounded border border-zinc-200 hover:border-zinc-400 transition-colors"
+                            >
+                              Editar
+                            </Link>
+                            <form action={toggleTrainerStatusAction}>
+                              <input type="hidden" name="id" value={t.id} />
+                              <button
+                                type="submit"
+                                className={`text-xs px-2.5 py-1 rounded border transition-colors ${
+                                  t.status === "active"
+                                    ? "text-amber-700 border-amber-200 hover:bg-amber-50"
+                                    : "text-emerald-700 border-emerald-200 hover:bg-emerald-50"
+                                }`}
+                              >
+                                {t.status === "active" ? "Desactivar" : "Activar"}
+                              </button>
+                            </form>
+                            <DeleteAuthorizationDialog
+                              entityLabel={`al entrenador ${t.first_name} ${t.last_name}`}
+                              userRole={sessionUser.role}
+                              hiddenFields={{ id: t.id }}
+                              action={deleteTrainerAction}
+                            />
+                          </>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -195,5 +214,8 @@ export default async function TrainersPage({ searchParams }: Props) {
         </div>
       )}
     </div>
-  );
+    );
+  } finally {
+    await dispose();
+  }
 }

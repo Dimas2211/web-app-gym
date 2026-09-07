@@ -31,6 +31,7 @@ import {
   assertOrganizationModule,
   CommercialEnforcementError,
 } from "@/modules/platform/runtime/commercial-enforcement";
+import { isRuntimeReadOnlyActive, RUNTIME_READONLY_MESSAGE } from "@/modules/platform/runtime/runtime-session";
 
 // Bloque B — guard central de este archivo: plantillas, días de
 // plantilla, planes de cliente y asignación segmentada requieren
@@ -105,6 +106,11 @@ export async function createTemplateAction(
 ): Promise<WeeklyPlanActionState> {
   const sessionUser = await requireAdmin();
 
+  // PASO 6C: bloquear escritura bajo sesión runtime "Operar como cliente"
+  if (await isRuntimeReadOnlyActive()) {
+    return { error: RUNTIME_READONLY_MESSAGE };
+  }
+
   const raw = {
     code: n(formData.get("code")),
     name: formData.get("name"),
@@ -154,6 +160,12 @@ export async function updateTemplateAction(
   formData: FormData
 ): Promise<WeeklyPlanActionState> {
   const sessionUser = await requireAdmin();
+
+  // PASO 6C: bloquear escritura bajo sesión runtime "Operar como cliente"
+  if (await isRuntimeReadOnlyActive()) {
+    return { error: RUNTIME_READONLY_MESSAGE };
+  }
+
   const id = formData.get("id") as string;
   if (!id) return { error: "ID requerido." };
 
@@ -197,6 +209,10 @@ export async function toggleTemplateStatusAction(
   formData: FormData
 ): Promise<void> {
   const sessionUser = await requireAdmin();
+
+  // PASO 6C: bloquear escritura bajo sesión runtime "Operar como cliente"
+  if (await isRuntimeReadOnlyActive()) return;
+
   const id = formData.get("id") as string;
   if (!id) return;
 
@@ -229,6 +245,12 @@ export async function upsertTemplateDayAction(
   formData: FormData
 ): Promise<WeeklyPlanActionState> {
   const sessionUser = await requireAdmin();
+
+  // PASO 6C: bloquear escritura bajo sesión runtime "Operar como cliente"
+  if (await isRuntimeReadOnlyActive()) {
+    return { error: RUNTIME_READONLY_MESSAGE };
+  }
+
   const template_id = formData.get("template_id") as string;
   if (!template_id) return { error: "Plantilla requerida." };
 
@@ -279,6 +301,11 @@ export async function deleteTemplateDayAction(
   formData: FormData
 ): Promise<DeleteAuthActionState> {
   const sessionUser = await getSessionOrRedirect();
+
+  // PASO 6C: bloquear escritura bajo sesión runtime "Operar como cliente"
+  if (await isRuntimeReadOnlyActive()) {
+    return { error: RUNTIME_READONLY_MESSAGE };
+  }
 
   const id = formData.get("id") as string;
   const template_id = formData.get("template_id") as string;
@@ -346,6 +373,11 @@ export async function createClientPlanAction(
   formData: FormData
 ): Promise<WeeklyPlanActionState> {
   const sessionUser = await requireClassViewer();
+
+  // PASO 6C: bloquear escritura bajo sesión runtime "Operar como cliente"
+  if (await isRuntimeReadOnlyActive()) {
+    return { error: RUNTIME_READONLY_MESSAGE };
+  }
 
   try {
     await assertWeeklyPlansModule(sessionUser.tenant_id);
@@ -457,6 +489,12 @@ export async function updateClientPlanAction(
   formData: FormData
 ): Promise<WeeklyPlanActionState> {
   const sessionUser = await requireClassViewer();
+
+  // PASO 6C: bloquear escritura bajo sesión runtime "Operar como cliente"
+  if (await isRuntimeReadOnlyActive()) {
+    return { error: RUNTIME_READONLY_MESSAGE };
+  }
+
   const id = formData.get("id") as string;
   if (!id) return { error: "ID requerido." };
 
@@ -528,6 +566,10 @@ export async function toggleClientPlanStatusAction(
   formData: FormData
 ): Promise<void> {
   const sessionUser = await requireClassViewer();
+
+  // PASO 6C: bloquear escritura bajo sesión runtime "Operar como cliente"
+  if (await isRuntimeReadOnlyActive()) return;
+
   const id = formData.get("id") as string;
   if (!id) return;
 
@@ -567,6 +609,12 @@ export async function updateClientPlanDayAction(
   formData: FormData
 ): Promise<WeeklyPlanActionState> {
   const sessionUser = await requireClassViewer();
+
+  // PASO 6C: bloquear escritura bajo sesión runtime "Operar como cliente"
+  if (await isRuntimeReadOnlyActive()) {
+    return { error: RUNTIME_READONLY_MESSAGE };
+  }
+
   const day_id = formData.get("day_id") as string;
   const plan_id = formData.get("plan_id") as string;
   if (!day_id || !plan_id) return { error: "IDs requeridos." };
@@ -616,6 +664,10 @@ export async function markClientPlanDayAction(
   formData: FormData
 ): Promise<void> {
   const sessionUser = await requireClassViewer();
+
+  // PASO 6C: bloquear escritura bajo sesión runtime "Operar como cliente"
+  if (await isRuntimeReadOnlyActive()) return;
+
   const day_id = formData.get("day_id") as string;
   const plan_id = formData.get("plan_id") as string;
   if (!day_id || !plan_id) return;
@@ -672,6 +724,12 @@ export async function addClientPlanDayAction(
   formData: FormData
 ): Promise<WeeklyPlanActionState> {
   const sessionUser = await requireClassViewer();
+
+  // PASO 6C: bloquear escritura bajo sesión runtime "Operar como cliente"
+  if (await isRuntimeReadOnlyActive()) {
+    return { error: RUNTIME_READONLY_MESSAGE };
+  }
+
   const plan_id = formData.get("plan_id") as string;
   if (!plan_id) return { error: "Plan requerido." };
 
@@ -750,6 +808,11 @@ export async function assignTemplateSegmentedAction(
   formData: FormData
 ): Promise<AssignSegmentedActionState> {
   const sessionUser = await requireAdmin();
+
+  // PASO 6C: bloquear escritura bajo sesión runtime "Operar como cliente"
+  if (await isRuntimeReadOnlyActive()) {
+    return { error: RUNTIME_READONLY_MESSAGE };
+  }
 
   try {
     await assertWeeklyPlansModule(sessionUser.tenant_id);
@@ -921,6 +984,12 @@ export async function deleteTemplateAction(
   formData: FormData
 ): Promise<DeleteAuthActionState> {
   const sessionUser = await getSessionOrRedirect();
+
+  // PASO 6C: bloquear escritura bajo sesión runtime "Operar como cliente"
+  if (await isRuntimeReadOnlyActive()) {
+    return { error: RUNTIME_READONLY_MESSAGE };
+  }
+
   const id = formData.get("id") as string;
   if (!id) return { error: "Datos inválidos" };
 
@@ -968,6 +1037,12 @@ export async function deleteClientPlanAction(
   formData: FormData
 ): Promise<DeleteAuthActionState> {
   const sessionUser = await getSessionOrRedirect();
+
+  // PASO 6C: bloquear escritura bajo sesión runtime "Operar como cliente"
+  if (await isRuntimeReadOnlyActive()) {
+    return { error: RUNTIME_READONLY_MESSAGE };
+  }
+
   const id = formData.get("id") as string;
   if (!id) return { error: "Datos inválidos" };
 

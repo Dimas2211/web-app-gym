@@ -4,7 +4,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth/auth";
 import type { SessionUser } from "@/lib/permissions/guards";
 import { getLowAdherenceClients } from "@/modules/reports/queries";
-import { assertReportModule } from "@/app/api/reports/reports-enforcement";
+import { resolveReportApiContext } from "@/app/api/reports/reports-enforcement";
 
 const ALLOWED_ROLES = ["super_admin", "branch_admin", "reception", "trainer"];
 
@@ -15,20 +15,28 @@ export async function GET(req: NextRequest) {
   const user = session.user as SessionUser;
   if (!ALLOWED_ROLES.includes(user.role)) return NextResponse.json({ error: "Acceso denegado" }, { status: 403 });
 
-  const moduleCheck = await assertReportModule(user.tenant_id, "gym.classes");
-  if (!moduleCheck.ok) return moduleCheck.response;
+  // PASO 6C: tenant/PrismaClient EFECTIVOS bajo sesión runtime "Operar como cliente".
+  const reportCtx = await resolveReportApiContext(user.tenant_id, "gym.classes");
+  if (!reportCtx.ok) return reportCtx.response;
 
-  const { searchParams } = req.nextUrl;
-  const dateFrom = searchParams.get("dateFrom") ?? undefined;
-  const dateTo = searchParams.get("dateTo") ?? undefined;
-  const threshold = Number(searchParams.get("threshold") ?? "50");
-  const branchIdParam = searchParams.get("branchId") ?? undefined;
+  try {
+    const { searchParams } = req.nextUrl;
+    const dateFrom = searchParams.get("dateFrom") ?? undefined;
+    const dateTo = searchParams.get("dateTo") ?? undefined;
+    const threshold = Number(searchParams.get("threshold") ?? "50");
+    const branchIdParam = searchParams.get("branchId") ?? undefined;
 
-  const branchId =
-    user.role === "branch_admin" || user.role === "reception" || user.role === "trainer"
-      ? (user.location_id ?? undefined)
-      : branchIdParam;
+    const branchId =
+      user.role === "branch_admin" || user.role === "reception" || user.role === "trainer"
+        ? (user.location_id ?? undefined)
+        : branchIdParam;
 
-  const data = await getLowAdherenceClients({ tenantId: user.tenant_id, branchId, dateFrom, dateTo, threshold });
-  return NextResponse.json(data);
+    const data = await getLowAdherenceClients(
+      { tenantId: reportCtx.tenantId, branchId, dateFrom, dateTo, threshold },
+      reportCtx.client,
+    );
+    return NextResponse.json(data);
+  } finally {
+    await reportCtx.dispose();
+  }
 }

@@ -3,6 +3,7 @@ import { getSessionOrRedirect } from "@/lib/permissions/guards";
 import { prisma } from "@/lib/db/prisma";
 import { ReportPageHeader } from "@/components/reports/ReportPageHeader";
 import { AttendanceByPeriodReport } from "./AttendanceByPeriodReport";
+import { resolveEffectiveTenantContext } from "@/modules/platform/runtime/effective-tenant-context";
 
 const ALLOWED_ROLES = ["super_admin", "branch_admin", "reception", "trainer"];
 
@@ -10,27 +11,35 @@ export default async function AttendanceByPeriodPage() {
   const user = await getSessionOrRedirect();
   if (!ALLOWED_ROLES.includes(user.role)) redirect("/dashboard/reports");
 
-  const branches =
-    user.role === "super_admin"
-      ? await prisma.branch.findMany({
-          where: { gym_id: user.tenant_id, status: "active" },
-          select: { id: true, name: true },
-          orderBy: { name: "asc" },
-        })
-      : [];
+  // PASO 6D: tenant/PrismaClient EFECTIVOS bajo sesión runtime "Operar como cliente".
+  const { context, dispose } = await resolveEffectiveTenantContext(user);
+  const db = context.client ?? prisma;
 
-  return (
-    <main className="p-4 md:p-8 max-w-6xl mx-auto">
-      <ReportPageHeader
-        crumbs={[
-          { label: "Reportes", href: "/dashboard/reports" },
-          { label: "Asistencia" },
-          { label: "Por período" },
-        ]}
-        title="Asistencia por período"
-        description="Resumen de asistencia a clases agrupado por día y detalle por sesión."
-      />
-      <AttendanceByPeriodReport branches={branches} isSuperAdmin={user.role === "super_admin"} />
-    </main>
-  );
+  try {
+    const branches =
+      user.role === "super_admin"
+        ? await db.branch.findMany({
+            where: { gym_id: context.tenantId, status: "active" },
+            select: { id: true, name: true },
+            orderBy: { name: "asc" },
+          })
+        : [];
+
+    return (
+      <main className="p-4 md:p-8 max-w-6xl mx-auto">
+        <ReportPageHeader
+          crumbs={[
+            { label: "Reportes", href: "/dashboard/reports" },
+            { label: "Asistencia" },
+            { label: "Por período" },
+          ]}
+          title="Asistencia por período"
+          description="Resumen de asistencia a clases agrupado por día y detalle por sesión."
+        />
+        <AttendanceByPeriodReport branches={branches} isSuperAdmin={user.role === "super_admin"} />
+      </main>
+    );
+  } finally {
+    await dispose();
+  }
 }
