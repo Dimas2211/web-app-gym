@@ -14,6 +14,7 @@
 import { revalidatePath } from "next/cache";
 import { requireAdmin } from "@/lib/permissions/guards";
 import { getEffectiveLocationId } from "@/lib/location/active-location";
+import { isRuntimeReadOnlyActive, RUNTIME_READONLY_MESSAGE } from "@/modules/platform/runtime/runtime-session";
 import {
   createDteIssuerConfigSchema,
   updateDteIssuerConfigSchema,
@@ -42,6 +43,11 @@ export async function createDteIssuerConfigForClientAction(
 
   if (!tenant_id)   return { error: "La sesión no tiene un tenant activo." };
   if (!location_id) return { error: "Selecciona una location activa para configurar el emisor DTE." };
+
+  // PASO 6A: bloquear escritura bajo sesión runtime "Operar como cliente"
+  if (await isRuntimeReadOnlyActive()) {
+    return { error: RUNTIME_READONLY_MESSAGE };
+  }
 
   try {
     const commercialCtx = await resolveCommercialEnforcementContext(tenant_id);
@@ -98,6 +104,11 @@ export async function updateDteIssuerConfigForClientAction(
 
   if (!tenant_id)   return { error: "La sesión no tiene un tenant activo." };
   if (!location_id) return { error: "Selecciona una location activa." };
+
+  // PASO 6A: bloquear escritura bajo sesión runtime "Operar como cliente"
+  if (await isRuntimeReadOnlyActive()) {
+    return { error: RUNTIME_READONLY_MESSAGE };
+  }
 
   try {
     const commercialCtx = await resolveCommercialEnforcementContext(tenant_id);

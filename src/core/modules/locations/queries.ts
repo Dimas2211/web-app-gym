@@ -8,6 +8,7 @@
  * MODO: read-only. No hay mutaciones en este módulo.
  */
 
+import type { PrismaClient } from "@prisma/client";
 import { prisma } from "@/lib/db/prisma";
 import type { Location, LocationOption } from "./types";
 
@@ -69,8 +70,8 @@ const LOCATION_SELECT = {
 /**
  * Retorna una ubicación por su ID o null si no existe.
  */
-export async function getLocationById(id: string): Promise<Location | null> {
-  const branch = await prisma.branch.findUnique({
+export async function getLocationById(id: string, db: PrismaClient = prisma): Promise<Location | null> {
+  const branch = await db.branch.findUnique({
     where: { id },
     select: LOCATION_SELECT,
   });

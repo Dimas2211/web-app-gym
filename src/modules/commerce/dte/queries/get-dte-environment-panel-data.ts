@@ -8,6 +8,8 @@
 // Nunca devuelve secretos — getDteCredentialStatus ya sanitiza.
 // ─────────────────────────────────────────────────────────────────
 
+import type { PrismaClient } from "@prisma/client";
+import { prisma } from "@/lib/db/prisma";
 import { listDteIssuerConfigs } from "./list-dte-issuer-configs";
 import { getDteCredentialStatus, type DteCredentialStatus } from "../services/dte-credential.service";
 import { getDteProductionPreflight, type DteProductionPreflightResult } from "../services/dte-production-preflight.service";
@@ -31,16 +33,17 @@ export interface DteEnvironmentPanelData {
 export async function getDteEnvironmentPanelData(
   tenant_id:   string,
   location_id: string,
+  db: PrismaClient = prisma,
 ): Promise<DteEnvironmentPanelData> {
-  const configs = await listDteIssuerConfigs({ tenant_id, location_id });
+  const configs = await listDteIssuerConfigs({ tenant_id, location_id }, db);
 
   const testConfig = configs.find((c) => c.environment === "TEST") ?? null;
   const prodConfig = configs.find((c) => c.environment === "PRODUCTION") ?? null;
 
   const [testCredential, prodCredential, prodPreflight] = await Promise.all([
-    testConfig ? getDteCredentialStatus(testConfig.id) : Promise.resolve(null),
-    prodConfig ? getDteCredentialStatus(prodConfig.id) : Promise.resolve(null),
-    getDteProductionPreflight(tenant_id, location_id),
+    testConfig ? getDteCredentialStatus(testConfig.id, db) : Promise.resolve(null),
+    prodConfig ? getDteCredentialStatus(prodConfig.id, db) : Promise.resolve(null),
+    getDteProductionPreflight(tenant_id, location_id, db),
   ]);
 
   const activeConfig = configs.find((c) => c.is_active) ?? null;

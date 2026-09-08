@@ -10,6 +10,7 @@
 // (bloquear la activación) usen exactamente la misma fuente de verdad.
 // ─────────────────────────────────────────────────────────────────
 
+import type { PrismaClient } from "@prisma/client";
 import { prisma } from "@/lib/db/prisma";
 import { getDteCredentialStatus, canDecryptDteCredential } from "./dte-credential.service";
 import { resolveDteMhUrls } from "../config/dte-mh.config";
@@ -43,11 +44,12 @@ function overallStatus(checks: PreflightCheck[]): PreflightOverallStatus {
 export async function getDteProductionPreflight(
   tenant_id:   string,
   location_id: string,
+  db: PrismaClient = prisma,
 ): Promise<DteProductionPreflightResult> {
   const checks: PreflightCheck[] = [];
 
   // ── 1. Existe DteIssuerConfig PRODUCTION ──────────────────────────
-  const config = await prisma.dteIssuerConfig.findFirst({
+  const config = await db.dteIssuerConfig.findFirst({
     where: { tenant_id, location_id, environment: "PRODUCTION" },
     select: {
       id: true, nit: true, nrc: true, name: true, activity_code: true, activity_name: true,
@@ -127,7 +129,7 @@ export async function getDteProductionPreflight(
   });
 
   // ── 5. Credenciales MH PRODUCTION ─────────────────────────────────
-  const credStatus = await getDteCredentialStatus(config.id);
+  const credStatus = await getDteCredentialStatus(config.id, db);
   if (!credStatus.configured) {
     checks.push({
       code:   "CREDENTIAL_EXISTS",
@@ -155,7 +157,7 @@ export async function getDteProductionPreflight(
 
   // ── 6. El payload cifrado puede descifrarse con la clave actual ──
   if (credStatus.configured) {
-    const canDecrypt = await canDecryptDteCredential(config.id);
+    const canDecrypt = await canDecryptDteCredential(config.id, db);
     checks.push({
       code:   "CREDENTIAL_DECRYPTABLE",
       label:  "Payload de credenciales descifrable",
@@ -239,7 +241,7 @@ export async function getDteProductionPreflight(
   // No es bloqueante: si no existe fila DteCorrelative todavía, se crea
   // automáticamente en la primera reserva real (comportamiento ya
   // existente de reserveDteControlNumber). Aquí solo informamos.
-  const correlatives = await prisma.dteCorrelative.findMany({
+  const correlatives = await db.dteCorrelative.findMany({
     where: { tenant_id, location_id, environment: "PRODUCTION" },
     select: { dte_type_code: true, last_sequence: true },
   });
@@ -253,7 +255,7 @@ export async function getDteProductionPreflight(
   });
 
   // ── 10. Consistencia de configs activas ───────────────────────────
-  const activeCount = await prisma.dteIssuerConfig.count({
+  const activeCount = await db.dteIssuerConfig.count({
     where: { tenant_id, location_id, is_active: true },
   });
   checks.push({

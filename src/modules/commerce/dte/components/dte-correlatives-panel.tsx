@@ -18,9 +18,11 @@ import type { DteCorrelativeAlignmentRow } from "../queries/list-dte-correlative
 
 interface Props {
   rows: DteCorrelativeAlignmentRow[];
+  /** true durante sesión "Operar como cliente" (siempre solo lectura) — oculta el control de alineación. */
+  readOnly?: boolean;
 }
 
-export function DteCorrelativesPanel({ rows }: Props) {
+export function DteCorrelativesPanel({ rows, readOnly = false }: Props) {
   const [editingRow, setEditingRow] = useState<DteCorrelativeAlignmentRow | null>(null);
 
   return (
@@ -31,6 +33,12 @@ export function DteCorrelativesPanel({ rows }: Props) {
           Alineación de correlativos DTE ({rows.length})
         </h2>
       </div>
+
+      {readOnly && (
+        <p className="text-xs text-zinc-400 italic px-5 pt-3">
+          Modo &quot;Operar como cliente&quot; — solo lectura. Alineación de correlativos deshabilitada.
+        </p>
+      )}
 
       {rows.length === 0 ? (
         <p className="text-sm text-zinc-400 p-5">
@@ -49,7 +57,7 @@ export function DteCorrelativesPanel({ rows }: Props) {
                 <th className="text-right px-4 py-2 text-xs font-semibold text-zinc-500">Máx. en emitidos</th>
                 <th className="text-right px-4 py-2 text-xs font-semibold text-zinc-500">Baseline externo</th>
                 <th className="text-right px-4 py-2 text-xs font-semibold text-zinc-500">Próximo #</th>
-                <th className="text-right px-4 py-2 text-xs font-semibold text-zinc-500 w-[110px]"></th>
+                {!readOnly && <th className="text-right px-4 py-2 text-xs font-semibold text-zinc-500 w-[110px]"></th>}
               </tr>
             </thead>
             <tbody>
@@ -69,15 +77,17 @@ export function DteCorrelativesPanel({ rows }: Props) {
                     )}
                   </td>
                   <td className="px-4 py-2 text-right font-semibold text-zinc-900">{row.next_sequence}</td>
-                  <td className="px-4 py-2 text-right">
-                    <button
-                      type="button"
-                      onClick={() => setEditingRow(row)}
-                      className="text-xs font-semibold text-zinc-700 border border-zinc-200 rounded-lg px-3 py-1.5 hover:bg-zinc-100 transition-colors"
-                    >
-                      Alinear
-                    </button>
-                  </td>
+                  {!readOnly && (
+                    <td className="px-4 py-2 text-right">
+                      <button
+                        type="button"
+                        onClick={() => setEditingRow(row)}
+                        className="text-xs font-semibold text-zinc-700 border border-zinc-200 rounded-lg px-3 py-1.5 hover:bg-zinc-100 transition-colors"
+                      >
+                        Alinear
+                      </button>
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>
@@ -85,7 +95,7 @@ export function DteCorrelativesPanel({ rows }: Props) {
         </div>
       )}
 
-      {editingRow && (
+      {!readOnly && editingRow && (
         <AlignDteCorrelativeSessionDialog
           row={editingRow}
           onClose={() => setEditingRow(null)}

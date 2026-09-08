@@ -67,8 +67,9 @@ const EMPTY_STATUS: DteCredentialStatus = {
 
 export async function getDteCredentialStatus(
   issuer_config_id: string,
+  db: PrismaClient = prisma,
 ): Promise<DteCredentialStatus> {
-  const row = await prisma.dteCredential.findFirst({
+  const row = await db.dteCredential.findFirst({
     where:  { issuer_config_id, credential_type: CREDENTIAL_TYPE },
     select: { encrypted_payload: true, is_active: true, updated_at: true },
   });
@@ -109,8 +110,11 @@ export async function getDteCredentialStatus(
 // cifrado actual (PLATFORM_ENCRYPTION_KEY) puede leer el payload
 // guardado, sin exponer su contenido.
 
-export async function canDecryptDteCredential(issuer_config_id: string): Promise<boolean> {
-  const row = await prisma.dteCredential.findFirst({
+export async function canDecryptDteCredential(
+  issuer_config_id: string,
+  db: PrismaClient = prisma,
+): Promise<boolean> {
+  const row = await db.dteCredential.findFirst({
     where:  { issuer_config_id, credential_type: CREDENTIAL_TYPE, is_active: true },
     select: { encrypted_payload: true },
   });

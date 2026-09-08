@@ -39,7 +39,7 @@ vi.mock("@/lib/db/prisma", () => ({
   prisma: { __marker: "NORMAL_SINGLETON" },
 }));
 
-import { resolveEffectiveTenantContext } from "./effective-tenant-context";
+import { resolveEffectiveTenantContext, resolveRuntimeFirstLocationId } from "./effective-tenant-context";
 import type { SessionUser } from "@/lib/permissions/guards";
 
 const NORMAL_USER = {
@@ -122,5 +122,51 @@ describe("resolveEffectiveTenantContext", () => {
     expect(context.tenantId).toBe("tenant-superadmin-real");
     expect(context.runtime).toBeNull();
     expect(clearRuntimeSessionMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────
+// resolveRuntimeFirstLocationId — bug residual post FASE IV-A: las
+// páginas DTE (settings/correlatives) resuelven la location runtime
+// con esta función en vez de getEffectiveLocationId(sessionUser) — esa
+// cookie pertenece al tenant real del super_admin, no al tenant
+// runtime. Caso de certificación: TrustMe con exactamente 1 Branch
+// activa debe resolver esa Branch, nunca una del tenant GYM.
+// ─────────────────────────────────────────────────────────────────
+describe("resolveRuntimeFirstLocationId", () => {
+  it("sin context.client (modo normal) -> null, nunca consulta la DB", async () => {
+    const result = await resolveRuntimeFirstLocationId({ tenantId: "tenant-gym", runtime: null });
+    expect(result).toBeNull();
+  });
+
+  it("tenant runtime con exactamente 1 Branch activa -> resuelve esa Branch (TrustMe), nunca una de otro tenant", async () => {
+    const findFirstSpy = vi.fn().mockResolvedValue({ id: "branch-trustme-unica" });
+    const runtimeClient = { branch: { findFirst: findFirstSpy } } as never;
+
+    const result = await resolveRuntimeFirstLocationId({
+      tenantId: "tenant-trustme",
+      client: runtimeClient,
+      runtime: { readOnly: true } as never,
+    });
+
+    expect(result).toBe("branch-trustme-unica");
+    expect(findFirstSpy).toHaveBeenCalledWith({
+      where: { tenant_id: "tenant-trustme", status: "active" },
+      select: { id: true },
+      orderBy: { name: "asc" },
+    });
+  });
+
+  it("tenant runtime sin Branch activa -> null (nunca inventa/hereda la del tenant real)", async () => {
+    const findFirstSpy = vi.fn().mockResolvedValue(null);
+    const runtimeClient = { branch: { findFirst: findFirstSpy } } as never;
+
+    const result = await resolveRuntimeFirstLocationId({
+      tenantId: "tenant-trustme",
+      client: runtimeClient,
+      runtime: { readOnly: true } as never,
+    });
+
+    expect(result).toBeNull();
   });
 });

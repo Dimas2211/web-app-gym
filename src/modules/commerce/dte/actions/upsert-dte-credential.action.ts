@@ -12,6 +12,7 @@ import { revalidatePath } from "next/cache";
 import { requireAdmin } from "@/lib/permissions/guards";
 import { getEffectiveLocationId } from "@/lib/location/active-location";
 import { prisma } from "@/lib/db/prisma";
+import { isRuntimeReadOnlyActive, RUNTIME_READONLY_MESSAGE } from "@/modules/platform/runtime/runtime-session";
 import { upsertDteCredentialSchema } from "../schemas/dte-credential.schemas";
 import { upsertDteCredential } from "../services/dte-credential.service";
 import {
@@ -35,6 +36,11 @@ export async function upsertDteCredentialAction(
 
   if (!tenant_id)   return { error: "La sesión no tiene un tenant activo." };
   if (!location_id) return { error: "Selecciona una location activa." };
+
+  // PASO 6A: bloquear escritura bajo sesión runtime "Operar como cliente"
+  if (await isRuntimeReadOnlyActive()) {
+    return { error: RUNTIME_READONLY_MESSAGE };
+  }
 
   try {
     const commercialCtx = await resolveCommercialEnforcementContext(tenant_id);

@@ -33,7 +33,7 @@
 // qué número reservar para uno nuevo.
 // ─────────────────────────────────────────────────────────────────
 
-import { Prisma }   from "@prisma/client";
+import { Prisma, type PrismaClient } from "@prisma/client";
 import { prisma }   from "@/lib/db/prisma";
 import { buildControlNumber, buildControlNumberPrefix } from "../utils/dte-control-number";
 
@@ -163,18 +163,21 @@ export interface DteCorrelativeStatus {
   next_sequence:             number;
 }
 
-export async function getDteCorrelativeStatus(params: {
-  tenant_id:          string;
-  location_id:        string;
-  issuer_config_id:   string;
-  environment:        "TEST" | "PRODUCTION";
-  dte_type_code:      string;
-  cod_estable_mh:     string;
-  cod_punto_venta_mh: string;
-}): Promise<DteCorrelativeStatus> {
+export async function getDteCorrelativeStatus(
+  params: {
+    tenant_id:          string;
+    location_id:        string;
+    issuer_config_id:   string;
+    environment:        "TEST" | "PRODUCTION";
+    dte_type_code:      string;
+    cod_estable_mh:     string;
+    cod_punto_venta_mh: string;
+  },
+  db: PrismaClient = prisma,
+): Promise<DteCorrelativeStatus> {
   const year = new Date().getFullYear();
 
-  const correlative = await prisma.dteCorrelative.findUnique({
+  const correlative = await db.dteCorrelative.findUnique({
     where: {
       tenant_id_location_id_issuer_config_id_environment_dte_type_code_year: {
         tenant_id:        params.tenant_id,
@@ -202,7 +205,7 @@ export async function getDteCorrelativeStatus(params: {
     cod_punto_venta_mh: params.cod_punto_venta_mh,
   });
 
-  const existing = await prisma.dteOutgoingDocument.findMany({
+  const existing = await db.dteOutgoingDocument.findMany({
     where: {
       tenant_id:      params.tenant_id,
       location_id:    params.location_id,

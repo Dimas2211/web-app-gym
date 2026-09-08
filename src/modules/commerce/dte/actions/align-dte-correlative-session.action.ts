@@ -25,6 +25,7 @@
 import { revalidatePath } from "next/cache";
 import { requireSuperAdmin } from "@/lib/permissions/guards";
 import { prisma } from "@/lib/db/prisma";
+import { isRuntimeReadOnlyActive, RUNTIME_READONLY_MESSAGE } from "@/modules/platform/runtime/runtime-session";
 import { alignDteCorrelativeSessionSchema } from "../schemas/align-dte-correlative-session.schema";
 import { alignDteCorrelativeBaseline } from "../services/dte-correlative.service";
 import {
@@ -45,6 +46,11 @@ export async function alignDteCorrelativeSessionAction(
   const sessionUser = await requireSuperAdmin();
   const tenant_id = sessionUser.tenant_id;
   if (!tenant_id) return { error: "La sesión no tiene un tenant activo." };
+
+  // PASO 6A: bloquear escritura bajo sesión runtime "Operar como cliente"
+  if (await isRuntimeReadOnlyActive()) {
+    return { error: RUNTIME_READONLY_MESSAGE };
+  }
 
   try {
     const commercialCtx = await resolveCommercialEnforcementContext(tenant_id);

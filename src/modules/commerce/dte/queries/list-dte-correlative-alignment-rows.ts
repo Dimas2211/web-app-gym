@@ -20,6 +20,7 @@
 // Solo lectura — no escribe nada.
 // ─────────────────────────────────────────────────────────────────
 
+import type { PrismaClient } from "@prisma/client";
 import { prisma } from "@/lib/db/prisma";
 import { getDteCorrelativeStatus } from "../services/dte-correlative.service";
 import { DTE_TYPE_CODES_FOR_ALIGNMENT } from "../constants/dte-type-codes-for-alignment";
@@ -45,14 +46,15 @@ export interface DteCorrelativeAlignmentRow {
 
 export async function listDteCorrelativeAlignmentRows(
   tenant_id: string,
+  db: PrismaClient = prisma,
 ): Promise<DteCorrelativeAlignmentRow[]> {
   const [issuerConfigs, branches] = await Promise.all([
-    prisma.dteIssuerConfig.findMany({
+    db.dteIssuerConfig.findMany({
       where:  { tenant_id, is_active: true, cod_estable_mh: { not: null }, cod_punto_venta_mh: { not: null } },
       select: { id: true, location_id: true, environment: true, cod_estable_mh: true, cod_punto_venta_mh: true },
       orderBy: [{ location_id: "asc" }, { environment: "asc" }],
     }),
-    prisma.branch.findMany({
+    db.branch.findMany({
       where:  { tenant_id },
       select: { id: true, name: true },
     }),
@@ -74,7 +76,7 @@ export async function listDteCorrelativeAlignmentRows(
         dte_type_code:      dteType.code,
         cod_estable_mh:     issuer.cod_estable_mh,
         cod_punto_venta_mh: issuer.cod_punto_venta_mh,
-      });
+      }, db);
 
       rows.push({
         issuer_config_id:   issuer.id,

@@ -21,6 +21,8 @@ import type { DteEnvironment } from "../../types/dte.types";
 
 interface Props {
   data: DteEnvironmentPanelData;
+  /** true durante sesión "Operar como cliente" (siempre solo lectura) — oculta Configurar/Editar/Credenciales/Activar. */
+  readOnly?: boolean;
 }
 
 type DialogState =
@@ -69,10 +71,11 @@ function PreflightSummary({ status }: { status: "READY" | "WARNING" | "BLOCKED" 
 }
 
 function EnvironmentCard({
-  entry, onOpen,
+  entry, onOpen, readOnly,
 }: {
   entry: DteEnvironmentPanelEntry;
   onOpen: (d: DialogState) => void;
+  readOnly: boolean;
 }) {
   const isProd = entry.environment === "PRODUCTION";
   const hasConfig = !!entry.config;
@@ -139,44 +142,50 @@ function EnvironmentCard({
           </ul>
         )}
 
-        <div className="flex flex-wrap gap-2 pt-2">
-          <button
-            type="button"
-            onClick={() => onOpen({ type: "issuer-config", environment: entry.environment })}
-            className="inline-flex items-center gap-1 text-xs font-semibold text-zinc-700 border border-zinc-200 rounded-lg px-3 py-1.5 hover:bg-zinc-100 transition-colors"
-          >
-            <Settings2 size={13} /> {hasConfig ? "Editar datos fiscales" : "Configurar"}
-          </button>
-
-          {hasConfig && (
+        {readOnly ? (
+          <p className="text-xs text-zinc-400 pt-2 italic">
+            Modo &quot;Operar como cliente&quot; — solo lectura. Configuración/credenciales/activación deshabilitadas.
+          </p>
+        ) : (
+          <div className="flex flex-wrap gap-2 pt-2">
             <button
               type="button"
-              onClick={() => onOpen({ type: "credential", environment: entry.environment })}
+              onClick={() => onOpen({ type: "issuer-config", environment: entry.environment })}
               className="inline-flex items-center gap-1 text-xs font-semibold text-zinc-700 border border-zinc-200 rounded-lg px-3 py-1.5 hover:bg-zinc-100 transition-colors"
             >
-              <KeyRound size={13} /> Credenciales
+              <Settings2 size={13} /> {hasConfig ? "Editar datos fiscales" : "Configurar"}
             </button>
-          )}
 
-          {hasConfig && !isActive && (
-            <button
-              type="button"
-              onClick={() => onOpen({ type: "switch", environment: entry.environment })}
-              disabled={isProd && entry.preflight?.status === "BLOCKED"}
-              className={`inline-flex items-center gap-1 text-xs font-semibold rounded-lg px-3 py-1.5 transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
-                isProd ? "bg-red-600 text-white hover:bg-red-700" : "bg-zinc-900 text-white hover:bg-zinc-800"
-              }`}
-            >
-              Activar {isProd ? "PRODUCCIÓN" : "PRUEBAS"}
-            </button>
-          )}
-        </div>
+            {hasConfig && (
+              <button
+                type="button"
+                onClick={() => onOpen({ type: "credential", environment: entry.environment })}
+                className="inline-flex items-center gap-1 text-xs font-semibold text-zinc-700 border border-zinc-200 rounded-lg px-3 py-1.5 hover:bg-zinc-100 transition-colors"
+              >
+                <KeyRound size={13} /> Credenciales
+              </button>
+            )}
+
+            {hasConfig && !isActive && (
+              <button
+                type="button"
+                onClick={() => onOpen({ type: "switch", environment: entry.environment })}
+                disabled={isProd && entry.preflight?.status === "BLOCKED"}
+                className={`inline-flex items-center gap-1 text-xs font-semibold rounded-lg px-3 py-1.5 transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
+                  isProd ? "bg-red-600 text-white hover:bg-red-700" : "bg-zinc-900 text-white hover:bg-zinc-800"
+                }`}
+              >
+                Activar {isProd ? "PRODUCCIÓN" : "PRUEBAS"}
+              </button>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );
 }
 
-export function DteEnvironmentSettingsPanel({ data }: Props) {
+export function DteEnvironmentSettingsPanel({ data, readOnly = false }: Props) {
   const [dialog, setDialog] = useState<DialogState>(null);
 
   const entryFor = (env: DteEnvironment) => (env === "PRODUCTION" ? data.production : data.test);
@@ -225,11 +234,14 @@ export function DteEnvironmentSettingsPanel({ data }: Props) {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <EnvironmentCard entry={data.test} onOpen={setDialog} />
-        <EnvironmentCard entry={data.production} onOpen={setDialog} />
+        <EnvironmentCard entry={data.test} onOpen={setDialog} readOnly={readOnly} />
+        <EnvironmentCard entry={data.production} onOpen={setDialog} readOnly={readOnly} />
       </div>
 
-      {dialog?.type === "issuer-config" && (
+      {/* Defensa en profundidad: los diálogos mutativos ni siquiera se
+          montan en modo solo lectura, aunque `dialog` nunca llega a
+          poblarse porque los botones que lo abren ya están ocultos arriba. */}
+      {!readOnly && dialog?.type === "issuer-config" && (
         <DteIssuerConfigFormDialog
           environment={dialog.environment}
           existing={entryFor(dialog.environment).config}
@@ -242,7 +254,7 @@ export function DteEnvironmentSettingsPanel({ data }: Props) {
         />
       )}
 
-      {dialog?.type === "credential" && entryFor(dialog.environment).config && (
+      {!readOnly && dialog?.type === "credential" && entryFor(dialog.environment).config && (
         <DteCredentialFormDialog
           issuerConfigId={entryFor(dialog.environment).config!.id}
           environment={dialog.environment}
@@ -251,7 +263,7 @@ export function DteEnvironmentSettingsPanel({ data }: Props) {
         />
       )}
 
-      {dialog?.type === "switch" && entryFor(dialog.environment).config && (
+      {!readOnly && dialog?.type === "switch" && entryFor(dialog.environment).config && (
         <SwitchDteEnvironmentDialog
           targetIssuerConfigId={entryFor(dialog.environment).config!.id}
           targetEnvironment={dialog.environment}
