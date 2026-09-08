@@ -23,6 +23,7 @@ const legacyCtx: CommercialEnforcementContext = {
   verticalId: null,
   effectiveModules: new Map(),
   effectiveEntitlements: new Map(),
+  organizationTimezone: null,
 };
 
 function fakeRuntimeDb(transactionImpl: (cb: (tx: unknown) => Promise<unknown>) => Promise<unknown>) {
@@ -81,6 +82,7 @@ describe("withCapacityCheckedTransaction", () => {
       verticalId: null,
       effectiveModules: new Map(),
       effectiveEntitlements: new Map(), // sin fila para commerce.products.max -> ENTITLEMENT_NOT_CONFIGURED
+      organizationTimezone: "America/El_Salvador",
     };
     let attempts = 0;
     const db = fakeRuntimeDb(async (cb) => {

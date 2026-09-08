@@ -41,6 +41,7 @@ describe("resolveCommercialEnforcementContext", () => {
     expect(ctx.organizationId).toBeNull();
     expect(ctx.effectiveModules.size).toBe(0);
     expect(ctx.effectiveEntitlements.size).toBe(0);
+    expect(ctx.organizationTimezone).toBeNull();
     expect(warnSpy).toHaveBeenCalledWith(
       "[commercial-enforcement] LEGACY_UNMANAGED_BYPASS",
       expect.objectContaining({ tenantId: "tenant-legacy-1" }),
@@ -49,7 +50,7 @@ describe("resolveCommercialEnforcementContext", () => {
   });
 
   it("con fila + plan -> MANAGED, maps poblados desde los wrappers del Bloque A", async () => {
-    findUniqueMock.mockResolvedValue({ id: "org-1", plan_id: "plan-1", vertical_id: "vert-gym" });
+    findUniqueMock.mockResolvedValue({ id: "org-1", plan_id: "plan-1", vertical_id: "vert-gym", timezone: "America/El_Salvador" });
     getEffectiveOrganizationModulesMock.mockResolvedValue([
       { module_id: "m1", code: "commerce.products", name: "Productos", category: "COMMERCE", is_core: false, enabled: true, source: "PLAN" },
     ]);
@@ -64,10 +65,11 @@ describe("resolveCommercialEnforcementContext", () => {
     expect(ctx.planId).toBe("plan-1");
     expect(ctx.effectiveModules.get("commerce.products")).toMatchObject({ enabled: true, source: "PLAN" });
     expect(ctx.effectiveEntitlements.get("commerce.products.max")).toMatchObject({ numeric_value: 500, source: "PLAN" });
+    expect(ctx.organizationTimezone).toBe("America/El_Salvador");
   });
 
   it("con fila sin plan (plan_id null) -> MANAGED, wrappers devuelven todo UNCONFIGURED (fail-closed natural)", async () => {
-    findUniqueMock.mockResolvedValue({ id: "org-2", plan_id: null, vertical_id: null });
+    findUniqueMock.mockResolvedValue({ id: "org-2", plan_id: null, vertical_id: null, timezone: null });
     getEffectiveOrganizationModulesMock.mockResolvedValue([
       { module_id: "m1", code: "commerce.products", name: "Productos", category: "COMMERCE", is_core: false, enabled: false, source: "UNCONFIGURED" },
     ]);
@@ -80,6 +82,7 @@ describe("resolveCommercialEnforcementContext", () => {
     expect(ctx.mode).toBe("MANAGED");
     expect(ctx.effectiveModules.get("commerce.products")?.source).toBe("UNCONFIGURED");
     expect(ctx.effectiveEntitlements.get("commerce.products.max")?.source).toBe("UNCONFIGURED");
+    expect(ctx.organizationTimezone).toBeNull();
   });
 
   it("excepción de Prisma al resolver -> COMMERCIAL_CONTEXT_ERROR, NUNCA degrada a LEGACY_UNMANAGED", async () => {

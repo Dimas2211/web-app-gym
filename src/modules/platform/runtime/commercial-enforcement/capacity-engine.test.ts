@@ -37,6 +37,7 @@ function managedCtx(ent: EffectiveEntitlement | undefined): CommercialEnforcemen
     verticalId: null,
     effectiveModules: new Map(),
     effectiveEntitlements: ent ? new Map([[CODE, ent]]) : new Map(),
+    organizationTimezone: "America/El_Salvador",
   };
 }
 
@@ -49,6 +50,7 @@ function legacyCtx(): CommercialEnforcementContext {
     verticalId: null,
     effectiveModules: new Map(),
     effectiveEntitlements: new Map(),
+    organizationTimezone: null,
   };
 }
 

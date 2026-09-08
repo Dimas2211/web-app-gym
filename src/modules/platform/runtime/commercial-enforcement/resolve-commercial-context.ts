@@ -36,11 +36,11 @@ import {
 import { CommercialEnforcementError, type CommercialEnforcementContext } from "./types";
 
 async function resolveUncached(tenantId: string): Promise<CommercialEnforcementContext> {
-  let org: { id: string; plan_id: string | null; vertical_id: string | null } | null;
+  let org: { id: string; plan_id: string | null; vertical_id: string | null; timezone: string | null } | null;
   try {
     org = await controlPlanePrisma.platformOrganization.findUnique({
       where: { tenant_id: tenantId },
-      select: { id: true, plan_id: true, vertical_id: true },
+      select: { id: true, plan_id: true, vertical_id: true, timezone: true },
     });
   } catch {
     // Nunca degradar a LEGACY_UNMANAGED por un error de infraestructura —
@@ -61,6 +61,7 @@ async function resolveUncached(tenantId: string): Promise<CommercialEnforcementC
       verticalId: null,
       effectiveModules: new Map(),
       effectiveEntitlements: new Map(),
+      organizationTimezone: null,
     };
   }
 
@@ -79,6 +80,7 @@ async function resolveUncached(tenantId: string): Promise<CommercialEnforcementC
     verticalId: org.vertical_id,
     effectiveModules: new Map(modules.map((m) => [m.code, m])),
     effectiveEntitlements: new Map(entitlements.map((e) => [e.code, e])),
+    organizationTimezone: org.timezone,
   };
 }
 

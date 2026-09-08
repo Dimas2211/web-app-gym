@@ -1443,6 +1443,18 @@ enum DteEnvironment {
   PRODUCTION
 }
 
+// FASE IV-A — Motor de metering comercial fiscal.dte.monthly_issued.
+// PENDING: reserva activa, ocupa cupo, resultado MH aún no confirmado.
+// CONSUMED: MH confirmó ACCEPTED u OBSERVED — consumo definitivo.
+// RELEASED: MH confirmó REJECTED — cupo liberado. Reabrir el mismo
+//   documento (reopen-rejected/reopen-signed → nueva transmisión) hace
+//   RELEASED → PENDING sobre la MISMA fila (nunca crea una segunda).
+enum DteFiscalMeteringStatus {
+  PENDING
+  CONSUMED
+  RELEASED
+}
+
 enum DteRenderedDocumentStatus {
   PENDING
   GENERATED
@@ -2026,18 +2038,19 @@ model DteOutgoingDocument {
   updated_by String?
 
   // Relaciones
-  sale                    Sale?                     @relation(fields: [sale_id], references: [id])
-  purchase                Purchase?                 @relation(fields: [purchase_id], references: [id])
-  issuer_config           DteIssuerConfig?          @relation(fields: [issuer_config_id], references: [id])
-  created_by_user         User?                     @relation("DteOutgoingDocumentCreatedBy", fields: [created_by], references: [id])
-  updated_by_user         User?                     @relation("DteOutgoingDocumentUpdatedBy", fields: [updated_by], references: [id])
-  transmission_logs       DteTransmissionLog[]
-  rendered_documents      DteRenderedDocument[]
-  deliveries              DteDelivery[]
-  source_relations        DteDocumentRelation[]     @relation("SourceDteDocument")
-  related_in_relations    DteDocumentRelation[]     @relation("RelatedDteDocument")
-  invalidation_events     DteInvalidationEvent[]
-  contingency_event_items DteContingencyEventItem[]
+  sale                        Sale?                         @relation(fields: [sale_id], references: [id])
+  purchase                    Purchase?                     @relation(fields: [purchase_id], references: [id])
+  issuer_config               DteIssuerConfig?              @relation(fields: [issuer_config_id], references: [id])
+  created_by_user             User?                         @relation("DteOutgoingDocumentCreatedBy", fields: [created_by], references: [id])
+  updated_by_user             User?                         @relation("DteOutgoingDocumentUpdatedBy", fields: [updated_by], references: [id])
+  transmission_logs           DteTransmissionLog[]
+  rendered_documents          DteRenderedDocument[]
+  deliveries                  DteDelivery[]
+  source_relations            DteDocumentRelation[]         @relation("SourceDteDocument")
+  related_in_relations        DteDocumentRelation[]         @relation("RelatedDteDocument")
+  invalidation_events         DteInvalidationEvent[]
+  contingency_event_items     DteContingencyEventItem[]
+  fiscal_metering_reservation DteFiscalMeteringReservation?
 
   // F3-C24 — control_number nunca debe repetirse dentro del mismo tenant +
   // ambiente. La lógica de reserva (reserveDteControlNumber) ya lo
@@ -2350,6 +2363,48 @@ model DteContingencyEventItem {
   @@index([contingency_event_id])
   @@index([dte_document_id])
   @@map("dte_contingency_event_items")
+}
+
+// ─── DteFiscalMeteringReservation ────────────────────────────────
+// FASE IV-A — Ledger de metering comercial de fiscal.dte.monthly_issued.
+// Ver docs/modules/platform-phase-4-dte-monthly-metering.md.
+//
+// Resuelve la carrera de concurrencia entre el check de capacidad y la
+// llamada HTTP a MH: una fila = una unidad de cupo reservada para UN
+// DteOutgoingDocument PRODUCTION, nunca para TEST ni para tenants
+// LEGACY_UNMANAGED. NO es la fuente de verdad fiscal (esa sigue siendo
+// DteOutgoingDocument) — es exclusivamente el mecanismo de atomicidad e
+// idempotencia comercial.
+//
+// dte_document_id es UNIQUE a propósito: reabrir el mismo documento
+// (RELEASED → PENDING) reutiliza la MISMA fila, nunca crea una segunda
+// reserva para el mismo DTE.
+model DteFiscalMeteringReservation {
+  id               String @id @default(uuid())
+  tenant_id        String
+  dte_document_id  String @unique
+  entitlement_code String // hoy siempre "fiscal.dte.monthly_issued" — string libre para no atar el ledger a un enum de entitlements
+  period_key       String // "YYYY-MM" en timezone LOCAL de la PlatformOrganization, fijado en el momento de la adquisición (nunca recalculado retroactivamente)
+
+  status DteFiscalMeteringStatus @default(PENDING)
+
+  reserved_at DateTime // cuándo se adquirió la reserva vigente (se actualiza en cada reapertura RELEASED → PENDING)
+  resolved_at DateTime? // cuándo pasó a CONSUMED o RELEASED — null mientras está PENDING
+
+  created_by String?
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  // Relación 1:1 con el documento fiscal real — sin cascada. Un intento de
+  // borrar un DteOutgoingDocument con reserva asociada debe fallar
+  // explícitamente (Restrict), nunca arrastrar en silencio el registro de
+  // metering comercial.
+  dte_document DteOutgoingDocument @relation(fields: [dte_document_id], references: [id], onDelete: Restrict)
+
+  @@index([tenant_id, entitlement_code, period_key, status])
+  @@index([tenant_id, period_key])
+  @@map("dte_fiscal_metering_reservations")
 }
 
 // ═════════════════════════════════════════════════════════════════

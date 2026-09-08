@@ -20,6 +20,13 @@ import { resolveDteMhUrls }           from "../config/dte-mh.config";
 import { MhDteTransmissionAdapter }  from "../adapters/dte-transmission.adapter";
 import { canUseFex11InServerFlow }   from "../utils/fex11-feature-guard";
 import { assertDteContingencyTransmissionAllowed } from "./assert-dte-contingency-transmission-allowed.service";
+import { resolveCommercialEnforcementContext } from "@/modules/platform/runtime/commercial-enforcement/resolve-commercial-context";
+import {
+  reserveDteFiscalCapacity,
+  finalizeDteFiscalCapacityConsumed,
+  releaseDteFiscalCapacity,
+  type DteMeteringToken,
+} from "./dte-fiscal-metering.service";
 import type {
   DteTransmissionSuccessResult,
 } from "../types/dte-transmission.types";
@@ -185,6 +192,40 @@ export async function transmitDteDocument(
     const receptionUrl  = buildReceptionUrl(environment);
     const attemptNumber = dteDoc.retry_count + 1;
 
+    // 4b. Metering comercial fiscal.dte.monthly_issued — FASE IV-A.
+    // Debe ejecutarse SIEMPRE aquí, en el service común, no solo en la
+    // action que lo invoca — este service tiene más de un entry point
+    // (transmit-dte-document.action.ts y create-and-transmit-credit-note
+    // .action.ts) y ninguno debe poder saltarse el gate llamando al
+    // service directamente. La reserva se adquiere ANTES de la llamada a
+    // MH y en una transacción Serializable propia — nunca dentro de la
+    // misma transacción que hace la llamada HTTP (ver docs/modules/
+    // platform-phase-4-dte-monthly-metering.md).
+    const commercialCtx = await resolveCommercialEnforcementContext(tenantId);
+    const meteringResult = await reserveDteFiscalCapacity({
+      dteDocumentId,
+      tenantId,
+      environment,
+      commercialCtx,
+      runtimeDb: prisma,
+      userId,
+    });
+    if (!meteringResult.ok) {
+      return { ok: false, error: meteringResult.error };
+    }
+    const meteringToken: DteMeteringToken = meteringResult.token;
+
+    // Idempotente: si el ledger ya marca este documento como CONSUMED
+    // (estado divergente — no debería ocurrir porque solo se llega aquí
+    // con dte_status===SIGNED — pero tratado explícitamente, nunca
+    // transmitiendo dos veces por error de estado del ledger).
+    if (meteringToken.mode === "ALREADY_CONSUMED") {
+      throw new TransmitDteBusinessError(
+        "El ledger de metering ya marca este documento como consumido, pero su estado fiscal sigue en SIGNED. " +
+          "Estado inconsistente — requiere revisión manual antes de transmitir.",
+      );
+    }
+
     // 5. Llamar al adapter de transmisión
     const adapter = new MhDteTransmissionAdapter();
     const result  = await adapter.transmit({
@@ -275,8 +316,8 @@ export async function transmitDteDocument(
     // ── Actualizar estado Prisma según resultado fiscal ────────────
 
     if (finalStatus === "ACCEPTED") {
-      await prisma.$transaction([
-        prisma.dteOutgoingDocument.update({
+      await prisma.$transaction(async (tx) => {
+        await tx.dteOutgoingDocument.update({
           where: { id: dteDocumentId },
           data:  {
             dte_status:      "ACCEPTED",
@@ -286,8 +327,8 @@ export async function transmitDteDocument(
             accepted_at:     now,
             updated_by:      userId,
           },
-        }),
-        prisma.dteTransmissionLog.create({
+        });
+        await tx.dteTransmissionLog.create({
           data: {
             dte_document_id: dteDocumentId,
             attempt_number:  attemptNumber,
@@ -296,8 +337,12 @@ export async function transmitDteDocument(
             http_status:     result.httpStatus,
             response_body:   mhResponseSanitized,
           },
-        }),
-      ]);
+        });
+        // ACCEPTED = confirmación fiscal definitiva. PENDING → CONSUMED
+        // en la MISMA transacción — nunca un consumo "aparte" del cambio
+        // de estado fiscal.
+        await finalizeDteFiscalCapacityConsumed(tx, meteringToken, now);
+      });
     }
 
     if (finalStatus === "OBSERVED") {
@@ -316,8 +361,8 @@ export async function transmitDteDocument(
         observaciones:   (result.observaciones ?? null) as Prisma.InputJsonValue,
       };
 
-      await prisma.$transaction([
-        prisma.dteOutgoingDocument.update({
+      await prisma.$transaction(async (tx) => {
+        await tx.dteOutgoingDocument.update({
           where: { id: dteDocumentId },
           data:  {
             dte_status:      "OBSERVED",
@@ -328,8 +373,8 @@ export async function transmitDteDocument(
             observed_at:     now,
             updated_by:      userId,
           },
-        }),
-        prisma.dteTransmissionLog.create({
+        });
+        await tx.dteTransmissionLog.create({
           data: {
             dte_document_id: dteDocumentId,
             attempt_number:  attemptNumber,
@@ -338,13 +383,16 @@ export async function transmitDteDocument(
             http_status:     result.httpStatus,
             response_body:   logBodyWithObs,
           },
-        }),
-      ]);
+        });
+        // OBSERVED = MH respondió PROCESADO con observaciones — consume
+        // cupo exactamente igual que ACCEPTED (política comercial).
+        await finalizeDteFiscalCapacityConsumed(tx, meteringToken, now);
+      });
     }
 
     if (finalStatus === "REJECTED") {
-      await prisma.$transaction([
-        prisma.dteOutgoingDocument.update({
+      await prisma.$transaction(async (tx) => {
+        await tx.dteOutgoingDocument.update({
           where: { id: dteDocumentId },
           data:  {
             dte_status:       "REJECTED",
@@ -354,8 +402,8 @@ export async function transmitDteDocument(
             rejected_at:      now,
             updated_by:       userId,
           },
-        }),
-        prisma.dteTransmissionLog.create({
+        });
+        await tx.dteTransmissionLog.create({
           data: {
             dte_document_id: dteDocumentId,
             attempt_number:  attemptNumber,
@@ -365,8 +413,12 @@ export async function transmitDteDocument(
             error_message:   result.descripcionMsg ?? null,
             response_body:   mhResponseSanitized,
           },
-        }),
-      ]);
+        });
+        // REJECTED fiscal confirmado = libera cupo. Reabrir el MISMO
+        // documento (reopen-rejected-dte-for-resign) hará que una futura
+        // reserva pase RELEASED → PENDING sobre esta misma fila.
+        await releaseDteFiscalCapacity(tx, meteringToken, now);
+      });
     }
 
     return {

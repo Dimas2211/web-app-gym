@@ -34,12 +34,23 @@ export interface CommercialEnforcementContext {
   verticalId: string | null;
   effectiveModules: Map<string, EffectiveModule>;
   effectiveEntitlements: Map<string, EffectiveEntitlement>;
+  /**
+   * Timezone IANA de PlatformOrganization.timezone — FASE IV-A, requerido
+   * para resolver el period_key de entitlements MONTHLY (ej.
+   * fiscal.dte.monthly_issued). null en LEGACY_UNMANAGED (no hay fila que
+   * leer) o cuando la organización MANAGED no tiene timezone configurado
+   * — en ese caso el consumidor (dte-fiscal-metering.service.ts) es quien
+   * decide fail-closed, este contexto solo transporta el dato crudo sin
+   * inventar un fallback.
+   */
+  organizationTimezone: string | null;
 }
 
 export type CommercialErrorCode =
   | "MODULE_NOT_ENABLED" // 403 — módulo no contratado/habilitado
   | "CAPACITY_LIMIT_REACHED" // 409 — límite de capacidad alcanzado
   | "ENTITLEMENT_NOT_CONFIGURED" // 422 — MANAGED sin configuración comercial (fail-closed)
+  | "TIMEZONE_INVALID_OR_MISSING" // 422 — FASE IV-A: entitlement MONTHLY sin timezone IANA válido en la organización
   | "COMMERCIAL_CONTEXT_ERROR"; // 500 — error resolviendo el contexto (nunca degrada a legacy)
 
 export type CommercialErrorHttpStatus = 403 | 409 | 422 | 500;
@@ -48,6 +59,7 @@ const HTTP_STATUS_BY_CODE: Record<CommercialErrorCode, CommercialErrorHttpStatus
   MODULE_NOT_ENABLED: 403,
   CAPACITY_LIMIT_REACHED: 409,
   ENTITLEMENT_NOT_CONFIGURED: 422,
+  TIMEZONE_INVALID_OR_MISSING: 422,
   COMMERCIAL_CONTEXT_ERROR: 500,
 };
 

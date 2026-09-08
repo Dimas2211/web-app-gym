@@ -16,7 +16,7 @@
 // interpreta como ilimitado (fail-closed).
 // ─────────────────────────────────────────────────────────────────
 
-import { CAPACITY_REGISTRY, type RuntimeDbClient } from "./capacity-registry";
+import { CAPACITY_REGISTRY, type RuntimeDbClient, type CapacityUsageContext } from "./capacity-registry";
 import { CommercialEnforcementError, type CapacityStatus, type CommercialEnforcementContext } from "./types";
 
 /**
@@ -29,6 +29,7 @@ export async function getCapacityStatus(
   entitlementCode: string,
   ctx: CommercialEnforcementContext,
   runtimeDb: RuntimeDbClient,
+  usageContext?: CapacityUsageContext,
 ): Promise<CapacityStatus> {
   if (ctx.mode === "LEGACY_UNMANAGED") {
     return {
@@ -53,7 +54,7 @@ export async function getCapacityStatus(
   }
 
   if (entitlement.source === "UNCONFIGURED") {
-    const used = await provider.countUsage(ctx.tenantId, runtimeDb);
+    const used = await provider.countUsage(ctx.tenantId, runtimeDb, usageContext);
     return {
       code: entitlementCode,
       isUnlimited: false,
@@ -66,7 +67,7 @@ export async function getCapacityStatus(
     };
   }
 
-  const used = await provider.countUsage(ctx.tenantId, runtimeDb);
+  const used = await provider.countUsage(ctx.tenantId, runtimeDb, usageContext);
 
   if (entitlement.is_unlimited) {
     return {
@@ -105,11 +106,12 @@ export async function assertCapacityAvailable(
   delta: number,
   ctx: CommercialEnforcementContext,
   runtimeDb: RuntimeDbClient,
+  usageContext?: CapacityUsageContext,
 ): Promise<void> {
   if (delta <= 0) return;
   if (ctx.mode === "LEGACY_UNMANAGED") return; // bypass por modo, no por unlimited
 
-  const status = await getCapacityStatus(entitlementCode, ctx, runtimeDb);
+  const status = await getCapacityStatus(entitlementCode, ctx, runtimeDb, usageContext);
 
   if (status.status === "UNLIMITED") return;
 

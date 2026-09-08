@@ -19,9 +19,21 @@ import type { PrismaClient, Prisma } from "@prisma/client";
 /** Cliente Prisma explícito: el singleton normal, un $transaction client, o el runtime temporal de Data Onboarding. */
 export type RuntimeDbClient = PrismaClient | Prisma.TransactionClient;
 
+/**
+ * Contexto de uso opcional para providers cuyo entitlement es periodizado
+ * (`period_type = MONTHLY`, ej. fiscal.dte.monthly_issued — FASE IV-A).
+ * Los 4 providers estáticos (period_type = NONE) lo ignoran por completo
+ * — su firma no cambia de comportamiento sin `periodKey`. Aditivo: no
+ * rompe ningún provider ni caller existente.
+ */
+export interface CapacityUsageContext {
+  /** "YYYY-MM" en timezone LOCAL de la organización — obligatorio solo para providers MONTHLY. */
+  periodKey?: string;
+}
+
 export interface CapacityUsageProvider {
   /** Cuenta el uso actual del tenant contra `runtimeDb` — nunca contra el Control Plane. */
-  countUsage: (tenantId: string, runtimeDb: RuntimeDbClient) => Promise<number>;
+  countUsage: (tenantId: string, runtimeDb: RuntimeDbClient, usageContext?: CapacityUsageContext) => Promise<number>;
 }
 
 export const CAPACITY_REGISTRY: Record<string, CapacityUsageProvider> = {
@@ -37,6 +49,31 @@ export const CAPACITY_REGISTRY: Record<string, CapacityUsageProvider> = {
   },
   "commerce.cash_registers.max": {
     countUsage: (tenantId, db) => db.cashRegister.count({ where: { tenant_id: tenantId, is_active: true } }),
+  },
+  // FASE IV-A — fiscal.dte.monthly_issued. Cuenta PENDING+CONSUMED del
+  // ledger de metering (DteFiscalMeteringReservation), NUNCA
+  // DteOutgoingDocument directamente — contar el documento reabriría la
+  // carrera de concurrencia que el ledger existe para resolver (ver
+  // docs/modules/platform-phase-4-dte-monthly-metering.md). RELEASED no
+  // cuenta — cupo liberado. Requiere periodKey: sin él es un error de
+  // programación del caller (entitlement MONTHLY mal invocado), no un
+  // estado de negocio válido.
+  "fiscal.dte.monthly_issued": {
+    countUsage: (tenantId, db, usageContext) => {
+      if (!usageContext?.periodKey) {
+        throw new Error(
+          '[capacity-registry] "fiscal.dte.monthly_issued" requiere periodKey en el usage context — no se puede contar sin periodo resuelto.',
+        );
+      }
+      return db.dteFiscalMeteringReservation.count({
+        where: {
+          tenant_id: tenantId,
+          entitlement_code: "fiscal.dte.monthly_issued",
+          period_key: usageContext.periodKey,
+          status: { in: ["PENDING", "CONSUMED"] },
+        },
+      });
+    },
   },
 };
 
