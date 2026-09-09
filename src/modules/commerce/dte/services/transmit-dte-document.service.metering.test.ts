@@ -18,6 +18,7 @@ const {
   reservationCountSpy,
   reservationFindUniqueSpy,
   reservationCreateSpy,
+  reservationUpdateManySpy,
   transmitAdapterSpy,
   resolveCommercialEnforcementContextMock,
   contingencyGuardMock,
@@ -27,6 +28,7 @@ const {
   reservationCountSpy: vi.fn(),
   reservationFindUniqueSpy: vi.fn(),
   reservationCreateSpy: vi.fn(),
+  reservationUpdateManySpy: vi.fn(),
   transmitAdapterSpy: vi.fn(),
   resolveCommercialEnforcementContextMock: vi.fn(),
   contingencyGuardMock: vi.fn(),
@@ -34,7 +36,8 @@ const {
 
 vi.mock("@/lib/db/prisma", () => ({
   prisma: {
-    dteOutgoingDocument: { findFirst: findFirstSpy },
+    dteOutgoingDocument: { findFirst: findFirstSpy, update: vi.fn() },
+    dteTransmissionLog: { create: vi.fn() },
     $transaction: transactionSpy,
   },
 }));
@@ -95,12 +98,25 @@ function managedCtxAtLimit() {
   };
 }
 
+// FASE IV-D — variante con cupo DISPONIBLE (límite finito, occupied=0),
+// para certificar el pipeline completo ACCEPTED/OBSERVED/REJECTED/error
+// técnico con ledger finito real (nunca Unlimited, nunca bypass).
+function managedCtxWithCapacity(limit: number) {
+  const ctx = managedCtxAtLimit();
+  ctx.effectiveEntitlements.set("fiscal.dte.monthly_issued", {
+    ...ctx.effectiveEntitlements.get("fiscal.dte.monthly_issued")!,
+    numeric_value: limit,
+  });
+  return ctx;
+}
+
 beforeEach(() => {
   findFirstSpy.mockReset();
   transactionSpy.mockReset();
   reservationCountSpy.mockReset();
   reservationFindUniqueSpy.mockReset();
   reservationCreateSpy.mockReset();
+  reservationUpdateManySpy.mockReset();
   transmitAdapterSpy.mockReset();
   resolveCommercialEnforcementContextMock.mockReset();
   contingencyGuardMock.mockReset();
@@ -114,19 +130,27 @@ beforeEach(() => {
   // que cualquiera de esos bloques pueda necesitar.
   reservationFindUniqueSpy.mockResolvedValue(null);
   reservationCountSpy.mockResolvedValue(0);
-  transactionSpy.mockImplementation(async (cb: (tx: unknown) => Promise<unknown>) =>
-    cb({
+  reservationCreateSpy.mockResolvedValue({ id: "res-1", status: "PENDING" });
+  reservationUpdateManySpy.mockResolvedValue({ count: 1 });
+  transactionSpy.mockImplementation(async (arg: unknown) => {
+    // El pipeline usa $transaction en dos formas: callback (reserva de
+    // metering, finalize/release) y array de promesas ya disparadas
+    // (rama de error técnico — solo update + log, sin ledger). Ambas
+    // formas conviven en el service real.
+    if (Array.isArray(arg)) return Promise.all(arg);
+    const cb = arg as (tx: unknown) => Promise<unknown>;
+    return cb({
       dteFiscalMeteringReservation: {
         findUnique: reservationFindUniqueSpy,
         count: reservationCountSpy,
         create: reservationCreateSpy,
         update: vi.fn(),
-        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+        updateMany: reservationUpdateManySpy,
       },
       dteOutgoingDocument: { update: vi.fn() },
       dteTransmissionLog: { create: vi.fn() },
-    }),
-  );
+    });
+  });
 });
 
 describe("transmitDteDocument — gate de metering comercial (FASE IV-A)", () => {
@@ -168,5 +192,106 @@ describe("transmitDteDocument — gate de metering comercial (FASE IV-A)", () =>
     expect(transmitAdapterSpy).toHaveBeenCalledTimes(1);
     expect(reservationCountSpy).not.toHaveBeenCalled(); // TEST nunca pasa por el gate de capacidad
     expect(result.ok).toBe(true);
+  });
+});
+
+// FASE IV-D — pipeline completo (transmitDteDocument, no solo el ledger
+// aislado) con límite finito real DISPONIBLE — certifica que el resultado
+// del adapter MH se traduce correctamente al ledger vía el mismo camino
+// productivo, sin atajos de test. Nunca red real (adapter mockeado).
+describe("transmitDteDocument — pipeline completo con límite finito disponible (FASE IV-D)", () => {
+  it("L1: capacidad disponible + adapter ACCEPTED -> reserve PENDING, ledger CONSUMED, adapter llamado 1 vez", async () => {
+    resolveCommercialEnforcementContextMock.mockResolvedValue(managedCtxWithCapacity(1));
+    transmitAdapterSpy.mockResolvedValue({
+      ok: true, mhEstado: "PROCESADO", httpStatus: 200, idEnvio: "1",
+      selloRecibido: "S".repeat(40), observaciones: [], codigoMsg: "001", descripcionMsg: "RECIBIDO",
+    });
+
+    const result = await transmitDteDocument({
+      dteDocumentId: "dte-doc-1", userId: "user-1", tenantId: "tenant-1", locationId: "loc-1",
+    });
+
+    expect(transmitAdapterSpy).toHaveBeenCalledTimes(1);
+    expect(reservationCreateSpy).toHaveBeenCalledTimes(1);
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.dteStatus).toBe("ACCEPTED");
+    expect(reservationUpdateManySpy).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ status: "CONSUMED" }) }),
+    );
+  });
+
+  it("L3: adapter OBSERVED -> ledger igual que ACCEPTED (CONSUMED), DTE OBSERVED", async () => {
+    resolveCommercialEnforcementContextMock.mockResolvedValue(managedCtxWithCapacity(1));
+    transmitAdapterSpy.mockResolvedValue({
+      ok: true, mhEstado: "PROCESADO", httpStatus: 200, idEnvio: "1",
+      selloRecibido: "S".repeat(40), observaciones: [], codigoMsg: "001",
+      descripcionMsg: "RECIBIDO CON OBSERVACIONES",
+    });
+
+    const result = await transmitDteDocument({
+      dteDocumentId: "dte-doc-1", userId: "user-1", tenantId: "tenant-1", locationId: "loc-1",
+    });
+
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.dteStatus).toBe("OBSERVED");
+    expect(reservationUpdateManySpy).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ status: "CONSUMED" }) }),
+    );
+  });
+
+  it("L4: adapter RECHAZADO confirmado -> ledger RELEASED (cupo recuperado), DTE REJECTED", async () => {
+    resolveCommercialEnforcementContextMock.mockResolvedValue(managedCtxWithCapacity(1));
+    transmitAdapterSpy.mockResolvedValue({
+      ok: true, mhEstado: "RECHAZADO", httpStatus: 400, idEnvio: "1",
+      selloRecibido: null, observaciones: null, codigoMsg: "ERR", descripcionMsg: "Rechazado por Hacienda",
+    });
+
+    const result = await transmitDteDocument({
+      dteDocumentId: "dte-doc-1", userId: "user-1", tenantId: "tenant-1", locationId: "loc-1",
+    });
+
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.dteStatus).toBe("REJECTED");
+    expect(reservationUpdateManySpy).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ status: "RELEASED" }) }),
+    );
+  });
+
+  it("L5: error técnico/timeout del adapter -> ledger NUNCA se toca (sigue PENDING), sin finalize/release", async () => {
+    resolveCommercialEnforcementContextMock.mockResolvedValue(managedCtxWithCapacity(1));
+    transmitAdapterSpy.mockResolvedValue({
+      ok: false, errorCode: "MH_TRANSMISSION_TIMEOUT", message: "MH no respondió en el tiempo configurado.",
+    });
+
+    const result = await transmitDteDocument({
+      dteDocumentId: "dte-doc-1", userId: "user-1", tenantId: "tenant-1", locationId: "loc-1",
+    });
+
+    expect(transmitAdapterSpy).toHaveBeenCalledTimes(1);
+    expect(reservationCreateSpy).toHaveBeenCalledTimes(1); // la reserva SÍ se creó (capacidad ya comprometida)
+    expect(reservationUpdateManySpy).not.toHaveBeenCalled(); // nunca CONSUMED ni RELEASED por error técnico
+    expect(result.ok).toBe(false);
+  });
+
+  it("M: reintento sobre el mismo DTE ya PENDING -> reserve devuelve la MISMA reserva, nunca crea una segunda fila", async () => {
+    resolveCommercialEnforcementContextMock.mockResolvedValue(managedCtxWithCapacity(1));
+    // Simula que el documento YA tiene una reserva PENDING de un intento anterior.
+    reservationFindUniqueSpy.mockResolvedValue({ id: "res-existing", status: "PENDING", period_key: "2026-09" });
+    transmitAdapterSpy.mockResolvedValue({
+      ok: true, mhEstado: "PROCESADO", httpStatus: 200, idEnvio: "1",
+      selloRecibido: "S".repeat(40), observaciones: [], codigoMsg: "001", descripcionMsg: "RECIBIDO",
+    });
+
+    const result = await transmitDteDocument({
+      dteDocumentId: "dte-doc-1", userId: "user-1", tenantId: "tenant-1", locationId: "loc-1",
+    });
+
+    expect(reservationCreateSpy).not.toHaveBeenCalled(); // no segunda fila
+    expect(reservationCountSpy).not.toHaveBeenCalled(); // PENDING existente -> idempotente, sin recontar capacidad
+    expect(result.ok).toBe(true);
+    // El finalize final opera sobre la MISMA reserva (res-existing) vía updateMany({status:"PENDING"}).
+    expect(reservationUpdateManySpy).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ status: "CONSUMED" }) }),
+    );
   });
 });
