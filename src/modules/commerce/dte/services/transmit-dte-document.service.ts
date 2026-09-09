@@ -19,6 +19,7 @@ import { Prisma }                    from "@prisma/client";
 import { resolveDteMhUrls }           from "../config/dte-mh.config";
 import { MhDteTransmissionAdapter }  from "../adapters/dte-transmission.adapter";
 import { canUseFex11InServerFlow }   from "../utils/fex11-feature-guard";
+import { isMhProcessedObserved }     from "../utils/dte-mh-observations.utils";
 import { assertDteContingencyTransmissionAllowed } from "./assert-dte-contingency-transmission-allowed.service";
 import { resolveCommercialEnforcementContext } from "@/modules/platform/runtime/commercial-enforcement/resolve-commercial-context";
 import {
@@ -79,16 +80,31 @@ function dteTypeCodeToVersion(code: string): number {
 /**
  * Determina el estado Prisma final a partir de la respuesta normalizada del adapter.
  * Devuelve null si mhEstado es inesperado (no PROCESADO ni RECHAZADO).
+ *
+ * FASE IV-B.3 — hotfix: antes usaba
+ * `Array.isArray(observaciones) && observaciones.length > 0`, el mismo
+ * criterio que la auditoría IV-B identificó como potencialmente
+ * defectuoso — el Manual MH documenta un ejemplo "Sin Observaciones"
+ * con `observaciones: ["", ""]` (array no vacío de strings vacíos), que
+ * ese criterio clasificaría incorrectamente como OBSERVED. Reutiliza
+ * `isMhProcessedObserved` (mismo helper que dte-reconciliation.service.ts)
+ * — exige evidencia positiva real, no solo la forma del array.
+ * Exportada para test de regresión — sin cambiar la API pública del
+ * service (transmitDteDocument/TransmitDteDocumentResult intactos).
  */
-function determineFinalStatus(
+export function determineFinalStatus(
   result: DteTransmissionSuccessResult,
 ): "ACCEPTED" | "OBSERVED" | "REJECTED" | null {
   if (result.mhEstado === "RECHAZADO") return "REJECTED";
 
   if (result.mhEstado === "PROCESADO") {
-    const hasObs = Array.isArray(result.observaciones) && result.observaciones.length > 0;
-    const descObs = result.descripcionMsg?.toLowerCase().includes("observaci") ?? false;
-    return hasObs || descObs ? "OBSERVED" : "ACCEPTED";
+    return isMhProcessedObserved({
+      codigoMsg: result.codigoMsg,
+      descripcionMsg: result.descripcionMsg,
+      observaciones: result.observaciones,
+    })
+      ? "OBSERVED"
+      : "ACCEPTED";
   }
 
   return null;

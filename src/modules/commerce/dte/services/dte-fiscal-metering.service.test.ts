@@ -18,6 +18,7 @@ import {
   reserveDteFiscalCapacity,
   finalizeDteFiscalCapacityConsumed,
   releaseDteFiscalCapacity,
+  finalizePendingReservationByDocument,
   getDteMonthlyMeteringStatus,
   DTE_MONTHLY_ENTITLEMENT_CODE,
 } from "./dte-fiscal-metering.service";
@@ -72,8 +73,13 @@ function createFakeRuntimeDb(seed: FakeRow[] = [], opts?: { forceP2002OnCreateFo
       rows.set(existing.dte_document_id, updated);
       return updated;
     },
-    updateMany: async ({ where, data }: { where: { id: string; status: string }; data: Partial<FakeRow> }) => {
-      const existing = [...rows.values()].find((r) => r.id === where.id && r.status === where.status);
+    updateMany: async ({ where, data }: { where: { id?: string; dte_document_id?: string; status: string }; data: Partial<FakeRow> }) => {
+      const existing = [...rows.values()].find(
+        (r) =>
+          (where.id === undefined || r.id === where.id) &&
+          (where.dte_document_id === undefined || r.dte_document_id === where.dte_document_id) &&
+          r.status === where.status,
+      );
       if (!existing) return { count: 0 };
       rows.set(existing.dte_document_id, { ...existing, ...data });
       return { count: 1 };
@@ -469,6 +475,46 @@ describe("finalizeDteFiscalCapacityConsumed / releaseDteFiscalCapacity", () => {
     await expect(finalizeDteFiscalCapacityConsumed(db, { mode: "BYPASS_LEGACY_UNMANAGED" })).resolves.toBeUndefined();
     await expect(finalizeDteFiscalCapacityConsumed(db, { mode: "ALREADY_CONSUMED", reservationId: "x" })).resolves.toBeUndefined();
     await expect(releaseDteFiscalCapacity(db, { mode: "BYPASS_TEST" })).resolves.toBeUndefined();
+  });
+});
+
+describe("finalizePendingReservationByDocument — FASE IV-B.1 (reconciliación, sin token)", () => {
+  it("PENDING existente -> CONSUMED, ok:true", async () => {
+    const seed: FakeRow[] = [
+      { id: "row-1", tenant_id: "tenant-1", dte_document_id: "doc-1", entitlement_code: DTE_MONTHLY_ENTITLEMENT_CODE, period_key: "2026-09", status: "PENDING", reserved_at: NOW, resolved_at: null, created_by: null },
+    ];
+    const { db, rows } = createFakeRuntimeDb(seed);
+    const result = await finalizePendingReservationByDocument(db, "doc-1", NOW);
+    expect(result).toEqual({ ok: true });
+    expect(rows.get("doc-1")?.status).toBe("CONSUMED");
+    expect(rows.get("doc-1")?.resolved_at).toEqual(NOW);
+  });
+
+  it("sin fila para el documento -> NO_RESERVATION, nunca crea una fila", async () => {
+    const { db, rows } = createFakeRuntimeDb();
+    const result = await finalizePendingReservationByDocument(db, "doc-inexistente", NOW);
+    expect(result).toEqual({ ok: false, reason: "NO_RESERVATION" });
+    expect(rows.size).toBe(0);
+  });
+
+  it("fila existente pero CONSUMED -> NOT_PENDING, no la vuelve a tocar", async () => {
+    const seed: FakeRow[] = [
+      { id: "row-1", tenant_id: "tenant-1", dte_document_id: "doc-1", entitlement_code: DTE_MONTHLY_ENTITLEMENT_CODE, period_key: "2026-09", status: "CONSUMED", reserved_at: NOW, resolved_at: NOW, created_by: null },
+    ];
+    const { db, rows } = createFakeRuntimeDb(seed);
+    const result = await finalizePendingReservationByDocument(db, "doc-1", NOW);
+    expect(result).toEqual({ ok: false, reason: "NOT_PENDING", currentStatus: "CONSUMED" });
+    expect(rows.get("doc-1")?.status).toBe("CONSUMED"); // sin cambios
+  });
+
+  it("fila existente pero RELEASED -> NOT_PENDING, nunca la transforma en CONSUMED", async () => {
+    const seed: FakeRow[] = [
+      { id: "row-1", tenant_id: "tenant-1", dte_document_id: "doc-1", entitlement_code: DTE_MONTHLY_ENTITLEMENT_CODE, period_key: "2026-09", status: "RELEASED", reserved_at: NOW, resolved_at: NOW, created_by: null },
+    ];
+    const { db, rows } = createFakeRuntimeDb(seed);
+    const result = await finalizePendingReservationByDocument(db, "doc-1", NOW);
+    expect(result).toEqual({ ok: false, reason: "NOT_PENDING", currentStatus: "RELEASED" });
+    expect(rows.get("doc-1")?.status).toBe("RELEASED");
   });
 });
 

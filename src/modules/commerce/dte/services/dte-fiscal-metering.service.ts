@@ -267,6 +267,53 @@ export async function releaseDteFiscalCapacity(
 }
 
 // ─────────────────────────────────────────────────────────────────
+// FASE IV-B.1 — finalizePendingReservationByDocument
+//
+// Resuelve una reserva PENDING → CONSUMED por `dte_document_id`, SIN
+// necesitar el DteMeteringToken original en memoria (la reconciliación
+// corre en un proceso/request distinto al que reservó — no hay token
+// que reconstruir). Nunca fabrica un token: opera directamente sobre la
+// fila condicionado atómicamente en `status='PENDING'`.
+//
+// Uso EXCLUSIVO de reconcileDteWithMh para environment=PRODUCTION — el
+// caller NUNCA debe invocar esto para TEST (TEST no tiene ledger).
+//
+// Resultado explícito, nunca un no-op silencioso:
+//   ok            -> PENDING → CONSUMED aplicado.
+//   NO_RESERVATION -> no existe fila para este documento (inconsistencia
+//                     local — el caller debe fallar la transacción, no
+//                     terminar con el DTE ACCEPTED sin ledger).
+//   NOT_PENDING    -> existe fila pero no está PENDING (ya CONSUMED,
+//                     RELEASED, o divergencia) — nunca se transforma
+//                     RELEASED/CONSUMED aquí.
+// ─────────────────────────────────────────────────────────────────
+
+export type FinalizePendingReservationByDocumentResult =
+  | { ok: true }
+  | { ok: false; reason: "NO_RESERVATION" | "NOT_PENDING"; currentStatus?: "PENDING" | "CONSUMED" | "RELEASED" };
+
+export async function finalizePendingReservationByDocument(
+  tx: Prisma.TransactionClient,
+  dteDocumentId: string,
+  now: Date = new Date(),
+): Promise<FinalizePendingReservationByDocumentResult> {
+  const result = await tx.dteFiscalMeteringReservation.updateMany({
+    where: { dte_document_id: dteDocumentId, status: "PENDING" },
+    data: { status: "CONSUMED", resolved_at: now },
+  });
+
+  if (result.count === 1) return { ok: true };
+
+  const existing = await tx.dteFiscalMeteringReservation.findUnique({
+    where: { dte_document_id: dteDocumentId },
+    select: { status: true },
+  });
+
+  if (!existing) return { ok: false, reason: "NO_RESERVATION" };
+  return { ok: false, reason: "NOT_PENDING", currentStatus: existing.status };
+}
+
+// ─────────────────────────────────────────────────────────────────
 // Reporting — read-only. Nada aquí escribe el ledger.
 // ─────────────────────────────────────────────────────────────────
 

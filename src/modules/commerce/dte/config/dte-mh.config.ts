@@ -6,6 +6,9 @@ const AUTH_URL_TEST      = "https://apitest.dtes.mh.gob.sv/seguridad/auth";
 const AUTH_URL_PROD      = "https://api.dtes.mh.gob.sv/seguridad/auth";
 const RECEPTION_URL_TEST = "https://apitest.dtes.mh.gob.sv/fesv/recepciondte";
 const RECEPTION_URL_PROD = "https://api.dtes.mh.gob.sv/fesv/recepciondte";
+// FASE IV-B.1 — Servicio de Consulta DTE (manual-tecnico-firma-transmision.md, sección 8).
+const QUERY_URL_TEST     = "https://apitest.dtes.mh.gob.sv/fesv/recepcion/consultadte/";
+const QUERY_URL_PROD     = "https://api.dtes.mh.gob.sv/fesv/recepcion/consultadte/";
 
 const DEFAULT_TIMEOUT_MS      = 8_000;
 const DEFAULT_TOKEN_CACHE_TTL = 3_000_000; // 50 minutes
@@ -48,6 +51,7 @@ function resolvePositiveInt(raw: string | undefined, fallback: number): number {
 export function resolveDteMhUrls(environment: DteMhEnvironment): {
   authUrl: string;
   receptionUrl: string;
+  queryDteUrl: string;
 } {
   const authUrl =
     environment === "PRODUCTION"
@@ -59,7 +63,15 @@ export function resolveDteMhUrls(environment: DteMhEnvironment): {
       ? (process.env["DTE_MH_RECEPTION_URL_PROD"] ?? RECEPTION_URL_PROD)
       : (process.env["DTE_MH_RECEPTION_URL_TEST"] ?? RECEPTION_URL_TEST);
 
-  return { authUrl, receptionUrl };
+  // FASE IV-B.1 — misma regla: resuelve siempre por el `environment` explícito
+  // recibido, nunca por DTE_ENVIRONMENT global. Override opcional por env var,
+  // fallback siempre a la URL oficial del manual.
+  const queryDteUrl =
+    environment === "PRODUCTION"
+      ? (process.env["DTE_MH_QUERY_URL_PROD"] ?? QUERY_URL_PROD)
+      : (process.env["DTE_MH_QUERY_URL_TEST"] ?? QUERY_URL_TEST);
+
+  return { authUrl, receptionUrl, queryDteUrl };
 }
 
 export function getDteMhConfig(): DteMhConfig {
