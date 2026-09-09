@@ -183,3 +183,89 @@ Los 3 fixtures se crearon y eliminaron exclusivamente en local
 TrustmeDB; conteos de `DteOutgoingDocument`/`DteTransmissionLog`/
 `DteFiscalMeteringReservation` antes y después de la certificación:
 idénticos (68/134/0). **`POSTGRES_PROD_BRANCH_CERTIFIED=YES`**.
+
+## FASE IV-B.4 — Certificación E2E real + fix runtime-aware de credenciales (09/09/2026)
+
+Con una `DteCredential` TEST legítima configurada por el usuario vía
+`/dashboard/settings/dte` (issuer TEST `2d47dc24-...`, `is_active=false`
+— no fue necesario activar el ambiente para guardar la credencial),
+se certificó el flujo completo real contra MH TEST usando exclusivamente
+`localhost:5432/TrustmeDB`:
+
+```
+AUTH   /seguridad/auth        -> ok, token Bearer recibido
+QUERY  /fesv/recepcion/consultadte/ -> HTTP 202, QUERY_PROCESSED,
+       selloRecibido idéntico al ya conocido de IV-B.2
+reconcileDteWithMh: SIGNED -> RESOLVED/ACCEPTED
+2ª invocación:      NO_OP/ALREADY_RESOLVED, 0 llamadas MH, log sigue =1
+```
+
+Fixture creado y eliminado exclusivamente en local TrustmeDB; pre/post
+counts idénticos. `E2E_RECONCILIATION_TEST_CERTIFIED=YES`.
+
+### Riesgo arquitectónico detectado y corregido: resolución de credenciales no runtime-aware
+
+Auditoría post-certificación (`resolveMhAuthCredentials`,
+`MhAuthAdapter`, `dte-reconciliation.service.ts`,
+`transmit-dte-document.service.ts`): **confirmado** que
+`resolveMhAuthCredentials` leía siempre `DteCredential` desde el prisma
+singleton global (Control Plane), nunca desde el `runtimeDb` explícito
+que `reconcileDteWithMh` ya recibe. En un despliegue multi-runtime real
+(Control Plane ≠ runtime DB del cliente, caso TrustMe), esto habría
+buscado la credencial en la base equivocada. En esta certificación no
+se manifestó porque el proceso completo corrió con `DATABASE_URL`
+apuntando exactamente a la misma DB que `runtimeDb` (ambos =
+`localhost:5432/TrustmeDB`).
+
+**Fix aplicado (backward-compatible, sin romper callers legacy)**:
+
+- `resolveMhAuthCredentials({ issuerConfigId, environment, client? })`
+  — nuevo parámetro opcional `client: DteCredentialQueryClient`
+  (`Pick<PrismaClient, "dteCredential">`, reutilizando el mismo tipo ya
+  usado por `resolveDteSignerConfigForIssuer`). Sin `client`, cae al
+  prisma global exacto de antes.
+- `MhAuthAdapter` gana un constructor opcional
+  `new MhAuthAdapter({ credentialClient })` que propaga ese client a
+  cada `resolveMhAuthCredentials(...)` interno. Sin argumento, se
+  comporta exactamente igual que antes (compatibilidad total con
+  `MhDteTransmissionAdapter`, que sigue instanciando `new MhAuthAdapter()`
+  sin cambios).
+- `reconcileDteWithMh`: cuando no se inyecta `queryAdapter` (caso real,
+  nunca en los tests existentes — los 24 tests de
+  `dte-reconciliation.service.test.ts` siempre inyectan su propio mock),
+  ahora construye
+  `new MhDteQueryAdapter(new MhAuthAdapter({ credentialClient: runtimeDb }))`
+  en vez de `new MhDteQueryAdapter()` — la autenticación de la
+  reconciliación queda atada a la misma runtime DB que el resto del
+  flujo.
+
+### Cache de token — decisión de diseño
+
+El cache de `MhAuthAdapter` sigue siendo un `Map` a nivel de módulo,
+keyed por `issuerConfigId:environment` (sin cambios). Se evaluó incluir
+una "runtime identity" adicional en la key y **se descartó**:
+`issuer_config_id` es un UUID generado por `DteIssuerConfig.id` en una
+única runtime DB — nunca se reutiliza entre dos runtime DBs distintas
+por diseño (cada una genera sus propios UUIDs), así que dos runtimes
+nunca colisionan en la misma key en la práctica. Agregar una dimensión
+extra a la key habría sido complejidad sin un riesgo real demostrado.
+
+### SEND / firma — fuera de alcance de este fix
+
+`transmitDteDocument` (SEND) y `resolveDteSignerConfigForIssuer` (usado
+por `sign-dte-document.service.ts`) siguen acoplados al prisma
+singleton global por diseño — su API pública (`TransmitDteDocumentParams`)
+no recibe un `runtimeDb` explícito, a diferencia de
+`reconcileDteWithMh`. Extender SEND/firma a runtime-aware requeriría
+agregar `runtimeDb` a esa API pública — un cambio de mayor alcance sobre
+un pipeline productivo activo, fuera del alcance de esta microfase.
+Queda documentado como trabajo pendiente para una fase futura si/cuando
+SEND deba operar contra runtime DBs de clientes distintos del proceso
+que lo ejecuta (hoy, para GYM, el prisma global YA es la runtime activa
+— sin bug real todavía).
+
+### Tests agregados
+
+- `dte-credential.service.resolve-mh-auth-credentials.test.ts` (5): client explícito nunca toca prisma global; fallback legacy sin client; PRODUCTION nunca cae a `.env`; TEST cae a `.env` sin credencial; TEST bloqueado sin credencial ni fallback.
+- `dte-auth.adapter.test.ts` (3): `credentialClient` del constructor se propaga a `resolveMhAuthCredentials`; sin constructor, `client` es `undefined` (legacy); cache de token sigue aislado por `issuerConfigId+environment` independientemente del `credentialClient`.
+- `dte-reconciliation.service.runtime-aware-adapter.test.ts` (2): sin `queryAdapter` inyectado, construye `MhDteQueryAdapter(MhAuthAdapter({ credentialClient: runtimeDb }))`; con `queryAdapter` inyectado, nunca construye clases reales.

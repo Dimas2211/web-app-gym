@@ -17,6 +17,7 @@
 
 import type { PrismaClient, Prisma } from "@prisma/client";
 import { MhDteQueryAdapter } from "../adapters/dte-query.adapter";
+import { MhAuthAdapter } from "../adapters/dte-auth.adapter";
 import { resolveDteMhUrls } from "../config/dte-mh.config";
 import { normalizeNitForDte } from "../utils/fiscal-id.utils";
 import { isMhProcessedObserved } from "../utils/dte-mh-observations.utils";
@@ -71,7 +72,13 @@ export async function reconcileDteWithMh(
   params: ReconcileDteWithMhParams,
 ): Promise<ReconcileDteWithMhResult> {
   const { dteDocumentId, tenantId, locationId, runtimeDb, userId = null, now = new Date() } = params;
-  const adapter = params.queryAdapter ?? new MhDteQueryAdapter();
+  // FASE IV-B.4 — runtime-aware: sin queryAdapter inyectado (tests), el
+  // adapter por defecto debe autenticarse leyendo la DteCredential desde
+  // la MISMA runtimeDb que ya se usa para el resto de esta reconciliación
+  // — nunca del prisma singleton global/Control Plane. Ver
+  // dte-auth.adapter.ts y dte-credential.service.ts (resolveMhAuthCredentials).
+  const adapter =
+    params.queryAdapter ?? new MhDteQueryAdapter(new MhAuthAdapter({ credentialClient: runtimeDb }));
 
   // ── 1. Cargar documento con scope tenant/location (solo lectura) ──
   const dteDoc = await runtimeDb.dteOutgoingDocument.findFirst({

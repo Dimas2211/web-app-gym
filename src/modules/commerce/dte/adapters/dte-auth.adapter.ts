@@ -11,7 +11,7 @@
 // Seguridad: password, token completo y Authorization nunca se loguean.
 
 import { getDteMhConfig, resolveDteMhUrls } from "../config/dte-mh.config";
-import { resolveMhAuthCredentials } from "../services/dte-credential.service";
+import { resolveMhAuthCredentials, type DteCredentialQueryClient } from "../services/dte-credential.service";
 import type {
   DteMhAuthInput,
   DteMhAuthResult,
@@ -76,6 +76,19 @@ function normalizeAuthHeader(rawToken: string): { clean: string; header: string 
 // ── Adapter ───────────────────────────────────────────────────────
 
 export class MhAuthAdapter {
+  // FASE IV-B.4 — runtime-aware credential resolution. Sin `credentialClient`
+  // (callers legacy: transmisión SEND actual, dev scripts, tests antiguos),
+  // resolveMhAuthCredentials cae al prisma singleton global — comportamiento
+  // sin cambios. Con `credentialClient` (reconcileDteWithMh, que ya recibe
+  // `runtimeDb` explícito), la DteCredential se lee de la MISMA runtime DB
+  // donde vive el DteOutgoingDocument/DteIssuerConfig que se está
+  // reconciliando — nunca del Control Plane. Ver dte-credential.service.ts.
+  private readonly credentialClient?: DteCredentialQueryClient;
+
+  constructor(options?: { credentialClient?: DteCredentialQueryClient }) {
+    this.credentialClient = options?.credentialClient;
+  }
+
   /**
    * Returns a valid cached token or authenticates against MH.
    * Input fields override env config when provided.
@@ -122,6 +135,7 @@ export class MhAuthAdapter {
       const resolved = await resolveMhAuthCredentials({
         issuerConfigId: input.issuerConfigId,
         environment:    env,
+        client:         this.credentialClient,
       });
       if (!resolved.ok) {
         return {

@@ -225,14 +225,27 @@ export interface UnresolvedMhCredentials {
   error: string;
 }
 
+// FASE IV-B.4 — riesgo arquitectónico corregido: en arquitectura
+// multi-runtime (Control Plane vs runtime DB por cliente), la
+// DteCredential del emisor vive en la MISMA runtime DB que
+// DteOutgoingDocument/DteIssuerConfig — nunca en el Control Plane.
+// `client` es opcional y solo requiere el modelo que esta función
+// realmente usa (nunca el PrismaClient completo) para mantenerlo
+// fácil de mockear en tests. Sin `client`, cae al prisma singleton
+// global — comportamiento legacy sin cambios para callers existentes
+// que ya operan con el Control Plane como su propia runtime (ej. GYM).
+export type DteCredentialQueryClient = Pick<PrismaClient, "dteCredential">;
+
 export async function resolveMhAuthCredentials(params: {
   issuerConfigId?: string;
   environment: "TEST" | "PRODUCTION";
+  client?: DteCredentialQueryClient;
 }): Promise<ResolvedMhCredentials | UnresolvedMhCredentials> {
-  const { issuerConfigId, environment } = params;
+  const { issuerConfigId, environment, client } = params;
+  const db = client ?? prisma;
 
   if (issuerConfigId) {
-    const row = await prisma.dteCredential.findFirst({
+    const row = await db.dteCredential.findFirst({
       where: {
         issuer_config_id: issuerConfigId,
         credential_type:  CREDENTIAL_TYPE,
@@ -316,9 +329,9 @@ export async function resolveMhAuthCredentials(params: {
 //
 // `client` permite reutilizar este resolver contra un PrismaClient runtime
 // (Runtime Database Router) en vez del Prisma Client global — mismo patrón
-// que el resto de fse14-test-purchase-runner.ts.
-
-type DteCredentialQueryClient = Pick<PrismaClient, "dteCredential">;
+// que el resto de fse14-test-purchase-runner.ts. Reutiliza el mismo tipo
+// `DteCredentialQueryClient` que resolveMhAuthCredentials (FASE IV-B.4)
+// — un único tipo, declarado una vez, arriba en este archivo.
 
 export interface ResolvedDteSignerConfigForIssuer {
   ok:          true;
