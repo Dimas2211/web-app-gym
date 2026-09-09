@@ -71,6 +71,7 @@ export const MODULE_GROUPS: ModuleGroup[] = [
       { label: "Exportaciones", href: "/dashboard/sales/export", roles: ["super_admin", "branch_admin"], moduleCode: "commerce.sales" },
       { label: "Caja", href: "/dashboard/cash", roles: ["super_admin", "branch_admin", "reception"], moduleCode: "commerce.cash" },
       { label: "DTE emitidos", href: "/dashboard/dte/outgoing", roles: ["super_admin", "branch_admin"], moduleCode: "fiscal.dte" },
+      { label: "Monitoreo DTE", href: "/dashboard/dte/monitoring", roles: ["super_admin", "branch_admin"], moduleCode: "fiscal.dte" },
       { label: "Facturación Electrónica", href: "/dashboard/settings/dte", roles: ["super_admin", "branch_admin"], moduleCode: "fiscal.dte" },
       { label: "Correlativos DTE", href: "/dashboard/dte/correlatives", roles: ["super_admin"], moduleCode: "fiscal.dte" },
       // Reporting transversal a varios módulos commerce — no se amarra a uno solo.

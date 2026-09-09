@@ -49,6 +49,10 @@ export function computeDteOutgoingActionAvailability(
   const canValidateSchema = status === "GENERATED";
   const canSign          = status === "SCHEMA_VALIDATED";
   const canTransmit      = status === "SIGNED";
+  // FASE IV-C — "Consultar estado MH" (reconcileDteWithMh): mismo
+  // predicado que canTransmit, acción distinta (consultadte, nunca
+  // recepciondte). Ver reconcile-dte-with-mh.action.ts.
+  const canReconcile     = status === "SIGNED";
 
   const canCreateCreditNote =
     status    === "ACCEPTED" &&
@@ -93,6 +97,14 @@ export function computeDteOutgoingActionAvailability(
       reasons.transmit = "No disponible: DTE rechazado por Hacienda";
     } else {
       reasons.transmit = `Requiere estado SIGNED — actual: ${status}`;
+    }
+  }
+
+  if (!canReconcile) {
+    if (["ACCEPTED", "OBSERVED", "REJECTED", "INVALIDATED"].includes(status)) {
+      reasons.reconcile = `No disponible: el DTE ya tiene un resultado fiscal registrado (${status})`;
+    } else {
+      reasons.reconcile = `Solo disponible para DTE en estado SIGNED — actual: ${status}`;
     }
   }
 
@@ -141,6 +153,7 @@ export function computeDteOutgoingActionAvailability(
     canValidateSchema,
     canSign,
     canTransmit,
+    canReconcile,
     canCreateCreditNote,
     canInvalidate,
     canDeliverExternal,

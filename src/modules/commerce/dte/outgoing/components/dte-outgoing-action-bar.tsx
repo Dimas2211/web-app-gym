@@ -174,6 +174,87 @@ function DeliverExternalInvalidationChip({
   );
 }
 
+// ── Chip interactivo — Consultar estado MH (FASE IV-C) ────────────
+// Disponible solo para status=SIGNED (mismo predicado que Transmitir,
+// acción distinta: consultadte, nunca recepciondte). Deshabilitado con
+// tooltip explícito bajo Support Session ("Operar como cliente") —
+// esa acción es mutativa (puede llamar MH, crear log, resolver
+// estado/ledger) y por eso se bloquea por completo, sin excepción.
+
+interface ReconcileMhChipProps {
+  available:            boolean;
+  reason?:              string;
+  readOnlyReason?:       string;
+  onRequestReconcile?:  () => void;
+  isReconciling?:       boolean;
+}
+
+function ReconcileMhChip({
+  available,
+  reason,
+  readOnlyReason,
+  onRequestReconcile,
+  isReconciling,
+}: ReconcileMhChipProps) {
+  if (isReconciling) {
+    return (
+      <button
+        type="button"
+        disabled
+        aria-label="Consultando MH…"
+        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded text-[10px] font-medium border bg-teal-950/80 border-teal-700/60 text-teal-300 cursor-default"
+      >
+        <Loader2 className="w-2.5 h-2.5 animate-spin shrink-0" aria-hidden="true" />
+        Consultando MH…
+      </button>
+    );
+  }
+
+  if (readOnlyReason) {
+    return (
+      <button
+        type="button"
+        disabled
+        title={readOnlyReason}
+        aria-label={`Consultar estado MH — ${readOnlyReason}`}
+        className="inline-flex items-center gap-1 px-2.5 py-1 rounded text-[10px] font-medium border bg-zinc-800/30 border-zinc-700/30 text-zinc-600 cursor-default select-none"
+      >
+        Consultar estado MH
+      </button>
+    );
+  }
+
+  if (!available) {
+    return (
+      <ActionChip
+        label="Consultar estado MH"
+        available={false}
+        reason={reason}
+      />
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={onRequestReconcile}
+      disabled={!onRequestReconcile}
+      title="Consultar a Hacienda el estado real de este documento"
+      aria-label="Consultar estado MH"
+      className={[
+        "inline-flex items-center gap-1 px-2.5 py-1 rounded text-[10px] font-medium border",
+        "transition-colors",
+        onRequestReconcile
+          ? "bg-teal-800/70 border-teal-600/70 text-teal-200 hover:bg-teal-700/80 hover:border-teal-500 cursor-pointer"
+          : "bg-teal-950/60 border-teal-700/50 text-teal-300 cursor-default",
+      ].join(" ")}
+    >
+      <span className="w-1.5 h-1.5 rounded-full bg-teal-400 shrink-0" aria-hidden="true" />
+      Consultar estado MH
+    </button>
+  );
+}
+
 // ── Chip interactivo — Crear NC (Fase 5D) ─────────────────────────
 
 interface CreateCreditNoteChipProps {
@@ -306,6 +387,10 @@ export interface DteOutgoingActionBarProps {
   isCreatingCreditNote?:           boolean;
   onRequestInvalidate?:            () => void;
   isInvalidating?:                 boolean;
+  onRequestReconcile?:             () => void;
+  isReconciling?:                  boolean;
+  /** Non-null cuando hay sesión "Operar como cliente" activa — bloquea el chip por completo, con tooltip. */
+  reconcileReadOnlyReason?:        string;
 }
 
 export function DteOutgoingActionBar({
@@ -318,6 +403,9 @@ export function DteOutgoingActionBar({
   isCreatingCreditNote,
   onRequestInvalidate,
   isInvalidating,
+  onRequestReconcile,
+  isReconciling,
+  reconcileReadOnlyReason,
 }: DteOutgoingActionBarProps) {
   const staticActions: ActionChipProps[] = [
     { label: "Firmar",     available: av.canSign,     reason: av.reasons.sign },
@@ -329,7 +417,8 @@ export function DteOutgoingActionBar({
     (av.canDeliverExternal ? 1 : 0) +
     (av.canDeliverExternalInvalidation ? 1 : 0) +
     (av.canCreateCreditNote ? 1 : 0) +
-    (av.canInvalidate ? 1 : 0);
+    (av.canInvalidate ? 1 : 0) +
+    (av.canReconcile && !reconcileReadOnlyReason ? 1 : 0);
 
   return (
     <div className="flex items-center gap-3 flex-wrap px-3 py-2 border-b border-zinc-800/70 bg-zinc-900/30">
@@ -374,6 +463,15 @@ export function DteOutgoingActionBar({
           reason={av.reasons.invalidate}
           onRequestInvalidate={onRequestInvalidate}
           isInvalidating={isInvalidating}
+        />
+
+        {/* Chip interactivo — FASE IV-C: Consultar estado MH */}
+        <ReconcileMhChip
+          available={av.canReconcile}
+          reason={av.reasons.reconcile}
+          readOnlyReason={reconcileReadOnlyReason}
+          onRequestReconcile={onRequestReconcile}
+          isReconciling={isReconciling}
         />
       </div>
 

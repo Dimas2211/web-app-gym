@@ -39,6 +39,7 @@ import {
   createSignTransmitInvalidationAction,
   type CreateSignTransmitInvalidationResult,
 } from "@/modules/commerce/dte/actions/create-sign-transmit-invalidation.action";
+import { reconcileDteWithMhAction } from "@/modules/commerce/dte/actions/reconcile-dte-with-mh.action";
 
 // ── Props ─────────────────────────────────────────────────────────
 
@@ -150,6 +151,12 @@ export function DteOutgoingClient({
   const [invalidationBannerMsg, setInvalidationBannerMsg]                 = useState<string | null>(null);
   const [invalidationBannerType, setInvalidationBannerType]               = useState<"success" | "warning" | "error" | null>(null);
 
+  // ── Estado de "Consultar estado MH" — FASE IV-C ──────────────
+
+  const [isReconciling, setIsReconciling]           = useState(false);
+  const [reconcileMessage, setReconcileMessage]     = useState<string | null>(null);
+  const [reconcileMessageType, setReconcileMessageType] = useState<"success" | "warning" | "error" | null>(null);
+
   // ── Fetch del detalle ────────────────────────────────────────
 
   useEffect(() => {
@@ -206,6 +213,8 @@ export function DteOutgoingClient({
     setInvalidationResult(null);
     setInvalidationBannerMsg(null);
     setInvalidationBannerType(null);
+    setReconcileMessage(null);
+    setReconcileMessageType(null);
   }, [selectedId]);
 
   // ── Limpiar detalle al cambiar de página o filtros ───────────
@@ -224,6 +233,8 @@ export function DteOutgoingClient({
     setInvalidationResult(null);
     setInvalidationBannerMsg(null);
     setInvalidationBannerType(null);
+    setReconcileMessage(null);
+    setReconcileMessageType(null);
   }
 
   // ── Enviar DTE externo (Fase 5B) ─────────────────────────────
@@ -405,6 +416,68 @@ export function DteOutgoingClient({
       .finally(() => {
         setIsInvalidating(false);
       });
+  }
+
+  // ── Consultar estado MH (FASE IV-C) ──────────────────────────
+  // dteDocumentId = selectedId. tenantId/locationId/runtimeDb resueltos
+  // en servidor. La action ya bloquea por completo bajo Support Session
+  // ("Operar como cliente") — el botón que la dispara también queda
+  // deshabilitado en el panel como defensa adicional, nunca la única.
+
+  async function handleReconcile(): Promise<void> {
+    if (!selectedId || isReconciling) return;
+    if (!detail?.action_availability.canReconcile) return;
+
+    setIsReconciling(true);
+    setReconcileMessage(null);
+    setReconcileMessageType(null);
+
+    try {
+      const result = await reconcileDteWithMhAction(selectedId);
+
+      if (result.ok) {
+        switch (result.status) {
+          case "RESOLVED":
+            setReconcileMessage(
+              result.dteStatus === "ACCEPTED"
+                ? "MH confirmó que el DTE fue procesado correctamente."
+                : "MH confirmó el DTE con observaciones.",
+            );
+            setReconcileMessageType("success");
+            break;
+          case "REPAIRED_LOCAL":
+            setReconcileMessage("El estado local ya reflejaba evidencia fiscal — se completó la reconciliación sin volver a consultar MH.");
+            setReconcileMessageType("success");
+            break;
+          case "NO_OP":
+            setReconcileMessage("El documento ya estaba resuelto.");
+            setReconcileMessageType("success");
+            break;
+          case "PENDING_UNCHANGED":
+            setReconcileMessage("MH no devolvió evidencia suficiente para resolver el estado. El documento permanece pendiente.");
+            setReconcileMessageType("warning");
+            break;
+        }
+        setDetailRefreshToken((t) => t + 1);
+        startTransition(() => { router.refresh(); });
+      } else {
+        const isConcurrentChange = "status" in result && result.status === "ABORTED_CONCURRENT_CHANGE";
+        setReconcileMessage(
+          isConcurrentChange
+            ? `${result.error} Recargue el documento antes de reintentar.`
+            : (result.error || "El estado local requiere revisión antes de continuar."),
+        );
+        setReconcileMessageType("error");
+        if (isConcurrentChange) {
+          setDetailRefreshToken((t) => t + 1);
+        }
+      }
+    } catch {
+      setReconcileMessage("Error inesperado al consultar MH. Intente nuevamente.");
+      setReconcileMessageType("error");
+    } finally {
+      setIsReconciling(false);
+    }
   }
 
   // ── Navegación ────────────────────────────────────────────────
@@ -647,6 +720,10 @@ export function DteOutgoingClient({
             onInvalidate={handleInvalidate}
             isInvalidating={isInvalidating}
             invalidationResult={invalidationResult}
+            onReconcile={handleReconcile}
+            isReconciling={isReconciling}
+            reconcileMessage={reconcileMessage}
+            reconcileMessageType={reconcileMessageType}
           />
         </div>
       </div>

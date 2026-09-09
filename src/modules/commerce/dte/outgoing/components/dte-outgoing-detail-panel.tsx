@@ -528,6 +528,65 @@ function LogsSection({ d }: { d: DteOutgoingDetail }) {
   );
 }
 
+// ── Historial de consultas MH — FASE IV-C ──────────────────────────
+// Resumen seguro (nunca rawResponse/secretos) — ver
+// list-dte-query-history.ts. Muestra "qué pasó" en cada intento de
+// reconciliación manual, sin exponer la respuesta cruda de MH.
+
+function QueryHistorySection({ d }: { d: DteOutgoingDetail }) {
+  if (d.mh_query_history.length === 0) {
+    return (
+      <div>
+        <SectionHeader title="Historial de consultas MH" />
+        <p className="text-zinc-600 text-[10px] italic">Sin consultas MH registradas todavía.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <SectionHeader title={`Historial de consultas MH (${d.mh_query_history.length})`} />
+      <div className="overflow-x-auto">
+        <table className="w-full text-[10px] border-collapse">
+          <thead>
+            <tr className="text-zinc-500 border-b border-zinc-800">
+              <th className="text-left pr-2 pb-0.5 font-semibold whitespace-nowrap">#</th>
+              <th className="text-left pr-2 pb-0.5 font-semibold whitespace-nowrap">HTTP</th>
+              <th className="text-left pr-2 pb-0.5 font-semibold whitespace-nowrap">Estado MH</th>
+              <th className="text-left pr-2 pb-0.5 font-semibold whitespace-nowrap">codigoMsg</th>
+              <th className="text-left pr-2 pb-0.5 font-semibold">Descripción</th>
+              <th className="text-left pb-0.5 font-semibold whitespace-nowrap">Fecha</th>
+            </tr>
+          </thead>
+          <tbody>
+            {d.mh_query_history.map((q) => (
+              <tr key={q.id} className="border-b border-zinc-800/40">
+                <td className="pr-2 py-0.5 font-mono text-zinc-500">{q.attempt_number}</td>
+                <td className="pr-2 py-0.5 font-mono">
+                  {q.http_status != null
+                    ? (
+                      <span className={q.http_status >= 200 && q.http_status < 300 ? "text-emerald-400" : "text-red-400"}>
+                        {q.http_status}
+                      </span>
+                    )
+                    : <span className="text-zinc-600">—</span>
+                  }
+                </td>
+                <td className="pr-2 py-0.5 whitespace-nowrap text-zinc-400">{q.mh_estado ?? "—"}</td>
+                <td className="pr-2 py-0.5 font-mono text-zinc-400">{q.codigo_msg ?? "—"}</td>
+                <td className="pr-2 py-0.5 max-w-[220px] truncate" title={q.descripcion_msg ?? q.error_message ?? undefined}>
+                  {q.descripcion_msg ?? (q.error_message ? <span className="text-amber-400">{q.error_message}</span> : "—")}
+                </td>
+                <td className="py-0.5 font-mono text-zinc-500 whitespace-nowrap">{fmtDateTime(q.created_at)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 // ── Aviso de escritura runtime — PASO 6B ──────────────────────────
 // Se muestra en diálogos de confirmación de acciones runtime-aware
 // cuando hay sesión "Operar como cliente" activa. Nunca muestra
@@ -1374,6 +1433,11 @@ export interface DteOutgoingDetailPanelProps {
   onInvalidate?:                   (data: DteOutgoingInvalidationFormData) => void;
   isInvalidating?:                 boolean;
   invalidationResult?:             CreateSignTransmitInvalidationResult | null;
+  // FASE IV-C — "Consultar estado MH"
+  onReconcile?:                    () => Promise<void>;
+  isReconciling?:                  boolean;
+  reconcileMessage?:               string | null;
+  reconcileMessageType?:           "success" | "warning" | "error" | null;
 }
 
 export function DteOutgoingDetailPanel({
@@ -1391,6 +1455,10 @@ export function DteOutgoingDetailPanel({
   onInvalidate,
   isInvalidating = false,
   invalidationResult = null,
+  onReconcile,
+  isReconciling = false,
+  reconcileMessage = null,
+  reconcileMessageType = null,
 }: DteOutgoingDetailPanelProps) {
   const [showDeliveryDialog, setShowDeliveryDialog]                         = useState(false);
   const [showInvalidationDeliveryDialog, setShowInvalidationDeliveryDialog] = useState(false);
@@ -1496,7 +1564,29 @@ export function DteOutgoingDetailPanel({
             : undefined
         }
         isInvalidating={isInvalidating}
+        onRequestReconcile={
+          onReconcile && detail.action_availability.canReconcile && !runtimeWriteInfo
+            ? () => { void onReconcile(); }
+            : undefined
+        }
+        isReconciling={isReconciling}
+        reconcileReadOnlyReason={
+          runtimeWriteInfo ? 'Modo soporte: solo lectura — "Consultar estado MH" no está disponible operando como cliente.' : undefined
+        }
       />
+
+      {reconcileMessage && (
+        <div
+          className={[
+            "mx-3 mt-3 rounded-lg border px-3 py-2 text-[11px]",
+            reconcileMessageType === "success" && "bg-emerald-950/40 border-emerald-700/50 text-emerald-300",
+            reconcileMessageType === "warning" && "bg-amber-950/40 border-amber-700/50 text-amber-300",
+            reconcileMessageType === "error"   && "bg-red-950/40 border-red-700/50 text-red-300",
+          ].filter(Boolean).join(" ")}
+        >
+          {reconcileMessage}
+        </div>
+      )}
 
       <div className="grid grid-cols-[1fr_1fr_1fr_1fr] gap-x-4 gap-y-3 text-xs text-zinc-300 px-3 pt-3 pb-4">
 
@@ -1521,6 +1611,11 @@ export function DteOutgoingDetailPanel({
       {/* Logs — full width */}
       <div className="col-span-4">
         <LogsSection d={detail} />
+      </div>
+
+      {/* Historial de consultas MH — FASE IV-C, full width */}
+      <div className="col-span-4">
+        <QueryHistorySection d={detail} />
       </div>
 
       </div>{/* end grid */}

@@ -16,6 +16,7 @@ import type { DteOutgoingStatus, DteEnvironment } from "../../types/dte.types";
 import type { DteInvalidationStatus } from "../../types/dte-invalidation.types";
 import { buildDeliverySummary } from "../utils/dte-delivery-summary.utils";
 import { computeDteOutgoingActionAvailability } from "../utils/dte-action-availability.utils";
+import { listDteQueryHistory } from "../../queries/list-dte-query-history";
 
 // ─────────────────────────────────────────────────────────────────
 
@@ -173,6 +174,11 @@ export async function getDteOutgoingDetailById(params: {
   // Documento no existe o no pertenece al tenant/location → null
   if (!row) return null;
 
+  // FASE IV-C — historial de consultas MH (resumen seguro). `dteId` ya
+  // quedó validado contra tenant/location por el `row` de arriba —
+  // mismo criterio de scoping que `allLogs`.
+  const mh_query_history = await listDteQueryHistory({ dteDocumentId: dteId, client });
+
   // ── Delivery externo — cómputo interno; response_body nunca sale ──
 
   const deliveryLogs    = row.transmission_logs.filter(
@@ -316,6 +322,8 @@ export async function getDteOutgoingDetailById(params: {
       error_message:  l.error_message,
       created_at:     l.created_at,
     })),
+
+    mh_query_history,
 
     action_availability,
   };

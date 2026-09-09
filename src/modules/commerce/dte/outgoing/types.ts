@@ -108,6 +108,22 @@ export interface DteOutgoingLogItem {
   created_at:     Date;
 }
 
+// FASE IV-C — historial de consultas MH (operation_type "QUERY"),
+// resumen seguro (ver list-dte-query-history.ts). Nunca incluye
+// rawResponse ni ningún secreto — solo lo necesario para mostrar
+// "qué pasó" en cada intento de reconciliación.
+export interface DteQueryHistoryItem {
+  id:              string;
+  attempt_number:  number;
+  http_status:     number | null;
+  created_at:      Date;
+  result_kind:     string | null;
+  mh_estado:       string | null;
+  codigo_msg:      string | null;
+  descripcion_msg: string | null;
+  error_message:   string | null;
+}
+
 // ── Relación NC (resumen seguro) ──────────────────────────────────
 // source_document = la NC 05, related_document = el CCFE 03 original.
 
@@ -200,6 +216,9 @@ export interface DteOutgoingDetail {
   // 9. Logs de transmisión (sin response_body, request_payload, token, JWS)
   logs: DteOutgoingLogItem[];
 
+  // 9b. Historial de consultas MH — FASE IV-C (resumen seguro, ver arriba)
+  mh_query_history: DteQueryHistoryItem[];
+
   // 10. Disponibilidad de acciones contextuales (calculada en servidor)
   action_availability: DteOutgoingActionAvailability;
 }
@@ -225,6 +244,11 @@ export interface DteOutgoingActionAvailability {
   canValidateSchema:              boolean;  // status = GENERATED
   canSign:                        boolean;  // status = SCHEMA_VALIDATED
   canTransmit:                    boolean;  // status = SIGNED
+  // FASE IV-C — mismo predicado que canTransmit (status=SIGNED es el
+  // estado incierto normal, ya sea "nunca enviado" o "enviado pero sin
+  // confirmación"), pero acción distinta: consulta MH (consultadte),
+  // nunca reenvía/retransmite (recepciondte).
+  canReconcile:                   boolean;  // status = SIGNED
   canCreateCreditNote:            boolean;  // type=03, status=ACCEPTED, sin NC activa
   canInvalidate:                  boolean;  // status=ACCEPTED, sin invalidación activa
   canDeliverExternal:             boolean;  // status=ACCEPTED, sin delivery exitoso previo
@@ -232,6 +256,7 @@ export interface DteOutgoingActionAvailability {
   reasons: {
     sign?:                    string;
     transmit?:                string;
+    reconcile?:               string;
     createCreditNote?:        string;
     invalidate?:              string;
     sendExternalDte?:         string;
