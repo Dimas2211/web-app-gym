@@ -80,6 +80,14 @@ export async function resolveEffectiveTenantContext(
     dispose: NOOP_DISPOSE,
   };
 
+  // FASE VI-C — ETAPA R. Support Session ("Operar como cliente") es
+  // exclusivo de auth_scope="PLATFORM". Una identidad RUNTIME_CLIENT
+  // (login runtime real, FASE VI-C) nunca debe leer/honrar esta
+  // cookie — su tenant ya es el real, no hay "modo normal" al cual
+  // degradar. Ver require-runtime-organization-context.ts para el
+  // contrato de contexto propio de RUNTIME_CLIENT.
+  if (user.auth_scope === "RUNTIME_CLIENT") return normal;
+
   const runtime = await getRuntimeSession();
   if (!runtime) return normal;
 

@@ -1,55 +1,21 @@
 import NextAuth from "next-auth";
 import Credentials from "next-auth/providers/credentials";
-import bcrypt from "bcryptjs";
-import { z } from "zod";
 import type { UserRole } from "@prisma/client";
-import { prisma } from "@/lib/db/prisma";
 import { authConfig } from "./auth.config";
-
-const loginSchema = z.object({
-  email: z.string().email(),
-  password: z.string().min(1),
-});
+import { authorizeCredentials } from "./authorize-credentials";
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
   ...authConfig,
   providers: [
     Credentials({
-      async authorize(credentials) {
-        const parsed = loginSchema.safeParse(credentials);
-        if (!parsed.success) return null;
-
-        const { email, password } = parsed.data;
-
-        const user = await prisma.user.findUnique({
-          where: { email },
-        });
-
-        // Usuario no encontrado o inactivo
-        if (!user || user.status !== "active") return null;
-
-        // Verificar contraseña contra el hash almacenado
-        const passwordMatch = await bcrypt.compare(password, user.password_hash);
-        if (!passwordMatch) return null;
-
-        // FASE VI-B — todo usuario autenticado por este flujo (Prisma
-        // global, el ÚNICO flujo de login activo hoy) recibe explícitamente
-        // auth_scope = "PLATFORM". Esto NO significa que cualquier rol de la
-        // DB global reciba privilegio Platform Admin: el rol sigue
-        // gobernando capacidades vía getCapabilities(role).isGlobal — ver
-        // canAccessPlatformAdmin() en @/core/permissions/platform-access.
-        // Login runtime (auth_scope = "RUNTIME_CLIENT") NO está habilitado
-        // todavía (FASE VI-C).
-        return {
-          id: user.id,
-          email: user.email,
-          name: `${user.first_name} ${user.last_name}`,
-          role: user.role,
-          tenant_id: user.gym_id,
-          location_id: user.branch_id,
-          auth_scope: "PLATFORM",
-        };
-      },
+      // FASE VI-C — ETAPA K. La lógica multi-scope (PLATFORM vs
+      // RUNTIME_CLIENT por hostname) vive en authorize-credentials.ts,
+      // extraída para ser testeable sin depender de la instancia
+      // NextAuth(). Ver ETAPA B: confirmado que este provider recibe
+      // `request: Request` como segundo argumento (next-auth 5.0.0-beta.30
+      // / @auth/core), por lo que resolveRequestHostname(request) puede
+      // leer sus headers directamente.
+      authorize: authorizeCredentials,
     }),
   ],
   callbacks: {
@@ -61,6 +27,8 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         token.tenant_id = user.tenant_id;
         token.location_id = user.location_id;
         token.auth_scope = user.auth_scope;
+        // FASE VI-C — solo presente para auth_scope="RUNTIME_CLIENT".
+        token.organization_id = user.organization_id;
       }
       return token;
     },
@@ -75,6 +43,9 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       // emitido antes de este cambio). La validación real ocurre en el
       // consumidor (getSessionOrRedirect / getCoreSession vía isAuthScope).
       session.user.auth_scope = token.auth_scope as string | undefined;
+      // FASE VI-C — idem: valor crudo, obligatoriedad para RUNTIME_CLIENT
+      // se valida en requireRuntimeOrganizationContext(), no aquí.
+      session.user.organization_id = token.organization_id as string | undefined;
       return session;
     },
   },

@@ -123,6 +123,22 @@ describe("resolveEffectiveTenantContext", () => {
     expect(context.runtime).toBeNull();
     expect(clearRuntimeSessionMock).toHaveBeenCalledTimes(1);
   });
+
+  it("FASE VI-C — auth_scope=RUNTIME_CLIENT ignora la cookie de Support Session (nunca la lee)", async () => {
+    const runtimeClientUser = {
+      id: "u-runtime",
+      tenant_id: "tenant-trustme-real",
+      role: "branch_admin",
+      auth_scope: "RUNTIME_CLIENT",
+      organization_id: "org-trustme",
+    } as unknown as SessionUser;
+
+    const { context } = await resolveEffectiveTenantContext(runtimeClientUser);
+
+    expect(context.tenantId).toBe("tenant-trustme-real");
+    expect(context.runtime).toBeNull();
+    expect(getRuntimeSessionMock).not.toHaveBeenCalled();
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────

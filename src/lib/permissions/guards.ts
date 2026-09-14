@@ -51,6 +51,10 @@ export async function getSessionOrRedirect(): Promise<SessionUser> {
     // normaliza a `undefined`. NUNCA se asume "PLATFORM" por defecto — ver
     // ETAPA L (fail closed) de FASE VI-B.
     auth_scope: isAuthScope(u.auth_scope) ? u.auth_scope : undefined,
+    // FASE VI-C — presente solo para auth_scope="RUNTIME_CLIENT". Valor
+    // crudo del JWT; la validación de "obligatorio para RUNTIME_CLIENT"
+    // ocurre en requireRuntimeOrganizationContext(), no aquí.
+    organization_id: typeof u.organization_id === "string" ? u.organization_id : undefined,
   };
 }
 

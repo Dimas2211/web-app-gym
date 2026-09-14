@@ -72,6 +72,84 @@ de identidad Platform Admin.
   mutation. `RUNTIME_CLIENT` existe como tipo pero ningún flujo lo emite
   todavía.
 
+## Platform — FASE VI-C: Hostname Resolution + Runtime Authentication Foundation (fundación, FASE VI NO cerrada)
+
+Implementa la FUNDACIÓN técnica de login runtime por hostname. **Login
+runtime productivo NO está habilitado** — `RUNTIME_HOST_AUTH_ENABLED`
+default `false`, feature gate temporal hasta FASE VI-F.
+
+- **Hostname resolution** (`src/lib/http/hostname.ts`):
+  `normalizeRequestHostname()` (puro, edge-safe) y
+  `resolveRequestHostname(request)` (lee `x-forwarded-host`/`host`, prioriza
+  el primero como hace Vercel). Extraer un hostname NUNCA es, por sí solo,
+  una decisión de autorización — el allowlist real es
+  `PlatformOrganization.domain`.
+- **Platform hosts** (`src/lib/platform/platform-hosts.ts`): `PLATFORM_HOSTS`
+  (env, lista separada por comas) decide qué hostnames son plataforma.
+  `localhost`/`127.0.0.1` son plataforma por defecto SOLO fuera de
+  producción. Ningún `*.vercel.app` es plataforma automáticamente — cada
+  deployment se lista explícitamente si corresponde.
+- **Feature gate** (`src/lib/auth/runtime-host-auth-flag.ts`):
+  `RUNTIME_HOST_AUTH_ENABLED` — default `false`; solo `"true"`/`"1"`
+  habilita. Server-only, nunca `NEXT_PUBLIC_`.
+- **Organization resolver** (`src/modules/platform/runtime/resolve-organization-by-hostname.ts`):
+  `resolveOrganizationByHostname()` usa `findMany` + `take:2` (domain SIN
+  unique constraint) — fail closed en 0 y en 2+ resultados (dominio
+  duplicado), nunca elige "el primero". `canOrganizationAuthenticate()`
+  deniega técnicamente solo `SUSPENDED`/`CANCELLED` — `PENDING` se permite
+  (elegibilidad técnica; enforcement de licencia es otra capa, no
+  implementada aquí).
+- **Runtime user auth** (`src/modules/platform/runtime/authenticate-runtime-user.ts`):
+  reusa `withOrganizationRuntimePrisma` (runtime-database-router.ts) — nunca
+  un router paralelo. Exige `user.gym_id === organization.tenant_id`
+  (TENANT_MISMATCH si no). Same-email isolation certificada: el mismo email
+  en dos organizaciones vive en dos bases físicas distintas, sin cruce.
+- **authorize() multi-scope** (`src/lib/auth/authorize-credentials.ts`,
+  conectado a NextAuth desde `auth.ts`): hostname de plataforma → rama
+  PLATFORM sin cambios (Prisma global); hostname runtime + feature
+  habilitada → rama RUNTIME_CLIENT (organización por hostname → elegibilidad
+  → auth runtime). Cualquier fallo se traduce uniformemente a `null`
+  (credenciales inválidas genéricas) — nunca se revela la causa específica
+  al UI.
+- **Sesión/JWT**: `organization_id?: string` agregado a `CoreSessionUser`,
+  `SessionUser`, `Session.user`, `JWT` — obligatorio solo para
+  `auth_scope==="RUNTIME_CLIENT"`. No se agregó `profile_id`, `vertical`,
+  `plan` ni estado de licencia al JWT — se resuelven en vivo.
+- **Runtime context helper** (`src/modules/platform/runtime/require-runtime-organization-context.ts`):
+  contrato para fases futuras (VI-D+) — NINGÚN módulo operativo se migró
+  todavía. Fail closed real: `organization_id` ausente, organización no
+  encontrada/no elegible/sin tenant, tenant mismatch, o perfil runtime no
+  disponible → siempre lanza, **nunca** degrada a datos globales/Control
+  Plane (a diferencia de Support Session, que sí degrada porque la
+  identidad real sigue siendo el super_admin).
+- **Support Session preservada**: `resolveEffectiveTenantContext()` ahora
+  ignora la cookie `platform_runtime_session` cuando `auth_scope==="RUNTIME_CLIENT"`
+  — esa cookie es exclusiva de identidades PLATFORM. `resolveEffectiveApiContext()`
+  (usado por route handlers de products/customers/suppliers/inventory) NO
+  recibió el mismo guard — no toma `auth_scope` como parámetro hoy y
+  cambiar su firma habría tocado módulos cerrados fuera de alcance de VI-C;
+  **deuda documentada**, no oculta.
+- **Domain validation** (`src/modules/platform/schemas/organization-domain.schema.ts`):
+  aplicada a create/update de `PlatformOrganization` — exige hostname puro
+  (sin protocolo/path/puerto), normaliza a minúsculas. NO se tocaron
+  registros `domain` ya existentes; si alguno tiene protocolo/path/mayúsculas
+  hoy, simplemente no hará match en `resolveOrganizationByHostname()`
+  (gap documentado, fail-safe).
+- Tests nuevos: 82 casos (hostname, platform-hosts, feature flag, resolver
+  de organización, auth runtime, authorize multi-scope, runtime context
+  helper, domain schema, guard de Support Session) — suite completa
+  538/538 verde.
+- **Deuda explícita no resuelta en VI-C**: revalidación por request de
+  `role`/`status` del usuario runtime (permanece congelado en el JWT hasta
+  su expiración de 8h); `resolveEffectiveApiContext()` sin guard de
+  `auth_scope` (ver arriba); ningún módulo operativo (products, sales,
+  DTE, etc.) usa todavía `requireRuntimeOrganizationContext()` — se
+  migrarán en fases posteriores.
+- **NO implementado en VI-C** (fuera de alcance deliberado): dominio
+  TrustMe real, cambios DNS, `PlatformOrganization.domain` remoto sin
+  tocar, login contra TrustMe PROD, escrituras runtime de cliente, DTE
+  runtime.
+
 ## Arquitectura activa
 - El proyecto funciona como monolito modular.
 - Core contiene identidad, usuarios, permisos, clientes, locations y lógica compartida.

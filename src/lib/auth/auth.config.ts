@@ -32,6 +32,9 @@ export const authConfig = {
     session({ session, token }) {
       session.user.role = token.role as typeof session.user.role;
       session.user.auth_scope = token.auth_scope as string | undefined;
+      // FASE VI-C — igual que auth_scope: mapeo edge-safe, sin DB query.
+      // No se usa todavía para bloquear rutas en middleware.
+      session.user.organization_id = token.organization_id as string | undefined;
       return session;
     },
 

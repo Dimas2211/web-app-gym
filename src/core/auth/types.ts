@@ -70,6 +70,14 @@ export function isAuthScope(value: unknown): value is AuthScope {
  * auth_scope  → FASE VI-B. `undefined` = ausente/no validado (fail closed en
  *               requireSuperAdmin/canAccessPlatformAdmin, nunca se interpreta
  *               como PLATFORM).
+ * organization_id → FASE VI-C. Presente únicamente cuando
+ *               auth_scope === "RUNTIME_CLIENT" (identifica la
+ *               PlatformOrganization resuelta por hostname en el login).
+ *               `undefined` para auth_scope === "PLATFORM" o ausente. Un
+ *               RUNTIME_CLIENT sin organization_id es una identidad runtime
+ *               inválida — ver requireRuntimeOrganizationContext() en
+ *               src/modules/platform/runtime, que la rechaza (fail closed),
+ *               nunca hace fallback a datos globales/Control Plane.
  *
  * Los nombres de columna en BD (gym_id, branch_id) son un detalle de
  * implementación de la capa de datos. El contrato de sesión usa tenant_id
@@ -83,6 +91,7 @@ export type CoreSessionUser = {
   tenant_id: string;
   location_id: string | null;
   auth_scope: AuthScope | undefined;
+  organization_id?: string;
 };
 
 // ─── Tipo puente para adaptación de sesión ────────────────────────────────────
@@ -103,12 +112,14 @@ export type CoreSessionUser = {
  * No usar en módulos GYM. SessionUser en @/lib/permissions/guards es el
  * tipo correcto para código del dominio GYM.
  */
-export type GymSessionUser = Omit<CoreSessionUser, "auth_scope"> & {
+export type GymSessionUser = Omit<CoreSessionUser, "auth_scope" | "organization_id"> & {
   auth_scope?: unknown;
   /** Preservado para compatibilidad con el cast en getCoreSession(). */
   gym_id?: string;
   /** Preservado para compatibilidad con el cast en getCoreSession(). */
   branch_id?: string | null;
+  /** FASE VI-C — valor crudo del JWT, no validado en este punto. */
+  organization_id?: string;
 };
 
 // ─── Utilidad de adaptación ────────────────────────────────────────────────────
@@ -133,5 +144,6 @@ export function toCoreSessionUser(user: GymSessionUser): CoreSessionUser {
     tenant_id: user.tenant_id,
     location_id: user.location_id,
     auth_scope: isAuthScope(user.auth_scope) ? user.auth_scope : undefined,
+    organization_id: typeof user.organization_id === "string" ? user.organization_id : undefined,
   };
 }

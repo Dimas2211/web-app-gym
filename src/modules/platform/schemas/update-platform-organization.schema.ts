@@ -6,6 +6,7 @@
 // ─────────────────────────────────────────────────────────────────
 
 import { z } from "zod";
+import { organizationDomainSchema } from "./organization-domain.schema";
 
 const COUNTRY_CODE_REGEX = /^[A-Z]{2}$/;
 
@@ -30,7 +31,8 @@ export const updatePlatformOrganizationSchema = z.object({
     .optional(),
 
   timezone: z.string().max(60).trim().nullable().optional(),
-  domain:   z.string().max(200).trim().nullable().optional(),
+  // FASE VI-C — ETAPA T: hostname puro, ver organization-domain.schema.ts.
+  domain:   organizationDomainSchema,
   logo_url: z.string().max(500).trim().nullable().optional(),
 
   deployment_url:      z.string().max(500).trim().nullable().optional(),
