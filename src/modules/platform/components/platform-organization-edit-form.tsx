@@ -96,7 +96,7 @@ export function PlatformOrganizationEditForm({ org, verticals, plans, onClose }:
                 <select name="plan_id" defaultValue={org.plan?.id ?? ""} className={`${inputCls} bg-white`}>
                   <option value="">— Sin plan —</option>
                   {plans.map((p) => (
-                    <option key={p.id} value={p.id}>{p.name}</option>
+                    <option key={p.id} value={p.id}>{p.name}{!p.is_active ? " (Inactivo)" : ""}</option>
                   ))}
                 </select>
               </Field>

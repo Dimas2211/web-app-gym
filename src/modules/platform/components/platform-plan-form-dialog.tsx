@@ -97,20 +97,18 @@ export function PlatformPlanFormDialog({ plan, allModules, entitlementDefinition
     });
   }
 
-  // Bloque A (ajuste post-cierre) — espejo entitlement → legacy. Si el
-  // plan tiene configurado core.users.max / core.locations.max, ese
-  // valor manda: el campo legacy se muestra bloqueado y sincronizado
-  // (el server también lo re-deriva al guardar, ver legacy-plan-limits.ts).
-  // Sin ese entitlement configurado, el campo legacy sigue siendo editable
-  // normalmente (modo "solo legacy", compatibilidad).
+  // Bloque A (ajuste post-cierre) + FASE V-B1 (gap 4, limpieza legacy) —
+  // espejo entitlement → legacy sigue existiendo server-side tal cual
+  // (legacy-plan-limits.ts, sin tocar). En UI, la fuente comercial visible
+  // es el entitlement: si core.users.max / core.locations.max EXISTEN en
+  // el catálogo disponible, el campo legacy correspondiente ya no se
+  // muestra en absoluto (sea que este plan lo tenga configurado o no) —
+  // deja de duplicarse visualmente. Solo se muestra el campo legacy
+  // cuando la entitlement definition no existe todavía en el catálogo.
   const usersDef     = entitlementDefinitions.find((d) => d.code === "core.users.max");
   const locationsDef = entitlementDefinitions.find((d) => d.code === "core.locations.max");
-  const usersDraft     = usersDef     ? entitlementDrafts.get(usersDef.id)     : undefined;
-  const locationsDraft = locationsDef ? entitlementDrafts.get(locationsDef.id) : undefined;
-  const usersSynced     = Boolean(usersDraft?.configured);
-  const locationsSynced = Boolean(locationsDraft?.configured);
-  const syncedMaxUsersValue     = usersDraft?.is_unlimited     ? "Ilimitado" : usersDraft?.numeric_value     ?? "";
-  const syncedMaxLocationsValue = locationsDraft?.is_unlimited ? "Ilimitado" : locationsDraft?.numeric_value ?? "";
+  const showLegacyUsers     = !usersDef;
+  const showLegacyLocations = !locationsDef;
 
   const modulesJson = JSON.stringify(
     Array.from(selectedModuleIds).map((module_id) => ({ module_id, is_enabled: true })),
@@ -203,32 +201,29 @@ export function PlatformPlanFormDialog({ plan, allModules, entitlementDefinition
                   defaultValue={plan?.price_annual ?? ""} placeholder="0.00" className={inputCls} />
               </Field>
 
-              <Field label="Máx. ubicaciones (legacy)" error={state?.errors?.max_locations?.[0]}>
-                {locationsSynced ? (
-                  <input type="text" readOnly disabled value={syncedMaxLocationsValue}
-                    className={`${inputCls} bg-zinc-100 text-zinc-400`} />
-                ) : (
+              {showLegacyLocations && (
+                <Field label="Máx. ubicaciones (legacy)" error={state?.errors?.max_locations?.[0]}>
                   <input name="max_locations" type="number" min="1"
                     defaultValue={plan?.max_locations ?? ""} placeholder="Sin límite" className={inputCls} />
-                )}
-              </Field>
+                </Field>
+              )}
 
-              <Field label="Máx. usuarios (legacy)" error={state?.errors?.max_users?.[0]}>
-                {usersSynced ? (
-                  <input type="text" readOnly disabled value={syncedMaxUsersValue}
-                    className={`${inputCls} bg-zinc-100 text-zinc-400`} />
-                ) : (
+              {showLegacyUsers && (
+                <Field label="Máx. usuarios (legacy)" error={state?.errors?.max_users?.[0]}>
                   <input name="max_users" type="number" min="1"
                     defaultValue={plan?.max_users ?? ""} placeholder="Sin límite" className={inputCls} />
-                )}
-              </Field>
+                </Field>
+              )}
             </div>
-            <p className="text-[11px] text-zinc-400 mt-2">
-              &quot;Máx. ubicaciones/usuarios&quot; son campos legacy que se mantienen por compatibilidad.
-              Si configura <code>core.locations.max</code> / <code>core.users.max</code> abajo, ese valor
-              manda y el campo legacy se sincroniza automáticamente (bloqueado aquí) — nunca quedan como
-              dos fuentes independientes.
-            </p>
+            {(showLegacyLocations || showLegacyUsers) && (
+              <p className="text-[11px] text-zinc-400 mt-2">
+                &quot;Máx. ubicaciones/usuarios&quot; son campos legacy que se mantienen por compatibilidad,
+                visibles solo mientras <code>core.locations.max</code> / <code>core.users.max</code> no
+                existan todavía en el catálogo de entitlements. Una vez existen, la fuente comercial es
+                exclusivamente el entitlement (abajo) — el server sigue sincronizando la columna legacy
+                automáticamente al guardar.
+              </p>
+            )}
           </div>
 
           {/* ── Módulos incluidos ── */}

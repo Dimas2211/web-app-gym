@@ -40,6 +40,7 @@ const SOURCE_LABELS: Record<EffectiveModule["source"], string> = {
   ORGANIZATION_OVERRIDE_ADDED:     "Override: habilitado",
   ORGANIZATION_OVERRIDE_REMOVED:   "Override: deshabilitado",
   UNCONFIGURED:                    "Sin configurar",
+  VERTICAL_MISMATCH:               "Bloqueado: vertical distinta",
 };
 
 function ModuleRow({ organizationId, module: mod }: { organizationId: string; module: EffectiveModule }) {
@@ -47,6 +48,10 @@ function ModuleRow({ organizationId, module: mod }: { organizationId: string; mo
   const [error, setError]            = useState<string | null>(null);
 
   const hasOverride = mod.source === "ORGANIZATION_OVERRIDE_ADDED" || mod.source === "ORGANIZATION_OVERRIDE_REMOVED";
+  // FASE V-B1 — vertical safety gana siempre sobre plan/override: si el
+  // resolver ya reporta VERTICAL_MISMATCH, ningún botón puede cambiar el
+  // resultado (un override en este estado quedaría siempre ignorado).
+  const isVerticalMismatch = mod.source === "VERTICAL_MISMATCH";
 
   type ModuleAction = typeof activateOrganizationModuleAction;
 
@@ -85,6 +90,11 @@ function ModuleRow({ organizationId, module: mod }: { organizationId: string; mo
           <div className="flex items-center gap-1 text-xs text-zinc-400">
             <Lock size={12} />
             Core
+          </div>
+        ) : isVerticalMismatch ? (
+          <div className="flex items-center gap-1 text-xs text-zinc-400" title="La vertical de esta organización no coincide con la del módulo — ningún override puede habilitarlo.">
+            <Lock size={12} />
+            Vertical no compatible
           </div>
         ) : (
           <div className="flex items-center gap-1.5 flex-wrap">

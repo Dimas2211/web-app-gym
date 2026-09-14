@@ -44,7 +44,7 @@ export default async function PlatformOrganizationDetailPage({ params }: Props) 
 
   const { id } = await params;
 
-  const [org, orgModules, verticals, plans, branding, logs, dteCorrelatives, effectiveEntitlements, effectiveModules] = await Promise.all([
+  const [org, orgModules, verticals, allPlans, branding, logs, dteCorrelatives, effectiveEntitlements, effectiveModules] = await Promise.all([
     getPlatformOrganizationByIdQuery(id),
     listOrganizationModulesQuery(id),
     listPlatformVerticalsQuery(false),
@@ -57,6 +57,17 @@ export default async function PlatformOrganizationDetailPage({ params }: Props) 
   ]);
 
   if (!org) notFound();
+
+  // Gap V-B1.2 — el selector de edición solo debe ofrecer planes activos
+  // para NUEVAS asignaciones, pero si la organización ya tiene asignado un
+  // plan que luego fue desactivado, ese plan debe seguir apareciendo (para
+  // no romper el form ni sugerir que desapareció) — nunca se reactiva ni
+  // se quita automáticamente.
+  const activePlans = allPlans.filter((p) => p.is_active);
+  const currentPlanInactive = org.plan && !activePlans.some((p) => p.id === org.plan!.id)
+    ? allPlans.find((p) => p.id === org.plan!.id) ?? null
+    : null;
+  const plans = currentPlanInactive ? [...activePlans, currentPlanInactive] : activePlans;
 
   return (
     <div className="space-y-5">

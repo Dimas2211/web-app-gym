@@ -1,6 +1,7 @@
 "use client";
 
 import { useState }                          from "react";
+import Link                                  from "next/link";
 import { Plus, Pencil, ToggleLeft, ToggleRight } from "lucide-react";
 
 import { togglePlatformPlanStatusAction }   from "../actions/toggle-platform-plan-status.action";
@@ -34,7 +35,16 @@ export function PlatformPlansTable({ plans, allModules, entitlementDefinitions }
   const [editing, setEditing]       = useState<PlatformPlanItem | null>(null);
   const [toggling, setToggling]     = useState<string | null>(null);
 
-  async function handleToggle(id: string) {
+  async function handleToggle(id: string, isActive: boolean, organizationsCount: number) {
+    // Gap V-B1.3 — informar impacto antes de desactivar, sin bloquear.
+    if (isActive && organizationsCount > 0) {
+      const confirmed = window.confirm(
+        `Este plan está usado por ${organizationsCount} organización${organizationsCount === 1 ? "" : "es"}. ` +
+        "Desactivarlo no las afecta (siguen resolviendo módulos/entitlements normalmente) " +
+        "pero ya no podrá asignarse a organizaciones nuevas. ¿Continuar?",
+      );
+      if (!confirmed) return;
+    }
     setToggling(id);
     try { await togglePlatformPlanStatusAction(id); } finally { setToggling(null); }
   }
@@ -64,6 +74,7 @@ export function PlatformPlansTable({ plans, allModules, entitlementDefinitions }
               <th className="text-right px-4 py-2.5 text-xs font-semibold text-zinc-500">Anual</th>
               <th className="text-center px-4 py-2.5 text-xs font-semibold text-zinc-500">Ubic.</th>
               <th className="text-center px-4 py-2.5 text-xs font-semibold text-zinc-500">Usuarios</th>
+              <th className="text-center px-4 py-2.5 text-xs font-semibold text-zinc-500">Organizaciones</th>
               <th className="text-center px-4 py-2.5 text-xs font-semibold text-zinc-500">Estado</th>
               <th className="px-4 py-2.5" />
             </tr>
@@ -71,7 +82,7 @@ export function PlatformPlansTable({ plans, allModules, entitlementDefinitions }
           <tbody className="divide-y divide-zinc-100">
             {plans.length === 0 && (
               <tr>
-                <td colSpan={9} className="text-center text-zinc-400 text-sm py-10">
+                <td colSpan={10} className="text-center text-zinc-400 text-sm py-10">
                   No hay planes registrados
                 </td>
               </tr>
@@ -85,6 +96,19 @@ export function PlatformPlansTable({ plans, allModules, entitlementDefinitions }
                 <td className="px-4 py-3 text-right text-zinc-700">{fmt(p.price_annual)}</td>
                 <td className="px-4 py-3 text-center text-zinc-600">{fmtLimit(p.max_locations)}</td>
                 <td className="px-4 py-3 text-center text-zinc-600">{fmtLimit(p.max_users)}</td>
+                <td className="px-4 py-3 text-center">
+                  {p.organizationsCount > 0 ? (
+                    <Link
+                      href={`/dashboard/platform/organizations?plan=${p.id}`}
+                      className="text-xs font-semibold text-zinc-600 hover:text-zinc-900 hover:underline"
+                      title="Ver organizaciones que usan este plan"
+                    >
+                      {p.organizationsCount} org.
+                    </Link>
+                  ) : (
+                    <span className="text-xs text-zinc-400">0 org.</span>
+                  )}
+                </td>
                 <td className="px-4 py-3 text-center">
                   <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
                     p.is_active ? "bg-green-100 text-green-700" : "bg-zinc-100 text-zinc-500"
@@ -104,7 +128,7 @@ export function PlatformPlansTable({ plans, allModules, entitlementDefinitions }
                     </button>
                     <button
                       type="button"
-                      onClick={() => handleToggle(p.id)}
+                      onClick={() => handleToggle(p.id, p.is_active, p.organizationsCount)}
                       disabled={toggling === p.id}
                       className="text-zinc-400 hover:text-zinc-700 transition-colors disabled:opacity-40"
                       title={p.is_active ? "Desactivar" : "Activar"}

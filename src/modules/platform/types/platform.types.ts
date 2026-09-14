@@ -61,6 +61,10 @@ export interface PlatformPlanItem {
   // el formulario de edición sin queries adicionales desde el cliente.
   modules:      PlanModuleItem[];
   entitlements: PlanEntitlementItem[];
+  // FASE V-B1 — impacto visible en Plan Manager ("Usado por N
+  // organizaciones"), vía _count.organizations de Prisma. Nunca bloquea
+  // desactivación, solo informa.
+  organizationsCount: number;
 }
 
 // ── PlatformPlanModule (Bloque A) ─────────────────────────────────
@@ -122,7 +126,16 @@ export interface EffectiveEntitlement {
   source:        EntitlementSource;
 }
 
-export type ModuleSource = "PLAN" | "ORGANIZATION_OVERRIDE_ADDED" | "ORGANIZATION_OVERRIDE_REMOVED" | "UNCONFIGURED";
+export type ModuleSource =
+  | "PLAN"
+  | "ORGANIZATION_OVERRIDE_ADDED"
+  | "ORGANIZATION_OVERRIDE_REMOVED"
+  | "UNCONFIGURED"
+  // FASE V-B1 — Vertical safety. Módulo ligado a una vertical distinta de
+  // la de la organización (o organización sin vertical y módulo con
+  // vertical_id). Gana SIEMPRE sobre plan y override: ningún override de
+  // organización puede saltarse esta capa. enabled siempre false.
+  | "VERTICAL_MISMATCH";
 
 export interface EffectiveModule {
   module_id: string;

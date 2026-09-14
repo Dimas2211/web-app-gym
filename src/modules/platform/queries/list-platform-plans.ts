@@ -24,6 +24,7 @@ export async function listPlatformPlansQuery(
       created_at:    true,
       modules:      { select: { module_id: true, is_enabled: true } },
       entitlements: { select: { entitlement_definition_id: true, numeric_value: true, is_unlimited: true } },
+      _count:       { select: { organizations: true } },
     },
     orderBy: { name: "asc" },
   });
@@ -46,5 +47,6 @@ export async function listPlatformPlansQuery(
       numeric_value:             e.numeric_value,
       is_unlimited:               e.is_unlimited,
     })),
+    organizationsCount: r._count.organizations,
   }));
 }

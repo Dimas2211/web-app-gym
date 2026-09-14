@@ -8,6 +8,7 @@
 // ─────────────────────────────────────────────────────────────────
 
 import { useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { Building2, Plus } from "lucide-react";
 
 import { PlatformOrganizationsTable }    from "./platform-organizations-table";
@@ -22,10 +23,13 @@ import type {
 } from "../types/platform.types";
 
 export interface PlatformOrganizationsClientProps {
-  initialItems: PlatformOrganizationListItem[];
-  initialTotal: number;
-  verticals:    PlatformVerticalItem[];
-  plans:        PlatformPlanItem[];
+  initialItems:   PlatformOrganizationListItem[];
+  initialTotal:   number;
+  verticals:      PlatformVerticalItem[];
+  plans:          PlatformPlanItem[];
+  // Gap V-B1.2 — solo planes activos, para el diálogo de alta. `plans`
+  // (arriba) sigue trayendo activos+inactivos para el filtro de la tabla.
+  creatablePlans: PlatformPlanItem[];
 }
 
 export function PlatformOrganizationsClient({
@@ -33,12 +37,18 @@ export function PlatformOrganizationsClient({
   initialTotal,
   verticals,
   plans,
+  creatablePlans,
 }: PlatformOrganizationsClientProps) {
+  // Gap V-B1.3 — "Usado por N organizaciones" en Plan Manager enlaza aquí
+  // con ?plan=<id>; se usa solo para el valor inicial del filtro.
+  const searchParams = useSearchParams();
+  const initialPlanFilter = searchParams.get("plan") ?? "";
+
   const [search,         setSearch]        = useState("");
   const [statusFilter,   setStatusFilter]  = useState<PlatformOrganizationStatus | "">("");
   const [licenseFilter,  setLicenseFilter] = useState<PlatformLicenseStatus | "">("");
   const [verticalFilter, setVerticalFilter]= useState("");
-  const [planFilter,     setPlanFilter]    = useState("");
+  const [planFilter,     setPlanFilter]    = useState(initialPlanFilter);
   const [showNewDialog,  setShowNewDialog] = useState(false);
 
   // Filtrado en memoria — dataset pequeño (orgs de plataforma son pocas)
@@ -183,7 +193,7 @@ export function PlatformOrganizationsClient({
       {showNewDialog && (
         <NewPlatformOrganizationDialog
           verticals={verticals}
-          plans={plans}
+          plans={creatablePlans}
           onClose={() => setShowNewDialog(false)}
         />
       )}

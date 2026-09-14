@@ -21,8 +21,15 @@ export default async function PlatformOrganizationsPage() {
   const [result, verticals, plans] = await Promise.all([
     listPlatformOrganizationsQuery({ page_size: 500 }),
     listPlatformVerticalsQuery(false),
+    // Activos e inactivos — el filtro de la tabla debe poder seguir
+    // mostrando organizaciones ya asociadas a un plan desactivado.
     listPlatformPlansQuery(false),
   ]);
+
+  // Gap V-B1.2 — solo planes activos pueden elegirse para NUEVAS
+  // organizaciones. `plans` (con inactivos) sigue alimentando el filtro
+  // de la tabla, que no asigna nada.
+  const creatablePlans = plans.filter((p) => p.is_active);
 
   return (
     <PlatformOrganizationsClient
@@ -30,6 +37,7 @@ export default async function PlatformOrganizationsPage() {
       initialTotal={result.total}
       verticals={verticals}
       plans={plans}
+      creatablePlans={creatablePlans}
     />
   );
 }

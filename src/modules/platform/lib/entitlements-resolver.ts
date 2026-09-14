@@ -42,18 +42,40 @@ import type {
 } from "../types/platform.types";
 
 // ── Módulos ────────────────────────────────────────────────────────
+//
+// FASE V-B1 — Vertical safety (capa superior a la precedencia normal):
+//   module.vertical_id == null                                → resuelve normal (global/commerce/core).
+//   module.vertical_id != null && == organizationVerticalId   → resuelve normal.
+//   module.vertical_id != null && != organizationVerticalId   → SIEMPRE
+//     enabled=false, source="VERTICAL_MISMATCH" — gana incluso sobre
+//     PlatformPlanModule.is_enabled=true o un override de organización.
+//   organizationVerticalId == null (organización sin vertical) cuenta
+//     como "distinta" frente a cualquier module.vertical_id no nulo.
 
 export function resolveEffectiveModules(input: {
   allModules:  PlatformModuleItem[];
   planModules: PlanModuleItem[];
   orgModules:  OrganizationModuleItem[];
+  organizationVerticalId: string | null;
 }): EffectiveModule[] {
-  const { allModules, planModules, orgModules } = input;
+  const { allModules, planModules, orgModules, organizationVerticalId } = input;
 
   const planModuleMap = new Map(planModules.map((m) => [m.module_id, m.is_enabled]));
   const orgModuleMap  = new Map(orgModules.map((m) => [m.module_id, m]));
 
   return allModules.map((mod) => {
+    if (mod.vertical_id !== null && mod.vertical_id !== organizationVerticalId) {
+      return {
+        module_id: mod.id,
+        code:      mod.code,
+        name:      mod.name,
+        category:  mod.category,
+        is_core:   mod.is_core,
+        enabled:   false,
+        source:    "VERTICAL_MISMATCH",
+      };
+    }
+
     const orgRow = orgModuleMap.get(mod.id);
 
     if (orgRow) {
@@ -155,7 +177,7 @@ export function resolveEffectiveEntitlements(input: {
 export async function getEffectiveOrganizationModules(organizationId: string): Promise<EffectiveModule[]> {
   const org = await prisma.platformOrganization.findUnique({
     where:  { id: organizationId },
-    select: { plan_id: true },
+    select: { plan_id: true, vertical_id: true },
   });
 
   const [allModules, planModuleRows, orgModuleRows] = await Promise.all([
@@ -186,6 +208,7 @@ export async function getEffectiveOrganizationModules(organizationId: string): P
       module: { code: "", name: "", category: "CORE" }, is_active: r.is_active,
       activated_at: new Date(), deactivated_at: null,
     })),
+    organizationVerticalId: org?.vertical_id ?? null,
   });
 }
 

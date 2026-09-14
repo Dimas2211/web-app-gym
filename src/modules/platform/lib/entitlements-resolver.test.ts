@@ -135,6 +135,7 @@ describe("resolveEffectiveModules", () => {
       allModules: [mod()],
       planModules: [{ module_id: "mod-1", is_enabled: true }] as PlanModuleItem[],
       orgModules: [],
+      organizationVerticalId: null,
     });
     expect(result[0]).toMatchObject({ enabled: true, source: "PLAN" });
   });
@@ -144,6 +145,7 @@ describe("resolveEffectiveModules", () => {
       allModules: [mod()],
       planModules: [{ module_id: "mod-1", is_enabled: true }],
       orgModules: [orgModRow({ is_active: false })],
+      organizationVerticalId: null,
     });
     expect(result[0]).toMatchObject({ enabled: false, source: "ORGANIZATION_OVERRIDE_REMOVED" });
   });
@@ -153,6 +155,7 @@ describe("resolveEffectiveModules", () => {
       allModules: [mod()],
       planModules: [],
       orgModules: [orgModRow({ is_active: true })],
+      organizationVerticalId: null,
     });
     expect(result[0]).toMatchObject({ enabled: true, source: "ORGANIZATION_OVERRIDE_ADDED" });
   });
@@ -166,6 +169,7 @@ describe("resolveEffectiveModules", () => {
       allModules: [mod()],
       planModules: [],
       orgModules: [],
+      organizationVerticalId: null,
     });
     expect(result[0]).toMatchObject({ enabled: false, source: "UNCONFIGURED" });
   });
@@ -181,6 +185,7 @@ describe("resolveEffectiveModules", () => {
         allModules: [inventoryMod],
         planModules,
         orgModules: [orgModRow({ module_id: "mod-inv", is_active: false })],
+        organizationVerticalId: null,
       });
       expect(beforeRevert[0]).toMatchObject({ enabled: false, source: "ORGANIZATION_OVERRIDE_REMOVED" });
 
@@ -189,6 +194,7 @@ describe("resolveEffectiveModules", () => {
         allModules: [inventoryMod],
         planModules,
         orgModules: [],
+        organizationVerticalId: null,
       });
       expect(afterRevert[0]).toMatchObject({ enabled: true, source: "PLAN" });
     });
@@ -200,6 +206,7 @@ describe("resolveEffectiveModules", () => {
         allModules: [dteMod],
         planModules: [],
         orgModules: [orgModRow({ module_id: "mod-dte", is_active: true })],
+        organizationVerticalId: null,
       });
       expect(beforeRevert[0]).toMatchObject({ enabled: true, source: "ORGANIZATION_OVERRIDE_ADDED" });
 
@@ -207,8 +214,103 @@ describe("resolveEffectiveModules", () => {
         allModules: [dteMod],
         planModules: [],
         orgModules: [],
+        organizationVerticalId: null,
       });
       expect(afterRevert[0]).toMatchObject({ enabled: false, source: "UNCONFIGURED" });
+    });
+  });
+
+  // ── FASE V-B1 — Vertical safety ───────────────────────────────────
+  // module.vertical_id != null && != organization.vertical_id → SIEMPRE
+  // enabled=false / source=VERTICAL_MISMATCH, ganando sobre plan y override.
+  describe("vertical safety", () => {
+    const GYM = "vert-gym";
+    const RETAIL = "vert-retail";
+
+    it("CASO 1 — module.vertical_id=null, cualquier vertical de organización, plan enabled → enabled normal", () => {
+      const globalMod = mod({ vertical_id: null });
+      const result = resolveEffectiveModules({
+        allModules: [globalMod],
+        planModules: [{ module_id: "mod-1", is_enabled: true }],
+        orgModules: [],
+        organizationVerticalId: RETAIL,
+      });
+      expect(result[0]).toMatchObject({ enabled: true, source: "PLAN" });
+    });
+
+    it("CASO 2 — module.vertical_id=GYM, organization.vertical_id=GYM, plan enabled → enabled normal", () => {
+      const gymMod = mod({ vertical_id: GYM });
+      const result = resolveEffectiveModules({
+        allModules: [gymMod],
+        planModules: [{ module_id: "mod-1", is_enabled: true }],
+        orgModules: [],
+        organizationVerticalId: GYM,
+      });
+      expect(result[0]).toMatchObject({ enabled: true, source: "PLAN" });
+    });
+
+    it("CASO 3 — module.vertical_id=GYM, organization.vertical_id=RETAIL, plan enabled → disabled/VERTICAL_MISMATCH", () => {
+      const gymMod = mod({ vertical_id: GYM });
+      const result = resolveEffectiveModules({
+        allModules: [gymMod],
+        planModules: [{ module_id: "mod-1", is_enabled: true }],
+        orgModules: [],
+        organizationVerticalId: RETAIL,
+      });
+      expect(result[0]).toMatchObject({ enabled: false, source: "VERTICAL_MISMATCH" });
+    });
+
+    it("CASO 4 — module.vertical_id=GYM, organization.vertical_id=RETAIL, override enabled → disabled/VERTICAL_MISMATCH (override no salta vertical safety)", () => {
+      const gymMod = mod({ vertical_id: GYM });
+      const result = resolveEffectiveModules({
+        allModules: [gymMod],
+        planModules: [{ module_id: "mod-1", is_enabled: true }],
+        orgModules: [orgModRow({ is_active: true })],
+        organizationVerticalId: RETAIL,
+      });
+      expect(result[0]).toMatchObject({ enabled: false, source: "VERTICAL_MISMATCH" });
+    });
+
+    it("CASO 5 — module.vertical_id=GYM, organization.vertical_id=null → disabled/VERTICAL_MISMATCH", () => {
+      const gymMod = mod({ vertical_id: GYM });
+      const result = resolveEffectiveModules({
+        allModules: [gymMod],
+        planModules: [{ module_id: "mod-1", is_enabled: true }],
+        orgModules: [],
+        organizationVerticalId: null,
+      });
+      expect(result[0]).toMatchObject({ enabled: false, source: "VERTICAL_MISMATCH" });
+    });
+
+    it("CASO 6 — module.vertical_id=GYM, organization.vertical_id=GYM, override enabled/disabled → precedencia normal (no rota por vertical safety)", () => {
+      const gymMod = mod({ vertical_id: GYM });
+
+      const withOverrideDisabled = resolveEffectiveModules({
+        allModules: [gymMod],
+        planModules: [{ module_id: "mod-1", is_enabled: true }],
+        orgModules: [orgModRow({ is_active: false })],
+        organizationVerticalId: GYM,
+      });
+      expect(withOverrideDisabled[0]).toMatchObject({ enabled: false, source: "ORGANIZATION_OVERRIDE_REMOVED" });
+
+      const withOverrideEnabled = resolveEffectiveModules({
+        allModules: [gymMod],
+        planModules: [],
+        orgModules: [orgModRow({ is_active: true })],
+        organizationVerticalId: GYM,
+      });
+      expect(withOverrideEnabled[0]).toMatchObject({ enabled: true, source: "ORGANIZATION_OVERRIDE_ADDED" });
+    });
+
+    it("no rompe módulos globales (Commerce/core sin vertical) para una organización con vertical asignada", () => {
+      const commerceMod = mod({ id: "mod-commerce", code: "commerce.products", vertical_id: null });
+      const result = resolveEffectiveModules({
+        allModules: [commerceMod],
+        planModules: [{ module_id: "mod-commerce", is_enabled: true }],
+        orgModules: [],
+        organizationVerticalId: GYM,
+      });
+      expect(result[0]).toMatchObject({ enabled: true, source: "PLAN" });
     });
   });
 });
