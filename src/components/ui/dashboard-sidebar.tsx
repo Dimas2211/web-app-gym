@@ -30,9 +30,17 @@ type Props = {
    * ningún `requiredVerticalCode` oculta items.
    */
   isLegacyUnmanaged: boolean;
+  /**
+   * FASE VI-B — resultado de canAccessPlatformAdmin(user) calculado
+   * server-side en layout.tsx (auth_scope === "PLATFORM" && isGlobal).
+   * Controla la visibilidad del grupo "Platform Admin" ADEMÁS del rol.
+   * Defensa de UI únicamente — requireSuperAdmin sigue siendo la autoridad
+   * real en cada page.tsx/Server Action de /dashboard/platform/*.
+   */
+  canAccessPlatformAdmin: boolean;
 };
 
-export function DashboardSidebar({ role, enabledModuleCodes, effectiveVerticalCode, isLegacyUnmanaged }: Props) {
+export function DashboardSidebar({ role, enabledModuleCodes, effectiveVerticalCode, isLegacyUnmanaged, canAccessPlatformAdmin }: Props) {
   const { open, close } = useSidebar();
   const pathname = usePathname();
 
@@ -42,6 +50,7 @@ export function DashboardSidebar({ role, enabledModuleCodes, effectiveVerticalCo
     new Set(enabledModuleCodes),
     effectiveVerticalCode,
     isLegacyUnmanaged,
+    canAccessPlatformAdmin,
   );
 
   return (

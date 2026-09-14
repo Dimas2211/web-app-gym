@@ -3,6 +3,8 @@ import { auth } from "@/lib/auth/auth";
 import { ROLE_LABELS, ROLE_COLORS } from "@/lib/utils/roles";
 import { MODULE_GROUPS, filterModuleGroupsByAccess } from "@/lib/navigation/dashboard-nav";
 import { resolveEffectiveDashboardContext } from "@/modules/platform/runtime/resolve-effective-dashboard-context";
+import { canAccessPlatformAdmin } from "@/core/permissions/platform-access";
+import { isAuthScope } from "@/core/auth/types";
 import type { SessionUser } from "@/lib/permissions/guards";
 import type { UserRole } from "@prisma/client";
 
@@ -46,6 +48,10 @@ export default async function DashboardPage({
     dashCtx.enabledModuleCodes,
     dashCtx.verticalCode,
     dashCtx.isLegacyUnmanaged,
+    canAccessPlatformAdmin({
+      role: user.role,
+      auth_scope: isAuthScope(user.auth_scope) ? user.auth_scope : undefined,
+    }),
   );
   await dispose();
 

@@ -113,10 +113,35 @@ describe("filterModuleGroupsByAccess — LEGACY_UNMANAGED: bypass explícito", (
 });
 
 describe("filterModuleGroupsByAccess — Platform Admin", () => {
-  it("nunca se filtra por módulo ni por vertical, solo por rol", () => {
+  it("nunca se filtra por módulo ni por vertical, solo por rol (default canAccessPlatformAdmin=true)", () => {
     const groups = filterModuleGroupsByAccess(MODULE_GROUPS, SUPER_ADMIN, new Set(), null, false);
     const platformGroup = groups.find((g) => g.id === "platform");
     expect(platformGroup).toBeDefined();
     expect(platformGroup!.items.length).toBeGreaterThan(0);
+  });
+});
+
+describe("filterModuleGroupsByAccess — FASE VI-B: canAccessPlatformAdmin", () => {
+  it("Platform navigation visible: rol super_admin + canAccessPlatformAdmin=true", () => {
+    const groups = filterModuleGroupsByAccess(MODULE_GROUPS, SUPER_ADMIN, new Set(), null, false, true);
+    const platformGroup = groups.find((g) => g.id === "platform");
+    expect(platformGroup).toBeDefined();
+    expect(platformGroup!.items.length).toBeGreaterThan(0);
+  });
+
+  it("Platform navigation hidden: rol super_admin PERO canAccessPlatformAdmin=false (ej. RUNTIME_CLIENT)", () => {
+    const groups = filterModuleGroupsByAccess(MODULE_GROUPS, SUPER_ADMIN, new Set(), null, false, false);
+    const platformGroup = groups.find((g) => g.id === "platform");
+    expect(platformGroup).toBeUndefined();
+  });
+
+  it("canAccessPlatformAdmin=false no afecta otros grupos (dashboard ordinario sigue funcional)", () => {
+    const enabled = new Set([...ALL_GYM_MODULES, ...ALL_COMMERCE_MODULES, ...ALL_CORE_MODULES]);
+    const groups = filterModuleGroupsByAccess(MODULE_GROUPS, SUPER_ADMIN, enabled, "GYM", false, false);
+    const groupIds = groups.map((g) => g.id);
+    expect(groupIds).toContain("gym");
+    expect(groupIds).toContain("commerce");
+    expect(groupIds).toContain("admin");
+    expect(groupIds).not.toContain("platform");
   });
 });

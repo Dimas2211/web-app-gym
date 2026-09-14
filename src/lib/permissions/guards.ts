@@ -1,8 +1,9 @@
 import { auth } from "@/lib/auth/auth";
 import { redirect } from "next/navigation";
 import type { UserRole } from "@prisma/client";
-import type { CoreSessionUser } from "@/core/auth/types";
+import { isAuthScope, type CoreSessionUser } from "@/core/auth/types";
 import { getCapabilities } from "@/core/permissions/role-capabilities";
+import { canAccessPlatformAdmin } from "@/core/permissions/platform-access";
 
 /**
  * Usuario de sesión autenticado en el sistema GYM.
@@ -45,6 +46,11 @@ export async function getSessionOrRedirect(): Promise<SessionUser> {
     role: u.role as UserRole,
     tenant_id: u.tenant_id,
     location_id: u.location_id,
+    // FASE VI-B — valida en esta frontera: un JWT sin auth_scope (sesión
+    // creada antes de este cambio) o con un valor no reconocido se
+    // normaliza a `undefined`. NUNCA se asume "PLATFORM" por defecto — ver
+    // ETAPA L (fail closed) de FASE VI-B.
+    auth_scope: isAuthScope(u.auth_scope) ? u.auth_scope : undefined,
   };
 }
 
@@ -55,10 +61,19 @@ export async function requireAdmin(): Promise<SessionUser> {
   return user;
 }
 
-/** Requiere super_admin exclusivamente */
+/**
+ * Requiere Platform Admin: auth_scope === "PLATFORM" Y rol con isGlobal.
+ *
+ * FASE VI-B — CAMBIO CRÍTICO: antes de esta fase, esta función solo
+ * verificaba getCapabilities(role).isGlobal. Eso permitía que CUALQUIER
+ * identidad con role=super_admin (incluida una futura sesión runtime de
+ * cliente) accediera a Platform Admin. Ver canAccessPlatformAdmin() en
+ * @/core/permissions/platform-access — única fuente de esta decisión,
+ * compartida con la navegación UI (dashboard-nav.ts).
+ */
 export async function requireSuperAdmin(): Promise<SessionUser> {
   const user = await getSessionOrRedirect();
-  if (!getCapabilities(user.role).isGlobal) redirect("/dashboard");
+  if (!canAccessPlatformAdmin(user)) redirect("/dashboard");
   return user;
 }
 

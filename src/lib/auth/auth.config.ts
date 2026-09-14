@@ -19,12 +19,19 @@ export const authConfig = {
      * Mapea el campo `role` del JWT a session.user para que el callback
      * `authorized` pueda leer el rol del usuario correctamente.
      *
+     * FASE VI-B — también mapea `auth_scope`, igual que ya mapea `role`,
+     * para que sea edge-safe (no hace DB query, no resuelve hostname; ver
+     * restricciones de ETAPA K de FASE VI-B). No se usa todavía para
+     * bloquear rutas en el middleware — solo Platform Admin queda
+     * scope-protegido, vía sus guards/navigation server-side.
+     *
      * Nota: cuando auth.ts hace `NextAuth({ ...authConfig, callbacks: {...} })`,
      * este callback queda reemplazado por el session callback completo de
      * auth.ts. Solo aplica en el contexto del middleware.
      */
     session({ session, token }) {
       session.user.role = token.role as typeof session.user.role;
+      session.user.auth_scope = token.auth_scope as string | undefined;
       return session;
     },
 

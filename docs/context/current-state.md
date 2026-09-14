@@ -22,6 +22,56 @@
 - No volver a usar gym_id / branch_id como contrato principal.
 - El JWT bridge gym_id / branch_id ya fue eliminado.
 
+## Platform — FASE VI-B: Runtime Identity Security Foundation (cerrada, no es cierre de FASE VI completa)
+
+Introduce `AuthScope` (`src/core/auth/types.ts`) como concepto ORTOGONAL a `role`:
+`role` sigue gobernando privilegios dentro del tenant/organización; `auth_scope`
+gobierna el origen/alcance de la identidad. Valores: `PLATFORM` (identidad
+autenticada por el flujo global actual — el único login activo hoy) y
+`RUNTIME_CLIENT` (reservado para login runtime futuro, **NOT YET ENABLED**,
+llegará en FASE VI-C). `role === "super_admin"` dejó de ser prueba suficiente
+de identidad Platform Admin.
+
+- **Frontera única**: `canAccessPlatformAdmin(user)` en
+  `src/core/permissions/platform-access.ts` — exige `auth_scope === "PLATFORM"`
+  **Y** `getCapabilities(role).isGlobal`. Usada por `requireSuperAdmin()`
+  (`src/lib/permissions/guards.ts`, autoridad server-side real) y por
+  `filterModuleGroupsByAccess()` (`src/lib/navigation/dashboard-nav.ts`, nuevo
+  parámetro `canAccessPlatformAdmin`, defensa de UI únicamente).
+- **Sesión/JWT**: `authorize()` en `src/lib/auth/auth.ts` emite
+  `auth_scope: "PLATFORM"` explícito para todo login del flujo actual (Prisma
+  global). `jwt()`/`session()` lo transportan; `auth.config.ts` (edge-safe,
+  usado por middleware) también lo mapea, sin hacer DB query ni resolver
+  hostname.
+- **Validación fail-closed**: `isAuthScope()` (`src/core/auth/types.ts`) es el
+  único type guard de frontera — un JWT sin `auth_scope` (sesión creada antes
+  de este cambio) o con valor no reconocido se normaliza a `undefined`, NUNCA
+  se asume `PLATFORM` por defecto. Aplicado en `getSessionOrRedirect()`
+  (`lib/permissions/guards.ts`) y `toCoreSessionUser()` (`core/auth/types.ts`,
+  usado por `getCoreSession()`). Sesiones existentes (ej. Carlos) requieren
+  relogin tras el deploy para obtener `auth_scope` explícito — hasta entonces,
+  Platform Admin queda bloqueado para esa sesión (fail closed, no fail open).
+- **Herencia automática**: las 61 Server Actions de `src/modules/platform/actions/**`
+  y las 20 páginas de `/dashboard/platform/*` ya usaban `requireSuperAdmin()` —
+  heredan la nueva regla sin cambio de código en cada una (auditado por grep,
+  cero archivos sin el guard). `enter-client-runtime.action.ts` /
+  `exit-client-runtime.action.ts` (Support Session / "Operar como cliente")
+  también heredan: un futuro `RUNTIME_CLIENT + super_admin` queda denegado.
+- **No tocado deliberadamente**: `getCapabilities(role).isGlobal` conserva su
+  semántica tenant-wide (ej. super_admin administrando todas las sucursales de
+  su propio tenant) — VI-B no la elimina ni la redefine, solo agrega la
+  segunda condición en la frontera Platform. `requireGlobalAccess()`
+  (`src/core/permissions/guards.ts`) no se tocó: no tiene consumidores hoy y
+  no es un boundary Platform Admin actual.
+- Tests: `src/core/permissions/platform-access.test.ts` (8 casos),
+  `src/core/auth/types.test.ts` (5 casos), 3 casos nuevos en
+  `dashboard-nav.test.ts` — total suite 456/456 verde.
+- **NO implementado en VI-B** (explícitamente fuera de alcance): hostname
+  routing, login runtime real, runtime DB lookup en `authorize()`,
+  `trustme.getzolvi.com`, custom domains, runtime writes, DTE runtime
+  mutation. `RUNTIME_CLIENT` existe como tipo pero ningún flujo lo emite
+  todavía.
+
 ## Arquitectura activa
 - El proyecto funciona como monolito modular.
 - Core contiene identidad, usuarios, permisos, clientes, locations y lógica compartida.

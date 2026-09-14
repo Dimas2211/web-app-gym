@@ -2,6 +2,8 @@ import { redirect } from "next/navigation";
 import { auth, signOut } from "@/lib/auth/auth";
 import { NavBar } from "@/components/ui/nav-bar";
 import { getCapabilities } from "@/core/permissions/role-capabilities";
+import { canAccessPlatformAdmin } from "@/core/permissions/platform-access";
+import { isAuthScope } from "@/core/auth/types";
 import { getLocationOptions } from "@/core/modules/locations/queries";
 import { getEffectiveLocationId } from "@/lib/location/active-location";
 import { LocationSwitcher } from "@/core/components/ui/location-switcher";
@@ -133,6 +135,10 @@ export default async function DashboardLayout({
               enabledModuleCodes={[...dashCtx.enabledModuleCodes]}
               effectiveVerticalCode={dashCtx.verticalCode}
               isLegacyUnmanaged={dashCtx.isLegacyUnmanaged}
+              canAccessPlatformAdmin={canAccessPlatformAdmin({
+                role: user.role,
+                auth_scope: isAuthScope(user.auth_scope) ? user.auth_scope : undefined,
+              })}
             />
             <main className="flex-1 min-h-0 overflow-y-auto px-4 sm:px-6 py-8">
               <div className="w-full max-w-[1800px] mx-auto">{children}</div>

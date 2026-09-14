@@ -32,6 +32,14 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         const passwordMatch = await bcrypt.compare(password, user.password_hash);
         if (!passwordMatch) return null;
 
+        // FASE VI-B — todo usuario autenticado por este flujo (Prisma
+        // global, el ÚNICO flujo de login activo hoy) recibe explícitamente
+        // auth_scope = "PLATFORM". Esto NO significa que cualquier rol de la
+        // DB global reciba privilegio Platform Admin: el rol sigue
+        // gobernando capacidades vía getCapabilities(role).isGlobal — ver
+        // canAccessPlatformAdmin() en @/core/permissions/platform-access.
+        // Login runtime (auth_scope = "RUNTIME_CLIENT") NO está habilitado
+        // todavía (FASE VI-C).
         return {
           id: user.id,
           email: user.email,
@@ -39,6 +47,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           role: user.role,
           tenant_id: user.gym_id,
           location_id: user.branch_id,
+          auth_scope: "PLATFORM",
         };
       },
     }),
@@ -51,6 +60,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         token.role = user.role;
         token.tenant_id = user.tenant_id;
         token.location_id = user.location_id;
+        token.auth_scope = user.auth_scope;
       }
       return token;
     },
@@ -61,6 +71,10 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       session.user.role = token.role as UserRole;
       session.user.tenant_id   = token.tenant_id as string;
       session.user.location_id = token.location_id as string | null;
+      // FASE VI-B — valor crudo sin validar (puede ser undefined en un JWT
+      // emitido antes de este cambio). La validación real ocurre en el
+      // consumidor (getSessionOrRedirect / getCoreSession vía isAuthScope).
+      session.user.auth_scope = token.auth_scope as string | undefined;
       return session;
     },
   },

@@ -137,6 +137,17 @@ export const MODULE_GROUPS: ModuleGroup[] = [
  * items — un tenant sin fila PlatformOrganization no debe perder superficies
  * por no tener vertical asignada.
  *
+ * `canAccessPlatformAdmin` (FASE VI-B) — controla la visibilidad del grupo
+ * `platform` ADEMÁS del filtro por rol (nunca en su lugar). Debe venir de
+ * `canAccessPlatformAdmin(user)` en @/core/permissions/platform-access,
+ * calculado por el caller (el mismo helper que usa requireSuperAdmin como
+ * autoridad server-side) — NUNCA de `role === "super_admin"` solo. Esto es
+ * defensa de UI únicamente: el guard server-side sigue siendo la autoridad
+ * real; ocultar el link no reemplaza requireSuperAdmin en cada page.tsx/action.
+ * Default `true` preserva el comportamiento pre-VI-B para callers que no lo
+ * pasan explícitamente (ninguno de los callers reales de producción omite
+ * este parámetro tras esta fase).
+ *
  * Grupos que quedan sin items visibles se omiten del resultado.
  */
 export function filterModuleGroupsByAccess(
@@ -145,13 +156,14 @@ export function filterModuleGroupsByAccess(
   enabledModuleCodes: Set<string>,
   effectiveVerticalCode: string | null = null,
   isLegacyUnmanaged: boolean = false,
+  canAccessPlatformAdmin: boolean = true,
 ): ModuleGroup[] {
   return groups
     .map((group) => ({
       ...group,
       items: group.items.filter((item) => {
         if (!item.roles.includes(role)) return false;
-        if (group.id === "platform") return true;
+        if (group.id === "platform") return canAccessPlatformAdmin;
         if (item.moduleCode && !enabledModuleCodes.has(item.moduleCode)) return false;
         if (
           item.requiredVerticalCode &&
