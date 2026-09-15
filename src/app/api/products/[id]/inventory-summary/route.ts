@@ -51,16 +51,21 @@ export async function GET(
     );
   }
 
-  // PASO 6A: bajo sesión runtime, la location efectiva es la primera
-  // sucursal activa del tenant runtime, no la del selector del super_admin.
-  const baseLocationId = await getEffectiveLocationId(user);
-  const { context, dispose } = await resolveEffectiveApiContext(
-    { tenantId: tenant_id, locationId: baseLocationId },
-    user,
-  );
+  const { context, dispose } = await resolveEffectiveApiContext({ tenantId: tenant_id }, user);
 
   try {
-    if (!context.locationId) {
+    // FASE VI-D3: `context.locationId` ya viene LIVE-validado (RUNTIME_CLIENT)
+    // o del JWT/Support Session; para identidades tenant-wide (null), cae a
+    // la cookie de selección explícita, validada contra la DB EFECTIVA.
+    const locationId =
+      context.locationId ??
+      (await getEffectiveLocationId(
+        { ...user, tenant_id: context.tenantId },
+        context.client,
+        context.tenantId,
+      ));
+
+    if (!locationId) {
       return NextResponse.json(
         { error: "La sesión no tiene tenant o location activos." },
         { status: 400 },
@@ -78,7 +83,7 @@ export async function GET(
       throw err;
     }
 
-    const data = await getProductInventorySummary(context.tenantId, context.locationId, id, context.client);
+    const data = await getProductInventorySummary(context.tenantId, locationId, id, context.client);
     return NextResponse.json(data);
   } finally {
     await dispose();

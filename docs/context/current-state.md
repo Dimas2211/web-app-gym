@@ -150,6 +150,59 @@ default `false`, feature gate temporal hasta FASE VI-F.
   tocar, login contra TrustMe PROD, escrituras runtime de cliente, DTE
   runtime.
 
+## Platform — FASE VI-D: Runtime Operational Context (EN CURSO, FASE VI NO cerrada)
+
+Migra módulos operativos NO-DTE al contrato `RUNTIME_CLIENT` definido en VI-C.
+`RUNTIME_HOST_AUTH_ENABLED` sigue en `false` — nada de esto es alcanzable en
+producción todavía; certificado solo con tests unitarios (mocks).
+
+**VI-D1** (commit `47524fe`/`4d72bff`) — contrato runtime unificado
+(`RuntimeMode`: `PLATFORM_NATIVE`/`SUPPORT_RUNTIME`/`RUNTIME_CLIENT`) en
+`resolveEffectiveTenantContext`/`resolveEffectiveApiContext`; fix de la deuda
+VI-C (`resolveEffectiveApiContext` ahora sí recibe `auth_scope` vía parámetro
+`user` opcional y aditivo — callers no migrados no cambian de comportamiento).
+Products migrado completo (reads/writes/route handlers/server actions).
+
+**VI-D2** (commit `6f6b4ac`) — cierra la deuda de role live: `requireRuntimeOrganizationContext`
+revalida `role` contra `runtimeDb` en cada resolución (antes solo `status`/tenant),
+nuevos códigos `RUNTIME_USER_NOT_FOUND`/`INACTIVE`/`TENANT_MISMATCH`. Nuevo
+helper común `requireOperationalContext()` (`src/modules/platform/runtime/require-operational-context.ts`)
+extraído del patrón de Products — única fuente de verdad para selección de DB,
+readOnly, fail-closed RUNTIME_CLIENT, module enforcement opcional y
+`effectiveUser` (role LIVE para RUNTIME_CLIENT, JWT sin cambios para
+PLATFORM_NATIVE/SUPPORT_RUNTIME). Customers y Suppliers (core) migrados.
+
+**VI-D3** (este commit) — cierra la deuda de location live (mismo criterio que
+role): `requireRuntimeOrganizationContext` revalida `location_id` contra
+`runtimeDb.branch` cuando no es null (`RUNTIME_LOCATION_INVALID` si no existe,
+es de otro tenant, o está inactiva); `location_id=null` sigue siendo identidad
+tenant-wide legítima, nunca se resuelve con `findFirst(branch)` silencioso.
+`requireOperationalContext` ahora expone `commercialContext` (el Commercial
+Enforcement Context ya resuelto) para operaciones capacity-gated
+(`core.locations.max`, etc.) que necesitan pasarlo a `withCapacityCheckedTransaction`.
+Inventory (stock, movimientos, transacciones) y Locations/Branches (CRUD +
+selector `active_location_id`) migrados completos. `getEffectiveLocationId()`
+y las queries de `core/modules/locations` ahora aceptan `client`/`db`
+opcional (default Prisma global solo para compatibilidad no-runtime).
+
+- **Estado por módulo**: Products, Customers, Suppliers (core), Inventory y
+  Locations están runtime-ready (reads + writes + role live + location live
+  donde aplica). Sales, Purchases, Cash, Users **no están migrados todavía**.
+  `suppliers/[id]/purchase-history` sigue dependiendo del contexto de
+  Purchases (no migrado) — se cerrará junto con esa fase.
+- **Deuda explícita conocida, no bloqueante**: `get-customer-by-code.ts` usa
+  Prisma global pero tiene 0 callers (código muerto); catálogos globales de
+  referencia (`/api/catalogs/**`, `get-countries`/`get-economic-activities`/
+  `get-identification-types`/`get-municipalities` de Suppliers) siguen en
+  Prisma global — auditoría transversal de catálogos pendiente para el
+  cierre final de FASE VI-D; revalidación live de `role` para identidades
+  PLATFORM (no RUNTIME_CLIENT) sigue sin implementar, deliberadamente fuera
+  de alcance de esta fase.
+- **NO implementado en VI-D1/D2/D3** (fuera de alcance deliberado): ningún
+  cambio al pipeline fiscal (firmador, transmisión, MariaDB, DteCredential);
+  Sales/Purchases/Cash/Users sin migrar; `RUNTIME_HOST_AUTH_ENABLED` sigue
+  `false`; sin login runtime real en ningún ambiente.
+
 ## Arquitectura activa
 - El proyecto funciona como monolito modular.
 - Core contiene identidad, usuarios, permisos, clientes, locations y lógica compartida.

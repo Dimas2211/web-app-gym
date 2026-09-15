@@ -26,6 +26,10 @@ import { auth } from "@/lib/auth/auth";
 import { getCapabilities } from "@/core/permissions/role-capabilities";
 import { getLocationById } from "@/core/modules/locations/queries";
 import { ACTIVE_LOCATION_COOKIE } from "@/lib/location/active-location";
+import {
+  requireOperationalContext,
+  OperationalContextError,
+} from "@/modules/platform/runtime/require-operational-context";
 import type { SessionUser } from "@/lib/permissions/guards";
 import type { UserRole } from "@prisma/client";
 
@@ -48,43 +52,61 @@ export async function setActiveLocationAction(
 
   const user = session.user as SessionUser & { role: UserRole };
 
-  // 2. Solo usuarios globales pueden cambiar su active location.
-  //    Para roles con location fija (branch_admin, reception), location_id
-  //    viene del JWT y no tiene sentido sobreescribirlo con una cookie.
-  const caps = getCapabilities(user.role);
-  if (!caps.isGlobal) {
-    return {
-      ok: false,
-      error: "Solo usuarios de alcance global pueden cambiar la location activa.",
-    };
+  // FASE VI-D3 — resolver contexto operacional efectivo (DB + rol LIVE)
+  // ANTES de validar la location. Sin `module`: este selector es core,
+  // no está gateado por ningún módulo comercial.
+  let handle;
+  try {
+    handle = await requireOperationalContext(user);
+  } catch (err) {
+    if (err instanceof OperationalContextError) return { ok: false, error: err.userMessage };
+    throw err;
   }
+  const { context, dispose } = handle;
 
-  // 3. Validar que la location exista y pertenezca al tenant del usuario.
-  //    El tenant_id viene del JWT — es la fuente de verdad para el scope.
-  const location = await getLocationById(locationId);
+  try {
+    // 2. Solo usuarios globales pueden cambiar su active location. El rol
+    //    LIVE decide para RUNTIME_CLIENT (no el rol del JWT arriba) — un
+    //    downgrade a un rol con location fija no debe seguir pudiendo
+    //    sobreescribir la cookie.
+    const caps = getCapabilities(context.effectiveUser.role as UserRole);
+    if (!caps.isGlobal) {
+      return {
+        ok: false,
+        error: "Solo usuarios de alcance global pueden cambiar la location activa.",
+      };
+    }
 
-  if (!location) {
-    return { ok: false, error: "Location no encontrada." };
+    // 3. Validar que la location exista y pertenezca al tenant EFECTIVO,
+    //    contra la DB EFECTIVA (runtime propia para RUNTIME_CLIENT) —
+    //    nunca Prisma global.
+    const location = await getLocationById(locationId, context.client);
+
+    if (!location) {
+      return { ok: false, error: "Location no encontrada." };
+    }
+
+    if (location.tenant_id !== context.tenantId) {
+      return { ok: false, error: "Location no pertenece a este tenant." };
+    }
+
+    if (location.status !== "active") {
+      return { ok: false, error: "La location seleccionada no está activa." };
+    }
+
+    // 4. Escribir la cookie de contexto operativo.
+    //    No es HttpOnly — no contiene secretos.
+    //    Segura porque siempre se revalida contra el tenant efectivo al leer.
+    const cookieStore = await cookies();
+    cookieStore.set(ACTIVE_LOCATION_COOKIE, locationId, {
+      path:     "/",
+      sameSite: "lax",
+      secure:   process.env.NODE_ENV === "production",
+      maxAge:   60 * 60 * 24 * 30, // 30 días
+    });
+
+    return { ok: true, locationName: location.name };
+  } finally {
+    await dispose();
   }
-
-  if (location.tenant_id !== user.tenant_id) {
-    return { ok: false, error: "Location no pertenece a este tenant." };
-  }
-
-  if (location.status !== "active") {
-    return { ok: false, error: "La location seleccionada no está activa." };
-  }
-
-  // 4. Escribir la cookie de contexto operativo.
-  //    No es HttpOnly — no contiene secretos.
-  //    Segura porque siempre se revalida contra el tenant del JWT al leer.
-  const cookieStore = await cookies();
-  cookieStore.set(ACTIVE_LOCATION_COOKIE, locationId, {
-    path:     "/",
-    sameSite: "lax",
-    secure:   process.env.NODE_ENV === "production",
-    maxAge:   60 * 60 * 24 * 30, // 30 días
-  });
-
-  return { ok: true, locationName: location.name };
 }

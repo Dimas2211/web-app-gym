@@ -110,13 +110,19 @@ describe("requireRuntimeOrganizationContext — fail closed", () => {
     return { user: { findUnique: vi.fn().mockResolvedValue(row) } };
   }
 
+  /** Mock de runtimeDb.branch.findFirst — por defecto resuelve una branch activa válida. */
+  function fakeRuntimeBranch(row: { id: string } | null = { id: "branch-1" }) {
+    return { branch: { findFirst: vi.fn().mockResolvedValue(row) } };
+  }
+
   it("caso exitoso: retorna contexto con dispose(), tenantId, locationId y role LIVE de sesión", async () => {
     const client = fakeControlPlane(ORG_OK);
     resolveRuntimeDatabaseProfileForOrganizationMock.mockResolvedValue({ id: "profile-1" });
     const disconnect = vi.fn().mockResolvedValue(undefined);
     const runtimeUser = fakeRuntimeUser({ status: "active", gym_id: "tenant-1", role: "reception" });
+    const runtimeBranch = fakeRuntimeBranch();
     createRuntimePrismaClientMock.mockReturnValue({
-      client: { fake: "runtime-prisma", ...runtimeUser },
+      client: { fake: "runtime-prisma", ...runtimeUser, ...runtimeBranch },
       disconnect,
     });
 
@@ -131,6 +137,10 @@ describe("requireRuntimeOrganizationContext — fail closed", () => {
       where: { id: "u1" },
       select: { status: true, gym_id: true, role: true },
     });
+    expect(runtimeBranch.branch.findFirst).toHaveBeenCalledWith({
+      where: { id: "branch-1", gym_id: "tenant-1", status: "active" },
+      select: { id: true },
+    });
 
     await handle.dispose();
     expect(disconnect).toHaveBeenCalledTimes(1);
@@ -141,12 +151,73 @@ describe("requireRuntimeOrganizationContext — fail closed", () => {
     resolveRuntimeDatabaseProfileForOrganizationMock.mockResolvedValue({ id: "profile-1" });
     const disconnect = vi.fn().mockResolvedValue(undefined);
     createRuntimePrismaClientMock.mockReturnValue({
-      client: { fake: "runtime-prisma", ...fakeRuntimeUser({ status: "active", gym_id: "tenant-1", role: "branch_admin" }) },
+      client: {
+        fake: "runtime-prisma",
+        ...fakeRuntimeUser({ status: "active", gym_id: "tenant-1", role: "branch_admin" }),
+        ...fakeRuntimeBranch(),
+      },
       disconnect,
     });
 
     const handle = await requireRuntimeOrganizationContext(baseUser(), client);
     expect(handle.context.role).toBe("branch_admin");
+  });
+
+  describe("FASE VI-D3 — ETAPA E: revalidación live de location", () => {
+    it("location_id null (identidad tenant-wide) -> NO consulta branch, permite sin location", async () => {
+      const client = fakeControlPlane(ORG_OK);
+      resolveRuntimeDatabaseProfileForOrganizationMock.mockResolvedValue({ id: "profile-1" });
+      const disconnect = vi.fn().mockResolvedValue(undefined);
+      const runtimeBranch = fakeRuntimeBranch();
+      createRuntimePrismaClientMock.mockReturnValue({
+        client: {
+          fake: "runtime-prisma",
+          ...fakeRuntimeUser({ status: "active", gym_id: "tenant-1", role: "super_admin" }),
+          ...runtimeBranch,
+        },
+        disconnect,
+      });
+
+      const handle = await requireRuntimeOrganizationContext(baseUser({ location_id: null }), client);
+      expect(handle.context.locationId).toBeNull();
+      expect(runtimeBranch.branch.findFirst).not.toHaveBeenCalled();
+    });
+
+    it("6. branch inactiva/inexistente/de otro tenant -> RUNTIME_LOCATION_INVALID, y desconecta", async () => {
+      const client = fakeControlPlane(ORG_OK);
+      resolveRuntimeDatabaseProfileForOrganizationMock.mockResolvedValue({ id: "profile-1" });
+      const disconnect = vi.fn().mockResolvedValue(undefined);
+      createRuntimePrismaClientMock.mockReturnValue({
+        client: {
+          fake: "runtime-prisma",
+          ...fakeRuntimeUser({ status: "active", gym_id: "tenant-1", role: "branch_admin" }),
+          ...fakeRuntimeBranch(null), // no existe / inactiva / otro tenant — mismo resultado desde el findFirst
+        },
+        disconnect,
+      });
+
+      await expect(requireRuntimeOrganizationContext(baseUser(), client)).rejects.toMatchObject({
+        code: "RUNTIME_LOCATION_INVALID",
+      });
+      expect(disconnect).toHaveBeenCalledTimes(1);
+    });
+
+    it("1. tenant A + branch propia de A -> permitido (locationId resuelto)", async () => {
+      const client = fakeControlPlane(ORG_OK);
+      resolveRuntimeDatabaseProfileForOrganizationMock.mockResolvedValue({ id: "profile-1" });
+      const disconnect = vi.fn().mockResolvedValue(undefined);
+      createRuntimePrismaClientMock.mockReturnValue({
+        client: {
+          fake: "runtime-prisma",
+          ...fakeRuntimeUser({ status: "active", gym_id: "tenant-1", role: "branch_admin" }),
+          ...fakeRuntimeBranch({ id: "branch-1" }),
+        },
+        disconnect,
+      });
+
+      const handle = await requireRuntimeOrganizationContext(baseUser({ location_id: "branch-1" }), client);
+      expect(handle.context.locationId).toBe("branch-1");
+    });
   });
 
   it("errores lanzados son instancia de RuntimeIdentityError", async () => {

@@ -12,10 +12,14 @@
 //   app/api/inventory/product-locations/[id]/status/route.ts
 // ─────────────────────────────────────────────────────────────────
 
-import { Prisma } from "@prisma/client";
+import { Prisma, type PrismaClient } from "@prisma/client";
 import { prisma } from "@/lib/db/prisma";
 import type { CreateProductLocationInput } from "../schemas/create-product-location.schema";
 import type { UpdateProductLocationInput } from "../schemas/update-product-location.schema";
+
+// FASE VI-D3 — ETAPA J/S: `db` opcional, default Prisma global SOLO para
+// compatibilidad de callers no migrados. Todo entry point runtime-aware
+// (actions/route handlers de inventory) SIEMPRE pasa `context.client`.
 
 // ── Tipos de resultado ────────────────────────────────────────────
 
@@ -40,9 +44,12 @@ export async function createProductLocation(
   location_id: string,
   user_id:     string,
   input:       CreateProductLocationInput,
+  db:          PrismaClient = prisma,
 ): Promise<CreateProductLocationResult> {
-  // Verificar que el producto existe en el tenant
-  const product = await prisma.product.findFirst({
+  // Verificar que el producto existe en el tenant — ETAPA M: nunca confiar
+  // en que un product_id "globalmente único" ya implica aislamiento; se
+  // valida explícitamente contra el tenant EFECTIVO en `db`.
+  const product = await db.product.findFirst({
     where: { id: input.product_id, tenant_id },
     select: { id: true },
   });
@@ -55,7 +62,7 @@ export async function createProductLocation(
   }
 
   // Verificar unicidad antes de insertar (early feedback antes del constraint)
-  const existing = await prisma.productLocation.findFirst({
+  const existing = await db.productLocation.findFirst({
     where: { tenant_id, location_id, product_id: input.product_id },
     select: { id: true },
   });
@@ -68,7 +75,7 @@ export async function createProductLocation(
   }
 
   try {
-    const pl = await prisma.productLocation.create({
+    const pl = await db.productLocation.create({
       data: {
         tenant_id,
         location_id,
@@ -115,8 +122,9 @@ export async function updateProductLocationFields(
   location_id: string,
   user_id:     string,
   input:       UpdateProductLocationInput,
+  db:          PrismaClient = prisma,
 ): Promise<UpdateProductLocationResult> {
-  const existing = await prisma.productLocation.findFirst({
+  const existing = await db.productLocation.findFirst({
     where: { id, tenant_id, location_id },
     select: { id: true },
   });
@@ -129,7 +137,7 @@ export async function updateProductLocationFields(
 
   // Solo se incluyen en data los campos que vienen en el input.
   // current_stock queda explícitamente fuera — solo cambia vía movimiento.
-  await prisma.productLocation.update({
+  await db.productLocation.update({
     where: { id },
     data: {
       ...(input.min_stock        !== undefined && { min_stock:        input.min_stock }),

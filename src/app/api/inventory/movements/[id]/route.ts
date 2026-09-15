@@ -11,14 +11,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth/auth";
 import type { SessionUser } from "@/lib/permissions/guards";
 import { getEffectiveLocationId } from "@/lib/location/active-location";
-import { resolveEffectiveApiContext } from "@/modules/platform/runtime/effective-tenant-context";
+import {
+  requireOperationalContext,
+  OperationalContextError,
+} from "@/modules/platform/runtime/require-operational-context";
 import { getMovementDirection } from "@/modules/commerce/inventory/utils/movement-direction.utils";
 import type { MovementType } from "@/modules/commerce/inventory/types/inventory-movement.types";
-import {
-  resolveCommercialEnforcementContext,
-  assertOrganizationModule,
-  CommercialEnforcementError,
-} from "@/modules/platform/runtime/commercial-enforcement";
 
 const VIEWER_ROLES = ["super_admin", "branch_admin", "reception"];
 
@@ -30,49 +28,44 @@ export async function GET(
   if (!session?.user) {
     return NextResponse.json({ error: "No autorizado" }, { status: 401 });
   }
-
   const user = session.user as SessionUser;
-  if (!VIEWER_ROLES.includes(user.role)) {
-    return NextResponse.json({ error: "Acceso denegado" }, { status: 403 });
-  }
 
-  const tenant_id = user.tenant_id;
-  if (!tenant_id) {
-    return NextResponse.json(
-      { error: "La sesión no tiene tenant activo." },
-      { status: 400 },
-    );
-  }
-
-  const baseLocationId = await getEffectiveLocationId(user);
-  const { context, dispose } = await resolveEffectiveApiContext({
-    tenantId:   tenant_id,
-    locationId: baseLocationId,
-  });
-
-  if (!context.locationId) {
-    await dispose();
-    return NextResponse.json(
-      { error: "La sesión no tiene tenant o location activos." },
-      { status: 400 },
-    );
-  }
-
-  const { id } = await params;
-  const { tenantId: scoped_tenant_id, locationId: scoped_location_id, client } = context;
-
+  let handle;
   try {
-  const commercialCtx = await resolveCommercialEnforcementContext(scoped_tenant_id);
-  try {
-    assertOrganizationModule(commercialCtx, "commerce.inventory");
+    handle = await requireOperationalContext(user, { module: "commerce.inventory" });
   } catch (err) {
-    if (err instanceof CommercialEnforcementError) {
+    if (err instanceof OperationalContextError) {
       return NextResponse.json({ error: err.userMessage }, { status: err.httpStatus });
     }
     throw err;
   }
+  const { context, dispose } = handle;
 
-  // Consulta directa con select mínimo — no hay query reutilizable de detalle
+  try {
+    if (!VIEWER_ROLES.includes(context.effectiveUser.role)) {
+      return NextResponse.json({ error: "Acceso denegado" }, { status: 403 });
+    }
+
+    const scoped_location_id =
+      context.locationId ??
+      (await getEffectiveLocationId(
+        { ...context.effectiveUser, role: context.effectiveUser.role as SessionUser["role"] } as SessionUser,
+        context.client,
+        context.tenantId,
+      ));
+
+    if (!scoped_location_id) {
+      return NextResponse.json(
+        { error: "La sesión no tiene tenant o location activos." },
+        { status: 400 },
+      );
+    }
+
+    const { id } = await params;
+    const scoped_tenant_id = context.tenantId;
+    const client = context.client;
+
+    // Consulta directa con select mínimo — no hay query reutilizable de detalle
   // individual en el módulo (get-inventory-movements devuelve lista).
   // Los campos Decimal se convierten a number antes de serializar.
   const row = await client.inventoryMovement.findFirst({

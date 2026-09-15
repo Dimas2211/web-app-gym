@@ -12,15 +12,16 @@
 // ─────────────────────────────────────────────────────────────────
 
 import { revalidatePath } from "next/cache";
-import { requireAdmin } from "@/lib/permissions/guards";
-import { isRuntimeReadOnlyActive, RUNTIME_READONLY_MESSAGE } from "@/modules/platform/runtime/runtime-session";
+import type { UserRole } from "@prisma/client";
+import { requireAdmin, type SessionUser } from "@/lib/permissions/guards";
+import { getCapabilities } from "@/core/permissions/role-capabilities";
+import { getEffectiveLocationId } from "@/lib/location/active-location";
+import {
+  requireOperationalContext,
+  OperationalContextError,
+} from "@/modules/platform/runtime/require-operational-context";
 import { updateProductLocationSchema } from "../schemas/update-product-location.schema";
 import { updateProductLocationFields } from "../services/product-location.service";
-import {
-  resolveCommercialEnforcementContext,
-  assertOrganizationModule,
-  CommercialEnforcementError,
-} from "@/modules/platform/runtime/commercial-enforcement";
 
 // ── Estado de retorno ─────────────────────────────────────────────
 
@@ -58,50 +59,61 @@ export async function updateProductLocationAction(
   formData: FormData,
 ): Promise<UpdateProductLocationState> {
   const sessionUser = await requireAdmin();
-  const tenant_id   = sessionUser.tenant_id;
-  const location_id = sessionUser.location_id;
 
-  if (!tenant_id)   return { error: "La sesión no tiene un tenant activo." };
-  if (!location_id) return { error: "La sesión no tiene una location activa." };
-
-  // PASO 6A: bloquear escritura bajo sesión runtime "Operar como cliente"
-  if (await isRuntimeReadOnlyActive()) return { error: RUNTIME_READONLY_MESSAGE };
-
+  let handle;
   try {
-    const commercialCtx = await resolveCommercialEnforcementContext(tenant_id);
-    assertOrganizationModule(commercialCtx, "commerce.inventory");
+    handle = await requireOperationalContext(sessionUser, { module: "commerce.inventory", write: true });
   } catch (err) {
-    if (err instanceof CommercialEnforcementError) return { error: err.userMessage };
+    if (err instanceof OperationalContextError) return { error: err.userMessage };
     throw err;
   }
+  const { context, dispose } = handle;
 
-  const id = (formData.get("id") as string | null)?.trim();
-  if (!id) return { error: "Falta el identificador del registro a actualizar." };
+  try {
+    if (!getCapabilities(context.effectiveUser.role as UserRole).canManageStaff) {
+      return { error: "Sin permisos para esta operación." };
+    }
 
-  const raw = {
-    min_stock:        parseDecimal(formData.get("min_stock")),
-    reorder_quantity: parseDecimal(formData.get("reorder_quantity")),
-    warehouse:        str(formData.get("warehouse")),
-    shelf:            str(formData.get("shelf")),
-    position:         str(formData.get("position")),
-    is_active:        parseBool(formData.get("is_active")),
-    updated_by:       sessionUser.id,
-  };
+    const location_id =
+      context.locationId ??
+      (await getEffectiveLocationId(
+        { ...context.effectiveUser, role: context.effectiveUser.role as UserRole } as SessionUser,
+        context.client,
+        context.tenantId,
+      ));
+    if (!location_id) return { error: "La sesión no tiene una location activa." };
 
-  const parsed = updateProductLocationSchema.safeParse(raw);
-  if (!parsed.success) {
-    return { errors: parsed.error.flatten().fieldErrors };
+    const id = (formData.get("id") as string | null)?.trim();
+    if (!id) return { error: "Falta el identificador del registro a actualizar." };
+
+    const raw = {
+      min_stock:        parseDecimal(formData.get("min_stock")),
+      reorder_quantity: parseDecimal(formData.get("reorder_quantity")),
+      warehouse:        str(formData.get("warehouse")),
+      shelf:            str(formData.get("shelf")),
+      position:         str(formData.get("position")),
+      is_active:        parseBool(formData.get("is_active")),
+      updated_by:       context.effectiveUser.id,
+    };
+
+    const parsed = updateProductLocationSchema.safeParse(raw);
+    if (!parsed.success) {
+      return { errors: parsed.error.flatten().fieldErrors };
+    }
+
+    const result = await updateProductLocationFields(
+      id,
+      context.tenantId,
+      location_id,
+      context.effectiveUser.id,
+      parsed.data,
+      context.client,
+    );
+
+    if (!result.ok) return { error: result.error };
+
+    revalidatePath("/dashboard/inventory");
+  } finally {
+    await dispose();
   }
-
-  const result = await updateProductLocationFields(
-    id,
-    tenant_id,
-    location_id,
-    sessionUser.id,
-    parsed.data,
-  );
-
-  if (!result.ok) return { error: result.error };
-
-  revalidatePath("/dashboard/inventory");
 }

@@ -82,8 +82,8 @@ export async function getLocationById(id: string, db: PrismaClient = prisma): Pr
  * Lista todas las ubicaciones de un tenant, ordenadas por nombre.
  * Incluye todos los estados (para vistas de administración).
  */
-export async function getLocationsByTenantId(tenantId: string): Promise<Location[]> {
-  const branches = await prisma.branch.findMany({
+export async function getLocationsByTenantId(tenantId: string, db: PrismaClient = prisma): Promise<Location[]> {
+  const branches = await db.branch.findMany({
     where: { gym_id: tenantId },
     select: LOCATION_SELECT,
     orderBy: { name: "asc" },
@@ -95,8 +95,8 @@ export async function getLocationsByTenantId(tenantId: string): Promise<Location
  * Lista liviana de ubicaciones activas para selects y dropdowns.
  * Solo retorna id + name.
  */
-export async function getLocationOptions(tenantId: string): Promise<LocationOption[]> {
-  const branches = await prisma.branch.findMany({
+export async function getLocationOptions(tenantId: string, db: PrismaClient = prisma): Promise<LocationOption[]> {
+  const branches = await db.branch.findMany({
     where: { gym_id: tenantId, status: "active" },
     select: { id: true, name: true },
     orderBy: { name: "asc" },
@@ -108,7 +108,7 @@ export async function getLocationOptions(tenantId: string): Promise<LocationOpti
  * Verifica si una ubicación existe y está activa.
  * Útil como guard de validación en acciones de módulos nuevos.
  */
-export async function isLocationActive(id: string): Promise<boolean> {
-  const location = await getLocationById(id);
+export async function isLocationActive(id: string, db: PrismaClient = prisma): Promise<boolean> {
+  const location = await getLocationById(id, db);
   return location?.status === "active";
 }

@@ -14,6 +14,7 @@
 // ─────────────────────────────────────────────────────────────────
 
 import { prisma } from "@/lib/db/prisma";
+import type { PrismaClient } from "@prisma/client";
 // MovementType (enum completo) permite que commerce/purchases pase PURCHASE_IN
 // directamente sin pasar por el schema de la action, que sigue restringido a
 // ACTIVE_MOVEMENT_TYPES para movimientos manuales.
@@ -62,9 +63,13 @@ export async function recordInventoryMovement(
   location_id:  string,
   performed_by: string,
   input:        MovementServiceInput,
+  db:           PrismaClient = prisma,
 ): Promise<MovementResult> {
   try {
-    await prisma.$transaction(async (tx) => {
+    // FASE VI-D3 — ETAPA L: la transacción SIEMPRE nace de `db` (el
+    // runtime client efectivo para RUNTIME_CLIENT) — nunca Prisma global
+    // mezclado con queries runtime en la misma operación.
+    await db.$transaction(async (tx) => {
       // 1. Leer ProductLocation dentro de la tx
       const pl = await tx.productLocation.findFirst({
         where: {

@@ -2,18 +2,19 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import type { UserRole } from "@prisma/client";
 import { requireAdmin, requireSuperAdmin, canManageBranch } from "@/lib/permissions/guards";
+import { getCapabilities } from "@/core/permissions/role-capabilities";
 import {
   createLocation,
   updateLocation,
   toggleLocationStatus,
 } from "@/core/modules/locations/actions";
+import { CommercialEnforcementError } from "@/modules/platform/runtime/commercial-enforcement";
 import {
-  resolveCommercialEnforcementContext,
-  assertOrganizationModule,
-  CommercialEnforcementError,
-} from "@/modules/platform/runtime/commercial-enforcement";
-import { isRuntimeReadOnlyActive, RUNTIME_READONLY_MESSAGE } from "@/modules/platform/runtime/runtime-session";
+  requireOperationalContext,
+  OperationalContextError,
+} from "@/modules/platform/runtime/require-operational-context";
 
 export type BranchActionState =
   | { errors?: Record<string, string[]>; error?: string }
@@ -26,31 +27,42 @@ export async function createBranchAction(
   _prev: BranchActionState,
   formData: FormData
 ): Promise<BranchActionState> {
+  // requireSuperAdmin(): gate de sesión/rol inicial sin cambios para PLATFORM.
   const user = await requireSuperAdmin();
 
-  // PASO 6E: bloquear escritura bajo sesión runtime "Operar como cliente"
-  if (await isRuntimeReadOnlyActive()) {
-    return { error: RUNTIME_READONLY_MESSAGE };
+  let handle;
+  try {
+    handle = await requireOperationalContext(user, { module: "core.locations", write: true });
+  } catch (err) {
+    if (err instanceof OperationalContextError) return { error: err.userMessage };
+    throw err;
   }
+  const { context, dispose } = handle;
 
   try {
-    const commercialCtx = await resolveCommercialEnforcementContext(user.tenant_id);
-    assertOrganizationModule(commercialCtx, "core.locations");
+    // FASE VI-D3: autoriza con el ROL LIVE — un RUNTIME_CLIENT degradado
+    // desde super_admin no debe seguir pudiendo crear sucursales.
+    if (!getCapabilities(context.effectiveUser.role as UserRole).isGlobal) {
+      return { error: "Sin permisos para esta operación." };
+    }
 
     const result = await createLocation(
-      user.tenant_id,
+      context.tenantId,
       {
         name: formData.get("name"),
         address: formData.get("address") || undefined,
         phone: formData.get("phone") || undefined,
       },
-      commercialCtx,
+      context.commercialContext!,
+      context.client,
     );
 
     if (!result.success) return result;
   } catch (err) {
     if (err instanceof CommercialEnforcementError) return { error: err.userMessage };
     throw err;
+  } finally {
+    await dispose();
   }
 
   revalidatePath("/dashboard/branches");
@@ -66,31 +78,42 @@ export async function updateBranchAction(
 ): Promise<BranchActionState> {
   const user = await requireAdmin();
 
-  // PASO 6E: bloquear escritura bajo sesión runtime "Operar como cliente"
-  if (await isRuntimeReadOnlyActive()) {
-    return { error: RUNTIME_READONLY_MESSAGE };
+  let handle;
+  try {
+    handle = await requireOperationalContext(user, { module: "core.locations", write: true });
+  } catch (err) {
+    if (err instanceof OperationalContextError) return { error: err.userMessage };
+    throw err;
   }
-
-  const id = formData.get("id") as string;
-
-  if (!id) return { error: "ID de sucursal requerido." };
-  if (!canManageBranch(user, id)) return { error: "Sin permiso para editar esta sucursal." };
+  const { context, dispose } = handle;
 
   try {
-    const commercialCtx = await resolveCommercialEnforcementContext(user.tenant_id);
-    assertOrganizationModule(commercialCtx, "core.locations");
+    const id = formData.get("id") as string;
+    if (!id) return { error: "ID de sucursal requerido." };
+
+    // FASE VI-D3 — ETAPA H: misma política de siempre (branch_admin no
+    // puede administrar otra branch), evaluada con el ROL/location LIVE.
+    const effectiveSessionUser = {
+      ...context.effectiveUser,
+      role: context.effectiveUser.role as UserRole,
+    };
+    if (!canManageBranch(effectiveSessionUser, id)) {
+      return { error: "Sin permiso para editar esta sucursal." };
+    }
 
     // Edición no cambia el estado activo/inactivo -> no consume ni libera cupo.
-    const result = await updateLocation(id, user.tenant_id, {
+    const result = await updateLocation(id, context.tenantId, {
       name: formData.get("name"),
       address: formData.get("address") || undefined,
       phone: formData.get("phone") || undefined,
-    });
+    }, context.client);
 
     if (!result.success) return result;
   } catch (err) {
     if (err instanceof CommercialEnforcementError) return { error: err.userMessage };
     throw err;
+  } finally {
+    await dispose();
   }
 
   revalidatePath("/dashboard/branches");
@@ -107,18 +130,25 @@ export async function updateBranchAction(
 export async function toggleBranchStatusAction(formData: FormData): Promise<void> {
   const user = await requireAdmin();
 
-  // PASO 6E: bloquear escritura bajo sesión runtime "Operar como cliente"
-  if (await isRuntimeReadOnlyActive()) return;
-
-  const id = formData.get("id") as string;
-
-  if (!id || !canManageBranch(user, id)) return;
+  let handle;
+  try {
+    handle = await requireOperationalContext(user, { module: "core.locations", write: true });
+  } catch {
+    // Fail closed silencioso — este action retorna void (sin canal de
+    // error, ver comentario de arriba); el estado no cambia.
+    return;
+  }
+  const { context, dispose } = handle;
 
   try {
-    const commercialCtx = await resolveCommercialEnforcementContext(user.tenant_id);
-    assertOrganizationModule(commercialCtx, "core.locations");
+    const id = formData.get("id") as string;
+    const effectiveSessionUser = {
+      ...context.effectiveUser,
+      role: context.effectiveUser.role as UserRole,
+    };
+    if (!id || !canManageBranch(effectiveSessionUser, id)) return;
 
-    const result = await toggleLocationStatus(id, user.tenant_id, commercialCtx);
+    const result = await toggleLocationStatus(id, context.tenantId, context.commercialContext!, context.client);
     if (!result.success) {
       revalidatePath("/dashboard/branches");
       redirect("/dashboard/branches?commercial_error=capacity_limit_reached");
@@ -129,6 +159,8 @@ export async function toggleBranchStatusAction(formData: FormData): Promise<void
       redirect("/dashboard/branches?commercial_error=module_not_enabled");
     }
     throw err;
+  } finally {
+    await dispose();
   }
 
   revalidatePath("/dashboard/branches");

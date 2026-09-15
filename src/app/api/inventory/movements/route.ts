@@ -10,8 +10,10 @@ import { z } from "zod";
 import { auth } from "@/lib/auth/auth";
 import type { SessionUser } from "@/lib/permissions/guards";
 import { getEffectiveLocationId } from "@/lib/location/active-location";
-import { resolveEffectiveApiContext } from "@/modules/platform/runtime/effective-tenant-context";
-import { isRuntimeReadOnlyActive, RUNTIME_READONLY_MESSAGE } from "@/modules/platform/runtime/runtime-session";
+import {
+  requireOperationalContext,
+  OperationalContextError,
+} from "@/modules/platform/runtime/require-operational-context";
 import { getInventoryMovements } from "@/modules/commerce/inventory/queries/get-inventory-movements";
 import { recordInventoryMovement } from "@/modules/commerce/inventory/services/inventory-movement.service";
 import { ACTIVE_MOVEMENT_TYPES } from "@/modules/commerce/inventory/schemas/record-movement.schema";
@@ -21,11 +23,6 @@ import type {
   SortDirection,
 } from "@/modules/commerce/inventory/types/inventory-filters.types";
 import type { MovementType } from "@/modules/commerce/inventory/types/inventory-movement.types";
-import {
-  resolveCommercialEnforcementContext,
-  assertOrganizationModule,
-  CommercialEnforcementError,
-} from "@/modules/platform/runtime/commercial-enforcement";
 
 const VIEWER_ROLES = ["super_admin", "branch_admin", "reception"];
 const ADMIN_ROLES  = ["super_admin", "branch_admin"];
@@ -53,29 +50,35 @@ export async function GET(req: NextRequest) {
   if (!session?.user) {
     return NextResponse.json({ error: "No autorizado" }, { status: 401 });
   }
-
   const user = session.user as SessionUser;
-  if (!VIEWER_ROLES.includes(user.role)) {
+
+  let handle;
+  try {
+    handle = await requireOperationalContext(user, { module: "commerce.inventory" });
+  } catch (err) {
+    if (err instanceof OperationalContextError) {
+      return NextResponse.json({ error: err.userMessage }, { status: err.httpStatus });
+    }
+    throw err;
+  }
+  const { context, dispose } = handle;
+
+  if (!VIEWER_ROLES.includes(context.effectiveUser.role)) {
+    await dispose();
     return NextResponse.json({ error: "Acceso denegado" }, { status: 403 });
   }
 
-  const tenant_id = user.tenant_id;
-  if (!tenant_id) {
-    return NextResponse.json(
-      { error: "La sesión no tiene tenant activo." },
-      { status: 400 },
-    );
-  }
+  // location: la del usuario runtime (LIVE-validada) o, para identidades
+  // tenant-wide, la seleccionada vía cookie — validada contra la DB EFECTIVA.
+  const locationId =
+    context.locationId ??
+    (await getEffectiveLocationId(
+      { ...context.effectiveUser, role: context.effectiveUser.role as SessionUser["role"] } as SessionUser,
+      context.client,
+      context.tenantId,
+    ));
 
-  // PASO 6A: bajo sesión runtime, la location efectiva es la primera
-  // sucursal activa del tenant runtime, no la del selector del super_admin.
-  const baseLocationId = await getEffectiveLocationId(user);
-  const { context, dispose } = await resolveEffectiveApiContext({
-    tenantId:   tenant_id,
-    locationId: baseLocationId,
-  });
-
-  if (!context.locationId) {
+  if (!locationId) {
     await dispose();
     return NextResponse.json(
       { error: "La sesión no tiene tenant o location activos." },
@@ -83,23 +86,12 @@ export async function GET(req: NextRequest) {
     );
   }
 
-  const commercialCtx = await resolveCommercialEnforcementContext(context.tenantId);
-  try {
-    assertOrganizationModule(commercialCtx, "commerce.inventory");
-  } catch (err) {
-    await dispose();
-    if (err instanceof CommercialEnforcementError) {
-      return NextResponse.json({ error: err.userMessage }, { status: err.httpStatus });
-    }
-    throw err;
-  }
-
   const { searchParams } = req.nextUrl;
 
   // ── Filtros ─────────────────────────────────────────────────────
   const filters: InventoryMovementFilters = {
     tenant_id:   context.tenantId,
-    location_id: context.locationId,
+    location_id: locationId,
   };
 
   const productId = searchParams.get("product_id");
@@ -158,62 +150,68 @@ export async function POST(req: NextRequest) {
   if (!session?.user) {
     return NextResponse.json({ error: "No autorizado" }, { status: 401 });
   }
-
   const user = session.user as SessionUser;
-  if (!ADMIN_ROLES.includes(user.role)) {
-    return NextResponse.json({ error: "Acceso denegado" }, { status: 403 });
-  }
 
-  // PASO 6A: bloquear escritura bajo sesión runtime "Operar como cliente"
-  if (await isRuntimeReadOnlyActive()) {
-    return NextResponse.json({ error: RUNTIME_READONLY_MESSAGE }, { status: 403 });
-  }
-
-  const tenant_id   = user.tenant_id;
-  const location_id = await getEffectiveLocationId(user);
-  if (!tenant_id || !location_id) {
-    return NextResponse.json(
-      { error: "La sesión no tiene tenant o location activos." },
-      { status: 400 },
-    );
-  }
-
-  const commercialCtx = await resolveCommercialEnforcementContext(tenant_id);
+  let handle;
   try {
-    assertOrganizationModule(commercialCtx, "commerce.inventory");
+    handle = await requireOperationalContext(user, { module: "commerce.inventory", write: true });
   } catch (err) {
-    if (err instanceof CommercialEnforcementError) {
+    if (err instanceof OperationalContextError) {
       return NextResponse.json({ error: err.userMessage }, { status: err.httpStatus });
     }
     throw err;
   }
+  const { context, dispose } = handle;
 
-  let body: unknown;
   try {
-    body = await req.json();
-  } catch {
-    return NextResponse.json({ error: "Cuerpo de la petición inválido." }, { status: 400 });
-  }
+    if (!ADMIN_ROLES.includes(context.effectiveUser.role)) {
+      return NextResponse.json({ error: "Acceso denegado" }, { status: 403 });
+    }
 
-  const parsed = movementBodySchema.safeParse(body);
-  if (!parsed.success) {
-    return NextResponse.json(
-      { errors: parsed.error.flatten().fieldErrors },
-      { status: 400 },
+    const location_id =
+      context.locationId ??
+      (await getEffectiveLocationId(
+        { ...context.effectiveUser, role: context.effectiveUser.role as SessionUser["role"] } as SessionUser,
+        context.client,
+        context.tenantId,
+      ));
+    if (!location_id) {
+      return NextResponse.json(
+        { error: "La sesión no tiene tenant o location activos." },
+        { status: 400 },
+      );
+    }
+
+    let body: unknown;
+    try {
+      body = await req.json();
+    } catch {
+      return NextResponse.json({ error: "Cuerpo de la petición inválido." }, { status: 400 });
+    }
+
+    const parsed = movementBodySchema.safeParse(body);
+    if (!parsed.success) {
+      return NextResponse.json(
+        { errors: parsed.error.flatten().fieldErrors },
+        { status: 400 },
+      );
+    }
+
+    const result = await recordInventoryMovement(
+      context.tenantId,
+      location_id,
+      context.effectiveUser.id,
+      parsed.data,
+      context.client,
     );
+
+    if (!result.ok) {
+      // Errores de negocio: saldo negativo, registro inactivo, no encontrado
+      return NextResponse.json({ error: result.error }, { status: 422 });
+    }
+
+    return NextResponse.json({ success: true }, { status: 201 });
+  } finally {
+    await dispose();
   }
-
-  const result = await recordInventoryMovement(
-    tenant_id,
-    location_id,
-    user.id,
-    parsed.data,
-  );
-
-  if (!result.ok) {
-    // Errores de negocio: saldo negativo, registro inactivo, no encontrado
-    return NextResponse.json({ error: result.error }, { status: 422 });
-  }
-
-  return NextResponse.json({ success: true }, { status: 201 });
 }

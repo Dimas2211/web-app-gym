@@ -15,6 +15,7 @@
  */
 
 import { prisma } from "@/lib/db/prisma";
+import type { PrismaClient } from "@prisma/client";
 import { updateLocationSchema } from "./schemas";
 import {
   withCapacityCheckedTransaction,
@@ -23,6 +24,11 @@ import {
   CommercialEnforcementError,
   type CommercialEnforcementContext,
 } from "@/modules/platform/runtime/commercial-enforcement";
+
+// FASE VI-D3 — ETAPA F/S: `db` opcional, default Prisma global SOLO para
+// compatibilidad de callers no migrados. Todo entry point runtime-aware
+// (server actions de branches) SIEMPRE pasa `context.client` explícito —
+// nunca alcanzar este default desde RUNTIME_CLIENT.
 
 // ─── Contrato de retorno ───────────────────────────────────────────────────────
 
@@ -45,6 +51,7 @@ export async function createLocation(
   tenantId: string,
   input: unknown,
   ctx: CommercialEnforcementContext,
+  db: PrismaClient = prisma,
 ): Promise<LocationActionResult> {
   const parsed = updateLocationSchema.safeParse(input);
   if (!parsed.success) {
@@ -59,7 +66,7 @@ export async function createLocation(
 
   try {
     const location = await withCapacityCheckedTransaction(
-      prisma,
+      db,
       "core.locations.max",
       delta,
       ctx,
@@ -93,14 +100,15 @@ export async function createLocation(
 export async function updateLocation(
   locationId: string,
   tenantId: string,
-  input: unknown
+  input: unknown,
+  db: PrismaClient = prisma,
 ): Promise<LocationActionResult> {
   const parsed = updateLocationSchema.safeParse(input);
   if (!parsed.success) {
     return { success: false, errors: parsed.error.flatten().fieldErrors };
   }
 
-  const existing = await prisma.branch.findFirst({
+  const existing = await db.branch.findFirst({
     where: { id: locationId, gym_id: tenantId },
     select: { id: true },
   });
@@ -109,7 +117,7 @@ export async function updateLocation(
     return { success: false, error: "Location no encontrada." };
   }
 
-  await prisma.branch.update({
+  await db.branch.update({
     where: { id: locationId },
     data: {
       ...(parsed.data.name !== undefined && { name: parsed.data.name }),
@@ -136,8 +144,9 @@ export async function toggleLocationStatus(
   locationId: string,
   tenantId: string,
   ctx: CommercialEnforcementContext,
+  db: PrismaClient = prisma,
 ): Promise<LocationActionResult> {
-  const location = await prisma.branch.findFirst({
+  const location = await db.branch.findFirst({
     where: { id: locationId, gym_id: tenantId },
     select: { id: true, status: true },
   });
@@ -151,11 +160,11 @@ export async function toggleLocationStatus(
 
   try {
     if (delta > 0) {
-      await withCapacityCheckedTransaction(prisma, "core.locations.max", delta, ctx, (tx) =>
+      await withCapacityCheckedTransaction(db, "core.locations.max", delta, ctx, (tx) =>
         tx.branch.update({ where: { id: locationId }, data: { status: nextStatus } }),
       );
     } else {
-      await prisma.branch.update({ where: { id: locationId }, data: { status: nextStatus } });
+      await db.branch.update({ where: { id: locationId }, data: { status: nextStatus } });
     }
     return { success: true, id: locationId };
   } catch (err) {

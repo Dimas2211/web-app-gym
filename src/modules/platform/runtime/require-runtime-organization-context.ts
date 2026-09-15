@@ -72,7 +72,8 @@ export type RuntimeIdentityErrorCode =
   | "RUNTIME_PROFILE_UNAVAILABLE"
   | "RUNTIME_USER_NOT_FOUND"
   | "RUNTIME_USER_INACTIVE"
-  | "RUNTIME_USER_TENANT_MISMATCH";
+  | "RUNTIME_USER_TENANT_MISMATCH"
+  | "RUNTIME_LOCATION_INVALID";
 
 export class RuntimeIdentityError extends Error {
   readonly code: RuntimeIdentityErrorCode;
@@ -229,6 +230,27 @@ export async function requireRuntimeOrganizationContext(
       );
     }
     liveRole = liveUser.role;
+
+    // FASE VI-D3 — ETAPA E: revalidación live de location. `location_id`
+    // null es una identidad tenant-wide legítima (mismo significado que
+    // hoy tiene para PLATFORM_NATIVE super_admin) — no se valida nada en
+    // ese caso, nunca se "inventa" una branch. Cuando SÍ viene informado
+    // (branch_admin/reception/trainer con branch fija en el JWT), debe
+    // existir, pertenecer al tenant efectivo y estar activa — el JWT
+    // puede tener hasta 8h de antigüedad y la branch pudo desactivarse,
+    // eliminarse o reasignarse a otro tenant desde entonces.
+    if (user.location_id) {
+      const branch = await runtimeDb.branch.findFirst({
+        where: { id: user.location_id, gym_id: organization.tenant_id, status: "active" },
+        select: { id: true },
+      });
+      if (!branch) {
+        throw new RuntimeIdentityError(
+          "RUNTIME_LOCATION_INVALID",
+          `Location ${user.location_id} no existe, no pertenece al tenant efectivo, o no está activa.`,
+        );
+      }
+    }
   } catch (err) {
     await disconnect();
     throw err;

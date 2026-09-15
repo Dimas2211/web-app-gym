@@ -28,6 +28,7 @@
 // ─────────────────────────────────────────────────────────────────
 
 import { redirect } from "next/navigation";
+import type { UserRole } from "@prisma/client";
 import { getSessionOrRedirect } from "@/lib/permissions/guards";
 import { getEffectiveLocationId } from "@/lib/location/active-location";
 import { getCapabilities } from "@/core/permissions/role-capabilities";
@@ -93,25 +94,33 @@ export default async function InventoryPage() {
     await requireOrganizationModule(tenantId, "commerce.inventory");
 
     // Resolver la location efectiva:
-    //   - modo runtime: primera sucursal activa del tenant runtime.
-    //   - modo normal, branch_admin / reception: viene del JWT directamente.
-    //   - modo normal, super_admin: cookie active_location_id (si fue seleccionada).
+    //   - Support Session ("Operar como cliente"): primera sucursal activa
+    //     del tenant runtime — muestra representativa, solo lectura.
+    //   - RUNTIME_CLIENT / modo normal, branch_admin / reception: viene de
+    //     `context.locationId` (JWT ya revalidado LIVE contra runtimeDb
+    //     para RUNTIME_CLIENT — ver ETAPA E de VI-D3).
+    //   - modo normal / RUNTIME_CLIENT, super_admin (tenant-wide): cookie
+    //     active_location_id, validada contra la DB EFECTIVA.
     const locationId = context.runtime
       ? await resolveRuntimeFirstLocationId(context)
-      : await getEffectiveLocationId(user);
+      : (context.locationId ?? (await getEffectiveLocationId(user, context.client, context.tenantId)));
 
     // Si no hay location efectiva y el usuario es global (super_admin) o
     // está en modo runtime: mostrar mensaje claro en lugar de rebotar.
     if (!locationId) {
-      const caps = getCapabilities(user.role);
+      const caps = getCapabilities(context.effectiveRole as UserRole);
       if (caps.isGlobal || context.runtime) {
         return <NoLocationSelected />;
       }
-      // Usuario no-global sin location_id en JWT — sesión corrupta.
+      // Usuario no-global sin location_id — sesión corrupta.
       redirect("/dashboard");
     }
 
-    const canManage = !context.runtime && (user.role === "super_admin" || user.role === "branch_admin");
+    // FASE VI-D3: `readOnly` cubre Support Session; canManage usa el ROL
+    // LIVE (context.effectiveRole) — no el rol del JWT.
+    const canManage =
+      !context.readOnly &&
+      (context.effectiveRole === "super_admin" || context.effectiveRole === "branch_admin");
 
     // Carga inicial: registros activos, ordenados por código.
     // page_size=150 coincide con PAGE_SIZE del cliente (grilla única sin paginación visual).

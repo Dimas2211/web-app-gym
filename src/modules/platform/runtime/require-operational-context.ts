@@ -55,6 +55,7 @@ import {
   resolveCommercialEnforcementContext,
   assertOrganizationModule,
   CommercialEnforcementError,
+  type CommercialEnforcementContext,
 } from "./commercial-enforcement";
 
 // ── Identidad operacional efectiva ─────────────────────────────────
@@ -85,6 +86,14 @@ export interface OperationalContext {
   locationId: string | null;
   client: PrismaClient;
   readOnly: boolean;
+  /**
+   * Commercial Enforcement Context ya resuelto — presente SOLO cuando se
+   * pasó `options.module`. Necesario para operaciones capacity-gated que
+   * llaman `withCapacityCheckedTransaction(client, code, delta, commercialContext, ...)`
+   * directamente (ej. core.locations.max, commerce.products.max). `null`
+   * si no se pidió `module` — el caller no necesita capacity check.
+   */
+  commercialContext: CommercialEnforcementContext | null;
 }
 
 export interface OperationalContextHandle {
@@ -160,11 +169,12 @@ export async function requireOperationalContext(
     }
 
     let organizationId = sessionUser.organization_id ?? null;
+    let commercialContext: CommercialEnforcementContext | null = null;
     if (options.module) {
-      const commercialCtx = await resolveCommercialEnforcementContext(context.tenantId);
-      organizationId = commercialCtx.organizationId;
+      commercialContext = await resolveCommercialEnforcementContext(context.tenantId);
+      organizationId = commercialContext.organizationId;
       try {
-        assertOrganizationModule(commercialCtx, options.module);
+        assertOrganizationModule(commercialContext, options.module);
       } catch (err) {
         if (err instanceof CommercialEnforcementError) {
           throw new OperationalContextError("MODULE_DISABLED", err.userMessage, err.httpStatus);
@@ -192,6 +202,7 @@ export async function requireOperationalContext(
         locationId: context.locationId,
         client: context.client ?? prisma,
         readOnly: context.readOnly,
+        commercialContext,
       },
       dispose,
     };

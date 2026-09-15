@@ -5,6 +5,11 @@
 // (create/update/toggle) no tenía guard de sesión runtime "Operar como
 // cliente" — un super_admin en runtime podía crear/editar/desactivar
 // sucursales del tenant real sin darse cuenta. Este test fija el bloqueo.
+//
+// FASE VI-D3 — migrado a requireOperationalContext(): el bloqueo de
+// escritura bajo Support Session/readOnly ahora se certifica igual que
+// en el resto de módulos migrados (Products/Customers/Suppliers), vía
+// OperationalContextError con code "READ_ONLY".
 // ─────────────────────────────────────────────────────────────────
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
@@ -18,9 +23,25 @@ vi.mock("@/lib/permissions/guards", () => ({
   canManageBranch: vi.fn(() => true),
 }));
 
-const { toggleLocationStatusSpy } = vi.hoisted(() => ({
-  toggleLocationStatusSpy: vi.fn(async () => ({ success: true })),
-}));
+const { toggleLocationStatusSpy, requireOperationalContextMock, disposeMock, FakeOperationalContextError } = vi.hoisted(() => {
+  class FakeOperationalContextError extends Error {
+    code: string;
+    httpStatus: number;
+    userMessage: string;
+    constructor(code: string, userMessage: string, httpStatus: number) {
+      super(userMessage);
+      this.code = code;
+      this.httpStatus = httpStatus;
+      this.userMessage = userMessage;
+    }
+  }
+  return {
+    toggleLocationStatusSpy: vi.fn(async () => ({ success: true })),
+    requireOperationalContextMock: vi.fn(),
+    disposeMock: vi.fn().mockResolvedValue(undefined),
+    FakeOperationalContextError,
+  };
+});
 
 vi.mock("@/core/modules/locations/actions", () => ({
   createLocation: vi.fn(),
@@ -28,37 +49,29 @@ vi.mock("@/core/modules/locations/actions", () => ({
   toggleLocationStatus: toggleLocationStatusSpy,
 }));
 
-const { isRuntimeReadOnlyActiveMock, resolveCommercialEnforcementContextMock } = vi.hoisted(() => ({
-  isRuntimeReadOnlyActiveMock: vi.fn(async () => false),
-  resolveCommercialEnforcementContextMock: vi.fn(async () => ({
-    mode: "LEGACY_UNMANAGED",
-    tenantId: "tenant-1",
-    organizationId: null,
-    planId: null,
-    verticalId: null,
-    effectiveModules: new Map(),
-    effectiveEntitlements: new Map(),
-  })),
+vi.mock("@/modules/platform/runtime/require-operational-context", () => ({
+  requireOperationalContext: requireOperationalContextMock,
+  OperationalContextError: FakeOperationalContextError,
 }));
-
-vi.mock("@/modules/platform/runtime/runtime-session", () => ({
-  isRuntimeReadOnlyActive: isRuntimeReadOnlyActiveMock,
-  RUNTIME_READONLY_MESSAGE: "Modo \"Operar como cliente\" activo (solo lectura).",
-}));
-
-vi.mock("@/modules/platform/runtime/commercial-enforcement", async () => {
-  const actual = await vi.importActual<typeof import("@/modules/platform/runtime/commercial-enforcement")>(
-    "@/modules/platform/runtime/commercial-enforcement",
-  );
-  return { ...actual, resolveCommercialEnforcementContext: resolveCommercialEnforcementContextMock };
-});
 
 import { toggleBranchStatusAction } from "./actions";
 
+function fakeHandle(overrides: Partial<{ role: string; client: unknown; tenantId: string; commercialContext: unknown }> = {}) {
+  return {
+    context: {
+      effectiveUser: { id: "u1", role: overrides.role ?? "super_admin", location_id: "loc-1" },
+      tenantId: overrides.tenantId ?? "tenant-1",
+      client: overrides.client ?? { __marker: "RUNTIME_CLIENT_DB" },
+      commercialContext: overrides.commercialContext ?? { organizationId: null },
+    },
+    dispose: disposeMock,
+  };
+}
+
 beforeEach(() => {
   toggleLocationStatusSpy.mockClear();
-  isRuntimeReadOnlyActiveMock.mockReset();
-  isRuntimeReadOnlyActiveMock.mockResolvedValue(false);
+  requireOperationalContextMock.mockReset();
+  disposeMock.mockClear();
 });
 
 function fd(entries: Record<string, string>): FormData {
@@ -68,8 +81,10 @@ function fd(entries: Record<string, string>): FormData {
 }
 
 describe('toggleBranchStatusAction — sesión runtime "Operar como cliente" activa bloquea el write', () => {
-  it("isRuntimeReadOnlyActive() true -> bloquea ANTES de tocar toggleLocationStatus", async () => {
-    isRuntimeReadOnlyActiveMock.mockResolvedValue(true);
+  it("requireOperationalContext rechaza (READ_ONLY / Support Session) -> bloquea ANTES de tocar toggleLocationStatus", async () => {
+    requireOperationalContextMock.mockRejectedValue(
+      new FakeOperationalContextError("READ_ONLY", "Modo \"Operar como cliente\" activo (solo lectura).", 403),
+    );
 
     await toggleBranchStatusAction(fd({ id: "branch-1" }));
 
@@ -77,10 +92,11 @@ describe('toggleBranchStatusAction — sesión runtime "Operar como cliente" act
   });
 
   it("modo normal (sin sesión runtime) -> el write procede normalmente", async () => {
-    isRuntimeReadOnlyActiveMock.mockResolvedValue(false);
+    requireOperationalContextMock.mockResolvedValue(fakeHandle());
 
     await toggleBranchStatusAction(fd({ id: "branch-1" }));
 
     expect(toggleLocationStatusSpy).toHaveBeenCalledTimes(1);
+    expect(disposeMock).toHaveBeenCalledTimes(1);
   });
 });

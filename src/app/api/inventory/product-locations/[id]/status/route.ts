@@ -12,12 +12,10 @@ import { auth } from "@/lib/auth/auth";
 import type { SessionUser } from "@/lib/permissions/guards";
 import { updateProductLocationFields } from "@/modules/commerce/inventory/services/product-location.service";
 import { getEffectiveLocationId } from "@/lib/location/active-location";
-import { isRuntimeReadOnlyActive, RUNTIME_READONLY_MESSAGE } from "@/modules/platform/runtime/runtime-session";
 import {
-  resolveCommercialEnforcementContext,
-  assertOrganizationModule,
-  CommercialEnforcementError,
-} from "@/modules/platform/runtime/commercial-enforcement";
+  requireOperationalContext,
+  OperationalContextError,
+} from "@/modules/platform/runtime/require-operational-context";
 
 const ADMIN_ROLES = ["super_admin", "branch_admin"];
 
@@ -34,65 +32,71 @@ export async function PATCH(
   if (!session?.user) {
     return NextResponse.json({ error: "No autorizado" }, { status: 401 });
   }
-
   const user = session.user as SessionUser;
-  if (!ADMIN_ROLES.includes(user.role)) {
-    return NextResponse.json({ error: "Acceso denegado" }, { status: 403 });
-  }
 
-  const tenant_id   = user.tenant_id;
-  const location_id = await getEffectiveLocationId(user);
-  if (!tenant_id || !location_id) {
-    return NextResponse.json(
-      { error: "La sesión no tiene tenant o location activos." },
-      { status: 400 },
-    );
-  }
-
-  // PASO 6A: bloquear escritura bajo sesión runtime "Operar como cliente"
-  if (await isRuntimeReadOnlyActive()) {
-    return NextResponse.json({ error: RUNTIME_READONLY_MESSAGE }, { status: 403 });
-  }
-
-  const commercialCtx = await resolveCommercialEnforcementContext(tenant_id);
+  let handle;
   try {
-    assertOrganizationModule(commercialCtx, "commerce.inventory");
+    handle = await requireOperationalContext(user, { module: "commerce.inventory", write: true });
   } catch (err) {
-    if (err instanceof CommercialEnforcementError) {
+    if (err instanceof OperationalContextError) {
       return NextResponse.json({ error: err.userMessage }, { status: err.httpStatus });
     }
     throw err;
   }
+  const { context, dispose } = handle;
 
-  let body: unknown;
   try {
-    body = await req.json();
-  } catch {
-    return NextResponse.json({ error: "Cuerpo de la petición inválido." }, { status: 400 });
-  }
+    if (!ADMIN_ROLES.includes(context.effectiveUser.role)) {
+      return NextResponse.json({ error: "Acceso denegado" }, { status: 403 });
+    }
 
-  const parsed = statusSchema.safeParse(body);
-  if (!parsed.success) {
-    return NextResponse.json(
-      { errors: parsed.error.flatten().fieldErrors },
-      { status: 400 },
+    const location_id =
+      context.locationId ??
+      (await getEffectiveLocationId(
+        { ...context.effectiveUser, role: context.effectiveUser.role as SessionUser["role"] } as SessionUser,
+        context.client,
+        context.tenantId,
+      ));
+    if (!location_id) {
+      return NextResponse.json(
+        { error: "La sesión no tiene tenant o location activos." },
+        { status: 400 },
+      );
+    }
+
+    let body: unknown;
+    try {
+      body = await req.json();
+    } catch {
+      return NextResponse.json({ error: "Cuerpo de la petición inválido." }, { status: 400 });
+    }
+
+    const parsed = statusSchema.safeParse(body);
+    if (!parsed.success) {
+      return NextResponse.json(
+        { errors: parsed.error.flatten().fieldErrors },
+        { status: 400 },
+      );
+    }
+
+    const { id } = await params;
+
+    // Delegar al service con solo is_active — los demás campos quedan intactos
+    const result = await updateProductLocationFields(
+      id,
+      context.tenantId,
+      location_id,
+      context.effectiveUser.id,
+      { is_active: parsed.data.is_active },
+      context.client,
     );
+
+    if (!result.ok) {
+      return NextResponse.json({ error: result.error }, { status: 404 });
+    }
+
+    return NextResponse.json({ success: true, is_active: parsed.data.is_active });
+  } finally {
+    await dispose();
   }
-
-  const { id } = await params;
-
-  // Delegar al service con solo is_active — los demás campos quedan intactos
-  const result = await updateProductLocationFields(
-    id,
-    tenant_id,
-    location_id,
-    user.id,
-    { is_active: parsed.data.is_active },
-  );
-
-  if (!result.ok) {
-    return NextResponse.json({ error: result.error }, { status: 404 });
-  }
-
-  return NextResponse.json({ success: true, is_active: parsed.data.is_active });
 }

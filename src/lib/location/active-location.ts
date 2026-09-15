@@ -28,6 +28,8 @@
 // ─────────────────────────────────────────────────────────────────
 
 import { cookies } from "next/headers";
+import type { PrismaClient } from "@prisma/client";
+import { prisma } from "@/lib/db/prisma";
 import { getLocationById } from "@/core/modules/locations/queries";
 import type { SessionUser } from "@/lib/permissions/guards";
 
@@ -52,13 +54,28 @@ export const ACTIVE_LOCATION_COOKIE = "active_location_id";
  *   4. Si no es válida → devolver null (el módulo decide cómo manejarlo).
  *
  * @param user - Usuario de sesión autenticado (desde getSessionOrRedirect)
+ * @param db   - PrismaClient efectivo. FASE VI-D3 — default Prisma global
+ *               solo para compatibilidad de callers PLATFORM_NATIVE no
+ *               migrados; todo caller runtime-aware DEBE pasar
+ *               `context.client` explícito (nunca alcanzar este default
+ *               desde RUNTIME_CLIENT, que validaría contra la DB
+ *               equivocada).
+ * @param effectiveTenantId - tenant EFECTIVO contra el que validar la
+ *               cookie. Default `user.tenant_id` (comportamiento previo,
+ *               correcto para PLATFORM_NATIVE). Un caller runtime-aware
+ *               debe pasar el tenant efectivo (igual al tenant de `db`).
  * @returns location_id válido o null si no hay contexto operativo activo
  */
 export async function getEffectiveLocationId(
   user: SessionUser,
+  db: PrismaClient = prisma,
+  effectiveTenantId: string = user.tenant_id,
 ): Promise<string | null> {
   // Caso 1: usuario con location fija en JWT.
   // No consultar cookie — el JWT es la fuente de verdad para este rol.
+  // NOTA: esto es el valor congelado en sesión; la revalidación LIVE contra
+  // runtimeDb para RUNTIME_CLIENT ya ocurre en
+  // requireRuntimeOrganizationContext (ETAPA E de VI-D3) antes de llegar aquí.
   if (user.location_id) {
     return user.location_id;
   }
@@ -71,12 +88,13 @@ export async function getEffectiveLocationId(
     return null; // No ha seleccionado una location de trabajo todavía
   }
 
-  // Validar que la location de la cookie exista y pertenezca al tenant del usuario.
-  // Esta validación es obligatoria — previene que cookies antiguas o de otro
-  // tenant filtren datos cruzados. El tenant_id viene siempre del JWT (seguro).
-  const location = await getLocationById(cookieValue);
+  // Validar que la location de la cookie exista y pertenezca al tenant
+  // EFECTIVO — contra `db` (runtime propio si aplica), nunca Prisma
+  // global desde un caller runtime-aware. Previene que cookies antiguas
+  // o de otro tenant filtren datos cruzados.
+  const location = await getLocationById(cookieValue, db);
 
-  if (!location || location.tenant_id !== user.tenant_id) {
+  if (!location || location.tenant_id !== effectiveTenantId) {
     return null; // Cookie obsoleta o de tenant distinto — ignorar
   }
 

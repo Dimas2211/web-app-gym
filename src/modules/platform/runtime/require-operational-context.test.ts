@@ -211,22 +211,25 @@ describe("requireOperationalContext", () => {
     expect(disposeMock).toHaveBeenCalledTimes(1);
   });
 
-  it("module habilitado -> organizationId viene del Commercial Enforcement Context", async () => {
+  it("module habilitado -> organizationId y commercialContext vienen del Commercial Enforcement Context", async () => {
     const { handle } = fakeEffective();
     resolveEffectiveTenantContextMock.mockResolvedValue(handle);
-    resolveCommercialEnforcementContextMock.mockResolvedValue({ organizationId: "org-resolved" });
+    const commercialCtx = { organizationId: "org-resolved" };
+    resolveCommercialEnforcementContextMock.mockResolvedValue(commercialCtx);
     assertOrganizationModuleMock.mockImplementation(() => {});
 
     const { context } = await requireOperationalContext(PLATFORM_USER, { module: "core.customers" });
     expect(context.organizationId).toBe("org-resolved");
+    expect(context.commercialContext).toBe(commercialCtx);
   });
 
-  it("RUNTIME_CLIENT sin module option -> organizationId viene de sessionUser.organization_id", async () => {
+  it("RUNTIME_CLIENT sin module option -> organizationId viene de sessionUser.organization_id, commercialContext null", async () => {
     const { handle } = fakeEffective({ runtimeMode: "RUNTIME_CLIENT" });
     resolveEffectiveTenantContextMock.mockResolvedValue(handle);
 
     const { context } = await requireOperationalContext(RUNTIME_CLIENT_USER);
     expect(context.organizationId).toBe("org-trustme");
+    expect(context.commercialContext).toBeNull();
     expect(resolveCommercialEnforcementContextMock).not.toHaveBeenCalled();
   });
 

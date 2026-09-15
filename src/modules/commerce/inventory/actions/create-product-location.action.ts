@@ -13,15 +13,16 @@
 // ─────────────────────────────────────────────────────────────────
 
 import { revalidatePath } from "next/cache";
-import { requireAdmin } from "@/lib/permissions/guards";
-import { isRuntimeReadOnlyActive, RUNTIME_READONLY_MESSAGE } from "@/modules/platform/runtime/runtime-session";
+import type { UserRole } from "@prisma/client";
+import { requireAdmin, type SessionUser } from "@/lib/permissions/guards";
+import { getCapabilities } from "@/core/permissions/role-capabilities";
+import { getEffectiveLocationId } from "@/lib/location/active-location";
+import {
+  requireOperationalContext,
+  OperationalContextError,
+} from "@/modules/platform/runtime/require-operational-context";
 import { createProductLocationSchema } from "../schemas/create-product-location.schema";
 import { createProductLocation } from "../services/product-location.service";
-import {
-  resolveCommercialEnforcementContext,
-  assertOrganizationModule,
-  CommercialEnforcementError,
-} from "@/modules/platform/runtime/commercial-enforcement";
 
 // ── Estado de retorno ─────────────────────────────────────────────
 
@@ -65,53 +66,67 @@ export async function createProductLocationAction(
   formData: FormData,
 ): Promise<CreateProductLocationState> {
   const sessionUser = await requireAdmin();
-  const tenant_id   = sessionUser.tenant_id;
-  const location_id = sessionUser.location_id;
 
-  if (!tenant_id)   return { error: "La sesión no tiene un tenant activo." };
-  if (!location_id) return { error: "La sesión no tiene una location activa." };
-
-  // PASO 6A: bloquear escritura bajo sesión runtime "Operar como cliente"
-  if (await isRuntimeReadOnlyActive()) return { error: RUNTIME_READONLY_MESSAGE };
-
+  let handle;
   try {
-    const commercialCtx = await resolveCommercialEnforcementContext(tenant_id);
-    assertOrganizationModule(commercialCtx, "commerce.inventory");
+    handle = await requireOperationalContext(sessionUser, { module: "commerce.inventory", write: true });
   } catch (err) {
-    if (err instanceof CommercialEnforcementError) return { error: err.userMessage };
+    if (err instanceof OperationalContextError) return { error: err.userMessage };
     throw err;
   }
+  const { context, dispose } = handle;
 
-  const raw = {
-    tenant_id,
-    location_id,
-    product_id:       str(formData.get("product_id")),
-    min_stock:        parseDecimal(formData.get("min_stock")),
-    reorder_quantity: parseDecimal(formData.get("reorder_quantity")),
-    warehouse:        strNullable(formData.get("warehouse")),
-    shelf:            strNullable(formData.get("shelf")),
-    position:         strNullable(formData.get("position")),
-    is_active:        parseBool(formData.get("is_active")),
-    created_by:       sessionUser.id,
-  };
+  try {
+    if (!getCapabilities(context.effectiveUser.role as UserRole).canManageStaff) {
+      return { error: "Sin permisos para esta operación." };
+    }
 
-  const parsed = createProductLocationSchema.safeParse(raw);
-  if (!parsed.success) {
-    return { errors: parsed.error.flatten().fieldErrors };
+    // location: la del usuario runtime (LIVE-validada, ver ETAPA E) o,
+    // para identidades tenant-wide (location_id null), la seleccionada
+    // vía cookie — validada contra la DB EFECTIVA, nunca contra global.
+    const location_id =
+      context.locationId ??
+      (await getEffectiveLocationId(
+        { ...context.effectiveUser, role: context.effectiveUser.role as UserRole } as SessionUser,
+        context.client,
+        context.tenantId,
+      ));
+    if (!location_id) return { error: "La sesión no tiene una location activa." };
+
+    const raw = {
+      tenant_id: context.tenantId,
+      location_id,
+      product_id:       str(formData.get("product_id")),
+      min_stock:        parseDecimal(formData.get("min_stock")),
+      reorder_quantity: parseDecimal(formData.get("reorder_quantity")),
+      warehouse:        strNullable(formData.get("warehouse")),
+      shelf:            strNullable(formData.get("shelf")),
+      position:         strNullable(formData.get("position")),
+      is_active:        parseBool(formData.get("is_active")),
+      created_by:       context.effectiveUser.id,
+    };
+
+    const parsed = createProductLocationSchema.safeParse(raw);
+    if (!parsed.success) {
+      return { errors: parsed.error.flatten().fieldErrors };
+    }
+
+    const result = await createProductLocation(
+      context.tenantId,
+      location_id,
+      context.effectiveUser.id,
+      parsed.data,
+      context.client,
+    );
+
+    if (!result.ok) {
+      return result.field
+        ? { errors: { [result.field]: [result.error] } }
+        : { error: result.error };
+    }
+
+    revalidatePath("/dashboard/inventory");
+  } finally {
+    await dispose();
   }
-
-  const result = await createProductLocation(
-    tenant_id,
-    location_id,
-    sessionUser.id,
-    parsed.data,
-  );
-
-  if (!result.ok) {
-    return result.field
-      ? { errors: { [result.field]: [result.error] } }
-      : { error: result.error };
-  }
-
-  revalidatePath("/dashboard/inventory");
 }

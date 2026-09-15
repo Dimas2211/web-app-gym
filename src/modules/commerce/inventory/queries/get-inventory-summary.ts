@@ -14,6 +14,7 @@
 // ─────────────────────────────────────────────────────────────────
 
 import { prisma } from "@/lib/db/prisma";
+import type { PrismaClient } from "@prisma/client";
 import type { InventorySummary } from "../types/inventory.types";
 import { deriveStockAlertLevel, STOCK_ALERT_LEVEL } from "../types/inventory.types";
 
@@ -32,16 +33,17 @@ const SUMMARY_FETCH_LIMIT = 5_000;
 export async function getInventorySummary(
   tenant_id: string,
   location_id: string,
+  client: PrismaClient = prisma,
 ): Promise<InventorySummary> {
   const scope = { tenant_id, location_id } as const;
 
   // ── Counts directos via Prisma ───────────────────────────────
   // Estos tres no requieren comparación columna-columna.
   const [total_products, active_products, products_empty_count] =
-    await prisma.$transaction([
-      prisma.productLocation.count({ where: { ...scope } }),
-      prisma.productLocation.count({ where: { ...scope, is_active: true } }),
-      prisma.productLocation.count({
+    await client.$transaction([
+      client.productLocation.count({ where: { ...scope } }),
+      client.productLocation.count({ where: { ...scope, is_active: true } }),
+      client.productLocation.count({
         where: { ...scope, current_stock: { lte: 0 } },
       }),
     ]);
@@ -49,7 +51,7 @@ export async function getInventorySummary(
   // ── Cómputo en memoria para low/ok ───────────────────────────
   // Fetch mínimo: solo los campos necesarios para derivar la alerta.
   // current_stock > 0 ya excluye los EMPTY, reduciendo el set.
-  const stockRows = await prisma.productLocation.findMany({
+  const stockRows = await client.productLocation.findMany({
     where: { ...scope, current_stock: { gt: 0 } },
     select: { current_stock: true, min_stock: true },
     take: SUMMARY_FETCH_LIMIT,

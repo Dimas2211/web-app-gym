@@ -30,15 +30,16 @@
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import { requireAdmin } from "@/lib/permissions/guards";
-import { isRuntimeReadOnlyActive, RUNTIME_READONLY_MESSAGE } from "@/modules/platform/runtime/runtime-session";
+import type { UserRole } from "@prisma/client";
+import { requireAdmin, type SessionUser } from "@/lib/permissions/guards";
+import { getCapabilities } from "@/core/permissions/role-capabilities";
+import { getEffectiveLocationId } from "@/lib/location/active-location";
+import {
+  requireOperationalContext,
+  OperationalContextError,
+} from "@/modules/platform/runtime/require-operational-context";
 import { ACTIVE_MOVEMENT_TYPES } from "../schemas/record-movement.schema";
 import { recordInventoryMovement } from "../services/inventory-movement.service";
-import {
-  resolveCommercialEnforcementContext,
-  assertOrganizationModule,
-  CommercialEnforcementError,
-} from "@/modules/platform/runtime/commercial-enforcement";
 
 // ── Estado de retorno ─────────────────────────────────────────────
 
@@ -89,47 +90,58 @@ export async function recordInventoryMovementAction(
   formData: FormData,
 ): Promise<RecordMovementState> {
   const sessionUser = await requireAdmin();
-  const tenant_id   = sessionUser.tenant_id;
-  const location_id = sessionUser.location_id;
 
-  if (!tenant_id)   return { error: "La sesión no tiene un tenant activo." };
-  if (!location_id) return { error: "La sesión no tiene una location activa." };
-
-  // PASO 6A: bloquear escritura bajo sesión runtime "Operar como cliente"
-  if (await isRuntimeReadOnlyActive()) return { error: RUNTIME_READONLY_MESSAGE };
-
+  let handle;
   try {
-    const commercialCtx = await resolveCommercialEnforcementContext(tenant_id);
-    assertOrganizationModule(commercialCtx, "commerce.inventory");
+    handle = await requireOperationalContext(sessionUser, { module: "commerce.inventory", write: true });
   } catch (err) {
-    if (err instanceof CommercialEnforcementError) return { error: err.userMessage };
+    if (err instanceof OperationalContextError) return { error: err.userMessage };
     throw err;
   }
+  const { context, dispose } = handle;
 
-  const raw = {
-    product_location_id: str(formData.get("product_location_id")),
-    movement_type:       str(formData.get("movement_type")),
-    quantity:            parseDecimal(formData.get("quantity")),
-    unit_cost:           parseDecimal(formData.get("unit_cost")),
-    reference_entity:    str(formData.get("reference_entity")),
-    reference_id:        str(formData.get("reference_id")),
-    reference_code:      str(formData.get("reference_code")),
-    notes:               str(formData.get("notes")),
-  };
+  try {
+    if (!getCapabilities(context.effectiveUser.role as UserRole).canManageStaff) {
+      return { error: "Sin permisos para esta operación." };
+    }
 
-  const parsed = movementFormSchema.safeParse(raw);
-  if (!parsed.success) {
-    return { errors: parsed.error.flatten().fieldErrors };
+    const location_id =
+      context.locationId ??
+      (await getEffectiveLocationId(
+        { ...context.effectiveUser, role: context.effectiveUser.role as UserRole } as SessionUser,
+        context.client,
+        context.tenantId,
+      ));
+    if (!location_id) return { error: "La sesión no tiene una location activa." };
+
+    const raw = {
+      product_location_id: str(formData.get("product_location_id")),
+      movement_type:       str(formData.get("movement_type")),
+      quantity:            parseDecimal(formData.get("quantity")),
+      unit_cost:           parseDecimal(formData.get("unit_cost")),
+      reference_entity:    str(formData.get("reference_entity")),
+      reference_id:        str(formData.get("reference_id")),
+      reference_code:      str(formData.get("reference_code")),
+      notes:               str(formData.get("notes")),
+    };
+
+    const parsed = movementFormSchema.safeParse(raw);
+    if (!parsed.success) {
+      return { errors: parsed.error.flatten().fieldErrors };
+    }
+
+    const result = await recordInventoryMovement(
+      context.tenantId,
+      location_id,
+      context.effectiveUser.id,
+      parsed.data,
+      context.client,
+    );
+
+    if (!result.ok) return { error: result.error };
+
+    revalidatePath("/dashboard/inventory");
+  } finally {
+    await dispose();
   }
-
-  const result = await recordInventoryMovement(
-    tenant_id,
-    location_id,
-    sessionUser.id,
-    parsed.data,
-  );
-
-  if (!result.ok) return { error: result.error };
-
-  revalidatePath("/dashboard/inventory");
 }
