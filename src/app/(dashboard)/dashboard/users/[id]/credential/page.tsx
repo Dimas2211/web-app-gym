@@ -30,17 +30,22 @@ export default async function UserCredentialPage({ params }: Props) {
     : sessionUser;
 
   try {
-    const canManage = !context.runtime;
+    // FASE VI-D4: `readOnly` cubre Support Session; RUNTIME_CLIENT válido
+    // es readOnly=false.
+    const canManage = !context.readOnly;
 
     const [target, gym, nextCode] = await Promise.all([
       getUserById(id, effectiveUser, context.client),
       getGym(effectiveUser, context.client),
-      canManage ? suggestNextStaffCode(effectiveUser.tenant_id) : Promise.resolve(""),
+      canManage ? suggestNextStaffCode(context.tenantId, context.client) : Promise.resolve(""),
     ]);
 
     if (!target || !canManageUser(sessionUser, target) || target.role === "client") notFound();
 
-    const isSuperAdmin = canManage && sessionUser.role === "super_admin";
+    // Rol LIVE (context.effectiveRole) para RUNTIME_CLIENT — nunca el rol
+    // stale de requireAdmin()/JWT para decidir si se muestra la columna
+    // de gestión de identidad.
+    const isSuperAdmin = canManage && context.effectiveRole === "super_admin";
 
     return (
     <div className="space-y-6">

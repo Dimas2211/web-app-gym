@@ -6,6 +6,10 @@
 // y NO tenía guard de sesión runtime "Operar como cliente" — un
 // super_admin en runtime podía crear/editar/desactivar/eliminar cuentas
 // de staff del tenant real sin darse cuenta. Este test fija el bloqueo.
+//
+// FASE VI-D4 — migrado a requireOperationalContext(): certifica además
+// que la mutación usa context.client (runtime efectivo) y que el rol
+// LIVE decide la autorización, no el rol del JWT.
 // ─────────────────────────────────────────────────────────────────
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
@@ -19,14 +23,32 @@ vi.mock("@/lib/permissions/guards", () => ({
   canManageUser: vi.fn(() => true),
 }));
 
-const { userFindUniqueSpy, toggleCoreUserStatusSpy } = vi.hoisted(() => ({
-  userFindUniqueSpy: vi.fn(async () => ({ id: "user-1", status: "active", tenant_id: "tenant-1" })),
-  toggleCoreUserStatusSpy: vi.fn(async () => ({ success: true })),
-}));
-
-vi.mock("@/lib/db/prisma", () => ({
-  prisma: { user: { findUnique: userFindUniqueSpy } },
-}));
+const {
+  userFindFirstSpy,
+  toggleCoreUserStatusSpy,
+  requireOperationalContextMock,
+  disposeMock,
+  FakeOperationalContextError,
+} = vi.hoisted(() => {
+  class FakeOperationalContextError extends Error {
+    code: string;
+    httpStatus: number;
+    userMessage: string;
+    constructor(code: string, userMessage: string, httpStatus: number) {
+      super(userMessage);
+      this.code = code;
+      this.httpStatus = httpStatus;
+      this.userMessage = userMessage;
+    }
+  }
+  return {
+    userFindFirstSpy: vi.fn(async () => ({ id: "user-1", status: "active", tenant_id: "tenant-1", gym_id: "tenant-1" })),
+    toggleCoreUserStatusSpy: vi.fn(async () => ({ success: true })),
+    requireOperationalContextMock: vi.fn(),
+    disposeMock: vi.fn().mockResolvedValue(undefined),
+    FakeOperationalContextError,
+  };
+});
 
 vi.mock("@/core/modules/users/actions", () => ({
   createCoreUser: vi.fn(),
@@ -34,38 +56,34 @@ vi.mock("@/core/modules/users/actions", () => ({
   toggleCoreUserStatus: toggleCoreUserStatusSpy,
 }));
 
-const { isRuntimeReadOnlyActiveMock, resolveCommercialEnforcementContextMock } = vi.hoisted(() => ({
-  isRuntimeReadOnlyActiveMock: vi.fn(async () => false),
-  resolveCommercialEnforcementContextMock: vi.fn(async () => ({
-    mode: "LEGACY_UNMANAGED",
-    tenantId: "tenant-1",
-    organizationId: null,
-    planId: null,
-    verticalId: null,
-    effectiveModules: new Map(),
-    effectiveEntitlements: new Map(),
-  })),
+vi.mock("@/modules/platform/runtime/require-operational-context", () => ({
+  requireOperationalContext: requireOperationalContextMock,
+  OperationalContextError: FakeOperationalContextError,
 }));
 
-vi.mock("@/modules/platform/runtime/runtime-session", () => ({
-  isRuntimeReadOnlyActive: isRuntimeReadOnlyActiveMock,
-  RUNTIME_READONLY_MESSAGE: "Modo \"Operar como cliente\" activo (solo lectura).",
+vi.mock("@/modules/platform/runtime/commercial-enforcement", () => ({
+  CommercialEnforcementError: class CommercialEnforcementError extends Error {},
 }));
-
-vi.mock("@/modules/platform/runtime/commercial-enforcement", async () => {
-  const actual = await vi.importActual<typeof import("@/modules/platform/runtime/commercial-enforcement")>(
-    "@/modules/platform/runtime/commercial-enforcement",
-  );
-  return { ...actual, resolveCommercialEnforcementContext: resolveCommercialEnforcementContextMock };
-});
 
 import { toggleUserStatusAction } from "./actions";
 
+function fakeHandle(overrides: Partial<{ role: string; client: unknown; tenantId: string }> = {}) {
+  return {
+    context: {
+      effectiveUser: { id: "u1", role: overrides.role ?? "super_admin", tenant_id: overrides.tenantId ?? "tenant-1", location_id: "loc-1" },
+      tenantId: overrides.tenantId ?? "tenant-1",
+      client: overrides.client ?? { __marker: "RUNTIME_CLIENT_DB", user: { findFirst: userFindFirstSpy } },
+      commercialContext: { organizationId: null },
+    },
+    dispose: disposeMock,
+  };
+}
+
 beforeEach(() => {
-  userFindUniqueSpy.mockClear();
+  userFindFirstSpy.mockClear();
   toggleCoreUserStatusSpy.mockClear();
-  isRuntimeReadOnlyActiveMock.mockReset();
-  isRuntimeReadOnlyActiveMock.mockResolvedValue(false);
+  requireOperationalContextMock.mockReset();
+  disposeMock.mockClear();
 });
 
 function fd(entries: Record<string, string>): FormData {
@@ -75,20 +93,25 @@ function fd(entries: Record<string, string>): FormData {
 }
 
 describe('toggleUserStatusAction — sesión runtime "Operar como cliente" activa bloquea el write', () => {
-  it("isRuntimeReadOnlyActive() true -> bloquea ANTES de tocar prisma.user.findUnique/toggleCoreUserStatus", async () => {
-    isRuntimeReadOnlyActiveMock.mockResolvedValue(true);
+  it("requireOperationalContext rechaza (READ_ONLY / Support Session) -> bloquea ANTES de tocar prisma.user/toggleCoreUserStatus", async () => {
+    requireOperationalContextMock.mockRejectedValue(
+      new FakeOperationalContextError("READ_ONLY", "Modo \"Operar como cliente\" activo (solo lectura).", 403),
+    );
 
     await toggleUserStatusAction(fd({ id: "user-1" }));
 
-    expect(userFindUniqueSpy).not.toHaveBeenCalled();
+    expect(userFindFirstSpy).not.toHaveBeenCalled();
     expect(toggleCoreUserStatusSpy).not.toHaveBeenCalled();
   });
 
-  it("modo normal (sin sesión runtime) -> el write procede normalmente", async () => {
-    isRuntimeReadOnlyActiveMock.mockResolvedValue(false);
+  it("modo normal (sin sesión runtime) -> el write procede normalmente, usa context.client", async () => {
+    const runtimeDbMarker = { user: { findFirst: userFindFirstSpy } };
+    requireOperationalContextMock.mockResolvedValue(fakeHandle({ client: runtimeDbMarker }));
 
     await toggleUserStatusAction(fd({ id: "user-1" }));
 
     expect(toggleCoreUserStatusSpy).toHaveBeenCalledTimes(1);
+    expect(toggleCoreUserStatusSpy).toHaveBeenCalledWith("user-1", "u1", "tenant-1", { organizationId: null }, runtimeDbMarker);
+    expect(disposeMock).toHaveBeenCalledTimes(1);
   });
 });

@@ -1,7 +1,14 @@
 import { prisma } from "@/lib/db/prisma";
 import bcrypt from "bcryptjs";
 import { canDeleteDirectly } from "@/lib/permissions/guards";
-import type { UserRole } from "@prisma/client";
+import type { UserRole, PrismaClient } from "@prisma/client";
+
+// FASE VI-D4 — ETAPA Q: `db` opcional, default Prisma global SOLO para
+// compatibilidad de los otros callers de este helper compartido (Sales,
+// Purchases, Memberships, Trainers, WeeklyPlans, Clients — ninguno
+// migrado todavía). deleteUserAction (Users, VI-D4) pasa `context.client`
+// explícito para que la re-autenticación por credenciales se verifique
+// contra la DB EFECTIVA, nunca Prisma global, para RUNTIME_CLIENT.
 
 /**
  * Estado de retorno para server actions de eliminación definitiva.
@@ -31,13 +38,14 @@ export type AdminDeleteAuthResult =
  */
 export async function verifyAdminDeleteCredentials(
   credentials: AdminDeleteCredentials,
-  tenantId: string
+  tenantId: string,
+  db: PrismaClient = prisma,
 ): Promise<AdminDeleteAuthResult> {
   if (!credentials.email?.trim() || !credentials.password) {
     return { authorized: false, error: "Credenciales requeridas" };
   }
 
-  const admin = await prisma.user.findFirst({
+  const admin = await db.user.findFirst({
     where: {
       email: credentials.email.toLowerCase().trim(),
       gym_id: tenantId,
@@ -85,7 +93,8 @@ export async function verifyAdminDeleteCredentials(
  */
 export async function checkDeleteAuth(
   formData: FormData,
-  sessionUser: { role: UserRole; tenant_id: string }
+  sessionUser: { role: UserRole; tenant_id: string },
+  db: PrismaClient = prisma,
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   if (canDeleteDirectly(sessionUser.role)) {
     const word = (formData.get("confirmation_word") as string) ?? "";
@@ -106,7 +115,8 @@ export async function checkDeleteAuth(
     }
     const result = await verifyAdminDeleteCredentials(
       { email, password },
-      sessionUser.tenant_id
+      sessionUser.tenant_id,
+      db,
     );
     if (!result.authorized) {
       return { ok: false, error: result.error };

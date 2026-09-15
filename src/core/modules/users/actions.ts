@@ -19,7 +19,7 @@
  */
 
 import bcrypt from "bcryptjs";
-import type { UserRole } from "@prisma/client";
+import type { UserRole, PrismaClient } from "@prisma/client";
 import { prisma } from "@/lib/db/prisma";
 import { updateCoreUserSchema } from "./schemas";
 import {
@@ -29,6 +29,13 @@ import {
   CommercialEnforcementError,
   type CommercialEnforcementContext,
 } from "@/modules/platform/runtime/commercial-enforcement";
+
+// FASE VI-D4 — ETAPA D/K/S: `db` opcional, default Prisma global SOLO para
+// compatibilidad de callers no migrados. Todo entry point runtime-aware
+// (server actions de users) SIEMPRE pasa `context.client` explícito. La
+// unicidad de email se evalúa SOLO contra `db` — nunca el User global si
+// `db` es un runtime client (cada base de cliente es su propio universo
+// de unicidad; el mismo email puede existir en runtime A y runtime B).
 
 // ─── Contratos de retorno ──────────────────────────────────────────────────────
 
@@ -76,8 +83,9 @@ export async function createCoreUser(
   tenantId: string,
   input: CreateCoreUserInput,
   ctx: CommercialEnforcementContext,
+  db: PrismaClient = prisma,
 ): Promise<UserActionResult> {
-  const existing = await prisma.user.findUnique({
+  const existing = await db.user.findUnique({
     where: { email: input.email },
     select: { id: true },
   });
@@ -90,7 +98,7 @@ export async function createCoreUser(
 
   try {
     const newUser = await withCapacityCheckedTransaction(
-      prisma,
+      db,
       "core.users.max",
       delta,
       ctx,
@@ -130,14 +138,17 @@ export async function createCoreUser(
 export async function updateCoreUser(
   userId: string,
   tenantId: string,
-  input: unknown
+  input: unknown,
+  db: PrismaClient = prisma,
 ): Promise<UpdateCoreUserResult> {
   const parsed = updateCoreUserSchema.safeParse(input);
   if (!parsed.success) {
     return { success: false, errors: parsed.error.flatten().fieldErrors };
   }
 
-  const target = await prisma.user.findFirst({
+  // ETAPA W — ownership por tenant SIEMPRE en el WHERE, nunca findUnique(id)
+  // seguido de mutación sin validar pertenencia (UUID único no es autorización).
+  const target = await db.user.findFirst({
     where: { id: userId, gym_id: tenantId },
     select: { id: true, role: true, email: true },
   });
@@ -145,9 +156,11 @@ export async function updateCoreUser(
     return { success: false, error: "Usuario no encontrado." };
   }
 
-  // Email único excluyendo el usuario actual
+  // Email único — evaluado SOLO en `db` (la base efectiva). Deliberadamente
+  // sin filtro de tenant: dentro de una misma base, el email es único a
+  // nivel de columna (@unique) para toda la base, tenant o no.
   if (parsed.data.email) {
-    const duplicate = await prisma.user.findFirst({
+    const duplicate = await db.user.findFirst({
       where: { email: parsed.data.email, id: { not: userId } },
       select: { id: true },
     });
@@ -167,7 +180,7 @@ export async function updateCoreUser(
     updateData.password_hash = await bcrypt.hash(parsed.data.password, 10);
   }
 
-  await prisma.user.update({ where: { id: userId }, data: updateData });
+  await db.user.update({ where: { id: userId }, data: updateData });
 
   return {
     success: true,
@@ -188,12 +201,13 @@ export async function toggleCoreUserStatus(
   callerId: string,
   tenantId: string,
   ctx: CommercialEnforcementContext,
+  db: PrismaClient = prisma,
 ): Promise<UserActionResult> {
   if (userId === callerId) {
     return { success: false, error: "No puedes desactivar tu propia cuenta." };
   }
 
-  const user = await prisma.user.findFirst({
+  const user = await db.user.findFirst({
     where: { id: userId, gym_id: tenantId },
     select: { id: true, status: true },
   });
@@ -206,11 +220,11 @@ export async function toggleCoreUserStatus(
 
   try {
     if (delta > 0) {
-      await withCapacityCheckedTransaction(prisma, "core.users.max", delta, ctx, (tx) =>
+      await withCapacityCheckedTransaction(db, "core.users.max", delta, ctx, (tx) =>
         tx.user.update({ where: { id: userId }, data: { status: nextStatus } }),
       );
     } else {
-      await prisma.user.update({ where: { id: userId }, data: { status: nextStatus } });
+      await db.user.update({ where: { id: userId }, data: { status: nextStatus } });
     }
     return { success: true, id: userId };
   } catch (err) {

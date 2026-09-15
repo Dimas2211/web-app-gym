@@ -3,9 +3,13 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db/prisma";
-import { requireSuperAdmin } from "@/lib/permissions/guards";
+import { requireSuperAdmin, requireAdmin } from "@/lib/permissions/guards";
 import { gymSchema, sportSchema, goalSchema, gymSettingsSchema } from "./schemas";
 import { isRuntimeReadOnlyActive, RUNTIME_READONLY_MESSAGE } from "@/modules/platform/runtime/runtime-session";
+import {
+  requireOperationalContext,
+  OperationalContextError,
+} from "@/modules/platform/runtime/require-operational-context";
 
 export type SettingsActionState =
   | { errors?: Record<string, string[]>; error?: string }
@@ -310,34 +314,53 @@ export async function updateUserOperationalCodeAction(
   _prev: SettingsActionState,
   formData: FormData
 ): Promise<SettingsActionState> {
-  const sessionUser = await requireSuperAdmin();
+  // NOTA FASE VI-D4: esta acción es de gestión de identidad de STAFF
+  // (tenant-level), no de Platform Admin — usa requireAdmin() + chequeo
+  // explícito de rol super_admin (LIVE para RUNTIME_CLIENT) en vez de
+  // requireSuperAdmin() (el gate de Platform Admin desde VI-B), que la
+  // habría dejado permanentemente inalcanzable para cualquier identidad
+  // RUNTIME_CLIENT. No se toca requireSuperAdmin() en sí ni el resto de
+  // acciones de este archivo (gym/sports/goals — fuera de alcance).
+  const sessionUser = await requireAdmin();
 
-  // PASO 6E: bloquear escritura bajo sesión runtime "Operar como cliente"
-  if (await isRuntimeReadOnlyActive()) {
-    return { error: RUNTIME_READONLY_MESSAGE };
+  let handle;
+  try {
+    handle = await requireOperationalContext(sessionUser, { module: "core.users", write: true });
+  } catch (err) {
+    if (err instanceof OperationalContextError) return { error: err.userMessage };
+    throw err;
   }
+  const { context, dispose } = handle;
 
-  const id = formData.get("entity_id") as string;
-  if (!id) return { error: "ID requerido." };
-
-  const code = (formData.get("operational_code") as string)?.trim() || null;
-
-  // Si hay código, verificar que no esté duplicado
-  if (code) {
-    const duplicate = await prisma.user.findFirst({
-      where: { tenant_id: sessionUser.tenant_id, operational_code: code, id: { not: id } },
-    });
-    if (duplicate) {
-      return { errors: { operational_code: ["Este código ya está en uso por otro usuario."] } };
+  try {
+    if (context.effectiveUser.role !== "super_admin") {
+      return { error: "Solo el Super Admin puede editar la identidad operativa." };
     }
+
+    const id = formData.get("entity_id") as string;
+    if (!id) return { error: "ID requerido." };
+
+    const code = (formData.get("operational_code") as string)?.trim() || null;
+
+    // Si hay código, verificar que no esté duplicado — contra la DB EFECTIVA.
+    if (code) {
+      const duplicate = await context.client.user.findFirst({
+        where: { tenant_id: context.tenantId, operational_code: code, id: { not: id } },
+      });
+      if (duplicate) {
+        return { errors: { operational_code: ["Este código ya está en uso por otro usuario."] } };
+      }
+    }
+
+    await context.client.user.update({ where: { id }, data: { operational_code: code } });
+
+    revalidatePath("/dashboard/users");
+    revalidatePath(`/dashboard/users/${id}/edit`);
+    revalidatePath(`/dashboard/users/${id}/credential`);
+    return undefined;
+  } finally {
+    await dispose();
   }
-
-  await prisma.user.update({ where: { id }, data: { operational_code: code } });
-
-  revalidatePath("/dashboard/users");
-  revalidatePath(`/dashboard/users/${id}/edit`);
-  revalidatePath(`/dashboard/users/${id}/credential`);
-  return undefined;
 }
 
 // ══════════════════════════════════════════════
@@ -383,18 +406,30 @@ export async function updateClientOperationalCodeAction(
 // ══════════════════════════════════════════════
 
 export async function updateUserAvatarAction(formData: FormData): Promise<void> {
-  await requireSuperAdmin();
+  // Ver nota FASE VI-D4 en updateUserOperationalCodeAction — mismo criterio.
+  const sessionUser = await requireAdmin();
 
-  // PASO 6E: bloquear escritura bajo sesión runtime "Operar como cliente"
-  if (await isRuntimeReadOnlyActive()) return;
+  let handle;
+  try {
+    handle = await requireOperationalContext(sessionUser, { module: "core.users", write: true });
+  } catch {
+    return;
+  }
+  const { context, dispose } = handle;
 
-  const id = formData.get("entity_id") as string;
-  const url = formData.get("avatar_url") as string;
-  if (!id || !url) return;
+  try {
+    if (context.effectiveUser.role !== "super_admin") return;
 
-  await prisma.user.update({ where: { id }, data: { avatar_url: url } });
-  revalidatePath(`/dashboard/users/${id}/edit`);
-  revalidatePath(`/dashboard/users/${id}/credential`);
+    const id = formData.get("entity_id") as string;
+    const url = formData.get("avatar_url") as string;
+    if (!id || !url) return;
+
+    await context.client.user.update({ where: { id }, data: { avatar_url: url } });
+    revalidatePath(`/dashboard/users/${id}/edit`);
+    revalidatePath(`/dashboard/users/${id}/credential`);
+  } finally {
+    await dispose();
+  }
 }
 
 // ══════════════════════════════════════════════

@@ -185,22 +185,59 @@ selector `active_location_id`) migrados completos. `getEffectiveLocationId()`
 y las queries de `core/modules/locations` ahora aceptan `client`/`db`
 opcional (default Prisma global solo para compatibilidad no-runtime).
 
-- **Estado por módulo**: Products, Customers, Suppliers (core), Inventory y
-  Locations están runtime-ready (reads + writes + role live + location live
-  donde aplica). Sales, Purchases, Cash, Users **no están migrados todavía**.
-  `suppliers/[id]/purchase-history` sigue dependiendo del contexto de
-  Purchases (no migrado) — se cerrará junto con esa fase.
-- **Deuda explícita conocida, no bloqueante**: `get-customer-by-code.ts` usa
-  Prisma global pero tiene 0 callers (código muerto); catálogos globales de
-  referencia (`/api/catalogs/**`, `get-countries`/`get-economic-activities`/
-  `get-identification-types`/`get-municipalities` de Suppliers) siguen en
+**VI-D4** (este commit) — cierra Users + operaciones de password. Extiende el
+mismo criterio de VI-D3 (rol/location live) al CRUD de Users:
+`createUserAction`/`updateUserAction`/`deleteUserAction`/`toggleUserStatusAction`
+migrados a `requireOperationalContext`; `core/modules/users/actions.ts`
+(`createCoreUser`/`updateCoreUser`/`toggleCoreUserStatus`) acepta `db` opcional
+— la unicidad de email se evalúa SOLO contra la DB efectiva (nunca un lookup
+global entre runtimes: el mismo email puede existir independientemente en
+runtime A y runtime B). `delete-authorization.ts` (`verifyAdminDeleteCredentials`/
+`checkDeleteAuth`, compartido con Sales/Purchases/Memberships/Trainers/
+WeeklyPlans/Clients — esos NO migrados, siguen con su default global sin
+cambios) y `operational-codes.ts` (`suggestNextStaffCode`) aceptan `db` opcional.
+
+- **Hallazgo de seguridad cerrado (no específico de runtime)**: `updateUserAction`
+  no tenía la misma restricción anti-escalación que `createUserAction`
+  (`BRANCH_ADMIN_ASSIGNABLE_ROLES`) — un `branch_admin` podía editar un
+  usuario que sí puede gestionar (ej. `reception`) y escalarle el rol a
+  `super_admin`/`branch_admin` vía el formulario de edición. Cerrado
+  reusando la misma fuente de política, sin inventar una regla nueva.
+- **Hallazgo de alcance corregido**: `updateUserOperationalCodeAction` y
+  `updateUserAvatarAction` (gestión de identidad de staff, tenant-level)
+  usaban `requireSuperAdmin()` — el gate de Platform Admin desde VI-B — lo
+  que las habría dejado permanentemente inalcanzables para cualquier
+  identidad RUNTIME_CLIENT. Migradas a `requireAdmin()` + chequeo explícito
+  de rol `super_admin` LIVE. `requireSuperAdmin()` en sí y el resto de
+  `settings/actions.ts` (gym/sports/goals — fuera de alcance de Users) no
+  se tocaron.
+- **Password**: hash siempre vía bcrypt (mismo costo/config existente),
+  nunca texto plano persistido ni logueado. No existe flujo de
+  forgot-password/reset-token por email (**NONE**, confirmado por
+  auditoría — ningún caso a migrar). No existe flujo de invitación
+  (**NONE**). El único camino de cambio de password (propio o admin) es el
+  campo opcional del formulario de edición de usuario — comportamiento
+  preexistente, no se diseñó uno nuevo.
+- **Estado por módulo**: Products, Customers, Suppliers (core), Inventory,
+  Locations y Users están runtime-ready (reads + writes + role live +
+  location live + anti-escalación donde aplica). Sales, Purchases, Cash
+  **no están migrados todavía**. `suppliers/[id]/purchase-history` sigue
+  dependiendo del contexto de Purchases (no migrado) — se cerrará junto con
+  esa fase.
+- **Deuda explícita conocida, no bloqueante**: `get-customer-by-code.ts` y
+  `core/modules/users/queries.ts` (`getCoreUserById` y hermanas) usan
+  Prisma global pero tienen 0 callers (código muerto, documentado como "sin
+  conectar a actions ni UI todavía"); catálogos globales de referencia
+  (`/api/catalogs/**`, `get-countries`/`get-economic-activities`/
+  `get-identification-types`/`get-municipalities` de Suppliers,
+  `suggestNextClientCode`/`isStaffCodeAvailable` de Clients) siguen en
   Prisma global — auditoría transversal de catálogos pendiente para el
   cierre final de FASE VI-D; revalidación live de `role` para identidades
   PLATFORM (no RUNTIME_CLIENT) sigue sin implementar, deliberadamente fuera
-  de alcance de esta fase.
-- **NO implementado en VI-D1/D2/D3** (fuera de alcance deliberado): ningún
+  de alcance.
+- **NO implementado en VI-D1/D2/D3/D4** (fuera de alcance deliberado): ningún
   cambio al pipeline fiscal (firmador, transmisión, MariaDB, DteCredential);
-  Sales/Purchases/Cash/Users sin migrar; `RUNTIME_HOST_AUTH_ENABLED` sigue
+  Sales/Purchases/Cash sin migrar; `RUNTIME_HOST_AUTH_ENABLED` sigue
   `false`; sin login runtime real en ningún ambiente.
 
 ## Arquitectura activa

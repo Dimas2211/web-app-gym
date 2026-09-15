@@ -1,4 +1,8 @@
 import { prisma } from "@/lib/db/prisma";
+import type { PrismaClient } from "@prisma/client";
+
+// FASE VI-D4 — ETAPA D: `db` opcional, default Prisma global solo para
+// compatibilidad de callers no migrados (ej. settings/codes, Clients).
 
 // ──────────────────────────────────────────────────────────────
 // Defaults — se usan si no existe GymSettings para el gym
@@ -10,8 +14,8 @@ function formatCode(prefix: string, num: number, digits: number): string {
   return `${prefix}${String(num).padStart(digits, "0")}`;
 }
 
-async function getSettings(tenantId: string) {
-  const s = await prisma.gymSettings.findUnique({ where: { gym_id: tenantId } });
+async function getSettings(tenantId: string, db: PrismaClient = prisma) {
+  const s = await db.gymSettings.findUnique({ where: { gym_id: tenantId } });
   return {
     staff: {
       prefix: s?.staff_code_prefix ?? STAFF_DEFAULTS.prefix,
@@ -30,11 +34,11 @@ async function getSettings(tenantId: string) {
  * Sugiere el siguiente código de personal (staff) disponible para el gym.
  * Busca el número más alto ya usado con el mismo prefijo y lo incrementa.
  */
-export async function suggestNextStaffCode(tenantId: string): Promise<string> {
-  const { staff } = await getSettings(tenantId);
+export async function suggestNextStaffCode(tenantId: string, db: PrismaClient = prisma): Promise<string> {
+  const { staff } = await getSettings(tenantId, db);
   const { prefix, digits, start } = staff;
 
-  const users = await prisma.user.findMany({
+  const users = await db.user.findMany({
     where: { gym_id: tenantId, operational_code: { startsWith: prefix } },
     select: { operational_code: true },
   });

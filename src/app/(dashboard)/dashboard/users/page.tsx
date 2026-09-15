@@ -33,8 +33,9 @@ export default async function UsersPage({
       ? COMMERCIAL_ERROR_MESSAGES[params.commercial_error]
       : undefined;
 
-    // canManage se fuerza a false en modo runtime: la sesión es siempre solo lectura.
-    const canManage = !context.runtime;
+    // FASE VI-D4: `readOnly` cubre Support Session; RUNTIME_CLIENT válido
+    // es readOnly=false, así que un admin runtime sí puede gestionar usuarios.
+    const canManage = !context.readOnly;
 
     return (
     <div className="space-y-6">
