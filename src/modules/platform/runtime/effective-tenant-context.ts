@@ -48,15 +48,33 @@ import {
   clearRuntimeSession,
   type RuntimeSessionPayload,
 } from "./runtime-session";
+import { requireRuntimeOrganizationContext } from "./require-runtime-organization-context";
+import { isAuthScope } from "@/core/auth/types";
 
 export type { RuntimeSessionPayload } from "./runtime-session";
 
+// FASE VI-D — ETAPA C. Modo operativo efectivo de la identidad actual.
+// PLATFORM_NATIVE  → super_admin/staff normal, sin Support Session. client
+//                     efectivo = Prisma global (contexto sin `client` definido).
+// SUPPORT_RUNTIME  → super_admin PLATFORM con Support Session ("Operar como
+//                     cliente") activa. client = runtime Prisma, readOnly=true.
+// RUNTIME_CLIENT   → identidad auth_scope="RUNTIME_CLIENT" (login runtime real,
+//                     FASE VI-C). client = runtime Prisma de SU organización,
+//                     readOnly=false, resuelto vía requireRuntimeOrganizationContext
+//                     (fail closed, nunca fallback a Prisma global/Control Plane).
+export type RuntimeMode = "PLATFORM_NATIVE" | "SUPPORT_RUNTIME" | "RUNTIME_CLIENT";
+
 export interface EffectiveTenantContext {
   tenantId: string;
-  /** Presente solo en modo runtime. Pasar a las queries que lo acepten. */
+  /** Presente solo en modo runtime (SUPPORT_RUNTIME o RUNTIME_CLIENT). Pasar a las queries que lo acepten. */
   client?:  PrismaClient;
-  /** Metadata de la sesión runtime activa, o null en modo normal. */
+  /** Metadata de la sesión Support Session activa, o null si no aplica (incluido RUNTIME_CLIENT, que nunca la usa). */
   runtime:  RuntimeSessionPayload | null;
+  /** location_id efectivo. null si no se pudo/debió resolver uno. */
+  locationId: string | null;
+  runtimeMode: RuntimeMode;
+  /** true en SUPPORT_RUNTIME (Support Session siempre es solo lectura). false en los otros dos modos. */
+  readOnly: boolean;
 }
 
 export interface EffectiveTenantContextHandle {
@@ -75,18 +93,36 @@ const NOOP_DISPOSE = async () => {};
 export async function resolveEffectiveTenantContext(
   user: SessionUser,
 ): Promise<EffectiveTenantContextHandle> {
+  // FASE VI-D — ETAPA D/Q. RUNTIME_CLIENT tiene su propio contrato fail
+  // closed (requireRuntimeOrganizationContext): nunca degrada a modo
+  // normal/global. Support Session ("Operar como cliente") es exclusivo
+  // de auth_scope="PLATFORM" — una identidad RUNTIME_CLIENT nunca lee ni
+  // honra esa cookie, porque su tenant ya es el real.
+  if (user.auth_scope === "RUNTIME_CLIENT") {
+    const { context: runtimeCtx, dispose } = await requireRuntimeOrganizationContext(user);
+    return {
+      context: {
+        tenantId:    runtimeCtx.tenantId,
+        client:      runtimeCtx.runtimeDb,
+        runtime:     null,
+        locationId:  runtimeCtx.locationId,
+        runtimeMode: "RUNTIME_CLIENT",
+        readOnly:    false,
+      },
+      dispose,
+    };
+  }
+
   const normal: EffectiveTenantContextHandle = {
-    context: { tenantId: user.tenant_id as string, runtime: null },
+    context: {
+      tenantId:    user.tenant_id as string,
+      runtime:     null,
+      locationId:  user.location_id,
+      runtimeMode: "PLATFORM_NATIVE",
+      readOnly:    false,
+    },
     dispose: NOOP_DISPOSE,
   };
-
-  // FASE VI-C — ETAPA R. Support Session ("Operar como cliente") es
-  // exclusivo de auth_scope="PLATFORM". Una identidad RUNTIME_CLIENT
-  // (login runtime real, FASE VI-C) nunca debe leer/honrar esta
-  // cookie — su tenant ya es el real, no hay "modo normal" al cual
-  // degradar. Ver require-runtime-organization-context.ts para el
-  // contrato de contexto propio de RUNTIME_CLIENT.
-  if (user.auth_scope === "RUNTIME_CLIENT") return normal;
 
   const runtime = await getRuntimeSession();
   if (!runtime) return normal;
@@ -95,8 +131,15 @@ export async function resolveEffectiveTenantContext(
     const profile = await resolveRuntimeDatabaseProfileById(runtime.profileId);
     const { client, disconnect } = createRuntimePrismaClient(profile);
     return {
-      context: { tenantId: profile.tenantId, client, runtime },
-      dispose:  disconnect,
+      context: {
+        tenantId:    profile.tenantId,
+        client,
+        runtime,
+        locationId:  null,
+        runtimeMode: "SUPPORT_RUNTIME",
+        readOnly:    true,
+      },
+      dispose: disconnect,
     };
   } catch {
     // Perfil inválido/inactivo/tenant desvinculado desde que se abrió la
@@ -114,7 +157,7 @@ export async function resolveEffectiveTenantContext(
  * Solo tiene sentido cuando `context.client` está presente (modo runtime).
  */
 export async function resolveRuntimeFirstLocationId(
-  context: EffectiveTenantContext,
+  context: { tenantId: string; client?: PrismaClient; runtime?: RuntimeSessionPayload | null },
 ): Promise<string | null> {
   if (!context.client) return null;
   const branch = await context.client.branch.findFirst({
@@ -142,10 +185,12 @@ export async function resolveRuntimeFirstLocationId(
 // ─────────────────────────────────────────────────────────────────
 
 export interface EffectiveApiContext {
-  tenantId:   string;
-  locationId: string | null;
-  client:     PrismaClient;
-  runtime:    RuntimeSessionPayload | null;
+  tenantId:    string;
+  locationId:  string | null;
+  client:      PrismaClient;
+  runtime:     RuntimeSessionPayload | null;
+  runtimeMode: RuntimeMode;
+  readOnly:    boolean;
 }
 
 export interface EffectiveApiContextHandle {
@@ -156,20 +201,59 @@ export interface EffectiveApiContextHandle {
 /**
  * Resuelve el contexto efectivo para un Route Handler. `base` es el
  * tenant_id/location_id ya resueltos por la sesión normal del usuario
- * (ej. el `*-api-context.ts` de cada módulo) — se usan tal cual si no
- * hay sesión runtime activa, o se reemplazan por los del perfil
- * runtime si la hay.
+ * (ej. el `*-api-context.ts` de cada módulo) — se usan tal cual en modo
+ * PLATFORM_NATIVE, o se reemplazan por los del perfil runtime cuando hay
+ * Support Session activa.
+ *
+ * FASE VI-D — ETAPA D (deuda VI-C corregida): esta función antes no
+ * recibía `auth_scope` en absoluto, por lo que una identidad
+ * RUNTIME_CLIENT terminaba silenciosamente en el branch "normal" con
+ * `client = prisma` (Prisma GLOBAL) — el fallback peligroso que VI-D
+ * prohíbe. El segundo parámetro opcional `user` cierra ese hueco: si
+ * `user.auth_scope === "RUNTIME_CLIENT"`, se delega TODO a
+ * requireRuntimeOrganizationContext (fail closed, nunca fallback), y
+ * `base` se ignora por completo — el tenant/location de un RUNTIME_CLIENT
+ * nunca se toman de un valor calculado por el caller, siempre de su
+ * propia sesión ya validada contra Control Plane.
+ *
+ * Callers existentes que NO pasan `user` (todavía no migrados a VI-D)
+ * mantienen exactamente el comportamiento PLATFORM_NATIVE/SUPPORT_RUNTIME
+ * de siempre — cambio 100% aditivo y retrocompatible.
  */
-export async function resolveEffectiveApiContext(base: {
-  tenantId:   string;
-  locationId?: string | null;
-}): Promise<EffectiveApiContextHandle> {
+export async function resolveEffectiveApiContext(
+  base: { tenantId: string; locationId?: string | null },
+  user?: Pick<SessionUser, "id" | "auth_scope" | "organization_id" | "tenant_id" | "location_id">,
+): Promise<EffectiveApiContextHandle> {
+  // Defensa en profundidad: muchos Route Handlers construyen `user` con
+  // `session.user as SessionUser` directamente desde `auth()`, sin pasar
+  // por getSessionOrRedirect()/isAuthScope() (que sí normaliza esta
+  // frontera). Revalidar aquí con isAuthScope() antes de confiar en
+  // auth_scope="RUNTIME_CLIENT" — un valor corrupto/desconocido nunca
+  // debe alcanzar requireRuntimeOrganizationContext.
+  const effectiveScope = isAuthScope(user?.auth_scope) ? user!.auth_scope : undefined;
+  if (effectiveScope === "RUNTIME_CLIENT" && user) {
+    const { context: runtimeCtx, dispose } = await requireRuntimeOrganizationContext(user);
+    return {
+      context: {
+        tenantId:    runtimeCtx.tenantId,
+        locationId:  runtimeCtx.locationId,
+        client:      runtimeCtx.runtimeDb,
+        runtime:     null,
+        runtimeMode: "RUNTIME_CLIENT",
+        readOnly:    false,
+      },
+      dispose,
+    };
+  }
+
   const normal: EffectiveApiContextHandle = {
     context: {
-      tenantId:   base.tenantId,
-      locationId: base.locationId ?? null,
-      client:     prisma,
-      runtime:    null,
+      tenantId:    base.tenantId,
+      locationId:  base.locationId ?? null,
+      client:      prisma,
+      runtime:     null,
+      runtimeMode: "PLATFORM_NATIVE",
+      readOnly:    false,
     },
     dispose: NOOP_DISPOSE,
   };
@@ -186,8 +270,15 @@ export async function resolveEffectiveApiContext(base: {
       runtime,
     });
     return {
-      context: { tenantId: profile.tenantId, locationId, client, runtime },
-      dispose:  disconnect,
+      context: {
+        tenantId:   profile.tenantId,
+        locationId,
+        client,
+        runtime,
+        runtimeMode: "SUPPORT_RUNTIME",
+        readOnly:    true,
+      },
+      dispose: disconnect,
     };
   } catch {
     await clearRuntimeSession();

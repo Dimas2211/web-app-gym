@@ -21,14 +21,29 @@
 // runtime inalcanzable, esta función SIEMPRE lanza — nunca retorna un
 // contexto "normal"/global como sustituto.
 //
-// ETAPA Z — deuda documentada explícitamente:
+// ETAPA Z (VI-C) — deuda documentada explícitamente:
 // Esta función SÍ revalida organization/perfil "en vivo" (Control
 // Plane) en cada llamada — eso evita que una organización eliminada o
 // un perfil desactivado/rotado queden "colados" por un JWT viejo.
-// Lo que NO revalida en VI-C es el propio `role`/`status` del usuario
-// runtime dentro de su base — eso permanece congelado en el JWT hasta
-// que se implemente revalidación por request (fase posterior). No se
-// oculta: es una limitación conocida, no un bug.
+// Lo que NO revalidaba en VI-C es el propio `role`/`status` del usuario
+// runtime dentro de su base — eso permanecía congelado en el JWT hasta
+// que se implementara revalidación por request.
+//
+// FASE VI-D — ETAPA T: implementado. Tras abrir el PrismaClient runtime
+// se revalida en vivo `runtimeDb.user.findUnique(id)`: debe existir,
+// status debe ser "active", y su gym_id (columna física de tenant_id en
+// el modelo User) debe coincidir con el tenant efectivo ya validado
+// contra Control Plane. Cualquier fallo aquí es FAIL CLOSED igual que
+// el resto de este contrato — nunca se ignora un usuario desactivado o
+// con tenant desalineado solo porque el JWT todavía lo permite (JWT
+// vive hasta 8h). El PrismaClient runtime se desconecta antes de
+// propagar el error para no dejar conexiones abiertas.
+//
+// Lo que esta revalidación NO hace todavía (deuda explícita que
+// permanece): no recalcula `role` efectivo para autorización — eso
+// sigue viniendo del JWT. Si el rol cambió en runtimeDb, la sesión
+// seguirá autorizando según el rol del JWT hasta su expiración/renovación;
+// solo el estado activo/inactivo y el tenant se revalidan en vivo aquí.
 // ─────────────────────────────────────────────────────────────────
 
 if (typeof window !== "undefined") {
@@ -54,7 +69,10 @@ export type RuntimeIdentityErrorCode =
   | "ORGANIZATION_NOT_ELIGIBLE"
   | "ORGANIZATION_WITHOUT_TENANT"
   | "TENANT_MISMATCH"
-  | "RUNTIME_PROFILE_UNAVAILABLE";
+  | "RUNTIME_PROFILE_UNAVAILABLE"
+  | "RUNTIME_USER_NOT_FOUND"
+  | "RUNTIME_USER_INACTIVE"
+  | "RUNTIME_USER_TENANT_MISMATCH";
 
 export class RuntimeIdentityError extends Error {
   readonly code: RuntimeIdentityErrorCode;
@@ -105,7 +123,7 @@ export interface OrganizationContextLookupClient {
  * controlPlanePrisma.
  */
 export async function requireRuntimeOrganizationContext(
-  user: Pick<CoreSessionUser, "auth_scope" | "organization_id" | "tenant_id" | "location_id">,
+  user: Pick<CoreSessionUser, "id" | "auth_scope" | "organization_id" | "tenant_id" | "location_id">,
   client: OrganizationContextLookupClient = controlPlanePrisma as unknown as OrganizationContextLookupClient,
 ): Promise<RuntimeOrganizationContextHandle> {
   if (user.auth_scope !== "RUNTIME_CLIENT") {
@@ -159,20 +177,11 @@ export async function requireRuntimeOrganizationContext(
     );
   }
 
+  let runtimeDb: PrismaClient;
+  let disconnect: () => Promise<void>;
   try {
     const profile = await resolveRuntimeDatabaseProfileForOrganization(organization.id);
-    const { client: runtimeDb, disconnect } = createRuntimePrismaClient(profile);
-
-    return {
-      context: {
-        organization: { id: organization.id, name: organization.name, tenantId: organization.tenant_id },
-        tenantId: organization.tenant_id,
-        locationId: user.location_id,
-        runtimeDb,
-        authScope: "RUNTIME_CLIENT",
-      },
-      dispose: disconnect,
-    };
+    ({ client: runtimeDb, disconnect } = createRuntimePrismaClient(profile));
   } catch (err) {
     if (err instanceof RuntimeDatabaseRouterError) {
       throw new RuntimeIdentityError(
@@ -182,4 +191,48 @@ export async function requireRuntimeOrganizationContext(
     }
     throw err;
   }
+
+  // ETAPA T — revalidación live del usuario runtime dentro de SU PROPIA
+  // base (no del JWT, que puede tener hasta 8h de antigüedad). Cualquier
+  // fallo aquí desconecta el PrismaClient runtime recién abierto antes
+  // de propagar — nunca se deja una conexión huérfana.
+  try {
+    const liveUser = await runtimeDb.user.findUnique({
+      where: { id: user.id },
+      select: { status: true, gym_id: true },
+    });
+
+    if (!liveUser) {
+      throw new RuntimeIdentityError(
+        "RUNTIME_USER_NOT_FOUND",
+        `Usuario ${user.id} no existe en la base runtime de ${organization.id}.`,
+      );
+    }
+    if (liveUser.status !== "active") {
+      throw new RuntimeIdentityError(
+        "RUNTIME_USER_INACTIVE",
+        `Usuario ${user.id} no está activo (status=${liveUser.status}) en la base runtime.`,
+      );
+    }
+    if (liveUser.gym_id !== organization.tenant_id) {
+      throw new RuntimeIdentityError(
+        "RUNTIME_USER_TENANT_MISMATCH",
+        `Usuario ${user.id} pertenece a un tenant runtime distinto del efectivo.`,
+      );
+    }
+  } catch (err) {
+    await disconnect();
+    throw err;
+  }
+
+  return {
+    context: {
+      organization: { id: organization.id, name: organization.name, tenantId: organization.tenant_id },
+      tenantId: organization.tenant_id,
+      locationId: user.location_id,
+      runtimeDb,
+      authScope: "RUNTIME_CLIENT",
+    },
+    dispose: disconnect,
+  };
 }

@@ -26,9 +26,10 @@ import type { CoreSessionUser } from "@/core/auth/types";
 
 function baseUser(overrides: Partial<CoreSessionUser> = {}): Pick<
   CoreSessionUser,
-  "auth_scope" | "organization_id" | "tenant_id" | "location_id"
+  "id" | "auth_scope" | "organization_id" | "tenant_id" | "location_id"
 > {
   return {
+    id: "u1",
     auth_scope: "RUNTIME_CLIENT",
     organization_id: "org-1",
     tenant_id: "tenant-1",
@@ -105,11 +106,19 @@ describe("requireRuntimeOrganizationContext — fail closed", () => {
     });
   });
 
+  function fakeRuntimeUser(row: { status: string; gym_id: string } | null) {
+    return { user: { findUnique: vi.fn().mockResolvedValue(row) } };
+  }
+
   it("caso exitoso: retorna contexto con dispose(), tenantId y locationId de sesión", async () => {
     const client = fakeControlPlane(ORG_OK);
     resolveRuntimeDatabaseProfileForOrganizationMock.mockResolvedValue({ id: "profile-1" });
     const disconnect = vi.fn().mockResolvedValue(undefined);
-    createRuntimePrismaClientMock.mockReturnValue({ client: { fake: "runtime-prisma" }, disconnect });
+    const runtimeUser = fakeRuntimeUser({ status: "active", gym_id: "tenant-1" });
+    createRuntimePrismaClientMock.mockReturnValue({
+      client: { fake: "runtime-prisma", ...runtimeUser },
+      disconnect,
+    });
 
     const handle = await requireRuntimeOrganizationContext(baseUser(), client);
 
@@ -117,6 +126,10 @@ describe("requireRuntimeOrganizationContext — fail closed", () => {
     expect(handle.context.locationId).toBe("branch-1");
     expect(handle.context.authScope).toBe("RUNTIME_CLIENT");
     expect(handle.context.organization).toEqual({ id: "org-1", name: "Org 1", tenantId: "tenant-1" });
+    expect(runtimeUser.user.findUnique).toHaveBeenCalledWith({
+      where: { id: "u1" },
+      select: { status: true, gym_id: true },
+    });
 
     await handle.dispose();
     expect(disconnect).toHaveBeenCalledTimes(1);
@@ -127,5 +140,52 @@ describe("requireRuntimeOrganizationContext — fail closed", () => {
     await expect(requireRuntimeOrganizationContext(baseUser(), client)).rejects.toBeInstanceOf(
       RuntimeIdentityError,
     );
+  });
+
+  describe("ETAPA T — revalidación live del usuario runtime", () => {
+    it("usuario runtime inexistente en la base cliente → RUNTIME_USER_NOT_FOUND, y desconecta", async () => {
+      const client = fakeControlPlane(ORG_OK);
+      resolveRuntimeDatabaseProfileForOrganizationMock.mockResolvedValue({ id: "profile-1" });
+      const disconnect = vi.fn().mockResolvedValue(undefined);
+      createRuntimePrismaClientMock.mockReturnValue({
+        client: { fake: "runtime-prisma", ...fakeRuntimeUser(null) },
+        disconnect,
+      });
+
+      await expect(requireRuntimeOrganizationContext(baseUser(), client)).rejects.toMatchObject({
+        code: "RUNTIME_USER_NOT_FOUND",
+      });
+      expect(disconnect).toHaveBeenCalledTimes(1);
+    });
+
+    it("9. usuario runtime inactivo → RUNTIME_USER_INACTIVE (no espera a expiración del JWT), y desconecta", async () => {
+      const client = fakeControlPlane(ORG_OK);
+      resolveRuntimeDatabaseProfileForOrganizationMock.mockResolvedValue({ id: "profile-1" });
+      const disconnect = vi.fn().mockResolvedValue(undefined);
+      createRuntimePrismaClientMock.mockReturnValue({
+        client: { fake: "runtime-prisma", ...fakeRuntimeUser({ status: "inactive", gym_id: "tenant-1" }) },
+        disconnect,
+      });
+
+      await expect(requireRuntimeOrganizationContext(baseUser(), client)).rejects.toMatchObject({
+        code: "RUNTIME_USER_INACTIVE",
+      });
+      expect(disconnect).toHaveBeenCalledTimes(1);
+    });
+
+    it("usuario runtime con gym_id de otro tenant → RUNTIME_USER_TENANT_MISMATCH, y desconecta", async () => {
+      const client = fakeControlPlane(ORG_OK);
+      resolveRuntimeDatabaseProfileForOrganizationMock.mockResolvedValue({ id: "profile-1" });
+      const disconnect = vi.fn().mockResolvedValue(undefined);
+      createRuntimePrismaClientMock.mockReturnValue({
+        client: { fake: "runtime-prisma", ...fakeRuntimeUser({ status: "active", gym_id: "tenant-OTHER" }) },
+        disconnect,
+      });
+
+      await expect(requireRuntimeOrganizationContext(baseUser(), client)).rejects.toMatchObject({
+        code: "RUNTIME_USER_TENANT_MISMATCH",
+      });
+      expect(disconnect).toHaveBeenCalledTimes(1);
+    });
   });
 });
