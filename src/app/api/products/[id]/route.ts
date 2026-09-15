@@ -34,7 +34,7 @@ export async function GET(
     return NextResponse.json({ error: "Acceso denegado" }, { status: 403 });
   }
 
-  const { context, dispose } = await resolveEffectiveApiContext({ tenantId: user.tenant_id });
+  const { context, dispose } = await resolveEffectiveApiContext({ tenantId: user.tenant_id }, user);
   try {
     const commercialCtx = await resolveCommercialEnforcementContext(context.tenantId);
     try {

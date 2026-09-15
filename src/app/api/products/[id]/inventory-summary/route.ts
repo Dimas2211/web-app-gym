@@ -54,10 +54,10 @@ export async function GET(
   // PASO 6A: bajo sesión runtime, la location efectiva es la primera
   // sucursal activa del tenant runtime, no la del selector del super_admin.
   const baseLocationId = await getEffectiveLocationId(user);
-  const { context, dispose } = await resolveEffectiveApiContext({
-    tenantId:   tenant_id,
-    locationId: baseLocationId,
-  });
+  const { context, dispose } = await resolveEffectiveApiContext(
+    { tenantId: tenant_id, locationId: baseLocationId },
+    user,
+  );
 
   try {
     if (!context.locationId) {

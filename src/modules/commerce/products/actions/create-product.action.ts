@@ -16,7 +16,8 @@ import { revalidatePath } from "next/cache";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db/prisma";
 import { requireAdmin } from "@/lib/permissions/guards";
-import { isRuntimeReadOnlyActive, RUNTIME_READONLY_MESSAGE } from "@/modules/platform/runtime/runtime-session";
+import { resolveEffectiveTenantContext } from "@/modules/platform/runtime/effective-tenant-context";
+import { RUNTIME_READONLY_MESSAGE } from "@/modules/platform/runtime/runtime-session";
 import { createProductSchema } from "../schemas/create-product.schema";
 import {
   resolveCommercialEnforcementContext,
@@ -73,24 +74,39 @@ export async function createProductAction(
 ): Promise<ProductActionState> {
   // 1. Sesión y permisos
   const sessionUser = await requireAdmin();
-  const tenantId = sessionUser.tenant_id;
 
-  // PASO 6A: bloquear escritura bajo sesión runtime "Operar como cliente"
-  if (await isRuntimeReadOnlyActive()) {
-    return { error: RUNTIME_READONLY_MESSAGE };
-  }
-
-  // Bloque B: módulo commerce.products debe estar habilitado
-  let commercialCtx;
+  // FASE VI-D — resolver el contexto efectivo (tenant + PrismaClient)
+  // ANTES de tocar cualquier dato: cubre tanto Support Session (readOnly)
+  // como RUNTIME_CLIENT (fail closed si su organización/perfil no son
+  // válidos — nunca cae a Prisma global).
+  let effective: Awaited<ReturnType<typeof resolveEffectiveTenantContext>>;
   try {
-    commercialCtx = await resolveCommercialEnforcementContext(tenantId);
-    assertOrganizationModule(commercialCtx, "commerce.products");
-  } catch (err) {
-    if (err instanceof CommercialEnforcementError) return { error: err.userMessage };
-    throw err;
+    effective = await resolveEffectiveTenantContext(sessionUser);
+  } catch {
+    return { error: "No se pudo acceder al entorno de la organización." };
   }
+  const { context, dispose } = effective;
 
-  // 2. Parseo y validación Zod
+  try {
+    // PASO 6A / FASE VI-D: bloquear escritura en modo solo-lectura
+    if (context.readOnly) {
+      return { error: RUNTIME_READONLY_MESSAGE };
+    }
+
+    const tenantId = context.tenantId;
+    const db = context.client ?? prisma;
+
+    // Bloque B: módulo commerce.products debe estar habilitado
+    let commercialCtx;
+    try {
+      commercialCtx = await resolveCommercialEnforcementContext(tenantId);
+      assertOrganizationModule(commercialCtx, "commerce.products");
+    } catch (err) {
+      if (err instanceof CommercialEnforcementError) return { error: err.userMessage };
+      throw err;
+    }
+
+    // 2. Parseo y validación Zod
   const raw = {
     product_code:  str(formData.get("product_code")),
     name:          str(formData.get("name")),
@@ -120,7 +136,7 @@ export async function createProductAction(
   const data = parsed.data;
 
   // 3. Unicidad de product_code dentro del tenant
-  const duplicate = await prisma.product.findUnique({
+  const duplicate = await db.product.findUnique({
     where: {
       tenant_id_product_code: {
         tenant_id: tenantId,
@@ -142,7 +158,7 @@ export async function createProductAction(
   // 4. Verificación de entidades relacionadas
 
   // category (obligatoria, debe existir y estar activa en el tenant)
-  const category = await prisma.productCategory.findFirst({
+  const category = await db.productCategory.findFirst({
     where: { id: data.category_id, tenant_id: tenantId, status: "active" },
     select: { id: true },
   });
@@ -158,7 +174,7 @@ export async function createProductAction(
 
   // line (opcional; si viene, debe estar activa y pertenecer a la category)
   if (data.line_id) {
-    const line = await prisma.productLine.findFirst({
+    const line = await db.productLine.findFirst({
       where: {
         id: data.line_id,
         tenant_id: tenantId,
@@ -182,7 +198,7 @@ export async function createProductAction(
   // La coherencia subline→line ya pasa por superRefine del schema,
   // pero aquí se valida también contra la DB para prevenir manipulación directa.
   if (data.subline_id) {
-    const subline = await prisma.productSubline.findFirst({
+    const subline = await db.productSubline.findFirst({
       where: {
         id: data.subline_id,
         tenant_id: tenantId,
@@ -203,7 +219,7 @@ export async function createProductAction(
   }
 
   // unit (obligatoria; es referencia global, sin filtro tenant)
-  const unit = await prisma.unitOfMeasure.findFirst({
+  const unit = await db.unitOfMeasure.findFirst({
     where: { id: data.unit_id, status: "active" },
     select: { id: true },
   });
@@ -219,7 +235,7 @@ export async function createProductAction(
 
   // tax_rate (opcional)
   if (data.tax_rate_id) {
-    const taxRate = await prisma.taxRate.findFirst({
+    const taxRate = await db.taxRate.findFirst({
       where: { id: data.tax_rate_id, tenant_id: tenantId, status: "active" },
       select: { id: true },
     });
@@ -236,7 +252,7 @@ export async function createProductAction(
 
   // supplier (opcional)
   if (data.supplier_id) {
-    const supplier = await prisma.supplier.findFirst({
+    const supplier = await db.supplier.findFirst({
       where: { id: data.supplier_id, tenant_id: tenantId, status: "active" },
       select: { id: true },
     });
@@ -264,7 +280,7 @@ export async function createProductAction(
 
   try {
     await withCapacityCheckedTransaction(
-      prisma,
+      db,
       "commerce.products.max",
       delta,
       commercialCtx,
@@ -318,4 +334,7 @@ export async function createProductAction(
   // Sin redirect: el componente dialog maneja el cierre al recibir state === undefined.
   // Si se usa desde una página de formulario dedicada en el futuro, agregar redirect aquí.
   revalidatePath("/dashboard/products");
+  } finally {
+    await dispose();
+  }
 }

@@ -25,7 +25,8 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/db/prisma";
 import { requireAdmin } from "@/lib/permissions/guards";
-import { isRuntimeReadOnlyActive, RUNTIME_READONLY_MESSAGE } from "@/modules/platform/runtime/runtime-session";
+import { resolveEffectiveTenantContext } from "@/modules/platform/runtime/effective-tenant-context";
+import { RUNTIME_READONLY_MESSAGE } from "@/modules/platform/runtime/runtime-session";
 import { updateProductStatusSchema } from "../schemas/update-product-status.schema";
 import type { ProductStatus } from "../types/product.types";
 // Lógica de transiciones en utils para que cliente y servidor compartan
@@ -54,89 +55,105 @@ export async function updateProductStatusAction(
 ): Promise<UpdateProductStatusState> {
   // 1. Sesión y permisos
   const sessionUser = await requireAdmin();
-  const tenantId = sessionUser.tenant_id;
 
-  // PASO 6A: bloquear escritura bajo sesión runtime "Operar como cliente"
-  if (await isRuntimeReadOnlyActive()) {
-    return { error: RUNTIME_READONLY_MESSAGE };
-  }
-
-  // Bloque B: módulo commerce.products debe estar habilitado
-  let commercialCtx;
+  // FASE VI-D — resolver el contexto efectivo ANTES de tocar cualquier
+  // dato (fail closed para RUNTIME_CLIENT inválido; readOnly cubre
+  // Support Session).
+  let effective: Awaited<ReturnType<typeof resolveEffectiveTenantContext>>;
   try {
-    commercialCtx = await resolveCommercialEnforcementContext(tenantId);
-    assertOrganizationModule(commercialCtx, "commerce.products");
-  } catch (err) {
-    if (err instanceof CommercialEnforcementError) return { error: err.userMessage };
-    throw err;
+    effective = await resolveEffectiveTenantContext(sessionUser);
+  } catch {
+    return { error: "No se pudo acceder al entorno de la organización." };
   }
+  const { context, dispose } = effective;
 
-  // 2. Validación Zod
-  const raw = {
-    id:     formData.get("id"),
-    status: formData.get("status"),
-  };
+  try {
+    if (context.readOnly) {
+      return { error: RUNTIME_READONLY_MESSAGE };
+    }
 
-  const parsed = updateProductStatusSchema.safeParse(raw);
-  if (!parsed.success) {
-    return { errors: parsed.error.flatten().fieldErrors };
-  }
+    const tenantId = context.tenantId;
+    const db = context.client ?? prisma;
 
-  const { id, status: nextStatus } = parsed.data;
+    // Bloque B: módulo commerce.products debe estar habilitado
+    let commercialCtx;
+    try {
+      commercialCtx = await resolveCommercialEnforcementContext(tenantId);
+      assertOrganizationModule(commercialCtx, "commerce.products");
+    } catch (err) {
+      if (err instanceof CommercialEnforcementError) return { error: err.userMessage };
+      throw err;
+    }
 
-  // 3. Cargar producto y verificar pertenencia al tenant
-  const product = await prisma.product.findFirst({
-    where: { id, tenant_id: tenantId },
-    select: { id: true, status: true, name: true },
-  });
-
-  if (!product) {
-    return { error: "Producto no encontrado o sin acceso." };
-  }
-
-  // 4. Validar transición de estado
-  const currentStatus = product.status as ProductStatus;
-
-  if (currentStatus === nextStatus) {
-    return { error: "El producto ya tiene ese estado." };
-  }
-
-  if (!isValidTransition(currentStatus, nextStatus)) {
-    return {
-      error: `La transición de ${currentStatus} a ${nextStatus} no está permitida.`,
+    // 2. Validación Zod
+    const raw = {
+      id:     formData.get("id"),
+      status: formData.get("status"),
     };
-  }
 
-  // 5. Aplicar cambio de estado — delta de capacidad calculado EXCLUSIVAMENTE
-  // desde isProductCountedForCapacity (todo estado excepto DISCONTINUED
-  // consume cupo); nunca se compara nextStatus contra "ACTIVE" literal.
-  const delta = capacityDelta(isProductCountedForCapacity(currentStatus), isProductCountedForCapacity(nextStatus));
+    const parsed = updateProductStatusSchema.safeParse(raw);
+    if (!parsed.success) {
+      return { errors: parsed.error.flatten().fieldErrors };
+    }
 
-  try {
-    if (delta > 0) {
-      await withCapacityCheckedTransaction(prisma, "commerce.products.max", delta, commercialCtx, (tx) =>
-        tx.product.update({
+    const { id, status: nextStatus } = parsed.data;
+
+    // 3. Cargar producto y verificar pertenencia al tenant
+    const product = await db.product.findFirst({
+      where: { id, tenant_id: tenantId },
+      select: { id: true, status: true, name: true },
+    });
+
+    if (!product) {
+      return { error: "Producto no encontrado o sin acceso." };
+    }
+
+    // 4. Validar transición de estado
+    const currentStatus = product.status as ProductStatus;
+
+    if (currentStatus === nextStatus) {
+      return { error: "El producto ya tiene ese estado." };
+    }
+
+    if (!isValidTransition(currentStatus, nextStatus)) {
+      return {
+        error: `La transición de ${currentStatus} a ${nextStatus} no está permitida.`,
+      };
+    }
+
+    // 5. Aplicar cambio de estado — delta de capacidad calculado EXCLUSIVAMENTE
+    // desde isProductCountedForCapacity (todo estado excepto DISCONTINUED
+    // consume cupo); nunca se compara nextStatus contra "ACTIVE" literal.
+    const delta = capacityDelta(isProductCountedForCapacity(currentStatus), isProductCountedForCapacity(nextStatus));
+
+    try {
+      if (delta > 0) {
+        await withCapacityCheckedTransaction(db, "commerce.products.max", delta, commercialCtx, (tx) =>
+          tx.product.update({
+            where: { id },
+            data: { status: nextStatus, updated_by: sessionUser.id },
+          }),
+        );
+      } else {
+        await db.product.update({
           where: { id },
-          data: { status: nextStatus, updated_by: sessionUser.id },
-        }),
-      );
-    } else {
-      await prisma.product.update({
-        where: { id },
-        data: {
-          status:     nextStatus,
-          updated_by: sessionUser.id,
-          // updated_at se actualiza automáticamente por @updatedAt en el schema
-        },
-      });
+          data: {
+            status:     nextStatus,
+            updated_by: sessionUser.id,
+            // updated_at se actualiza automáticamente por @updatedAt en el schema
+          },
+        });
+      }
+    } catch (err) {
+      if (err instanceof CommercialEnforcementError) {
+        return { error: err.userMessage };
+      }
+      throw err;
     }
-  } catch (err) {
-    if (err instanceof CommercialEnforcementError) {
-      return { error: err.userMessage };
-    }
-    throw err;
-  }
 
-  revalidatePath("/dashboard/products");
-  revalidatePath(`/dashboard/products/${id}`);
+    revalidatePath("/dashboard/products");
+    revalidatePath(`/dashboard/products/${id}`);
+  } finally {
+    await dispose();
+  }
 }

@@ -54,8 +54,11 @@ export default async function ProductsPage() {
 
   const { context, dispose } = await resolveEffectiveTenantContext(user);
   const { tenantId, client } = context;
+  // FASE VI-D: `readOnly` cubre tanto Support Session (siempre readOnly)
+  // como el único otro modo bloqueado a lectura; RUNTIME_CLIENT válido es
+  // readOnly=false, así que un admin runtime sí puede gestionar el catálogo.
   const canManage =
-    !context.runtime && (user.role === "super_admin" || user.role === "branch_admin");
+    !context.readOnly && (user.role === "super_admin" || user.role === "branch_admin");
 
   try {
     await requireOrganizationModule(tenantId, "commerce.products");

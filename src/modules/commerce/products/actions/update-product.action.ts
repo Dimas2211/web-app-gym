@@ -17,7 +17,8 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/db/prisma";
 import { requireAdmin } from "@/lib/permissions/guards";
-import { isRuntimeReadOnlyActive, RUNTIME_READONLY_MESSAGE } from "@/modules/platform/runtime/runtime-session";
+import { resolveEffectiveTenantContext } from "@/modules/platform/runtime/effective-tenant-context";
+import { RUNTIME_READONLY_MESSAGE } from "@/modules/platform/runtime/runtime-session";
 import { updateProductSchema } from "../schemas/update-product.schema";
 import {
   resolveCommercialEnforcementContext,
@@ -67,12 +68,25 @@ export async function updateProductAction(
 ): Promise<ProductUpdateActionState> {
   // 1. Sesión y permisos
   const sessionUser = await requireAdmin();
-  const tenantId = sessionUser.tenant_id;
 
-  // PASO 6A: bloquear escritura bajo sesión runtime "Operar como cliente"
-  if (await isRuntimeReadOnlyActive()) {
+  // FASE VI-D — resolver el contexto efectivo ANTES de tocar cualquier
+  // dato (fail closed para RUNTIME_CLIENT inválido; readOnly cubre
+  // Support Session).
+  let effective: Awaited<ReturnType<typeof resolveEffectiveTenantContext>>;
+  try {
+    effective = await resolveEffectiveTenantContext(sessionUser);
+  } catch {
+    return { error: "No se pudo acceder al entorno de la organización." };
+  }
+  const { context, dispose } = effective;
+
+  try {
+  if (context.readOnly) {
     return { error: RUNTIME_READONLY_MESSAGE };
   }
+
+  const tenantId = context.tenantId;
+  const db = context.client ?? prisma;
 
   // Bloque B: módulo commerce.products debe estar habilitado (edición no cambia cupo)
   try {
@@ -113,7 +127,7 @@ export async function updateProductAction(
   const data = parsed.data;
 
   // 3. Verificar que el producto existe y pertenece al tenant
-  const existing = await prisma.product.findFirst({
+  const existing = await db.product.findFirst({
     where: { id: data.id, tenant_id: tenantId },
     select: { id: true },
   });
@@ -124,7 +138,7 @@ export async function updateProductAction(
   // 4. Verificación de entidades relacionadas
 
   // category
-  const category = await prisma.productCategory.findFirst({
+  const category = await db.productCategory.findFirst({
     where: { id: data.category_id, tenant_id: tenantId, status: "active" },
     select: { id: true },
   });
@@ -140,7 +154,7 @@ export async function updateProductAction(
 
   // line (opcional)
   if (data.line_id) {
-    const line = await prisma.productLine.findFirst({
+    const line = await db.productLine.findFirst({
       where: {
         id: data.line_id,
         tenant_id: tenantId,
@@ -162,7 +176,7 @@ export async function updateProductAction(
 
   // subline (opcional)
   if (data.subline_id) {
-    const subline = await prisma.productSubline.findFirst({
+    const subline = await db.productSubline.findFirst({
       where: {
         id: data.subline_id,
         tenant_id: tenantId,
@@ -183,7 +197,7 @@ export async function updateProductAction(
   }
 
   // unit
-  const unit = await prisma.unitOfMeasure.findFirst({
+  const unit = await db.unitOfMeasure.findFirst({
     where: { id: data.unit_id, status: "active" },
     select: { id: true },
   });
@@ -199,7 +213,7 @@ export async function updateProductAction(
 
   // tax_rate (opcional)
   if (data.tax_rate_id) {
-    const taxRate = await prisma.taxRate.findFirst({
+    const taxRate = await db.taxRate.findFirst({
       where: { id: data.tax_rate_id, tenant_id: tenantId, status: "active" },
       select: { id: true },
     });
@@ -216,7 +230,7 @@ export async function updateProductAction(
 
   // supplier (opcional)
   if (data.supplier_id) {
-    const supplier = await prisma.supplier.findFirst({
+    const supplier = await db.supplier.findFirst({
       where: { id: data.supplier_id, tenant_id: tenantId, status: "active" },
       select: { id: true },
     });
@@ -232,7 +246,7 @@ export async function updateProductAction(
   }
 
   // 5. Actualizar producto
-  await prisma.product.update({
+  await db.product.update({
     where: { id: data.id },
     data: {
       name:           data.name,
@@ -258,4 +272,7 @@ export async function updateProductAction(
 
   revalidatePath("/dashboard/products");
   // undefined = éxito — el dialog cierra al recibir este valor
+  } finally {
+    await dispose();
+  }
 }

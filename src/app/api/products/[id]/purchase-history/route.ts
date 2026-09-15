@@ -40,7 +40,7 @@ export async function GET(
   // PASO 6A: bajo sesión runtime, nunca usar user.location_id (pertenece
   // al super_admin, no al tenant runtime) — null = todas las locations
   // del tenant efectivo, igual que el comportamiento normal de super_admin.
-  const { context, dispose } = await resolveEffectiveApiContext({ tenantId: user.tenant_id });
+  const { context, dispose } = await resolveEffectiveApiContext({ tenantId: user.tenant_id }, user);
   try {
     // Función real = consultar historial de COMPRAS -> module code commerce.purchases.
     const commercialCtx = await resolveCommercialEnforcementContext(context.tenantId);

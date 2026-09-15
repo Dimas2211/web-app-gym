@@ -9,9 +9,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { auth } from "@/lib/auth/auth";
 import type { SessionUser } from "@/lib/permissions/guards";
-import { prisma } from "@/lib/db/prisma";
 import { resolveEffectiveApiContext } from "@/modules/platform/runtime/effective-tenant-context";
-import { isRuntimeReadOnlyActive, RUNTIME_READONLY_MESSAGE } from "@/modules/platform/runtime/runtime-session";
+import { RUNTIME_READONLY_MESSAGE } from "@/modules/platform/runtime/runtime-session";
 import { getProducts } from "@/modules/commerce/products/queries/get-products";
 import { createProductSchema } from "@/modules/commerce/products/schemas/create-product.schema";
 import type {
@@ -120,9 +119,10 @@ export async function GET(req: NextRequest) {
   const page     = Math.max(1, parseInt(searchParams.get("page")      ?? "1",  10) || 1);
   const pageSize = Math.max(1, parseInt(searchParams.get("page_size") ?? "20", 10) || 20);
 
-  // PASO 6A: si hay sesión runtime "Operar como cliente" activa, leer de
-  // la base del perfil runtime en vez de la del tenant del super_admin.
-  const { context, dispose } = await resolveEffectiveApiContext({ tenantId: user.tenant_id });
+  // PASO 6A / FASE VI-D: resuelve el contexto efectivo (Support Session
+  // "Operar como cliente" o identidad RUNTIME_CLIENT propia) — nunca lee
+  // directo `user.tenant_id` contra Prisma global sin pasar por aquí.
+  const { context, dispose } = await resolveEffectiveApiContext({ tenantId: user.tenant_id }, user);
   try {
     const commercialCtx = await resolveCommercialEnforcementContext(context.tenantId);
     try {
@@ -159,206 +159,228 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Acceso denegado" }, { status: 403 });
   }
 
-  // PASO 6A: bloquear escritura bajo sesión runtime "Operar como cliente"
-  if (await isRuntimeReadOnlyActive()) {
-    return NextResponse.json({ error: RUNTIME_READONLY_MESSAGE }, { status: 403 });
-  }
-
-  // Bloque B: módulo commerce.products debe estar habilitado
-  const commercialCtx = await resolveCommercialEnforcementContext(user.tenant_id);
+  // FASE VI-D — ETAPA D/H: resolver el contexto efectivo ANTES de tocar
+  // cualquier dato. Cubre tanto Support Session (readOnly=true, bloquea
+  // abajo) como RUNTIME_CLIENT (fail closed si su organización/perfil no
+  // son válidos — nunca cae a Prisma global).
+  let effective: Awaited<ReturnType<typeof resolveEffectiveApiContext>>;
   try {
-    assertOrganizationModule(commercialCtx, "commerce.products");
-  } catch (err) {
-    if (err instanceof CommercialEnforcementError) {
-      return NextResponse.json({ error: err.userMessage }, { status: err.httpStatus });
-    }
-    throw err;
-  }
-
-  // ── Parseo del body ─────────────────────────────────────────────
-  let body: unknown;
-  try {
-    body = await req.json();
+    effective = await resolveEffectiveApiContext({ tenantId: user.tenant_id }, user);
   } catch {
     return NextResponse.json(
-      { error: "Cuerpo de la petición inválido." },
-      { status: 400 }
+      { error: "No se pudo acceder al entorno de la organización." },
+      { status: 503 },
     );
   }
+  const { context, dispose } = effective;
 
-  // ── Validación Zod ──────────────────────────────────────────────
-  // La API recibe JSON directamente; el schema es el mismo contrato
-  // que usa create-product.action.ts (FormData). El schema no depende
-  // del transporte, solo de la forma del objeto validado.
-  const parsed = createProductSchema.safeParse(body);
-  if (!parsed.success) {
-    return NextResponse.json(
-      { errors: parsed.error.flatten().fieldErrors },
-      { status: 400 }
-    );
-  }
-
-  const data = parsed.data;
-  const tenantId = user.tenant_id;
-
-  // ── Unicidad de product_code ────────────────────────────────────
-  const duplicate = await prisma.product.findUnique({
-    where: {
-      tenant_id_product_code: {
-        tenant_id: tenantId,
-        product_code: data.product_code,
-      },
-    },
-    select: { id: true },
-  });
-  if (duplicate) {
-    return NextResponse.json(
-      { errors: { product_code: ["Ya existe un producto con este código en el catálogo."] } },
-      { status: 409 }
-    );
-  }
-
-  // ── Verificación de entidades relacionadas ──────────────────────
-
-  const category = await prisma.productCategory.findFirst({
-    where: { id: data.category_id, tenant_id: tenantId, status: "active" },
-    select: { id: true },
-  });
-  if (!category) {
-    return NextResponse.json(
-      { errors: { category_id: ["La categoría seleccionada no existe o está inactiva."] } },
-      { status: 422 }
-    );
-  }
-
-  if (data.line_id) {
-    const line = await prisma.productLine.findFirst({
-      where: {
-        id: data.line_id,
-        tenant_id: tenantId,
-        category_id: data.category_id,
-        status: "active",
-      },
-      select: { id: true },
-    });
-    if (!line) {
-      return NextResponse.json(
-        { errors: { line_id: ["La línea no existe, está inactiva o no pertenece a la categoría."] } },
-        { status: 422 }
-      );
-    }
-  }
-
-  if (data.subline_id) {
-    const subline = await prisma.productSubline.findFirst({
-      where: {
-        id: data.subline_id,
-        tenant_id: tenantId,
-        line_id: data.line_id!,
-        status: "active",
-      },
-      select: { id: true },
-    });
-    if (!subline) {
-      return NextResponse.json(
-        { errors: { subline_id: ["La sublínea no existe, está inactiva o no pertenece a la línea."] } },
-        { status: 422 }
-      );
-    }
-  }
-
-  const unit = await prisma.unitOfMeasure.findFirst({
-    where: { id: data.unit_id, status: "active" },
-    select: { id: true },
-  });
-  if (!unit) {
-    return NextResponse.json(
-      { errors: { unit_id: ["La unidad de medida no existe o está inactiva."] } },
-      { status: 422 }
-    );
-  }
-
-  if (data.tax_rate_id) {
-    const taxRate = await prisma.taxRate.findFirst({
-      where: { id: data.tax_rate_id, tenant_id: tenantId, status: "active" },
-      select: { id: true },
-    });
-    if (!taxRate) {
-      return NextResponse.json(
-        { errors: { tax_rate_id: ["La tasa de impuesto no existe o está inactiva."] } },
-        { status: 422 }
-      );
-    }
-  }
-
-  if (data.supplier_id) {
-    const supplier = await prisma.supplier.findFirst({
-      where: { id: data.supplier_id, tenant_id: tenantId, status: "active" },
-      select: { id: true },
-    });
-    if (!supplier) {
-      return NextResponse.json(
-        { errors: { supplier_id: ["El proveedor no existe o está inactivo."] } },
-        { status: 422 }
-      );
-    }
-  }
-
-  // ── Crear producto ──────────────────────────────────────────────
-  const delta = capacityDelta(false, isProductCountedForCapacity("ACTIVE"));
   try {
-    const product = await withCapacityCheckedTransaction(
-      prisma,
-      "commerce.products.max",
-      delta,
-      commercialCtx,
-      (tx) =>
-        tx.product.create({
-          data: {
-            tenant_id:      tenantId,
-            product_code:   data.product_code,
-            name:           data.name,
-            description:    data.description ?? null,
-            product_type:   data.product_type,
-            status:         "ACTIVE",
-            is_stockable:   data.is_stockable,
-            allow_purchase: data.allow_purchase,
-            allow_sale:     data.allow_sale,
-            category_id:    data.category_id,
-            line_id:        data.line_id ?? null,
-            subline_id:     data.subline_id ?? null,
-            brand:          data.brand ?? null,
-            unit_id:        data.unit_id,
-            package_unit:   data.package_unit ?? null,
-            supplier_id:    data.supplier_id ?? null,
-            sku:            data.sku ?? null,
-            cost_price:     data.cost_price ?? null,
-            sale_price:     data.sale_price ?? null,
-            tax_rate_id:    data.tax_rate_id ?? null,
-            created_by:     user.id,
-            updated_by:     user.id,
-          },
-          select: { id: true, product_code: true, name: true },
-        }),
-    );
-
-    return NextResponse.json(product, {
-      status: 201,
-      headers: { Location: `/api/products/${product.id}` },
-    });
-  } catch (e) {
-    if (e instanceof CommercialEnforcementError) {
-      return NextResponse.json({ error: e.userMessage }, { status: e.httpStatus });
+    // PASO 6A / FASE VI-D: bloquear escritura en modo solo-lectura
+    // (Support Session siempre; RUNTIME_CLIENT nunca lo es aquí).
+    if (context.readOnly) {
+      return NextResponse.json({ error: RUNTIME_READONLY_MESSAGE }, { status: 403 });
     }
-    if (
-      e instanceof Prisma.PrismaClientKnownRequestError &&
-      e.code === "P2002"
-    ) {
+
+    const tenantId = context.tenantId;
+    const db = context.client;
+
+    // Bloque B: módulo commerce.products debe estar habilitado
+    const commercialCtx = await resolveCommercialEnforcementContext(tenantId);
+    try {
+      assertOrganizationModule(commercialCtx, "commerce.products");
+    } catch (err) {
+      if (err instanceof CommercialEnforcementError) {
+        return NextResponse.json({ error: err.userMessage }, { status: err.httpStatus });
+      }
+      throw err;
+    }
+
+    // ── Parseo del body ─────────────────────────────────────────────
+    let body: unknown;
+    try {
+      body = await req.json();
+    } catch {
+      return NextResponse.json(
+        { error: "Cuerpo de la petición inválido." },
+        { status: 400 }
+      );
+    }
+
+    // ── Validación Zod ──────────────────────────────────────────────
+    // La API recibe JSON directamente; el schema es el mismo contrato
+    // que usa create-product.action.ts (FormData). El schema no depende
+    // del transporte, solo de la forma del objeto validado.
+    const parsed = createProductSchema.safeParse(body);
+    if (!parsed.success) {
+      return NextResponse.json(
+        { errors: parsed.error.flatten().fieldErrors },
+        { status: 400 }
+      );
+    }
+
+    const data = parsed.data;
+
+    // ── Unicidad de product_code ────────────────────────────────────
+    const duplicate = await db.product.findUnique({
+      where: {
+        tenant_id_product_code: {
+          tenant_id: tenantId,
+          product_code: data.product_code,
+        },
+      },
+      select: { id: true },
+    });
+    if (duplicate) {
       return NextResponse.json(
         { errors: { product_code: ["Ya existe un producto con este código en el catálogo."] } },
         { status: 409 }
       );
     }
-    throw e;
+
+    // ── Verificación de entidades relacionadas ──────────────────────
+
+    const category = await db.productCategory.findFirst({
+      where: { id: data.category_id, tenant_id: tenantId, status: "active" },
+      select: { id: true },
+    });
+    if (!category) {
+      return NextResponse.json(
+        { errors: { category_id: ["La categoría seleccionada no existe o está inactiva."] } },
+        { status: 422 }
+      );
+    }
+
+    if (data.line_id) {
+      const line = await db.productLine.findFirst({
+        where: {
+          id: data.line_id,
+          tenant_id: tenantId,
+          category_id: data.category_id,
+          status: "active",
+        },
+        select: { id: true },
+      });
+      if (!line) {
+        return NextResponse.json(
+          { errors: { line_id: ["La línea no existe, está inactiva o no pertenece a la categoría."] } },
+          { status: 422 }
+        );
+      }
+    }
+
+    if (data.subline_id) {
+      const subline = await db.productSubline.findFirst({
+        where: {
+          id: data.subline_id,
+          tenant_id: tenantId,
+          line_id: data.line_id!,
+          status: "active",
+        },
+        select: { id: true },
+      });
+      if (!subline) {
+        return NextResponse.json(
+          { errors: { subline_id: ["La sublínea no existe, está inactiva o no pertenece a la línea."] } },
+          { status: 422 }
+        );
+      }
+    }
+
+    const unit = await db.unitOfMeasure.findFirst({
+      where: { id: data.unit_id, status: "active" },
+      select: { id: true },
+    });
+    if (!unit) {
+      return NextResponse.json(
+        { errors: { unit_id: ["La unidad de medida no existe o está inactiva."] } },
+        { status: 422 }
+      );
+    }
+
+    if (data.tax_rate_id) {
+      const taxRate = await db.taxRate.findFirst({
+        where: { id: data.tax_rate_id, tenant_id: tenantId, status: "active" },
+        select: { id: true },
+      });
+      if (!taxRate) {
+        return NextResponse.json(
+          { errors: { tax_rate_id: ["La tasa de impuesto no existe o está inactiva."] } },
+          { status: 422 }
+        );
+      }
+    }
+
+    if (data.supplier_id) {
+      const supplier = await db.supplier.findFirst({
+        where: { id: data.supplier_id, tenant_id: tenantId, status: "active" },
+        select: { id: true },
+      });
+      if (!supplier) {
+        return NextResponse.json(
+          { errors: { supplier_id: ["El proveedor no existe o está inactivo."] } },
+          { status: 422 }
+        );
+      }
+    }
+
+    // ── Crear producto ──────────────────────────────────────────────
+    const delta = capacityDelta(false, isProductCountedForCapacity("ACTIVE"));
+    try {
+      const product = await withCapacityCheckedTransaction(
+        db,
+        "commerce.products.max",
+        delta,
+        commercialCtx,
+        (tx) =>
+          tx.product.create({
+            data: {
+              tenant_id:      tenantId,
+              product_code:   data.product_code,
+              name:           data.name,
+              description:    data.description ?? null,
+              product_type:   data.product_type,
+              status:         "ACTIVE",
+              is_stockable:   data.is_stockable,
+              allow_purchase: data.allow_purchase,
+              allow_sale:     data.allow_sale,
+              category_id:    data.category_id,
+              line_id:        data.line_id ?? null,
+              subline_id:     data.subline_id ?? null,
+              brand:          data.brand ?? null,
+              unit_id:        data.unit_id,
+              package_unit:   data.package_unit ?? null,
+              supplier_id:    data.supplier_id ?? null,
+              sku:            data.sku ?? null,
+              cost_price:     data.cost_price ?? null,
+              sale_price:     data.sale_price ?? null,
+              tax_rate_id:    data.tax_rate_id ?? null,
+              created_by:     user.id,
+              updated_by:     user.id,
+            },
+            select: { id: true, product_code: true, name: true },
+          }),
+      );
+
+      return NextResponse.json(product, {
+        status: 201,
+        headers: { Location: `/api/products/${product.id}` },
+      });
+    } catch (e) {
+      if (e instanceof CommercialEnforcementError) {
+        return NextResponse.json({ error: e.userMessage }, { status: e.httpStatus });
+      }
+      if (
+        e instanceof Prisma.PrismaClientKnownRequestError &&
+        e.code === "P2002"
+      ) {
+        return NextResponse.json(
+          { errors: { product_code: ["Ya existe un producto con este código en el catálogo."] } },
+          { status: 409 }
+        );
+      }
+      throw e;
+    }
+  } finally {
+    await dispose();
   }
 }
