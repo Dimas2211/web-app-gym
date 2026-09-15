@@ -8,25 +8,24 @@ export const runtime = "nodejs";
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth/auth";
 import type { SessionUser } from "@/lib/permissions/guards";
+import { getCapabilities } from "@/core/permissions/role-capabilities";
+import type { UserRole } from "@prisma/client";
 import { getSuppliers } from "@/modules/commerce/suppliers/queries/get-suppliers";
 import { createSupplierSchema } from "@/modules/commerce/suppliers/schemas/create-supplier.schema";
 import { createSupplier } from "@/modules/commerce/suppliers/services/supplier.service";
-import { resolveEffectiveApiContext } from "@/modules/platform/runtime/effective-tenant-context";
-import { isRuntimeReadOnlyActive, RUNTIME_READONLY_MESSAGE } from "@/modules/platform/runtime/runtime-session";
+import {
+  requireOperationalContext,
+  OperationalContextError,
+} from "@/modules/platform/runtime/require-operational-context";
 import type {
   SupplierFilters,
   SupplierSortField,
   SortDirection,
 } from "@/modules/commerce/suppliers/types/supplier-filters.types";
 import type { TaxpayerType, SupplierStatus } from "@/modules/commerce/suppliers/types/supplier.types";
-import {
-  resolveCommercialEnforcementContext,
-  assertOrganizationModule,
-  CommercialEnforcementError,
-} from "@/modules/platform/runtime/commercial-enforcement";
 
-// Solo admins gestionan el maestro de proveedores
-const ADMIN_ROLES = ["super_admin", "branch_admin"];
+// Solo admins gestionan el maestro de proveedores — el chequeo real
+// (ETAPA E/H) se hace con el ROL LIVE, ver `getCapabilities(context.effectiveUser.role)`.
 
 // ── Helpers de mapeo HTTP ─────────────────────────────────────────
 
@@ -47,25 +46,24 @@ export async function GET(req: NextRequest) {
   if (!session?.user) {
     return NextResponse.json({ error: "No autorizado" }, { status: 401 });
   }
-
   const user = session.user as SessionUser;
-  if (!ADMIN_ROLES.includes(user.role)) {
-    return NextResponse.json({ error: "Acceso denegado" }, { status: 403 });
-  }
 
-  // PASO 6A: si hay sesión runtime "Operar como cliente" activa, leer de
-  // la base del perfil runtime en vez de la del tenant del super_admin.
-  const { context, dispose } = await resolveEffectiveApiContext({ tenantId: user.tenant_id });
-
-  const commercialCtx = await resolveCommercialEnforcementContext(context.tenantId);
+  // FASE VI-D2: resuelve contexto efectivo + enforcement de módulo ANTES
+  // de tocar cualquier dato (fail closed para RUNTIME_CLIENT inválido).
+  let handle;
   try {
-    assertOrganizationModule(commercialCtx, "commerce.suppliers");
+    handle = await requireOperationalContext(user, { module: "commerce.suppliers" });
   } catch (err) {
-    await dispose();
-    if (err instanceof CommercialEnforcementError) {
+    if (err instanceof OperationalContextError) {
       return NextResponse.json({ error: err.userMessage }, { status: err.httpStatus });
     }
     throw err;
+  }
+  const { context, dispose } = handle;
+
+  if (!getCapabilities(context.effectiveUser.role as UserRole).canManageStaff) {
+    await dispose();
+    return NextResponse.json({ error: "Acceso denegado" }, { status: 403 });
   }
 
   const { searchParams } = req.nextUrl;
@@ -128,56 +126,56 @@ export async function POST(req: NextRequest) {
   if (!session?.user) {
     return NextResponse.json({ error: "No autorizado" }, { status: 401 });
   }
-
   const user = session.user as SessionUser;
-  if (!ADMIN_ROLES.includes(user.role)) {
-    return NextResponse.json({ error: "Acceso denegado" }, { status: 403 });
-  }
 
-  // PASO 6A: bloquear escritura bajo sesión runtime "Operar como cliente"
-  if (await isRuntimeReadOnlyActive()) {
-    return NextResponse.json({ error: RUNTIME_READONLY_MESSAGE }, { status: 403 });
-  }
-
-  const commercialCtx = await resolveCommercialEnforcementContext(user.tenant_id);
+  let handle;
   try {
-    assertOrganizationModule(commercialCtx, "commerce.suppliers");
+    handle = await requireOperationalContext(user, { module: "commerce.suppliers", write: true });
   } catch (err) {
-    if (err instanceof CommercialEnforcementError) {
+    if (err instanceof OperationalContextError) {
       return NextResponse.json({ error: err.userMessage }, { status: err.httpStatus });
     }
     throw err;
   }
+  const { context, dispose } = handle;
 
-  let body: unknown;
   try {
-    body = await req.json();
-  } catch {
-    return NextResponse.json({ error: "Cuerpo de la petición inválido." }, { status: 400 });
-  }
+    if (!getCapabilities(context.effectiveUser.role as UserRole).canManageStaff) {
+      return NextResponse.json({ error: "Acceso denegado" }, { status: 403 });
+    }
 
-  const parsed = createSupplierSchema.safeParse(body);
-  if (!parsed.success) {
+    let body: unknown;
+    try {
+      body = await req.json();
+    } catch {
+      return NextResponse.json({ error: "Cuerpo de la petición inválido." }, { status: 400 });
+    }
+
+    const parsed = createSupplierSchema.safeParse(body);
+    if (!parsed.success) {
+      return NextResponse.json(
+        { errors: parsed.error.flatten().fieldErrors },
+        { status: 400 },
+      );
+    }
+
+    const result = await createSupplier(context.tenantId, context.effectiveUser.id, parsed.data, context.client);
+
+    if (!result.ok) {
+      return NextResponse.json(
+        { error: result.error, ...(result.field && { field: result.field }) },
+        { status: toHttpStatus(result.code) },
+      );
+    }
+
     return NextResponse.json(
-      { errors: parsed.error.flatten().fieldErrors },
-      { status: 400 },
+      { id: result.id, supplier_code: result.supplier_code },
+      {
+        status:  201,
+        headers: { Location: `/api/suppliers/${result.id}` },
+      },
     );
+  } finally {
+    await dispose();
   }
-
-  const result = await createSupplier(user.tenant_id, user.id, parsed.data);
-
-  if (!result.ok) {
-    return NextResponse.json(
-      { error: result.error, ...(result.field && { field: result.field }) },
-      { status: toHttpStatus(result.code) },
-    );
-  }
-
-  return NextResponse.json(
-    { id: result.id, supplier_code: result.supplier_code },
-    {
-      status:  201,
-      headers: { Location: `/api/suppliers/${result.id}` },
-    },
-  );
 }

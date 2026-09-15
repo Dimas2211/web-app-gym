@@ -15,16 +15,16 @@
 // ─────────────────────────────────────────────────────────────────
 
 import { revalidatePath } from "next/cache";
+import type { UserRole } from "@prisma/client";
 import { requireAdmin } from "@/lib/permissions/guards";
-import { isRuntimeReadOnlyActive, RUNTIME_READONLY_MESSAGE } from "@/modules/platform/runtime/runtime-session";
+import { getCapabilities } from "@/core/permissions/role-capabilities";
+import {
+  requireOperationalContext,
+  OperationalContextError,
+} from "@/modules/platform/runtime/require-operational-context";
 import { str, strNullable } from "@/lib/utils/form-data-parsers";
 import { createSupplierSchema } from "../schemas/create-supplier.schema";
 import { createSupplier } from "../services/supplier.service";
-import {
-  resolveCommercialEnforcementContext,
-  assertOrganizationModule,
-  CommercialEnforcementError,
-} from "@/modules/platform/runtime/commercial-enforcement";
 
 // ── Tipo de retorno ───────────────────────────────────────────────
 
@@ -40,21 +40,19 @@ export async function createSupplierAction(
 ): Promise<SupplierActionState> {
   // 1. Sesión y permisos
   const sessionUser = await requireAdmin();
-  const tenantId    = sessionUser.tenant_id;
 
-  // Guard defensivo: tenant_id es string en el contrato de sesión,
-  // pero un JWT malformado podría producir string vacío.
-  if (!tenantId) return { error: "La sesión no tiene un tenant activo." };
-
-  // PASO 6A: bloquear escritura bajo sesión runtime "Operar como cliente"
-  if (await isRuntimeReadOnlyActive()) return { error: RUNTIME_READONLY_MESSAGE };
+  let handle;
+  try {
+    handle = await requireOperationalContext(sessionUser, { module: "commerce.suppliers", write: true });
+  } catch (err) {
+    if (err instanceof OperationalContextError) return { error: err.userMessage };
+    throw err;
+  }
+  const { context, dispose } = handle;
 
   try {
-    const commercialCtx = await resolveCommercialEnforcementContext(tenantId);
-    assertOrganizationModule(commercialCtx, "commerce.suppliers");
-  } catch (err) {
-    if (err instanceof CommercialEnforcementError) return { error: err.userMessage };
-    throw err;
+  if (!getCapabilities(context.effectiveUser.role as UserRole).canManageStaff) {
+    return { error: "Sin permisos para esta operación." };
   }
 
   // 2. Parseo de FormData
@@ -105,7 +103,7 @@ export async function createSupplierAction(
   }
 
   // 4. Delegación al service
-  const result = await createSupplier(tenantId, sessionUser.id, parsed.data);
+  const result = await createSupplier(context.tenantId, context.effectiveUser.id, parsed.data, context.client);
 
   if (!result.ok) {
     return result.field
@@ -117,4 +115,7 @@ export async function createSupplierAction(
   revalidatePath("/dashboard/suppliers");
 
   // undefined = éxito — el dialog/componente cierra al recibir este valor
+  } finally {
+    await dispose();
+  }
 }

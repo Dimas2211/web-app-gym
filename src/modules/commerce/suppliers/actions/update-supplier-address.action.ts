@@ -17,16 +17,15 @@
 // ─────────────────────────────────────────────────────────────────
 
 import { revalidatePath } from "next/cache";
+import type { UserRole } from "@prisma/client";
 import { requireAdmin } from "@/lib/permissions/guards";
-import { isRuntimeReadOnlyActive, RUNTIME_READONLY_MESSAGE } from "@/modules/platform/runtime/runtime-session";
-import { str, strNullable } from "@/lib/utils/form-data-parsers";
-import { prisma } from "@/lib/db/prisma";
-import { updateSupplierAddress } from "../services/supplier.service";
+import { getCapabilities } from "@/core/permissions/role-capabilities";
 import {
-  resolveCommercialEnforcementContext,
-  assertOrganizationModule,
-  CommercialEnforcementError,
-} from "@/modules/platform/runtime/commercial-enforcement";
+  requireOperationalContext,
+  OperationalContextError,
+} from "@/modules/platform/runtime/require-operational-context";
+import { str, strNullable } from "@/lib/utils/form-data-parsers";
+import { updateSupplierAddress } from "../services/supplier.service";
 
 export type UpdateSupplierAddressState =
   | { error: string }
@@ -38,70 +37,75 @@ export async function updateSupplierAddressAction(
 ): Promise<UpdateSupplierAddressState> {
   // 1. Sesión y permisos
   const sessionUser = await requireAdmin();
-  const tenantId    = sessionUser.tenant_id;
-  if (!tenantId) return { error: "La sesión no tiene un tenant activo." };
 
-  // PASO 6A: bloquear escritura bajo sesión runtime "Operar como cliente"
-  if (await isRuntimeReadOnlyActive()) return { error: RUNTIME_READONLY_MESSAGE };
-
+  let handle;
   try {
-    const commercialCtx = await resolveCommercialEnforcementContext(tenantId);
-    assertOrganizationModule(commercialCtx, "commerce.suppliers");
+    handle = await requireOperationalContext(sessionUser, { module: "commerce.suppliers", write: true });
   } catch (err) {
-    if (err instanceof CommercialEnforcementError) return { error: err.userMessage };
+    if (err instanceof OperationalContextError) return { error: err.userMessage };
     throw err;
   }
+  const { context, dispose } = handle;
 
-  // 2. Parseo de FormData
-  const id                = str(formData.get("id"));
-  const dept_code         = strNullable(formData.get("dept_code"));
-  const dept_name         = strNullable(formData.get("dept_name"));
-  const municipality_code = strNullable(formData.get("municipality_code"));
-  const municipality_name = strNullable(formData.get("municipality_name"));
-  const country_code      = strNullable(formData.get("country_code"));
-  const country_name      = strNullable(formData.get("country_name"));
-  const address_complement = strNullable(formData.get("address_complement"));
-
-  if (!id) return { error: "ID del proveedor requerido." };
-
-  // 3. Coherencia municipio
-  if (municipality_code) {
-    if (!dept_code)         return { error: "Si se asigna un municipio, el departamento es requerido." };
-    if (!dept_name)         return { error: "Si se asigna un municipio, el nombre del departamento es requerido." };
-    if (!municipality_name) return { error: "Si se asigna un código de municipio, el nombre del municipio es requerido." };
-
-    // Validar que la combinación departamento/municipio exista en el catálogo DTE
-    const mun = await prisma.municipality.findUnique({
-      where: { dept_code_code: { dept_code, code: municipality_code } },
-      select: { id: true },
-    });
-    if (!mun) {
-      return {
-        error:
-          "La combinación departamento/municipio no existe en el catálogo DTE. Seleccione un distrito válido.",
-      };
+  try {
+    if (!getCapabilities(context.effectiveUser.role as UserRole).canManageStaff) {
+      return { error: "Sin permisos para esta operación." };
     }
+
+    // 2. Parseo de FormData
+    const id                = str(formData.get("id"));
+    const dept_code         = strNullable(formData.get("dept_code"));
+    const dept_name         = strNullable(formData.get("dept_name"));
+    const municipality_code = strNullable(formData.get("municipality_code"));
+    const municipality_name = strNullable(formData.get("municipality_name"));
+    const country_code      = strNullable(formData.get("country_code"));
+    const country_name      = strNullable(formData.get("country_name"));
+    const address_complement = strNullable(formData.get("address_complement"));
+
+    if (!id) return { error: "ID del proveedor requerido." };
+
+    // 3. Coherencia municipio
+    if (municipality_code) {
+      if (!dept_code)         return { error: "Si se asigna un municipio, el departamento es requerido." };
+      if (!dept_name)         return { error: "Si se asigna un municipio, el nombre del departamento es requerido." };
+      if (!municipality_name) return { error: "Si se asigna un código de municipio, el nombre del municipio es requerido." };
+
+      // Validar que la combinación departamento/municipio exista en el
+      // catálogo DTE — FASE VI-D2: contra la DB EFECTIVA, nunca Prisma global.
+      const mun = await context.client.municipality.findUnique({
+        where: { dept_code_code: { dept_code, code: municipality_code } },
+        select: { id: true },
+      });
+      if (!mun) {
+        return {
+          error:
+            "La combinación departamento/municipio no existe en el catálogo DTE. Seleccione un distrito válido.",
+        };
+      }
+    }
+
+    // 4. Coherencia país
+    if (country_code && !country_name) {
+      return { error: "Si se asigna un código de país, el nombre del país es requerido." };
+    }
+
+    // 5. Delegación al service
+    const result = await updateSupplierAddress(context.tenantId, context.effectiveUser.id, {
+      id,
+      dept_code,
+      dept_name,
+      municipality_code,
+      municipality_name,
+      country_code,
+      country_name,
+      address_complement,
+    }, context.client);
+
+    if (!result.ok) return { error: result.error };
+
+    // 6. Revalidación
+    revalidatePath("/dashboard/suppliers");
+  } finally {
+    await dispose();
   }
-
-  // 4. Coherencia país
-  if (country_code && !country_name) {
-    return { error: "Si se asigna un código de país, el nombre del país es requerido." };
-  }
-
-  // 5. Delegación al service
-  const result = await updateSupplierAddress(tenantId, sessionUser.id, {
-    id,
-    dept_code,
-    dept_name,
-    municipality_code,
-    municipality_name,
-    country_code,
-    country_name,
-    address_complement,
-  });
-
-  if (!result.ok) return { error: result.error };
-
-  // 6. Revalidación
-  revalidatePath("/dashboard/suppliers");
 }

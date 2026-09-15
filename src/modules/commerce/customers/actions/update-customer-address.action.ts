@@ -16,16 +16,15 @@
 // ─────────────────────────────────────────────────────────────────
 
 import { revalidatePath } from "next/cache";
+import type { UserRole } from "@prisma/client";
 import { requireAdmin } from "@/lib/permissions/guards";
-import { isRuntimeReadOnlyActive, RUNTIME_READONLY_MESSAGE } from "@/modules/platform/runtime/runtime-session";
-import { str, strNullable } from "@/lib/utils/form-data-parsers";
-import { prisma } from "@/lib/db/prisma";
-import { updateCustomer } from "../services/customer.service";
+import { getCapabilities } from "@/core/permissions/role-capabilities";
 import {
-  resolveCommercialEnforcementContext,
-  assertOrganizationModule,
-  CommercialEnforcementError,
-} from "@/modules/platform/runtime/commercial-enforcement";
+  requireOperationalContext,
+  OperationalContextError,
+} from "@/modules/platform/runtime/require-operational-context";
+import { str, strNullable } from "@/lib/utils/form-data-parsers";
+import { updateCustomer } from "../services/customer.service";
 
 export type UpdateCustomerAddressState =
   | { error: string }
@@ -36,52 +35,58 @@ export async function updateCustomerAddressAction(
   formData: FormData,
 ): Promise<UpdateCustomerAddressState> {
   const sessionUser = await requireAdmin();
-  const tenantId    = sessionUser.tenant_id;
-  if (!tenantId) return { error: "La sesión no tiene un tenant activo." };
 
-  // PASO 6A: bloquear escritura bajo sesión runtime "Operar como cliente"
-  if (await isRuntimeReadOnlyActive()) return { error: RUNTIME_READONLY_MESSAGE };
-
+  let handle;
   try {
-    const commercialCtx = await resolveCommercialEnforcementContext(tenantId);
-    assertOrganizationModule(commercialCtx, "core.customers");
+    handle = await requireOperationalContext(sessionUser, { module: "core.customers", write: true });
   } catch (err) {
-    if (err instanceof CommercialEnforcementError) return { error: err.userMessage };
+    if (err instanceof OperationalContextError) return { error: err.userMessage };
     throw err;
   }
+  const { context, dispose } = handle;
 
-  const id                 = str(formData.get("id"));
-  const dept_code          = strNullable(formData.get("dept_code"));
-  const municipality_code  = strNullable(formData.get("municipality_code"));
-  const address_complement = strNullable(formData.get("address_complement"));
-
-  if (!id) return { error: "ID del cliente requerido." };
-
-  if (municipality_code && !dept_code) {
-    return { error: "Si se asigna un municipio, el departamento es requerido." };
-  }
-
-  // Validar que la combinación departamento/municipio exista en el catálogo DTE
-  if (dept_code && municipality_code) {
-    const mun = await prisma.municipality.findUnique({
-      where: { dept_code_code: { dept_code, code: municipality_code } },
-      select: { id: true },
-    });
-    if (!mun) {
-      return {
-        error:
-          "La combinación departamento/municipio no existe en el catálogo DTE. Seleccione un distrito válido.",
-      };
+  try {
+    if (!getCapabilities(context.effectiveUser.role as UserRole).canManageStaff) {
+      return { error: "Sin permisos para esta operación." };
     }
+
+    const id                 = str(formData.get("id"));
+    const dept_code          = strNullable(formData.get("dept_code"));
+    const municipality_code  = strNullable(formData.get("municipality_code"));
+    const address_complement = strNullable(formData.get("address_complement"));
+
+    if (!id) return { error: "ID del cliente requerido." };
+
+    if (municipality_code && !dept_code) {
+      return { error: "Si se asigna un municipio, el departamento es requerido." };
+    }
+
+    // Validar que la combinación departamento/municipio exista en el
+    // catálogo DTE — FASE VI-D2: contra la DB EFECTIVA (runtime propia
+    // para RUNTIME_CLIENT), nunca Prisma global.
+    if (dept_code && municipality_code) {
+      const mun = await context.client.municipality.findUnique({
+        where: { dept_code_code: { dept_code, code: municipality_code } },
+        select: { id: true },
+      });
+      if (!mun) {
+        return {
+          error:
+            "La combinación departamento/municipio no existe en el catálogo DTE. Seleccione un distrito válido.",
+        };
+      }
+    }
+
+    const result = await updateCustomer(id, context.tenantId, context.effectiveUser.id, {
+      dept_code,
+      municipality_code,
+      address_complement,
+    }, context.client);
+
+    if (!result.ok) return { error: result.error };
+
+    revalidatePath("/dashboard/customers");
+  } finally {
+    await dispose();
   }
-
-  const result = await updateCustomer(id, tenantId, sessionUser.id, {
-    dept_code,
-    municipality_code,
-    address_complement,
-  });
-
-  if (!result.ok) return { error: result.error };
-
-  revalidatePath("/dashboard/customers");
 }

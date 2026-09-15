@@ -22,16 +22,16 @@
 // ─────────────────────────────────────────────────────────────────
 
 import { revalidatePath } from "next/cache";
+import type { UserRole } from "@prisma/client";
 import { requireAdmin } from "@/lib/permissions/guards";
-import { isRuntimeReadOnlyActive, RUNTIME_READONLY_MESSAGE } from "@/modules/platform/runtime/runtime-session";
+import { getCapabilities } from "@/core/permissions/role-capabilities";
+import {
+  requireOperationalContext,
+  OperationalContextError,
+} from "@/modules/platform/runtime/require-operational-context";
 import { str } from "@/lib/utils/form-data-parsers";
 import { quickCreateSupplierSchema } from "../schemas/quick-create-supplier.schema";
 import { quickCreateSupplier } from "../services/supplier.service";
-import {
-  resolveCommercialEnforcementContext,
-  assertOrganizationModule,
-  CommercialEnforcementError,
-} from "@/modules/platform/runtime/commercial-enforcement";
 
 export type QuickCreateSupplierState =
   | {
@@ -48,45 +48,49 @@ export async function quickCreateSupplierAction(
 ): Promise<QuickCreateSupplierState> {
   // 1. Sesión y permisos
   const sessionUser = await requireAdmin();
-  const tenantId    = sessionUser.tenant_id;
-  if (!tenantId) return { error: "La sesión no tiene un tenant activo." };
 
-  // PASO 6A: bloquear escritura bajo sesión runtime "Operar como cliente"
-  if (await isRuntimeReadOnlyActive()) return { error: RUNTIME_READONLY_MESSAGE };
-
+  let handle;
   try {
-    const commercialCtx = await resolveCommercialEnforcementContext(tenantId);
-    assertOrganizationModule(commercialCtx, "commerce.suppliers");
+    handle = await requireOperationalContext(sessionUser, { module: "commerce.suppliers", write: true });
   } catch (err) {
-    if (err instanceof CommercialEnforcementError) return { error: err.userMessage };
+    if (err instanceof OperationalContextError) return { error: err.userMessage };
     throw err;
   }
+  const { context, dispose } = handle;
 
-  // 2. Parseo de FormData (solo los 2 campos del usuario)
-  const raw = {
-    name:          str(formData.get("name")),
-    taxpayer_type: str(formData.get("taxpayer_type")),
-  };
+  try {
+    if (!getCapabilities(context.effectiveUser.role as UserRole).canManageStaff) {
+      return { error: "Sin permisos para esta operación." };
+    }
 
-  // 3. Validación Zod
-  const parsed = quickCreateSupplierSchema.safeParse(raw);
-  if (!parsed.success) {
-    return { errors: parsed.error.flatten().fieldErrors };
+    // 2. Parseo de FormData (solo los 2 campos del usuario)
+    const raw = {
+      name:          str(formData.get("name")),
+      taxpayer_type: str(formData.get("taxpayer_type")),
+    };
+
+    // 3. Validación Zod
+    const parsed = quickCreateSupplierSchema.safeParse(raw);
+    if (!parsed.success) {
+      return { errors: parsed.error.flatten().fieldErrors };
+    }
+
+    // 4. Delegación al service
+    const result = await quickCreateSupplier(context.tenantId, context.effectiveUser.id, parsed.data, context.client);
+
+    if (!result.ok) {
+      return result.field
+        ? { errors: { [result.field]: [result.error] } }
+        : { error: result.error };
+    }
+
+    // 5. Revalidación del maestro de proveedores en background.
+    //    No bloquea el flujo de purchases — el componente ya tiene el id.
+    revalidatePath("/dashboard/suppliers");
+
+    // Devuelve id y supplier_code para que purchases auto-seleccione el proveedor
+    return { id: result.id, supplier_code: result.supplier_code };
+  } finally {
+    await dispose();
   }
-
-  // 4. Delegación al service
-  const result = await quickCreateSupplier(tenantId, sessionUser.id, parsed.data);
-
-  if (!result.ok) {
-    return result.field
-      ? { errors: { [result.field]: [result.error] } }
-      : { error: result.error };
-  }
-
-  // 5. Revalidación del maestro de proveedores en background.
-  //    No bloquea el flujo de purchases — el componente ya tiene el id.
-  revalidatePath("/dashboard/suppliers");
-
-  // Devuelve id y supplier_code para que purchases auto-seleccione el proveedor
-  return { id: result.id, supplier_code: result.supplier_code };
 }

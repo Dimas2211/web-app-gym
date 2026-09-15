@@ -15,15 +15,15 @@
 // ─────────────────────────────────────────────────────────────────
 
 import { revalidatePath } from "next/cache";
+import type { UserRole } from "@prisma/client";
 import { requireAdmin } from "@/lib/permissions/guards";
-import { isRuntimeReadOnlyActive, RUNTIME_READONLY_MESSAGE } from "@/modules/platform/runtime/runtime-session";
+import { getCapabilities } from "@/core/permissions/role-capabilities";
+import {
+  requireOperationalContext,
+  OperationalContextError,
+} from "@/modules/platform/runtime/require-operational-context";
 import { str, strNullable } from "@/lib/utils/form-data-parsers";
 import { updateSupplierActivity } from "../services/supplier.service";
-import {
-  resolveCommercialEnforcementContext,
-  assertOrganizationModule,
-  CommercialEnforcementError,
-} from "@/modules/platform/runtime/commercial-enforcement";
 
 export type UpdateSupplierActivityState =
   | { error: string }
@@ -35,41 +35,45 @@ export async function updateSupplierActivityAction(
 ): Promise<UpdateSupplierActivityState> {
   // 1. Sesión y permisos
   const sessionUser = await requireAdmin();
-  const tenantId    = sessionUser.tenant_id;
-  if (!tenantId) return { error: "La sesión no tiene un tenant activo." };
 
-  // PASO 6A: bloquear escritura bajo sesión runtime "Operar como cliente"
-  if (await isRuntimeReadOnlyActive()) return { error: RUNTIME_READONLY_MESSAGE };
-
+  let handle;
   try {
-    const commercialCtx = await resolveCommercialEnforcementContext(tenantId);
-    assertOrganizationModule(commercialCtx, "commerce.suppliers");
+    handle = await requireOperationalContext(sessionUser, { module: "commerce.suppliers", write: true });
   } catch (err) {
-    if (err instanceof CommercialEnforcementError) return { error: err.userMessage };
+    if (err instanceof OperationalContextError) return { error: err.userMessage };
     throw err;
   }
+  const { context, dispose } = handle;
 
-  // 2. Parseo de FormData
-  const id            = str(formData.get("id"));
-  const activity_code = strNullable(formData.get("activity_code"));
-  const activity_name = strNullable(formData.get("activity_name"));
+  try {
+    if (!getCapabilities(context.effectiveUser.role as UserRole).canManageStaff) {
+      return { error: "Sin permisos para esta operación." };
+    }
 
-  if (!id) return { error: "ID del proveedor requerido." };
+    // 2. Parseo de FormData
+    const id            = str(formData.get("id"));
+    const activity_code = strNullable(formData.get("activity_code"));
+    const activity_name = strNullable(formData.get("activity_name"));
 
-  // 3. Coherencia code / name
-  if (activity_code && !activity_name) {
-    return { error: "Si se asigna un código de actividad, el nombre es requerido." };
+    if (!id) return { error: "ID del proveedor requerido." };
+
+    // 3. Coherencia code / name
+    if (activity_code && !activity_name) {
+      return { error: "Si se asigna un código de actividad, el nombre es requerido." };
+    }
+
+    // 4. Delegación al service
+    const result = await updateSupplierActivity(context.tenantId, context.effectiveUser.id, {
+      id,
+      activity_code,
+      activity_name,
+    }, context.client);
+
+    if (!result.ok) return { error: result.error };
+
+    // 5. Revalidación del listado y detalle
+    revalidatePath("/dashboard/suppliers");
+  } finally {
+    await dispose();
   }
-
-  // 4. Delegación al service
-  const result = await updateSupplierActivity(tenantId, sessionUser.id, {
-    id,
-    activity_code,
-    activity_name,
-  });
-
-  if (!result.ok) return { error: result.error };
-
-  // 5. Revalidación del listado y detalle
-  revalidatePath("/dashboard/suppliers");
 }

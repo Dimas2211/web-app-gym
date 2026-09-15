@@ -24,12 +24,18 @@
 // simples sobre una sola tabla. Sin efectos derivados.
 // ─────────────────────────────────────────────────────────────────
 
-import { Prisma } from "@prisma/client";
+import { Prisma, type PrismaClient } from "@prisma/client";
 import { prisma } from "@/lib/db/prisma";
 import type { CreateSupplierInput } from "../schemas/create-supplier.schema";
 import type { UpdateSupplierInput } from "../schemas/update-supplier.schema";
 import type { QuickCreateSupplierInput } from "../schemas/quick-create-supplier.schema";
 import type { ToggleSupplierStatusInput } from "../schemas/toggle-supplier-status.schema";
+
+// FASE VI-D2 — ETAPA F/G/P: `db` opcional, default Prisma global SOLO
+// para compatibilidad de callers no migrados. Todo entry point de este
+// módulo (route handlers, server actions) SIEMPRE pasa `context.client`
+// explícito — nunca alcanzar este default desde RUNTIME_CLIENT.
+type DbClient = PrismaClient | Prisma.TransactionClient;
 
 // ── Tipos de resultado ────────────────────────────────────────────
 
@@ -86,8 +92,9 @@ function generateProvisionalCode(name: string): string {
 async function supplierCodeExists(
   tenantId: string,
   supplierCode: string,
+  db: DbClient,
 ): Promise<boolean> {
-  const existing = await prisma.supplier.findFirst({
+  const existing = await db.supplier.findFirst({
     where: { tenant_id: tenantId, supplier_code: supplierCode },
     select: { id: true },
   });
@@ -98,8 +105,8 @@ async function supplierCodeExists(
  * Valida que activity_code exista y esté activo en el catálogo.
  * Solo se llama si activity_code viene informado.
  */
-async function validateActivityCode(code: string): Promise<boolean> {
-  const found = await prisma.economicActivity.findFirst({
+async function validateActivityCode(code: string, db: DbClient): Promise<boolean> {
+  const found = await db.economicActivity.findFirst({
     where: { code, status: "active" },
     select: { code: true },
   });
@@ -110,8 +117,8 @@ async function validateActivityCode(code: string): Promise<boolean> {
  * Valida que country_code exista y esté activo en el catálogo.
  * Solo se llama si country_code viene informado.
  */
-async function validateCountryCode(code: string): Promise<boolean> {
-  const found = await prisma.country.findFirst({
+async function validateCountryCode(code: string, db: DbClient): Promise<boolean> {
+  const found = await db.country.findFirst({
     where: { code, status: "active" },
     select: { code: true },
   });
@@ -125,9 +132,9 @@ async function validateCountryCode(code: string): Promise<boolean> {
 async function validateCatalogFields(data: {
   activity_code?: string | null;
   country_code?:  string | null;
-}): Promise<{ ok: false; code: "INVALID_CATALOG"; error: string; field: string } | null> {
+}, db: DbClient): Promise<{ ok: false; code: "INVALID_CATALOG"; error: string; field: string } | null> {
   if (data.activity_code) {
-    const valid = await validateActivityCode(data.activity_code);
+    const valid = await validateActivityCode(data.activity_code, db);
     if (!valid) {
       return {
         ok:    false,
@@ -139,7 +146,7 @@ async function validateCatalogFields(data: {
   }
 
   if (data.country_code) {
-    const valid = await validateCountryCode(data.country_code);
+    const valid = await validateCountryCode(data.country_code, db);
     if (!valid) {
       return {
         ok:    false,
@@ -167,9 +174,10 @@ export async function createSupplier(
   tenantId: string,
   userId:   string,
   input:    CreateSupplierInput,
+  db:       DbClient = prisma,
 ): Promise<CreateSupplierResult> {
   // 1. Unicidad de supplier_code dentro del tenant
-  if (await supplierCodeExists(tenantId, input.supplier_code)) {
+  if (await supplierCodeExists(tenantId, input.supplier_code, db)) {
     return {
       ok:    false,
       code:  "DUPLICATE_CODE",
@@ -182,12 +190,12 @@ export async function createSupplier(
   const catalogError = await validateCatalogFields({
     activity_code: input.activity_code,
     country_code:  input.country_code,
-  });
+  }, db);
   if (catalogError) return catalogError;
 
   // 3. Persistencia
   try {
-    const supplier = await prisma.supplier.create({
+    const supplier = await db.supplier.create({
       data: {
         tenant_id:     tenantId,
         supplier_code: input.supplier_code,
@@ -266,9 +274,10 @@ export async function updateSupplier(
   tenantId: string,
   userId:   string,
   input:    UpdateSupplierInput,
+  db:       DbClient = prisma,
 ): Promise<SupplierResult> {
   // 1. Verificar existencia dentro del tenant (previene fuga entre tenants)
-  const existing = await prisma.supplier.findFirst({
+  const existing = await db.supplier.findFirst({
     where:  { id: input.id, tenant_id: tenantId },
     select: { id: true },
   });
@@ -284,13 +293,13 @@ export async function updateSupplier(
   const catalogError = await validateCatalogFields({
     activity_code: input.activity_code,
     country_code:  input.country_code,
-  });
+  }, db);
   if (catalogError) return catalogError;
 
   // 3. Persistencia — solo campos que vienen en el input
   //    Los campos opcionales usan spread condicional para no sobreescribir
   //    valores existentes con undefined (Prisma ignora undefined en update).
-  await prisma.supplier.update({
+  await db.supplier.update({
     where: { id: input.id },
     data: {
       name:          input.name,
@@ -355,9 +364,10 @@ export async function updateSupplierActivity(
     activity_code: string | null;
     activity_name: string | null;
   },
+  db: DbClient = prisma,
 ): Promise<SupplierResult> {
   // 1. Verificar existencia dentro del tenant
-  const existing = await prisma.supplier.findFirst({
+  const existing = await db.supplier.findFirst({
     where:  { id: input.id, tenant_id: tenantId },
     select: { id: true },
   });
@@ -371,7 +381,7 @@ export async function updateSupplierActivity(
 
   // 2. Validar catálogo si viene código no-null
   if (input.activity_code) {
-    const valid = await validateActivityCode(input.activity_code);
+    const valid = await validateActivityCode(input.activity_code, db);
     if (!valid) {
       return {
         ok:    false,
@@ -383,7 +393,7 @@ export async function updateSupplierActivity(
   }
 
   // 3. Persistencia — solo los dos campos de giro + auditoría
-  await prisma.supplier.update({
+  await db.supplier.update({
     where: { id: input.id },
     data: {
       activity_code: input.activity_code,
@@ -422,9 +432,10 @@ export async function updateSupplierAddress(
     country_name:       string | null;
     address_complement: string | null;
   },
+  db: DbClient = prisma,
 ): Promise<SupplierResult> {
   // 1. Verificar existencia dentro del tenant
-  const existing = await prisma.supplier.findFirst({
+  const existing = await db.supplier.findFirst({
     where:  { id: input.id, tenant_id: tenantId },
     select: { id: true },
   });
@@ -438,7 +449,7 @@ export async function updateSupplierAddress(
 
   // 2. Validar país si viene no-null
   if (input.country_code) {
-    const valid = await validateCountryCode(input.country_code);
+    const valid = await validateCountryCode(input.country_code, db);
     if (!valid) {
       return {
         ok:    false,
@@ -450,7 +461,7 @@ export async function updateSupplierAddress(
   }
 
   // 3. Persistencia — solo los campos de dirección + auditoría
-  await prisma.supplier.update({
+  await db.supplier.update({
     where: { id: input.id },
     data: {
       dept_code:          input.dept_code,
@@ -486,9 +497,10 @@ export async function toggleSupplierStatus(
   tenantId: string,
   userId:   string,
   input:    ToggleSupplierStatusInput,
+  db:       DbClient = prisma,
 ): Promise<SupplierResult> {
   // Verificar existencia dentro del tenant
-  const existing = await prisma.supplier.findFirst({
+  const existing = await db.supplier.findFirst({
     where:  { id: input.id, tenant_id: tenantId },
     select: { id: true, status: true },
   });
@@ -511,7 +523,7 @@ export async function toggleSupplierStatus(
     };
   }
 
-  await prisma.supplier.update({
+  await db.supplier.update({
     where: { id: input.id },
     data: {
       status:     input.status,
@@ -540,15 +552,16 @@ export async function quickCreateSupplier(
   tenantId: string,
   userId:   string,
   input:    QuickCreateSupplierInput,
+  db:       DbClient = prisma,
 ): Promise<CreateSupplierResult> {
   // Generar código provisional — con un reintento en caso de colisión
   let supplierCode = generateProvisionalCode(input.name);
-  if (await supplierCodeExists(tenantId, supplierCode)) {
+  if (await supplierCodeExists(tenantId, supplierCode, db)) {
     supplierCode = generateProvisionalCode(input.name); // segundo intento con distinto rand
   }
 
   try {
-    const supplier = await prisma.supplier.create({
+    const supplier = await db.supplier.create({
       data: {
         tenant_id:     tenantId,
         supplier_code: supplierCode,

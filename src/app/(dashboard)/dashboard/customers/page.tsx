@@ -44,7 +44,9 @@ export default async function CustomersPage() {
       <CustomersClient
         initialItems={result.items}
         initialTotal={result.total}
-        canManage={!context.runtime}
+        // FASE VI-D2: `readOnly` cubre Support Session (siempre readOnly);
+        // RUNTIME_CLIENT válido es readOnly=false.
+        canManage={!context.readOnly}
       />
     );
   } finally {

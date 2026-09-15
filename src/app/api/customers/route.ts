@@ -8,11 +8,17 @@
 export const dynamic = "force-dynamic";
 
 import { NextRequest, NextResponse } from "next/server";
-import { requireAdmin } from "@/lib/permissions/guards";
+import { auth } from "@/lib/auth/auth";
+import type { SessionUser } from "@/lib/permissions/guards";
+import { getCapabilities } from "@/core/permissions/role-capabilities";
+import type { UserRole } from "@prisma/client";
 import { listCustomers } from "@/modules/commerce/customers/queries/list-customers";
 import { createCustomerSchema } from "@/modules/commerce/customers/schemas/customer.schemas";
 import { createCustomer } from "@/modules/commerce/customers/services/customer.service";
-import { isRuntimeReadOnlyActive, RUNTIME_READONLY_MESSAGE } from "@/modules/platform/runtime/runtime-session";
+import {
+  requireOperationalContext,
+  OperationalContextError,
+} from "@/modules/platform/runtime/require-operational-context";
 import { getCustomerApiContext } from "./customer-api-context";
 import type { CustomerStatus } from "@/modules/commerce/customers/types/customer.types";
 
@@ -67,39 +73,56 @@ export async function GET(req: NextRequest) {
 // ── POST — crear cliente ───────────────────────────────────────────
 
 export async function POST(req: NextRequest) {
-  const sessionUser = await requireAdmin();
-  const tenant_id   = sessionUser.tenant_id;
-
-  if (!tenant_id) {
-    return NextResponse.json({ ok: false, error: "Sesión sin tenant activo." }, { status: 401 });
+  const session = await auth();
+  if (!session?.user) {
+    return NextResponse.json({ ok: false, error: "No autorizado." }, { status: 401 });
   }
+  const user = session.user as SessionUser;
 
-  // PASO 6A: bloquear escritura bajo sesión runtime "Operar como cliente"
-  if (await isRuntimeReadOnlyActive()) {
-    return NextResponse.json({ ok: false, error: RUNTIME_READONLY_MESSAGE }, { status: 403 });
+  // FASE VI-D2 — resolver contexto operacional ANTES de tocar cualquier
+  // dato: cubre RUNTIME_CLIENT fail-closed, Support Session readOnly y
+  // enforcement de módulo. La autorización por capability usa el ROL
+  // LIVE (context.effectiveUser.role), no el rol del JWT.
+  let handle;
+  try {
+    handle = await requireOperationalContext(user, { module: "core.customers", write: true });
+  } catch (err) {
+    if (err instanceof OperationalContextError) {
+      return NextResponse.json({ ok: false, error: err.userMessage }, { status: err.httpStatus });
+    }
+    throw err;
   }
+  const { context, dispose } = handle;
 
-  const body = await req.json().catch(() => null);
-  if (!body) {
-    return NextResponse.json({ ok: false, error: "Body JSON requerido." }, { status: 400 });
-  }
+  try {
+    if (!getCapabilities(context.effectiveUser.role as UserRole).canManageStaff) {
+      return NextResponse.json({ ok: false, error: "Sin permisos para esta operación." }, { status: 403 });
+    }
 
-  const parsed = createCustomerSchema.safeParse(body);
-  if (!parsed.success) {
+    const body = await req.json().catch(() => null);
+    if (!body) {
+      return NextResponse.json({ ok: false, error: "Body JSON requerido." }, { status: 400 });
+    }
+
+    const parsed = createCustomerSchema.safeParse(body);
+    if (!parsed.success) {
+      return NextResponse.json(
+        { ok: false, errors: parsed.error.flatten().fieldErrors },
+        { status: 400 },
+      );
+    }
+
+    const result = await createCustomer(context.tenantId, context.effectiveUser.id, parsed.data, context.client);
+
+    if (!result.ok) {
+      return NextResponse.json({ ok: false, error: result.error }, { status: 422 });
+    }
+
     return NextResponse.json(
-      { ok: false, errors: parsed.error.flatten().fieldErrors },
-      { status: 400 },
+      { ok: true, data: { id: result.id, customer_code: result.customer_code } },
+      { status: 201 },
     );
+  } finally {
+    await dispose();
   }
-
-  const result = await createCustomer(tenant_id, sessionUser.id, parsed.data);
-
-  if (!result.ok) {
-    return NextResponse.json({ ok: false, error: result.error }, { status: 422 });
-  }
-
-  return NextResponse.json(
-    { ok: true, data: { id: result.id, customer_code: result.customer_code } },
-    { status: 201 },
-  );
 }

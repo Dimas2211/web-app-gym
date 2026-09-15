@@ -15,16 +15,16 @@
 // ─────────────────────────────────────────────────────────────────
 
 import { revalidatePath } from "next/cache";
+import type { UserRole } from "@prisma/client";
 import { requireAdmin } from "@/lib/permissions/guards";
-import { isRuntimeReadOnlyActive, RUNTIME_READONLY_MESSAGE } from "@/modules/platform/runtime/runtime-session";
+import { getCapabilities } from "@/core/permissions/role-capabilities";
+import {
+  requireOperationalContext,
+  OperationalContextError,
+} from "@/modules/platform/runtime/require-operational-context";
 import { str } from "@/lib/utils/form-data-parsers";
 import { toggleSupplierStatusSchema } from "../schemas/toggle-supplier-status.schema";
 import { toggleSupplierStatus } from "../services/supplier.service";
-import {
-  resolveCommercialEnforcementContext,
-  assertOrganizationModule,
-  CommercialEnforcementError,
-} from "@/modules/platform/runtime/commercial-enforcement";
 
 export type ToggleSupplierStatusState =
   | { errors?: Record<string, string[]>; error?: string }
@@ -36,42 +36,46 @@ export async function toggleSupplierStatusAction(
 ): Promise<ToggleSupplierStatusState> {
   // 1. Sesión y permisos
   const sessionUser = await requireAdmin();
-  const tenantId    = sessionUser.tenant_id;
-  if (!tenantId) return { error: "La sesión no tiene un tenant activo." };
 
-  // PASO 6A: bloquear escritura bajo sesión runtime "Operar como cliente"
-  if (await isRuntimeReadOnlyActive()) return { error: RUNTIME_READONLY_MESSAGE };
-
+  let handle;
   try {
-    const commercialCtx = await resolveCommercialEnforcementContext(tenantId);
-    assertOrganizationModule(commercialCtx, "commerce.suppliers");
+    handle = await requireOperationalContext(sessionUser, { module: "commerce.suppliers", write: true });
   } catch (err) {
-    if (err instanceof CommercialEnforcementError) return { error: err.userMessage };
+    if (err instanceof OperationalContextError) return { error: err.userMessage };
     throw err;
   }
+  const { context, dispose } = handle;
 
-  // 2. Parseo de FormData (solo id y status)
-  const raw = {
-    id:     str(formData.get("id")),
-    status: str(formData.get("status")),
-  };
+  try {
+    if (!getCapabilities(context.effectiveUser.role as UserRole).canManageStaff) {
+      return { error: "Sin permisos para esta operación." };
+    }
 
-  // 3. Validación Zod
-  const parsed = toggleSupplierStatusSchema.safeParse(raw);
-  if (!parsed.success) {
-    return { errors: parsed.error.flatten().fieldErrors };
+    // 2. Parseo de FormData (solo id y status)
+    const raw = {
+      id:     str(formData.get("id")),
+      status: str(formData.get("status")),
+    };
+
+    // 3. Validación Zod
+    const parsed = toggleSupplierStatusSchema.safeParse(raw);
+    if (!parsed.success) {
+      return { errors: parsed.error.flatten().fieldErrors };
+    }
+
+    // 4. Delegación al service
+    const result = await toggleSupplierStatus(context.tenantId, context.effectiveUser.id, parsed.data, context.client);
+
+    if (!result.ok) {
+      return result.field
+        ? { errors: { [result.field]: [result.error] } }
+        : { error: result.error };
+    }
+
+    // 5. Revalidación del listado y del detalle
+    revalidatePath("/dashboard/suppliers");
+    revalidatePath(`/dashboard/suppliers/${parsed.data.id}`);
+  } finally {
+    await dispose();
   }
-
-  // 4. Delegación al service
-  const result = await toggleSupplierStatus(tenantId, sessionUser.id, parsed.data);
-
-  if (!result.ok) {
-    return result.field
-      ? { errors: { [result.field]: [result.error] } }
-      : { error: result.error };
-  }
-
-  // 5. Revalidación del listado y del detalle
-  revalidatePath("/dashboard/suppliers");
-  revalidatePath(`/dashboard/suppliers/${parsed.data.id}`);
 }

@@ -14,19 +14,14 @@
 // para cerrar el PrismaClient runtime si se abrió uno.
 // ─────────────────────────────────────────────────────────────────
 
-import type { PrismaClient } from "@prisma/client";
+import type { PrismaClient, UserRole } from "@prisma/client";
 import { auth } from "@/lib/auth/auth";
-import type { UserRole } from "@prisma/client";
+import type { SessionUser } from "@/lib/permissions/guards";
 import { getCapabilities } from "@/core/permissions/role-capabilities";
 import {
-  resolveEffectiveApiContext,
-  type RuntimeSessionPayload,
-} from "@/modules/platform/runtime/effective-tenant-context";
-import {
-  resolveCommercialEnforcementContext,
-  assertOrganizationModule,
-  CommercialEnforcementError,
-} from "@/modules/platform/runtime/commercial-enforcement";
+  requireOperationalContext,
+  OperationalContextError,
+} from "@/modules/platform/runtime/require-operational-context";
 
 type CustomerApiContext =
   | {
@@ -34,48 +29,48 @@ type CustomerApiContext =
       user_id:    string;
       tenant_id:  string;
       client:     PrismaClient;
-      runtime:    RuntimeSessionPayload | null;
+      /** true si la operación debe tratarse como solo-lectura (Support Session). */
+      readOnly:   boolean;
       dispose:    () => Promise<void>;
     }
   | { ok: false; status: number; error: string };
 
+/**
+ * FASE VI-D2 — ETAPA E: runtime-aware vía requireOperationalContext.
+ * La autorización por capability usa el ROL LIVE (context.effectiveUser.role)
+ * para RUNTIME_CLIENT — nunca `session.user.role` (JWT, hasta 8h stale).
+ */
 export async function getCustomerApiContext(): Promise<CustomerApiContext> {
   const session = await auth();
-  const user = session?.user;
+  const user = session?.user as SessionUser | undefined;
 
   if (!user) {
     return { ok: false, status: 401, error: "No autorizado." };
   }
 
-  const role = user.role as UserRole;
-  if (!getCapabilities(role).canManageStaff) {
-    return { ok: false, status: 403, error: "Sin permisos para esta operación." };
-  }
-
-  const tenant_id = user.tenant_id;
-  if (!tenant_id) {
-    return { ok: false, status: 401, error: "Sesión sin tenant activo." };
-  }
-
-  const { context, dispose } = await resolveEffectiveApiContext({ tenantId: tenant_id });
-
+  let handle;
   try {
-    const commercialCtx = await resolveCommercialEnforcementContext(context.tenantId);
-    assertOrganizationModule(commercialCtx, "core.customers");
+    handle = await requireOperationalContext(user, { module: "core.customers" });
   } catch (err) {
-    await dispose();
-    if (err instanceof CommercialEnforcementError) {
+    if (err instanceof OperationalContextError) {
       return { ok: false, status: err.httpStatus, error: err.userMessage };
     }
     throw err;
   }
 
+  const { context, dispose } = handle;
+
+  if (!getCapabilities(context.effectiveUser.role as UserRole).canManageStaff) {
+    await dispose();
+    return { ok: false, status: 403, error: "Sin permisos para esta operación." };
+  }
+
   return {
     ok:        true,
-    user_id:   user.id!,
+    user_id:   context.effectiveUser.id,
     tenant_id: context.tenantId,
     client:    context.client,
-    runtime:   context.runtime,
+    readOnly:  context.readOnly,
     dispose,
   };
 }

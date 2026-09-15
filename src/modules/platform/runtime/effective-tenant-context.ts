@@ -75,6 +75,14 @@ export interface EffectiveTenantContext {
   runtimeMode: RuntimeMode;
   /** true en SUPPORT_RUNTIME (Support Session siempre es solo lectura). false en los otros dos modos. */
   readOnly: boolean;
+  /**
+   * FASE VI-D2 — ETAPA A. Rol a usar para autorización operacional.
+   * RUNTIME_CLIENT: rol LIVE revalidado contra runtimeDb en esta misma
+   * resolución (requireRuntimeOrganizationContext) — nunca el rol
+   * congelado en el JWT. PLATFORM_NATIVE/SUPPORT_RUNTIME: `user.role`
+   * del JWT, sin cambios de comportamiento en esta fase.
+   */
+  effectiveRole: string;
 }
 
 export interface EffectiveTenantContextHandle {
@@ -102,12 +110,13 @@ export async function resolveEffectiveTenantContext(
     const { context: runtimeCtx, dispose } = await requireRuntimeOrganizationContext(user);
     return {
       context: {
-        tenantId:    runtimeCtx.tenantId,
-        client:      runtimeCtx.runtimeDb,
-        runtime:     null,
-        locationId:  runtimeCtx.locationId,
-        runtimeMode: "RUNTIME_CLIENT",
-        readOnly:    false,
+        tenantId:      runtimeCtx.tenantId,
+        client:        runtimeCtx.runtimeDb,
+        runtime:       null,
+        locationId:    runtimeCtx.locationId,
+        runtimeMode:   "RUNTIME_CLIENT",
+        readOnly:      false,
+        effectiveRole: runtimeCtx.role,
       },
       dispose,
     };
@@ -115,11 +124,12 @@ export async function resolveEffectiveTenantContext(
 
   const normal: EffectiveTenantContextHandle = {
     context: {
-      tenantId:    user.tenant_id as string,
-      runtime:     null,
-      locationId:  user.location_id,
-      runtimeMode: "PLATFORM_NATIVE",
-      readOnly:    false,
+      tenantId:      user.tenant_id as string,
+      runtime:       null,
+      locationId:    user.location_id,
+      runtimeMode:   "PLATFORM_NATIVE",
+      readOnly:      false,
+      effectiveRole: user.role,
     },
     dispose: NOOP_DISPOSE,
   };
@@ -132,12 +142,13 @@ export async function resolveEffectiveTenantContext(
     const { client, disconnect } = createRuntimePrismaClient(profile);
     return {
       context: {
-        tenantId:    profile.tenantId,
+        tenantId:      profile.tenantId,
         client,
         runtime,
-        locationId:  null,
-        runtimeMode: "SUPPORT_RUNTIME",
-        readOnly:    true,
+        locationId:    null,
+        runtimeMode:   "SUPPORT_RUNTIME",
+        readOnly:      true,
+        effectiveRole: user.role,
       },
       dispose: disconnect,
     };
@@ -191,6 +202,8 @@ export interface EffectiveApiContext {
   runtime:     RuntimeSessionPayload | null;
   runtimeMode: RuntimeMode;
   readOnly:    boolean;
+  /** FASE VI-D2 — ver EffectiveTenantContext.effectiveRole. Ausente ("") si `user` no se pasó (callers no migrados). */
+  effectiveRole: string;
 }
 
 export interface EffectiveApiContextHandle {
@@ -222,7 +235,7 @@ export interface EffectiveApiContextHandle {
  */
 export async function resolveEffectiveApiContext(
   base: { tenantId: string; locationId?: string | null },
-  user?: Pick<SessionUser, "id" | "auth_scope" | "organization_id" | "tenant_id" | "location_id">,
+  user?: Pick<SessionUser, "id" | "auth_scope" | "organization_id" | "tenant_id" | "location_id" | "role">,
 ): Promise<EffectiveApiContextHandle> {
   // Defensa en profundidad: muchos Route Handlers construyen `user` con
   // `session.user as SessionUser` directamente desde `auth()`, sin pasar
@@ -235,12 +248,13 @@ export async function resolveEffectiveApiContext(
     const { context: runtimeCtx, dispose } = await requireRuntimeOrganizationContext(user);
     return {
       context: {
-        tenantId:    runtimeCtx.tenantId,
-        locationId:  runtimeCtx.locationId,
-        client:      runtimeCtx.runtimeDb,
-        runtime:     null,
-        runtimeMode: "RUNTIME_CLIENT",
-        readOnly:    false,
+        tenantId:      runtimeCtx.tenantId,
+        locationId:    runtimeCtx.locationId,
+        client:        runtimeCtx.runtimeDb,
+        runtime:       null,
+        runtimeMode:   "RUNTIME_CLIENT",
+        readOnly:      false,
+        effectiveRole: runtimeCtx.role,
       },
       dispose,
     };
@@ -248,12 +262,13 @@ export async function resolveEffectiveApiContext(
 
   const normal: EffectiveApiContextHandle = {
     context: {
-      tenantId:    base.tenantId,
-      locationId:  base.locationId ?? null,
-      client:      prisma,
-      runtime:     null,
-      runtimeMode: "PLATFORM_NATIVE",
-      readOnly:    false,
+      tenantId:      base.tenantId,
+      locationId:    base.locationId ?? null,
+      client:        prisma,
+      runtime:       null,
+      runtimeMode:   "PLATFORM_NATIVE",
+      readOnly:      false,
+      effectiveRole: user?.role ?? "",
     },
     dispose: NOOP_DISPOSE,
   };
@@ -277,6 +292,7 @@ export async function resolveEffectiveApiContext(
         runtime,
         runtimeMode: "SUPPORT_RUNTIME",
         readOnly:    true,
+        effectiveRole: user?.role ?? "",
       },
       dispose: disconnect,
     };

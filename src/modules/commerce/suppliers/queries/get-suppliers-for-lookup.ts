@@ -13,6 +13,7 @@
 // ─────────────────────────────────────────────────────────────────
 
 import { prisma } from "@/lib/db/prisma";
+import type { PrismaClient } from "@prisma/client";
 import type { SupplierForPurchaseLookup } from "../types/supplier.types";
 
 const LOOKUP_LIMIT = 50;
@@ -42,10 +43,11 @@ export async function getSuppliersForLookup(
   tenantId: string,
   search?: string,
   activeOnly = true,
+  client: PrismaClient = prisma,
 ): Promise<SupplierForPurchaseLookup[]> {
   const term = search?.trim();
 
-  const rows = await prisma.supplier.findMany({
+  const rows = await client.supplier.findMany({
     where: {
       tenant_id: tenantId,
       ...(activeOnly && { status: "active" }),

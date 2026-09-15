@@ -106,15 +106,15 @@ describe("requireRuntimeOrganizationContext — fail closed", () => {
     });
   });
 
-  function fakeRuntimeUser(row: { status: string; gym_id: string } | null) {
+  function fakeRuntimeUser(row: { status: string; gym_id: string; role?: string } | null) {
     return { user: { findUnique: vi.fn().mockResolvedValue(row) } };
   }
 
-  it("caso exitoso: retorna contexto con dispose(), tenantId y locationId de sesión", async () => {
+  it("caso exitoso: retorna contexto con dispose(), tenantId, locationId y role LIVE de sesión", async () => {
     const client = fakeControlPlane(ORG_OK);
     resolveRuntimeDatabaseProfileForOrganizationMock.mockResolvedValue({ id: "profile-1" });
     const disconnect = vi.fn().mockResolvedValue(undefined);
-    const runtimeUser = fakeRuntimeUser({ status: "active", gym_id: "tenant-1" });
+    const runtimeUser = fakeRuntimeUser({ status: "active", gym_id: "tenant-1", role: "reception" });
     createRuntimePrismaClientMock.mockReturnValue({
       client: { fake: "runtime-prisma", ...runtimeUser },
       disconnect,
@@ -126,13 +126,27 @@ describe("requireRuntimeOrganizationContext — fail closed", () => {
     expect(handle.context.locationId).toBe("branch-1");
     expect(handle.context.authScope).toBe("RUNTIME_CLIENT");
     expect(handle.context.organization).toEqual({ id: "org-1", name: "Org 1", tenantId: "tenant-1" });
+    expect(handle.context.role).toBe("reception");
     expect(runtimeUser.user.findUnique).toHaveBeenCalledWith({
       where: { id: "u1" },
-      select: { status: true, gym_id: true },
+      select: { status: true, gym_id: true, role: true },
     });
 
     await handle.dispose();
     expect(disconnect).toHaveBeenCalledTimes(1);
+  });
+
+  it("FASE VI-D2 — role LIVE de runtimeDb difiere del role del JWT (baseUser no lo trae): siempre gana la DB", async () => {
+    const client = fakeControlPlane(ORG_OK);
+    resolveRuntimeDatabaseProfileForOrganizationMock.mockResolvedValue({ id: "profile-1" });
+    const disconnect = vi.fn().mockResolvedValue(undefined);
+    createRuntimePrismaClientMock.mockReturnValue({
+      client: { fake: "runtime-prisma", ...fakeRuntimeUser({ status: "active", gym_id: "tenant-1", role: "branch_admin" }) },
+      disconnect,
+    });
+
+    const handle = await requireRuntimeOrganizationContext(baseUser(), client);
+    expect(handle.context.role).toBe("branch_admin");
   });
 
   it("errores lanzados son instancia de RuntimeIdentityError", async () => {

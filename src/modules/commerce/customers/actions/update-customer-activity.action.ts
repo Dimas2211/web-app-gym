@@ -16,15 +16,15 @@
 // ─────────────────────────────────────────────────────────────────
 
 import { revalidatePath } from "next/cache";
+import type { UserRole } from "@prisma/client";
 import { requireAdmin } from "@/lib/permissions/guards";
-import { isRuntimeReadOnlyActive, RUNTIME_READONLY_MESSAGE } from "@/modules/platform/runtime/runtime-session";
+import { getCapabilities } from "@/core/permissions/role-capabilities";
+import {
+  requireOperationalContext,
+  OperationalContextError,
+} from "@/modules/platform/runtime/require-operational-context";
 import { str, strNullable } from "@/lib/utils/form-data-parsers";
 import { updateCustomer } from "../services/customer.service";
-import {
-  resolveCommercialEnforcementContext,
-  assertOrganizationModule,
-  CommercialEnforcementError,
-} from "@/modules/platform/runtime/commercial-enforcement";
 
 export type UpdateCustomerActivityState =
   | { error: string }
@@ -35,36 +35,40 @@ export async function updateCustomerActivityAction(
   formData: FormData,
 ): Promise<UpdateCustomerActivityState> {
   const sessionUser = await requireAdmin();
-  const tenantId    = sessionUser.tenant_id;
-  if (!tenantId) return { error: "La sesión no tiene un tenant activo." };
 
-  // PASO 6A: bloquear escritura bajo sesión runtime "Operar como cliente"
-  if (await isRuntimeReadOnlyActive()) return { error: RUNTIME_READONLY_MESSAGE };
-
+  let handle;
   try {
-    const commercialCtx = await resolveCommercialEnforcementContext(tenantId);
-    assertOrganizationModule(commercialCtx, "core.customers");
+    handle = await requireOperationalContext(sessionUser, { module: "core.customers", write: true });
   } catch (err) {
-    if (err instanceof CommercialEnforcementError) return { error: err.userMessage };
+    if (err instanceof OperationalContextError) return { error: err.userMessage };
     throw err;
   }
+  const { context, dispose } = handle;
 
-  const id            = str(formData.get("id"));
-  const activity_code = strNullable(formData.get("activity_code"));
-  const activity_name = strNullable(formData.get("activity_name"));
+  try {
+    if (!getCapabilities(context.effectiveUser.role as UserRole).canManageStaff) {
+      return { error: "Sin permisos para esta operación." };
+    }
 
-  if (!id) return { error: "ID del cliente requerido." };
+    const id            = str(formData.get("id"));
+    const activity_code = strNullable(formData.get("activity_code"));
+    const activity_name = strNullable(formData.get("activity_name"));
 
-  if (activity_code && !activity_name) {
-    return { error: "Si se asigna un código de actividad, el nombre es requerido." };
+    if (!id) return { error: "ID del cliente requerido." };
+
+    if (activity_code && !activity_name) {
+      return { error: "Si se asigna un código de actividad, el nombre es requerido." };
+    }
+
+    const result = await updateCustomer(id, context.tenantId, context.effectiveUser.id, {
+      activity_code,
+      activity_name,
+    }, context.client);
+
+    if (!result.ok) return { error: result.error };
+
+    revalidatePath("/dashboard/customers");
+  } finally {
+    await dispose();
   }
-
-  const result = await updateCustomer(id, tenantId, sessionUser.id, {
-    activity_code,
-    activity_name,
-  });
-
-  if (!result.ok) return { error: result.error };
-
-  revalidatePath("/dashboard/customers");
 }

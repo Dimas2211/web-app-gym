@@ -79,6 +79,8 @@ describe("resolveEffectiveTenantContext", () => {
     expect(context.tenantId).toBe("tenant-superadmin-real");
     expect(context.runtime).toBeNull();
     expect(context.client).toBeUndefined();
+    // FASE VI-D2: PLATFORM_NATIVE usa el role del JWT tal cual, sin revalidar.
+    expect(context.effectiveRole).toBe("super_admin");
     await dispose(); // no-op, no debe lanzar
     expect(resolveRuntimeDatabaseProfileByIdMock).not.toHaveBeenCalled();
   });
@@ -157,6 +159,7 @@ describe("resolveEffectiveTenantContext", () => {
         locationId: "branch-trustme-1",
         runtimeDb: runtimeDbMarker,
         authScope: "RUNTIME_CLIENT",
+        role: "reception",
       },
       dispose: disposeMock,
     });
@@ -169,6 +172,11 @@ describe("resolveEffectiveTenantContext", () => {
     expect(context.runtime).toBeNull();
     expect(context.runtimeMode).toBe("RUNTIME_CLIENT");
     expect(context.readOnly).toBe(false);
+    // FASE VI-D2 — el role efectivo es el LIVE (reception), no el del
+    // JWT (RUNTIME_CLIENT_USER.role = "branch_admin"): demuestra
+    // ROLE_DOWNGRADE_TAKES_EFFECT_WITHOUT_RELOGIN a este nivel.
+    expect(context.effectiveRole).toBe("reception");
+    expect(context.effectiveRole).not.toBe(RUNTIME_CLIENT_USER.role);
     expect(requireRuntimeOrganizationContextMock).toHaveBeenCalledWith(RUNTIME_CLIENT_USER);
     expect(getRuntimeSessionMock).not.toHaveBeenCalled();
 

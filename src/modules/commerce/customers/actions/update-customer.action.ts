@@ -10,16 +10,16 @@
 // ─────────────────────────────────────────────────────────────────
 
 import { revalidatePath } from "next/cache";
+import type { UserRole } from "@prisma/client";
 import { requireAdmin } from "@/lib/permissions/guards";
-import { isRuntimeReadOnlyActive, RUNTIME_READONLY_MESSAGE } from "@/modules/platform/runtime/runtime-session";
+import { getCapabilities } from "@/core/permissions/role-capabilities";
+import {
+  requireOperationalContext,
+  OperationalContextError,
+} from "@/modules/platform/runtime/require-operational-context";
 import { updateCustomerSchema } from "../schemas/customer.schemas";
 import { updateCustomer } from "../services/customer.service";
 import type { UpdateCustomerInput } from "../schemas/customer.schemas";
-import {
-  resolveCommercialEnforcementContext,
-  assertOrganizationModule,
-  CommercialEnforcementError,
-} from "@/modules/platform/runtime/commercial-enforcement";
 
 export type UpdateCustomerActionResult =
   | { ok: true }
@@ -30,48 +30,47 @@ export async function updateCustomerAction(
   input:        UpdateCustomerInput,
 ): Promise<UpdateCustomerActionResult> {
   const sessionUser = await requireAdmin();
-  const tenant_id   = sessionUser.tenant_id;
-
-  if (!tenant_id) {
-    return { ok: false, error: "La sesión no tiene un tenant activo." };
-  }
 
   if (!customer_id?.trim()) {
     return { ok: false, error: "El ID del cliente es requerido." };
   }
 
-  // PASO 6A: bloquear escritura bajo sesión runtime "Operar como cliente"
-  if (await isRuntimeReadOnlyActive()) {
-    return { ok: false, error: RUNTIME_READONLY_MESSAGE };
-  }
-
+  let handle;
   try {
-    const commercialCtx = await resolveCommercialEnforcementContext(tenant_id);
-    assertOrganizationModule(commercialCtx, "core.customers");
+    handle = await requireOperationalContext(sessionUser, { module: "core.customers", write: true });
   } catch (err) {
-    if (err instanceof CommercialEnforcementError) return { ok: false, error: err.userMessage };
+    if (err instanceof OperationalContextError) return { ok: false, error: err.userMessage };
     throw err;
   }
+  const { context, dispose } = handle;
 
-  const parsed = updateCustomerSchema.safeParse(input);
-  if (!parsed.success) {
-    return {
-      ok:     false,
-      error:  "Datos de cliente no válidos.",
-      errors: parsed.error.flatten().fieldErrors as Record<string, string[]>,
-    };
+  try {
+    if (!getCapabilities(context.effectiveUser.role as UserRole).canManageStaff) {
+      return { ok: false, error: "Sin permisos para esta operación." };
+    }
+
+    const parsed = updateCustomerSchema.safeParse(input);
+    if (!parsed.success) {
+      return {
+        ok:     false,
+        error:  "Datos de cliente no válidos.",
+        errors: parsed.error.flatten().fieldErrors as Record<string, string[]>,
+      };
+    }
+
+    const result = await updateCustomer(customer_id, context.tenantId, context.effectiveUser.id, parsed.data, context.client);
+
+    if (!result.ok) {
+      return result.field
+        ? { ok: false, field: result.field, error: result.error }
+        : { ok: false, error: result.error };
+    }
+
+    revalidatePath("/dashboard/customers");
+    revalidatePath(`/dashboard/customers/${customer_id}`);
+
+    return { ok: true };
+  } finally {
+    await dispose();
   }
-
-  const result = await updateCustomer(customer_id, tenant_id, sessionUser.id, parsed.data);
-
-  if (!result.ok) {
-    return result.field
-      ? { ok: false, field: result.field, error: result.error }
-      : { ok: false, error: result.error };
-  }
-
-  revalidatePath("/dashboard/customers");
-  revalidatePath(`/dashboard/customers/${customer_id}`);
-
-  return { ok: true };
 }

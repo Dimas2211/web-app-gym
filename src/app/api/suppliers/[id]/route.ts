@@ -8,21 +8,18 @@ export const runtime = "nodejs";
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth/auth";
 import type { SessionUser } from "@/lib/permissions/guards";
+import { getCapabilities } from "@/core/permissions/role-capabilities";
+import type { UserRole } from "@prisma/client";
 import { getSupplierById } from "@/modules/commerce/suppliers/queries/get-supplier-by-id";
 import { updateSupplierSchema } from "@/modules/commerce/suppliers/schemas/update-supplier.schema";
 import {
   updateSupplier,
   type SupplierErrorCode,
 } from "@/modules/commerce/suppliers/services/supplier.service";
-import { resolveEffectiveApiContext } from "@/modules/platform/runtime/effective-tenant-context";
-import { isRuntimeReadOnlyActive, RUNTIME_READONLY_MESSAGE } from "@/modules/platform/runtime/runtime-session";
 import {
-  resolveCommercialEnforcementContext,
-  assertOrganizationModule,
-  CommercialEnforcementError,
-} from "@/modules/platform/runtime/commercial-enforcement";
-
-const ADMIN_ROLES = ["super_admin", "branch_admin"];
+  requireOperationalContext,
+  OperationalContextError,
+} from "@/modules/platform/runtime/require-operational-context";
 
 function toHttpStatus(code: SupplierErrorCode): number {
   switch (code) {
@@ -44,22 +41,22 @@ export async function GET(
   if (!session?.user) {
     return NextResponse.json({ error: "No autorizado" }, { status: 401 });
   }
-
   const user = session.user as SessionUser;
-  if (!ADMIN_ROLES.includes(user.role)) {
-    return NextResponse.json({ error: "Acceso denegado" }, { status: 403 });
-  }
 
-  const { context, dispose } = await resolveEffectiveApiContext({ tenantId: user.tenant_id });
+  let handle;
   try {
-    const commercialCtx = await resolveCommercialEnforcementContext(context.tenantId);
-    try {
-      assertOrganizationModule(commercialCtx, "commerce.suppliers");
-    } catch (err) {
-      if (err instanceof CommercialEnforcementError) {
-        return NextResponse.json({ error: err.userMessage }, { status: err.httpStatus });
-      }
-      throw err;
+    handle = await requireOperationalContext(user, { module: "commerce.suppliers" });
+  } catch (err) {
+    if (err instanceof OperationalContextError) {
+      return NextResponse.json({ error: err.userMessage }, { status: err.httpStatus });
+    }
+    throw err;
+  }
+  const { context, dispose } = handle;
+
+  try {
+    if (!getCapabilities(context.effectiveUser.role as UserRole).canManageStaff) {
+      return NextResponse.json({ error: "Acceso denegado" }, { status: 403 });
     }
 
     const supplier = await getSupplierById(context.tenantId, id, context.client);
@@ -86,55 +83,55 @@ export async function PATCH(
   if (!session?.user) {
     return NextResponse.json({ error: "No autorizado" }, { status: 401 });
   }
-
   const user = session.user as SessionUser;
-  if (!ADMIN_ROLES.includes(user.role)) {
-    return NextResponse.json({ error: "Acceso denegado" }, { status: 403 });
-  }
 
-  // PASO 6A: bloquear escritura bajo sesión runtime "Operar como cliente"
-  if (await isRuntimeReadOnlyActive()) {
-    return NextResponse.json({ error: RUNTIME_READONLY_MESSAGE }, { status: 403 });
-  }
-
-  const commercialCtx = await resolveCommercialEnforcementContext(user.tenant_id);
+  let handle;
   try {
-    assertOrganizationModule(commercialCtx, "commerce.suppliers");
+    handle = await requireOperationalContext(user, { module: "commerce.suppliers", write: true });
   } catch (err) {
-    if (err instanceof CommercialEnforcementError) {
+    if (err instanceof OperationalContextError) {
       return NextResponse.json({ error: err.userMessage }, { status: err.httpStatus });
     }
     throw err;
   }
+  const { context, dispose } = handle;
 
-  let body: unknown;
   try {
-    body = await req.json();
-  } catch {
-    return NextResponse.json({ error: "Cuerpo de la petición inválido." }, { status: 400 });
+    if (!getCapabilities(context.effectiveUser.role as UserRole).canManageStaff) {
+      return NextResponse.json({ error: "Acceso denegado" }, { status: 403 });
+    }
+
+    let body: unknown;
+    try {
+      body = await req.json();
+    } catch {
+      return NextResponse.json({ error: "Cuerpo de la petición inválido." }, { status: 400 });
+    }
+
+    // id viene del path param — se inyecta al objeto antes de validar.
+    // Si el body incluye id, el path param tiene prioridad.
+    const parsed = updateSupplierSchema.safeParse({
+      ...(body as object),
+      id,
+    });
+    if (!parsed.success) {
+      return NextResponse.json(
+        { errors: parsed.error.flatten().fieldErrors },
+        { status: 400 },
+      );
+    }
+
+    const result = await updateSupplier(context.tenantId, context.effectiveUser.id, parsed.data, context.client);
+
+    if (!result.ok) {
+      return NextResponse.json(
+        { error: result.error, ...(result.field && { field: result.field }) },
+        { status: toHttpStatus(result.code) },
+      );
+    }
+
+    return NextResponse.json({ success: true });
+  } finally {
+    await dispose();
   }
-
-  // id viene del path param — se inyecta al objeto antes de validar.
-  // Si el body incluye id, el path param tiene prioridad.
-  const parsed = updateSupplierSchema.safeParse({
-    ...(body as object),
-    id,
-  });
-  if (!parsed.success) {
-    return NextResponse.json(
-      { errors: parsed.error.flatten().fieldErrors },
-      { status: 400 },
-    );
-  }
-
-  const result = await updateSupplier(user.tenant_id, user.id, parsed.data);
-
-  if (!result.ok) {
-    return NextResponse.json(
-      { error: result.error, ...(result.field && { field: result.field }) },
-      { status: toHttpStatus(result.code) },
-    );
-  }
-
-  return NextResponse.json({ success: true });
 }

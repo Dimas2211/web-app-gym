@@ -4,15 +4,14 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@/lib/auth/auth";
 import type { SessionUser } from "@/lib/permissions/guards";
+import { getCapabilities } from "@/core/permissions/role-capabilities";
+import type { UserRole } from "@prisma/client";
 import { createSupplier } from "@/modules/commerce/suppliers/services/supplier.service";
 import { taxpayerTypeEnum } from "@/modules/commerce/suppliers/schemas/create-supplier.schema";
 import {
-  resolveCommercialEnforcementContext,
-  assertOrganizationModule,
-  CommercialEnforcementError,
-} from "@/modules/platform/runtime/commercial-enforcement";
-
-const ADMIN_ROLES = ["super_admin", "branch_admin"];
+  requireOperationalContext,
+  OperationalContextError,
+} from "@/modules/platform/runtime/require-operational-context";
 
 // Acepta NIT con guiones (0614-180389-101-1) o sin guiones (06141803891011).
 // En ambos casos se normaliza a formato con guiones antes de pasar al service,
@@ -58,75 +57,78 @@ export async function POST(req: NextRequest) {
   if (!session?.user) {
     return NextResponse.json({ error: "No autorizado" }, { status: 401 });
   }
-
   const user = session.user as SessionUser;
-  if (!ADMIN_ROLES.includes(user.role)) {
-    return NextResponse.json({ error: "Acceso denegado" }, { status: 403 });
-  }
-
-  if (!user.tenant_id) {
-    return NextResponse.json({ error: "La sesion no tiene un tenant activo." }, { status: 400 });
-  }
 
   // Alta rápida de proveedor exclusiva del flujo de importación DTE de
-  // Purchases (purchase-dte-create-supplier-dialog) -> commerce.purchases.
+  // Purchases (purchase-dte-create-supplier-dialog) -> module gate
+  // commerce.purchases (sin cambios), pero la ESCRITURA es sobre el
+  // maestro de suppliers -> runtime-aware vía el mismo helper común.
+  let handle;
   try {
-    const commercialCtx = await resolveCommercialEnforcementContext(user.tenant_id);
-    assertOrganizationModule(commercialCtx, "commerce.purchases");
+    handle = await requireOperationalContext(user, { module: "commerce.purchases", write: true });
   } catch (err) {
-    if (err instanceof CommercialEnforcementError) {
+    if (err instanceof OperationalContextError) {
       return NextResponse.json({ error: err.userMessage }, { status: err.httpStatus });
     }
     throw err;
   }
+  const { context, dispose } = handle;
 
-  let body: unknown;
   try {
-    body = await req.json();
-  } catch {
-    return NextResponse.json({ error: "Cuerpo de la peticion invalido." }, { status: 400 });
-  }
+    if (!getCapabilities(context.effectiveUser.role as UserRole).canManageStaff) {
+      return NextResponse.json({ error: "Acceso denegado" }, { status: 403 });
+    }
 
-  const parsed = fromDteBodySchema.safeParse(body);
-  if (!parsed.success) {
+    let body: unknown;
+    try {
+      body = await req.json();
+    } catch {
+      return NextResponse.json({ error: "Cuerpo de la peticion invalido." }, { status: 400 });
+    }
+
+    const parsed = fromDteBodySchema.safeParse(body);
+    if (!parsed.success) {
+      return NextResponse.json(
+        { errors: parsed.error.flatten().fieldErrors },
+        { status: 400 },
+      );
+    }
+
+    const { name, taxpayer_type, nrc, phone, email } = parsed.data;
+    // Normaliza NIT a formato con guiones requerido por el maestro suppliers
+    const nit = parsed.data.nit ? normalizeNit(parsed.data.nit) : parsed.data.nit;
+
+    const buildPayload = (code: string) => ({
+      supplier_code: code,
+      name,
+      taxpayer_type,
+      ...(nit   ? { nit }   : {}),
+      ...(nrc   ? { nrc }   : {}),
+      ...(phone ? { phone } : {}),
+      ...(email ? { email } : {}),
+    });
+
+    let supplierCode = genProvisionalCode(name);
+    let result = await createSupplier(context.tenantId, context.effectiveUser.id, buildPayload(supplierCode), context.client);
+
+    if (!result.ok && result.code === "DUPLICATE_CODE") {
+      supplierCode = genProvisionalCode(name);
+      result = await createSupplier(context.tenantId, context.effectiveUser.id, buildPayload(supplierCode), context.client);
+    }
+
+    if (!result.ok) {
+      const status = result.code === "DUPLICATE_CODE" ? 409 : 422;
+      return NextResponse.json(
+        { error: result.error, ...(result.field && { field: result.field }) },
+        { status },
+      );
+    }
+
     return NextResponse.json(
-      { errors: parsed.error.flatten().fieldErrors },
-      { status: 400 },
+      { id: result.id, supplier_code: result.supplier_code, name },
+      { status: 201 },
     );
+  } finally {
+    await dispose();
   }
-
-  const { name, taxpayer_type, nrc, phone, email } = parsed.data;
-  // Normaliza NIT a formato con guiones requerido por el maestro suppliers
-  const nit = parsed.data.nit ? normalizeNit(parsed.data.nit) : parsed.data.nit;
-
-  const buildPayload = (code: string) => ({
-    supplier_code: code,
-    name,
-    taxpayer_type,
-    ...(nit   ? { nit }   : {}),
-    ...(nrc   ? { nrc }   : {}),
-    ...(phone ? { phone } : {}),
-    ...(email ? { email } : {}),
-  });
-
-  let supplierCode = genProvisionalCode(name);
-  let result = await createSupplier(user.tenant_id, user.id, buildPayload(supplierCode));
-
-  if (!result.ok && result.code === "DUPLICATE_CODE") {
-    supplierCode = genProvisionalCode(name);
-    result = await createSupplier(user.tenant_id, user.id, buildPayload(supplierCode));
-  }
-
-  if (!result.ok) {
-    const status = result.code === "DUPLICATE_CODE" ? 409 : 422;
-    return NextResponse.json(
-      { error: result.error, ...(result.field && { field: result.field }) },
-      { status },
-    );
-  }
-
-  return NextResponse.json(
-    { id: result.id, supplier_code: result.supplier_code, name },
-    { status: 201 },
-  );
 }

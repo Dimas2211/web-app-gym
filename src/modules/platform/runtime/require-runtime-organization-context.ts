@@ -90,6 +90,13 @@ export interface RuntimeOrganizationContext {
   locationId: string | null;
   runtimeDb: PrismaClient;
   authScope: "RUNTIME_CLIENT";
+  /**
+   * FASE VI-D2 — ETAPA A. Rol LIVE del usuario runtime, leído de
+   * runtimeDb en esta misma llamada — nunca el rol congelado en el JWT
+   * (hasta 8h de antigüedad). Los entry points operativos deben usar
+   * ESTE valor para autorización, no `sessionUser.role`.
+   */
+  role: string;
 }
 
 export interface RuntimeOrganizationContextHandle {
@@ -196,10 +203,11 @@ export async function requireRuntimeOrganizationContext(
   // base (no del JWT, que puede tener hasta 8h de antigüedad). Cualquier
   // fallo aquí desconecta el PrismaClient runtime recién abierto antes
   // de propagar — nunca se deja una conexión huérfana.
+  let liveRole: string;
   try {
     const liveUser = await runtimeDb.user.findUnique({
       where: { id: user.id },
-      select: { status: true, gym_id: true },
+      select: { status: true, gym_id: true, role: true },
     });
 
     if (!liveUser) {
@@ -220,6 +228,7 @@ export async function requireRuntimeOrganizationContext(
         `Usuario ${user.id} pertenece a un tenant runtime distinto del efectivo.`,
       );
     }
+    liveRole = liveUser.role;
   } catch (err) {
     await disconnect();
     throw err;
@@ -232,6 +241,7 @@ export async function requireRuntimeOrganizationContext(
       locationId: user.location_id,
       runtimeDb,
       authScope: "RUNTIME_CLIENT",
+      role: liveRole,
     },
     dispose: disconnect,
   };

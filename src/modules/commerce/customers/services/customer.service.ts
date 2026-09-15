@@ -7,10 +7,18 @@
 //   validateCustomerForDteType  — validación de datos fiscales según tipo DTE
 // ─────────────────────────────────────────────────────────────────
 
-import { Prisma } from "@prisma/client";
+import { Prisma, type PrismaClient } from "@prisma/client";
 import { prisma } from "@/lib/db/prisma";
 import type { CreateCustomerInput, UpdateCustomerInput } from "../schemas/customer.schemas";
 import type { CustomerDteValidationResult } from "../types/customer.types";
+
+// FASE VI-D2 — ETAPA G/P: `client` opcional, default Prisma global SOLO
+// para compatibilidad de callers PLATFORM que no lo pasan (ej. código
+// legacy fuera de commerce/customers). Todo entry point runtime-aware
+// (route handlers, server actions de este módulo) SIEMPRE debe pasar
+// `context.client` explícito — nunca alcanzar este default desde
+// RUNTIME_CLIENT.
+type DbClient = PrismaClient | Prisma.TransactionClient;
 
 export type CustomerResult =
   | { ok: true }
@@ -22,8 +30,8 @@ export type CreateCustomerResult =
 
 // ── Helper: generar customer_code autoincrementado por tenant ─────
 
-async function getNextCustomerCode(tenant_id: string): Promise<string> {
-  const result = await prisma.$queryRaw<[{ max_num: number | null }]>`
+async function getNextCustomerCode(tenant_id: string, db: DbClient = prisma): Promise<string> {
+  const result = await db.$queryRaw<[{ max_num: number | null }]>`
     SELECT MAX(
       CASE
         WHEN "customer_code" ~ '^[0-9]+$'
@@ -44,13 +52,14 @@ export async function createCustomer(
   tenant_id: string,
   user_id:   string,
   input:     CreateCustomerInput,
+  db:        DbClient = prisma,
 ): Promise<CreateCustomerResult> {
   const customer_code = input.customer_code?.trim()
     ? input.customer_code.trim()
-    : await getNextCustomerCode(tenant_id);
+    : await getNextCustomerCode(tenant_id, db);
 
   // Verificar unicidad del código en este tenant
-  const existing = await prisma.customer.findFirst({
+  const existing = await db.customer.findFirst({
     where: { tenant_id, customer_code },
     select: { id: true },
   });
@@ -63,7 +72,7 @@ export async function createCustomer(
   }
 
   try {
-    const customer = await prisma.customer.create({
+    const customer = await db.customer.create({
       data: {
         tenant_id,
         customer_code,
@@ -110,8 +119,9 @@ export async function updateCustomer(
   tenant_id: string,
   user_id:   string,
   input:     UpdateCustomerInput,
+  db:        DbClient = prisma,
 ): Promise<CustomerResult> {
-  const customer = await prisma.customer.findFirst({
+  const customer = await db.customer.findFirst({
     where:  { id, tenant_id },
     select: { id: true },
   });
@@ -119,7 +129,7 @@ export async function updateCustomer(
     return { ok: false, error: "El cliente no existe o no pertenece a este tenant." };
   }
 
-  await prisma.customer.update({
+  await db.customer.update({
     where: { id },
     data: {
       ...(input.name               !== undefined && { name:               input.name }),
