@@ -23,6 +23,7 @@
 // ─────────────────────────────────────────────────────────────────
 
 import { Prisma } from "@prisma/client";
+import type { PrismaClient } from "@prisma/client";
 import { prisma } from "@/lib/db/prisma";
 import type { CreatePurchaseInput } from "../schemas/create-purchase.schema";
 import type { AddPurchaseItemInput, UpdatePurchaseItemInput } from "../schemas/purchase-item.schema";
@@ -187,9 +188,10 @@ export async function createPurchase(
   location_id: string,
   user_id:     string,
   input:       CreatePurchaseInput,
+  db: PrismaClient = prisma,
 ): Promise<CreatePurchaseResult> {
   // Verificar que el proveedor existe y pertenece al tenant
-  const supplier = await prisma.supplier.findFirst({
+  const supplier = await db.supplier.findFirst({
     where: { id: input.supplier_id, tenant_id, status: "active" },
     select: { id: true },
   });
@@ -207,10 +209,10 @@ export async function createPurchase(
   // Si no viene, calcula MAX+1 del mes para la location.
   const purchase_code = input.purchase_code
     ? String(parseInt(input.purchase_code, 10))
-    : String(await getNextPurchaseCode(location_id, year, month));
+    : String(await getNextPurchaseCode(location_id, year, month, db));
 
   try {
-    const purchase = await prisma.purchase.create({
+    const purchase = await db.purchase.create({
       data: {
         tenant_id,
         location_id,
@@ -258,9 +260,10 @@ export async function addPurchaseItem(
   location_id: string,
   user_id:     string,
   input:       AddPurchaseItemInput,
+  db: PrismaClient = prisma,
 ): Promise<PurchaseResult> {
   // Verificar que la compra existe, pertenece al tenant+location y está en DRAFT
-  const purchase = await prisma.purchase.findFirst({
+  const purchase = await db.purchase.findFirst({
     where: { id: purchase_id, tenant_id, location_id },
     select: { id: true, status: true, document_type: true },
   });
@@ -272,7 +275,7 @@ export async function addPurchaseItem(
   }
 
   // Verificar que el producto existe en el tenant y es válido para compra
-  const product = await prisma.product.findFirst({
+  const product = await db.product.findFirst({
     where: {
       id:             input.product_id,
       tenant_id,
@@ -300,7 +303,7 @@ export async function addPurchaseItem(
   const line_total    = line_subtotal + taxInput;
 
   try {
-    await prisma.$transaction(async (tx) => {
+    await db.$transaction(async (tx) => {
       await tx.purchaseItem.create({
         data: {
           purchase_id:   purchase_id,
@@ -340,9 +343,10 @@ export async function updatePurchaseItem(
   location_id: string,
   user_id:     string,
   input:       UpdatePurchaseItemInput,
+  db: PrismaClient = prisma,
 ): Promise<PurchaseResult> {
   // Verificar compra en DRAFT
-  const purchase = await prisma.purchase.findFirst({
+  const purchase = await db.purchase.findFirst({
     where: { id: purchase_id, tenant_id, location_id },
     select: { id: true, status: true, document_type: true },
   });
@@ -354,7 +358,7 @@ export async function updatePurchaseItem(
   }
 
   // Leer la línea actual para recalcular
-  const item = await prisma.purchaseItem.findFirst({
+  const item = await db.purchaseItem.findFirst({
     where: { id: item_id, purchase_id },
     select: {
       id:            true,
@@ -377,7 +381,7 @@ export async function updatePurchaseItem(
   const line_subtotal = quantity * unit_cost;
   const line_total    = line_subtotal + tax_amount;
 
-  await prisma.$transaction(async (tx) => {
+  await db.$transaction(async (tx) => {
     await tx.purchaseItem.update({
       where: { id: item_id },
       data: {
@@ -403,8 +407,9 @@ export async function removePurchaseItem(
   tenant_id:   string,
   location_id: string,
   user_id:     string,
+  db: PrismaClient = prisma,
 ): Promise<PurchaseResult> {
-  const purchase = await prisma.purchase.findFirst({
+  const purchase = await db.purchase.findFirst({
     where: { id: purchase_id, tenant_id, location_id },
     select: { id: true, status: true },
   });
@@ -415,7 +420,7 @@ export async function removePurchaseItem(
     return { ok: false, error: "Solo se pueden eliminar líneas de compras en estado DRAFT." };
   }
 
-  const item = await prisma.purchaseItem.findFirst({
+  const item = await db.purchaseItem.findFirst({
     where: { id: item_id, purchase_id },
     select: { id: true },
   });
@@ -423,7 +428,7 @@ export async function removePurchaseItem(
     return { ok: false, error: "La línea de compra no existe en este documento." };
   }
 
-  await prisma.$transaction(async (tx) => {
+  await db.$transaction(async (tx) => {
     await tx.purchaseItem.delete({ where: { id: item_id } });
     await recalcPurchaseTotals(tx, purchase_id, user_id);
   });
@@ -438,10 +443,11 @@ export async function confirmPurchase(
   tenant_id:   string,
   location_id: string,
   user_id:     string,
+  db: PrismaClient = prisma,
 ): Promise<PurchaseResult> {
   // 1. Leer la compra completa con sus líneas.
   //    Lectura fuera de transacción: solo validación, sin mutación.
-  const purchase = await prisma.purchase.findFirst({
+  const purchase = await db.purchase.findFirst({
     where: { id: purchase_id, tenant_id, location_id },
     select: {
       id:             true,
@@ -535,7 +541,7 @@ export async function confirmPurchase(
   }[] = [];
 
   for (const item of stockableItems) {
-    const pl = await prisma.productLocation.upsert({
+    const pl = await db.productLocation.upsert({
       where: {
         tenant_id_location_id_product_id: {
           tenant_id,
@@ -588,7 +594,7 @@ export async function confirmPurchase(
   //    Nota de concurrencia: stock_before se lee dentro de la tx para capturar
   //    el saldo vigente al momento exacto del movimiento, no el de la fase 3.
   try {
-    await prisma.$transaction(async (tx) => {
+    await db.$transaction(async (tx) => {
       // Marcar la compra como CONFIRMED
       await tx.purchase.update({
         where: { id: purchase_id },
@@ -719,8 +725,9 @@ export async function updatePurchaseHeader(
   location_id: string,
   user_id:     string,
   input:       UpdatePurchaseHeaderInput,
+  db: PrismaClient = prisma,
 ): Promise<PurchaseResult> {
-  const purchase = await prisma.purchase.findFirst({
+  const purchase = await db.purchase.findFirst({
     where:  { id: purchase_id, tenant_id, location_id },
     select: { id: true, status: true, purchase_date: true, document_type: true },
   });
@@ -738,7 +745,7 @@ export async function updatePurchaseHeader(
   );
 
   if (input.supplier_id) {
-    const supplier = await prisma.supplier.findFirst({
+    const supplier = await db.supplier.findFirst({
       where: { id: input.supplier_id, tenant_id, status: "active" },
       select: { id: true },
     });
@@ -758,7 +765,7 @@ export async function updatePurchaseHeader(
   }
 
   try {
-    await prisma.$transaction(async (tx) => {
+    await db.$transaction(async (tx) => {
       await tx.purchase.update({
         where: { id: purchase_id },
         data: {
@@ -835,8 +842,9 @@ export async function updatePurchasePaymentNature(
   location_id: string,
   user_id:     string,
   input:       UpdatePurchasePaymentNatureInput,
+  db: PrismaClient = prisma,
 ): Promise<UpdatePurchasePaymentNatureResult> {
-  const purchase = await prisma.purchase.findFirst({
+  const purchase = await db.purchase.findFirst({
     where: { id: purchase_id, tenant_id, location_id },
     select: {
       id:       true,
@@ -881,7 +889,7 @@ export async function updatePurchasePaymentNature(
     return { ok: false, error: calc.error, field: calc.field };
   }
 
-  await prisma.purchase.update({
+  await db.purchase.update({
     where: { id: purchase_id },
     data: {
       payment_nature:                 input.payment_nature,
@@ -902,8 +910,9 @@ export async function deleteDraftPurchase(
   purchase_id: string,
   tenant_id:   string,
   location_id: string,
+  db: PrismaClient = prisma,
 ): Promise<PurchaseResult> {
-  const purchase = await prisma.purchase.findFirst({
+  const purchase = await db.purchase.findFirst({
     where: { id: purchase_id, tenant_id, location_id },
     select: { id: true, status: true },
   });
@@ -915,7 +924,7 @@ export async function deleteDraftPurchase(
     return { ok: false, error: "Solo se pueden eliminar compras en estado DRAFT." };
   }
 
-  await prisma.$transaction(async (tx) => {
+  await db.$transaction(async (tx) => {
     await tx.purchaseItem.deleteMany({ where: { purchase_id } });
     await tx.purchase.delete({ where: { id: purchase_id } });
   });
@@ -930,8 +939,9 @@ export async function cancelPurchase(
   tenant_id:   string,
   location_id: string,
   user_id:     string,
+  db: PrismaClient = prisma,
 ): Promise<PurchaseResult> {
-  const purchase = await prisma.purchase.findFirst({
+  const purchase = await db.purchase.findFirst({
     where: { id: purchase_id, tenant_id, location_id },
     select: { id: true, status: true },
   });
@@ -946,7 +956,7 @@ export async function cancelPurchase(
     return { ok: false, error: "La compra ya está anulada." };
   }
 
-  await prisma.purchase.update({
+  await db.purchase.update({
     where: { id: purchase_id },
     data: {
       status:       "CANCELLED",
@@ -973,9 +983,10 @@ export async function cancelConfirmedPurchase(
   tenant_id:   string,
   location_id: string,
   user_id:     string,
+  db: PrismaClient = prisma,
 ): Promise<PurchaseResult> {
   // 1. Leer la compra con sus líneas stockables
-  const purchase = await prisma.purchase.findFirst({
+  const purchase = await db.purchase.findFirst({
     where: { id: purchase_id, tenant_id, location_id },
     select: {
       id:            true,
@@ -1020,7 +1031,7 @@ export async function cancelConfirmedPurchase(
   const reversals: ReversalEntry[] = [];
 
   for (const item of stockableItems) {
-    const pl = await prisma.productLocation.findFirst({
+    const pl = await db.productLocation.findFirst({
       where:  { tenant_id, location_id, product_id: item.product_id },
       select: { id: true, current_stock: true },
     });
@@ -1055,7 +1066,7 @@ export async function cancelConfirmedPurchase(
   //    Se re-lee el stock dentro de la tx para capturar cambios concurrentes.
   //    Si la reversión genera stock negativo dentro de la tx, se lanza excepción y rollback.
   try {
-    await prisma.$transaction(async (tx) => {
+    await db.$transaction(async (tx) => {
       for (const rev of reversals) {
         const pl = await tx.productLocation.findFirst({
           where:  { id: rev.plId, tenant_id, location_id },

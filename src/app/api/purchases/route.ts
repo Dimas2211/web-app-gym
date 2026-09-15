@@ -8,14 +8,20 @@
 export const dynamic = "force-dynamic";
 
 import { NextRequest, NextResponse } from "next/server";
-import { requireAdmin } from "@/lib/permissions/guards";
+import type { UserRole } from "@prisma/client";
+import { auth } from "@/lib/auth/auth";
+import type { SessionUser } from "@/lib/permissions/guards";
+import { getCapabilities } from "@/core/permissions/role-capabilities";
 import { getEffectiveLocationId } from "@/lib/location/active-location";
 import { getPurchases } from "@/modules/commerce/purchases/queries/get-purchases";
 import { createPurchaseSchema } from "@/modules/commerce/purchases/schemas/create-purchase.schema";
 import { createPurchase } from "@/modules/commerce/purchases/services/purchase.service";
 import type { PurchaseStatus } from "@/modules/commerce/purchases/types/purchase.types";
 import type { PurchaseSortField } from "@/modules/commerce/purchases/types/purchase-filters.types";
-import { isRuntimeReadOnlyActive, RUNTIME_READONLY_MESSAGE } from "@/modules/platform/runtime/runtime-session";
+import {
+  requireOperationalContext,
+  OperationalContextError,
+} from "@/modules/platform/runtime/require-operational-context";
 import { getPurchaseApiContext } from "./purchase-api-context";
 
 // ── Constantes de validación ───────────────────────────────────────
@@ -78,45 +84,70 @@ export async function GET(req: NextRequest) {
 // ── POST — crear compra ────────────────────────────────────────────
 
 export async function POST(req: NextRequest) {
-  const sessionUser = await requireAdmin();
-  const tenant_id   = sessionUser.tenant_id;
-  const location_id = await getEffectiveLocationId(sessionUser);
-
-  if (!tenant_id || !location_id) {
-    return NextResponse.json({ error: "Sesión sin tenant o location activa." }, { status: 401 });
+  const session = await auth();
+  if (!session?.user) {
+    return NextResponse.json({ error: "No autorizado" }, { status: 401 });
   }
+  const user = session.user as SessionUser;
 
-  // PASO 6A: bloquear escritura bajo sesión runtime "Operar como cliente"
-  if (await isRuntimeReadOnlyActive()) {
-    return NextResponse.json({ error: RUNTIME_READONLY_MESSAGE }, { status: 403 });
+  let handle;
+  try {
+    handle = await requireOperationalContext(user, { module: "commerce.purchases", write: true });
+  } catch (err) {
+    if (err instanceof OperationalContextError) {
+      return NextResponse.json({ error: err.userMessage }, { status: err.httpStatus });
+    }
+    throw err;
   }
+  const { context, dispose } = handle;
 
-  const body = await req.json().catch(() => null);
-  if (!body) {
-    return NextResponse.json({ error: "Body JSON requerido." }, { status: 400 });
-  }
+  try {
+    if (!getCapabilities(context.effectiveUser.role as UserRole).canManageStaff) {
+      return NextResponse.json({ error: "Acceso denegado" }, { status: 403 });
+    }
 
-  const parsed = createPurchaseSchema.safeParse(body);
-  if (!parsed.success) {
-    return NextResponse.json(
-      { errors: parsed.error.flatten().fieldErrors },
-      { status: 400 },
+    const location_id =
+      context.locationId ??
+      (await getEffectiveLocationId(
+        { ...context.effectiveUser, role: context.effectiveUser.role as SessionUser["role"] } as SessionUser,
+        context.client,
+        context.tenantId,
+      ));
+
+    if (!location_id) {
+      return NextResponse.json({ error: "Sesión sin tenant o location activa." }, { status: 401 });
+    }
+
+    const body = await req.json().catch(() => null);
+    if (!body) {
+      return NextResponse.json({ error: "Body JSON requerido." }, { status: 400 });
+    }
+
+    const parsed = createPurchaseSchema.safeParse(body);
+    if (!parsed.success) {
+      return NextResponse.json(
+        { errors: parsed.error.flatten().fieldErrors },
+        { status: 400 },
+      );
+    }
+
+    const result = await createPurchase(
+      context.tenantId,
+      location_id,
+      context.effectiveUser.id,
+      parsed.data,
+      context.client,
     );
+
+    if (!result.ok) {
+      return NextResponse.json({ error: result.error }, { status: 422 });
+    }
+
+    return NextResponse.json(
+      { id: result.id, purchase_code: result.purchase_code },
+      { status: 201 },
+    );
+  } finally {
+    await dispose();
   }
-
-  const result = await createPurchase(
-    tenant_id,
-    location_id,
-    sessionUser.id,
-    parsed.data,
-  );
-
-  if (!result.ok) {
-    return NextResponse.json({ error: result.error }, { status: 422 });
-  }
-
-  return NextResponse.json(
-    { id: result.id, purchase_code: result.purchase_code },
-    { status: 201 },
-  );
 }

@@ -11,13 +11,13 @@
 // ─────────────────────────────────────────────────────────────────
 
 import { revalidatePath } from "next/cache";
-import { requireAdmin } from "@/lib/permissions/guards";
+import { requireAdmin, type SessionUser } from "@/lib/permissions/guards";
+import { getEffectiveLocationId } from "@/lib/location/active-location";
 import { cancelPurchase } from "../services/purchase.service";
 import {
-  resolveCommercialEnforcementContext,
-  assertOrganizationModule,
-  CommercialEnforcementError,
-} from "@/modules/platform/runtime/commercial-enforcement";
+  requireOperationalContext,
+  OperationalContextError,
+} from "@/modules/platform/runtime/require-operational-context";
 
 export type CancelPurchaseState =
   | { error?: string }
@@ -37,32 +37,42 @@ export async function cancelPurchaseAction(
   formData: FormData,
 ): Promise<CancelPurchaseState> {
   const sessionUser = await requireAdmin();
-  const tenant_id   = sessionUser.tenant_id;
-  const location_id = sessionUser.location_id;
 
-  if (!tenant_id)   return { error: "La sesión no tiene un tenant activo." };
-  if (!location_id) return { error: "La sesión no tiene una location activa." };
-
+  let handle;
   try {
-    const commercialCtx = await resolveCommercialEnforcementContext(tenant_id);
-    assertOrganizationModule(commercialCtx, "commerce.purchases");
+    handle = await requireOperationalContext(sessionUser, { module: "commerce.purchases", write: true });
   } catch (err) {
-    if (err instanceof CommercialEnforcementError) return { error: err.userMessage };
+    if (err instanceof OperationalContextError) return { error: err.userMessage };
     throw err;
   }
+  const { context, dispose } = handle;
 
-  const purchase_id = str(formData.get("purchase_id"));
-  if (!purchase_id) return { error: "purchase_id es requerido." };
+  try {
+    const location_id =
+      context.locationId ??
+      (await getEffectiveLocationId(
+        { ...context.effectiveUser, role: context.effectiveUser.role as SessionUser["role"] } as SessionUser,
+        context.client,
+        context.tenantId,
+      ));
+    if (!location_id) return { error: "La sesión no tiene una location activa." };
 
-  const result = await cancelPurchase(
-    purchase_id,
-    tenant_id,
-    location_id,
-    sessionUser.id,
-  );
+    const purchase_id = str(formData.get("purchase_id"));
+    if (!purchase_id) return { error: "purchase_id es requerido." };
 
-  if (!result.ok) return { error: result.error };
+    const result = await cancelPurchase(
+      purchase_id,
+      context.tenantId,
+      location_id,
+      context.effectiveUser.id,
+      context.client,
+    );
 
-  revalidatePath(`/dashboard/purchases/${purchase_id}`);
-  revalidatePath("/dashboard/purchases");
+    if (!result.ok) return { error: result.error };
+
+    revalidatePath(`/dashboard/purchases/${purchase_id}`);
+    revalidatePath("/dashboard/purchases");
+  } finally {
+    await dispose();
+  }
 }

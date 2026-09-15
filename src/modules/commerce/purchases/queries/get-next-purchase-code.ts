@@ -13,14 +13,16 @@
 // en la base de datos (P2002 en caso de colisión concurrente).
 // ─────────────────────────────────────────────────────────────────
 
+import type { PrismaClient } from "@prisma/client";
 import { prisma } from "@/lib/db/prisma";
 
 export async function getNextPurchaseCode(
   location_id: string,
   year:        number,
   month:       number,
+  client: PrismaClient = prisma,
 ): Promise<number> {
-  const result = await prisma.$queryRaw<[{ max_code: number | null }]>`
+  const result = await client.$queryRaw<[{ max_code: number | null }]>`
     SELECT MAX(CAST("purchase_code" AS INTEGER)) AS max_code
     FROM   "purchases"
     WHERE  "location_id"    = ${location_id}

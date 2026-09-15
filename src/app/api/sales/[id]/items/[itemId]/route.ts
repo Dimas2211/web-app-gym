@@ -15,12 +15,10 @@ import {
   updateSaleItemInDraft,
   removeSaleItemFromDraft,
 } from "@/modules/commerce/sales/services/sale.service";
-import { isRuntimeReadOnlyActive, RUNTIME_READONLY_MESSAGE } from "@/modules/platform/runtime/runtime-session";
 import {
-  resolveCommercialEnforcementContext,
-  assertOrganizationModule,
-  CommercialEnforcementError,
-} from "@/modules/platform/runtime/commercial-enforcement";
+  requireOperationalContext,
+  OperationalContextError,
+} from "@/modules/platform/runtime/require-operational-context";
 
 type RouteParams = { params: Promise<{ id: string; itemId: string }> };
 
@@ -30,47 +28,49 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
   const { id: sale_id, itemId: item_id } = await params;
 
   const sessionUser = await requireAdmin();
-  const tenant_id   = sessionUser.tenant_id;
-  const location_id = await getEffectiveLocationId(sessionUser);
 
-  if (!tenant_id)   return NextResponse.json({ ok: false, error: "Sesión sin tenant activo." }, { status: 401 });
-  if (!location_id) return NextResponse.json({ ok: false, error: "Selecciona una location activa." }, { status: 409 });
-
-  // PASO 6A: bloquear escritura bajo sesión runtime "Operar como cliente"
-  if (await isRuntimeReadOnlyActive()) {
-    return NextResponse.json({ ok: false, error: RUNTIME_READONLY_MESSAGE }, { status: 403 });
-  }
-
+  let handle;
   try {
-    const commercialCtx = await resolveCommercialEnforcementContext(tenant_id);
-    assertOrganizationModule(commercialCtx, "commerce.sales");
+    handle = await requireOperationalContext(sessionUser, { module: "commerce.sales", write: true });
   } catch (err) {
-    if (err instanceof CommercialEnforcementError) {
+    if (err instanceof OperationalContextError) {
       return NextResponse.json({ ok: false, error: err.userMessage }, { status: err.httpStatus });
     }
     throw err;
   }
+  const { context, dispose } = handle;
 
-  const body = await req.json().catch(() => null);
-  if (!body) {
-    return NextResponse.json({ ok: false, error: "Body JSON requerido." }, { status: 400 });
+  try {
+    const location_id =
+      context.locationId ??
+      (await getEffectiveLocationId(sessionUser, context.client, context.tenantId));
+    if (!location_id) {
+      return NextResponse.json({ ok: false, error: "Selecciona una location activa." }, { status: 409 });
+    }
+
+    const body = await req.json().catch(() => null);
+    if (!body) {
+      return NextResponse.json({ ok: false, error: "Body JSON requerido." }, { status: 400 });
+    }
+
+    const parsed = updateSaleItemSchema.safeParse(body);
+    if (!parsed.success) {
+      return NextResponse.json(
+        { ok: false, errors: parsed.error.flatten().fieldErrors },
+        { status: 400 },
+      );
+    }
+
+    const result = await updateSaleItemInDraft(item_id, sale_id, context.tenantId, location_id, context.effectiveUser.id, parsed.data, context.client);
+
+    if (!result.ok) {
+      return NextResponse.json({ ok: false, error: result.error }, { status: 422 });
+    }
+
+    return NextResponse.json({ ok: true });
+  } finally {
+    await dispose();
   }
-
-  const parsed = updateSaleItemSchema.safeParse(body);
-  if (!parsed.success) {
-    return NextResponse.json(
-      { ok: false, errors: parsed.error.flatten().fieldErrors },
-      { status: 400 },
-    );
-  }
-
-  const result = await updateSaleItemInDraft(item_id, sale_id, tenant_id, location_id, sessionUser.id, parsed.data);
-
-  if (!result.ok) {
-    return NextResponse.json({ ok: false, error: result.error }, { status: 422 });
-  }
-
-  return NextResponse.json({ ok: true });
 }
 
 // ── DELETE — eliminar línea ────────────────────────────────────────
@@ -79,32 +79,34 @@ export async function DELETE(_req: NextRequest, { params }: RouteParams) {
   const { id: sale_id, itemId: item_id } = await params;
 
   const sessionUser = await requireAdmin();
-  const tenant_id   = sessionUser.tenant_id;
-  const location_id = await getEffectiveLocationId(sessionUser);
 
-  if (!tenant_id)   return NextResponse.json({ ok: false, error: "Sesión sin tenant activo." }, { status: 401 });
-  if (!location_id) return NextResponse.json({ ok: false, error: "Selecciona una location activa." }, { status: 409 });
-
-  // PASO 6A: bloquear escritura bajo sesión runtime "Operar como cliente"
-  if (await isRuntimeReadOnlyActive()) {
-    return NextResponse.json({ ok: false, error: RUNTIME_READONLY_MESSAGE }, { status: 403 });
-  }
-
+  let handle;
   try {
-    const commercialCtx = await resolveCommercialEnforcementContext(tenant_id);
-    assertOrganizationModule(commercialCtx, "commerce.sales");
+    handle = await requireOperationalContext(sessionUser, { module: "commerce.sales", write: true });
   } catch (err) {
-    if (err instanceof CommercialEnforcementError) {
+    if (err instanceof OperationalContextError) {
       return NextResponse.json({ ok: false, error: err.userMessage }, { status: err.httpStatus });
     }
     throw err;
   }
+  const { context, dispose } = handle;
 
-  const result = await removeSaleItemFromDraft(item_id, sale_id, tenant_id, location_id, sessionUser.id);
+  try {
+    const location_id =
+      context.locationId ??
+      (await getEffectiveLocationId(sessionUser, context.client, context.tenantId));
+    if (!location_id) {
+      return NextResponse.json({ ok: false, error: "Selecciona una location activa." }, { status: 409 });
+    }
 
-  if (!result.ok) {
-    return NextResponse.json({ ok: false, error: result.error }, { status: 422 });
+    const result = await removeSaleItemFromDraft(item_id, sale_id, context.tenantId, location_id, context.effectiveUser.id, context.client);
+
+    if (!result.ok) {
+      return NextResponse.json({ ok: false, error: result.error }, { status: 422 });
+    }
+
+    return NextResponse.json({ ok: true });
+  } finally {
+    await dispose();
   }
-
-  return NextResponse.json({ ok: true });
 }

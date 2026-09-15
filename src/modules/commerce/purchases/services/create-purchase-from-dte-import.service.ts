@@ -19,6 +19,7 @@
 // ─────────────────────────────────────────────────────────────────
 
 import { Prisma } from "@prisma/client";
+import type { PrismaClient } from "@prisma/client";
 import { prisma } from "@/lib/db/prisma";
 import type { CreatePurchaseFromDteInput } from "../schemas/dte-import.schema";
 import { extractDteMetadata } from "./purchase-dte-import.service";
@@ -45,6 +46,7 @@ export async function createPurchaseDraftFromDteImport(
   location_id:   string,
   user_id:       string,
   input:         CreatePurchaseFromDteInput,
+  db: PrismaClient = prisma,
 ): Promise<CreatePurchaseFromDteResult> {
 
   // 1. Derivar set de product_ids únicos para validación en una sola consulta.
@@ -52,7 +54,7 @@ export async function createPurchaseDraftFromDteImport(
   const uniqueProducts = new Set(input.items.map((i) => i.product_id));
 
   // 2. Buscar el DteImport — tenant_id + location_id como guard de acceso.
-  const dteImport = await prisma.purchaseDteImport.findFirst({
+  const dteImport = await db.purchaseDteImport.findFirst({
     where: { id: dte_import_id, tenant_id, location_id },
   });
   if (!dteImport) {
@@ -73,7 +75,7 @@ export async function createPurchaseDraftFromDteImport(
   }
 
   // 4. Validar proveedor — debe existir, estar activo y pertenecer al mismo tenant.
-  const supplier = await prisma.supplier.findFirst({
+  const supplier = await db.supplier.findFirst({
     where:  { id: input.supplier_id, tenant_id, status: "active" },
     select: { id: true },
   });
@@ -87,7 +89,7 @@ export async function createPurchaseDraftFromDteImport(
 
   // 5. Validar todos los productos en una sola consulta.
   //    Condiciones: pertenece al tenant, allow_purchase = true, status no bloqueado.
-  const validProducts = await prisma.product.findMany({
+  const validProducts = await db.product.findMany({
     where: {
       id:             { in: [...uniqueProducts] },
       tenant_id,
@@ -165,12 +167,12 @@ export async function createPurchaseDraftFromDteImport(
   // 9. Obtener correlativo mensual fuera de la tx.
   //    La unicidad la garantiza @@unique([location_id, purchase_year, purchase_month, purchase_code]).
   //    Si hay colisión concurrente se atrapa P2002 en el catch.
-  const purchase_code = String(await getNextPurchaseCode(location_id, year, month));
+  const purchase_code = String(await getNextPurchaseCode(location_id, year, month, db));
 
   // 10. Transacción atómica: Purchase + PurchaseItems + PurchaseDteImport.
   //     Re-verifica el estado del DTE dentro de la tx como guard contra race conditions.
   try {
-    const { newPurchase, linkedDte } = await prisma.$transaction(async (tx) => {
+    const { newPurchase, linkedDte } = await db.$transaction(async (tx) => {
       // Guard de race condition: re-leer DTE dentro de la tx
       const dteLock = await tx.purchaseDteImport.findFirst({
         where:  { id: dte_import_id, tenant_id, location_id },
@@ -296,7 +298,7 @@ export async function createPurchaseDraftFromDteImport(
           source:                "DTE_IMPORT",
           created_by:            user_id,
           updated_by:            user_id,
-        });
+        }, db);
 
         if ("warning" in aliasResult) {
           alias_warnings.push(aliasResult.warning);

@@ -6,6 +6,7 @@
 // Devuelve null si no existe o no pertenece al contexto activo.
 // ─────────────────────────────────────────────────────────────────
 
+import type { PrismaClient } from "@prisma/client";
 import { prisma } from "@/lib/db/prisma";
 import type { PurchaseDteImportRecord } from "../types/purchase-dte-import.types";
 
@@ -13,8 +14,9 @@ export async function getPurchaseDteImportById(
   id:          string,
   tenant_id:   string,
   location_id: string,
+  client: PrismaClient = prisma,
 ): Promise<PurchaseDteImportRecord | null> {
-  const record = await prisma.purchaseDteImport.findFirst({
+  const record = await client.purchaseDteImport.findFirst({
     where: { id, tenant_id, location_id },
     select: {
       id:               true,

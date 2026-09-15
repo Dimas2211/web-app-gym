@@ -13,13 +13,11 @@
 import { revalidatePath } from "next/cache";
 import { requireAdmin } from "@/lib/permissions/guards";
 import { getEffectiveLocationId } from "@/lib/location/active-location";
-import { isRuntimeReadOnlyActive, RUNTIME_READONLY_MESSAGE } from "@/modules/platform/runtime/runtime-session";
-import { confirmSale } from "../services/sale.service";
 import {
-  resolveCommercialEnforcementContext,
-  assertOrganizationModule,
-  CommercialEnforcementError,
-} from "@/modules/platform/runtime/commercial-enforcement";
+  requireOperationalContext,
+  OperationalContextError,
+} from "@/modules/platform/runtime/require-operational-context";
+import { confirmSale } from "../services/sale.service";
 
 export type ConfirmSaleActionResult =
   | { ok: true }
@@ -29,34 +27,35 @@ export async function confirmSaleAction(
   sale_id: string,
 ): Promise<ConfirmSaleActionResult> {
   const sessionUser = await requireAdmin();
-  const tenant_id   = sessionUser.tenant_id;
-  const location_id = await getEffectiveLocationId(sessionUser);
 
-  if (!tenant_id)       return { ok: false, error: "La sesión no tiene un tenant activo." };
-  if (!location_id)     return { ok: false, error: "La sesión no tiene una location activa." };
   if (!sale_id?.trim()) return { ok: false, error: "El ID de venta es requerido." };
 
-  // PASO 6A: bloquear escritura bajo sesión runtime "Operar como cliente"
-  if (await isRuntimeReadOnlyActive()) {
-    return { ok: false, error: RUNTIME_READONLY_MESSAGE };
-  }
-
+  let handle;
   try {
-    const commercialCtx = await resolveCommercialEnforcementContext(tenant_id);
-    assertOrganizationModule(commercialCtx, "commerce.sales");
+    handle = await requireOperationalContext(sessionUser, { module: "commerce.sales", write: true });
   } catch (err) {
-    if (err instanceof CommercialEnforcementError) return { ok: false, error: err.userMessage };
+    if (err instanceof OperationalContextError) return { ok: false, error: err.userMessage };
     throw err;
   }
+  const { context, dispose } = handle;
 
-  const result = await confirmSale(sale_id, tenant_id, location_id, sessionUser.id);
+  try {
+    const location_id =
+      context.locationId ??
+      (await getEffectiveLocationId(sessionUser, context.client, context.tenantId));
+    if (!location_id) return { ok: false, error: "La sesión no tiene una location activa." };
 
-  if (!result.ok) {
-    return { ok: false, error: result.error };
+    const result = await confirmSale(sale_id, context.tenantId, location_id, context.effectiveUser.id, context.client);
+
+    if (!result.ok) {
+      return { ok: false, error: result.error };
+    }
+
+    revalidatePath("/dashboard/sales");
+    revalidatePath("/dashboard/sales/new");
+
+    return { ok: true };
+  } finally {
+    await dispose();
   }
-
-  revalidatePath("/dashboard/sales");
-  revalidatePath("/dashboard/sales/new");
-
-  return { ok: true };
 }

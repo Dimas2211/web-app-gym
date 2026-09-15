@@ -14,6 +14,7 @@
 // ─────────────────────────────────────────────────────────────────
 
 import { Prisma } from "@prisma/client";
+import type { PrismaClient } from "@prisma/client";
 import { prisma } from "@/lib/db/prisma";
 import type { MatchTypeProduct } from "../types/purchase-dte-import.types";
 
@@ -43,8 +44,9 @@ interface AliasRow {
 export async function loadAliasesForSupplier(
   tenant_id:   string,
   supplier_id: string,
+  db: PrismaClient = prisma,
 ): Promise<AliasRow[]> {
-  return prisma.supplierProductAlias.findMany({
+  return db.supplierProductAlias.findMany({
     where:  { tenant_id, supplier_id, is_active: true },
     select: {
       product_id:                      true,
@@ -105,7 +107,7 @@ export async function saveSupplierProductAlias(params: {
   source:                string;
   created_by:            string;
   updated_by:            string;
-}): Promise<SaveAliasResult> {
+}, db: PrismaClient = prisma): Promise<SaveAliasResult> {
   const {
     tenant_id,
     supplier_id,
@@ -126,7 +128,7 @@ export async function saveSupplierProductAlias(params: {
 
   // Verificar si ya existe alias por código normalizado
   if (normCode) {
-    const existing = await prisma.supplierProductAlias.findFirst({
+    const existing = await db.supplierProductAlias.findFirst({
       where: {
         tenant_id,
         supplier_id,
@@ -148,7 +150,7 @@ export async function saveSupplierProductAlias(params: {
 
   // Verificar si ya existe alias por nombre (solo cuando no hay código)
   if (!normCode && normName) {
-    const existing = await prisma.supplierProductAlias.findFirst({
+    const existing = await db.supplierProductAlias.findFirst({
       where: {
         tenant_id,
         supplier_id,
@@ -171,7 +173,7 @@ export async function saveSupplierProductAlias(params: {
 
   // Crear el alias
   try {
-    await prisma.supplierProductAlias.create({
+    await db.supplierProductAlias.create({
       data: {
         tenant_id,
         supplier_id,

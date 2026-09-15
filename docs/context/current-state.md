@@ -235,10 +235,86 @@ cambios) y `operational-codes.ts` (`suggestNextStaffCode`) aceptan `db` opcional
   cierre final de FASE VI-D; revalidación live de `role` para identidades
   PLATFORM (no RUNTIME_CLIENT) sigue sin implementar, deliberadamente fuera
   de alcance.
-- **NO implementado en VI-D1/D2/D3/D4** (fuera de alcance deliberado): ningún
-  cambio al pipeline fiscal (firmador, transmisión, MariaDB, DteCredential);
-  Sales/Purchases/Cash sin migrar; `RUNTIME_HOST_AUTH_ENABLED` sigue
-  `false`; sin login runtime real en ningún ambiente.
+**VI-D5** (este commit) — cierra Sales + Purchases + Cash (superficie operativa
+NO fiscal). Mismo patrón que VI-D3 (Inventory): cada función de servicio
+mutable recibe `db: PrismaClient = prisma` como último parámetro (nunca
+importa Prisma global dentro del cuerpo salvo el default de compatibilidad) y
+toda `$transaction` nace de `db` — `sale.service.ts` (`createSaleDraft`,
+`addSaleItemToDraft`, `updateSaleItemInDraft`, `removeSaleItemFromDraft`,
+`recalculateSaleTotals`, `discardDraftSale`, `cancelDraftSale`, `confirmSale`),
+`purchase.service.ts` (`createPurchase`, `addPurchaseItem`,
+`updatePurchaseItem`, `removePurchaseItem`, `confirmPurchase`,
+`updatePurchaseHeader`, `deleteDraftPurchase`, `cancelConfirmedPurchase`,
+`updatePurchasePaymentNature`), `cash-session.service.ts` (`openCashSession`,
+`closeCashSession`) y `cash-movement.service.ts` (`recordCashMovement`). Todas
+las Server Actions y Route Handlers de escritura de los tres módulos migraron
+de `requireAdmin()` + `getEffectiveLocationId()` manual a
+`requireOperationalContext(sessionUser, { module: "<code>", write: true })`,
+pasando `context.client` a cada llamada de servicio.
+
+- **`confirmSale` — inventario y caja dentro de la misma transacción
+  efectiva**: la función sigue inlineando el decremento de stock
+  (`ProductLocation`/`InventoryMovement SALE_OUT`) en vez de llamar a
+  `recordInventoryMovement` (decisión previa documentada en el código, no
+  tocada) y sigue llamando a `applyCashPaymentToSession(tx, ...)` para pagos en
+  efectivo — ese helper (`cash-session-payment.service.ts`) ya recibía
+  `tx: Prisma.TransactionClient` explícito desde antes de esta fase (patrón ya
+  correcto). El único cambio fue que el `$transaction` exterior ahora nace de
+  `db` (cliente runtime efectivo) en vez de Prisma global, así que inventario
+  y caja quedan en la MISMA base runtime que la venta, en una sola transacción
+  atómica. `SALE_INVENTORY_SAME_RUNTIME_DB = YES`, `SALE_AND_CASH_SAME_RUNTIME_DB = YES`.
+- **`confirmPurchase` — inventario en la misma transacción efectiva**: mismo
+  criterio (`PURCHASE_IN` inlineado, no tocado). Se preservó tal cual el
+  `ProductLocation.upsert` que ocurre FUERA de la transacción (riesgo
+  preexistente ya documentado en el código — si la transacción falla después,
+  puede quedar una fila `ProductLocation` vacía; no es una regresión de esta
+  fase, no se corrigió porque no era el alcance pedido). `PURCHASE_INVENTORY_SAME_RUNTIME_DB = YES`.
+  Purchases no tiene integración con Cash (pagos a proveedor se registran en
+  campos de `Purchase`, no en `CashMovement`) — `PURCHASE_AND_CASH_SAME_RUNTIME_DB = NONE`.
+- **Frontera fiscal — NO tocada**: la generación/firma/transmisión de DTE
+  sigue siendo un paso separado, disparado por el usuario DESPUÉS de
+  `confirmSale`/`confirmPurchase` (`createPendingDteSimpleAction`,
+  `createPendingDteForPurchaseAction`, generación de JSON FE/CCFE/FSE-14),
+  nunca dentro de la transacción de confirmación. `src/modules/commerce/dte/**`
+  y `src/modules/commerce/sales/export/**` (FEX-11) quedan sin ningún cambio
+  (confirmado con `git status` — diff vacío en ambos árboles).
+  `SALE_DTE_BOUNDARY_RUNTIME_READY = NONE` (deliberadamente fuera de
+  alcance — sigue en Prisma global, migración prevista para FASE VI-E),
+  `PURCHASE_FISCAL_BOUNDARY_RUNTIME_READY = NONE` (ídem, FSE-14).
+- **`suppliers/[id]/purchase-history`**: se auditó y NO era la deuda que se
+  creía — ya usaba `getPurchaseApiContext(req)` (el helper de contexto
+  pre-`requireOperationalContext` de Purchases), con cada query ya filtrada
+  por `tenant_id`/`location_id` efectivos. No requirió cambios.
+  `SUPPLIERS_PURCHASE_HISTORY_RUNTIME_READY = YES`.
+- **Cash — registro de cajas**: la capacidad `commerce.cash_registers.max` ya
+  estaba registrada en el capacity engine (VI-Bloque B), pero no existe ningún
+  entry point (`action`/`route`) que haga `cashRegister.create` en todo el
+  repositorio — confirmado por búsqueda exhaustiva. No se inventó uno en esta
+  fase (fuera de alcance); las cajas existentes se gestionan por vía
+  administrativa fuera de la UI operativa. `CASH_REGISTER_CAPACITY_RUNTIME_READY = YES`
+  (el motor de capacidad es runtime-aware) aunque el CRUD que lo dispararía no exista.
+- **Bug de alcance cerrado (no específico de runtime)**: `manage-purchase-items.action.ts`
+  y el resto de actions/routes de Purchases ya tenían `assertOrganizationModule("commerce.purchases")`
+  correctamente — no había ninguna omisión real en `confirm-purchase.action.ts`
+  (se verificó explícitamente antes de migrar, el chequeo ya existía).
+- **19 tests nuevos de aislamiento cross-tenant** (Sales 8, Purchases 4, Cash
+  4 más regresión de transacción, y ajustes a `confirm-sale.action.test.ts`/
+  `confirm-purchase.action.test.ts` para mockear `requireOperationalContext`).
+  612/612 tests PASS (antes 593). `tsc --noEmit` limpio. `npm run lint` sin
+  errores (solo warnings preexistentes en archivos no tocados por esta fase).
+  `npm run build` PASS. Sin cambios de schema, sin migraciones nuevas.
+- **Estado por módulo**: Products, Customers, Suppliers (core), Inventory,
+  Locations, Users, Sales, Purchases y Cash (superficie operativa no fiscal)
+  están runtime-ready. La frontera fiscal (DTE, incluida FSE-14 de Purchases
+  y el ciclo FE/CCFE/FEX-11 de Sales) sigue en Prisma global — pendiente para
+  FASE VI-E.
+- **NO implementado en VI-D1/D2/D3/D4/D5** (fuera de alcance deliberado):
+  ningún cambio al pipeline fiscal (firmador, transmisión, MariaDB,
+  DteCredential); auditoría transversal de catálogos globales de referencia
+  (`/api/catalogs/**`) pendiente; `get-customer-by-code.ts` y
+  `core/modules/users/queries.ts` siguen como deuda muerta documentada;
+  `RUNTIME_HOST_AUTH_ENABLED` sigue `false`; sin login runtime real en ningún
+  ambiente; sin push, sin deploy.
 
 ## Arquitectura activa
 - El proyecto funciona como monolito modular.

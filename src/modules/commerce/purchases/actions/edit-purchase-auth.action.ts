@@ -15,10 +15,9 @@
 import { requireAdmin } from "@/lib/permissions/guards";
 import { verifyAdminDeleteCredentials } from "@/lib/permissions/delete-authorization";
 import {
-  resolveCommercialEnforcementContext,
-  assertOrganizationModule,
-  CommercialEnforcementError,
-} from "@/modules/platform/runtime/commercial-enforcement";
+  requireOperationalContext,
+  OperationalContextError,
+} from "@/modules/platform/runtime/require-operational-context";
 
 export type EditPurchaseAuthState =
   | { ok: true }
@@ -30,33 +29,36 @@ export async function editPurchaseAuthAction(
   formData: FormData,
 ): Promise<EditPurchaseAuthState> {
   const sessionUser = await requireAdmin();
-  if (!sessionUser.tenant_id) {
-    return { ok: false, error: "Sesión sin tenant activo." };
-  }
 
+  let handle;
   try {
-    const commercialCtx = await resolveCommercialEnforcementContext(sessionUser.tenant_id);
-    assertOrganizationModule(commercialCtx, "commerce.purchases");
+    handle = await requireOperationalContext(sessionUser, { module: "commerce.purchases", write: true });
   } catch (err) {
-    if (err instanceof CommercialEnforcementError) return { ok: false, error: err.userMessage };
+    if (err instanceof OperationalContextError) return { ok: false, error: err.userMessage };
     throw err;
   }
+  const { context, dispose } = handle;
 
-  const email    = (formData.get("auth_email")    as string ?? "").trim();
-  const password = (formData.get("auth_password") as string ?? "");
+  try {
+    const email    = (formData.get("auth_email")    as string ?? "").trim();
+    const password = (formData.get("auth_password") as string ?? "");
 
-  if (!email || !password) {
-    return { ok: false, error: "Correo y contraseña son requeridos." };
+    if (!email || !password) {
+      return { ok: false, error: "Correo y contraseña son requeridos." };
+    }
+
+    const result = await verifyAdminDeleteCredentials(
+      { email, password },
+      context.tenantId,
+      context.client,
+    );
+
+    if (!result.authorized) {
+      return { ok: false, error: result.error };
+    }
+
+    return { ok: true };
+  } finally {
+    await dispose();
   }
-
-  const result = await verifyAdminDeleteCredentials(
-    { email, password },
-    sessionUser.tenant_id,
-  );
-
-  if (!result.authorized) {
-    return { ok: false, error: result.error };
-  }
-
-  return { ok: true };
 }

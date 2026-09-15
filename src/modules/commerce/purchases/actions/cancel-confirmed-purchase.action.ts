@@ -11,15 +11,14 @@
 // ─────────────────────────────────────────────────────────────────
 
 import { revalidatePath } from "next/cache";
-import { requireAdmin } from "@/lib/permissions/guards";
+import { requireAdmin, type SessionUser } from "@/lib/permissions/guards";
 import { verifyAdminDeleteCredentials } from "@/lib/permissions/delete-authorization";
 import { getEffectiveLocationId } from "@/lib/location/active-location";
 import { cancelConfirmedPurchase } from "../services/purchase.service";
 import {
-  resolveCommercialEnforcementContext,
-  assertOrganizationModule,
-  CommercialEnforcementError,
-} from "@/modules/platform/runtime/commercial-enforcement";
+  requireOperationalContext,
+  OperationalContextError,
+} from "@/modules/platform/runtime/require-operational-context";
 
 export type CancelConfirmedPurchaseState =
   | { ok: true }
@@ -32,57 +31,66 @@ export async function cancelConfirmedPurchaseAction(
 ): Promise<CancelConfirmedPurchaseState> {
   const sessionUser = await requireAdmin();
 
-  if (!sessionUser.tenant_id) {
-    return { ok: false, error: "La sesión no tiene un tenant activo." };
-  }
-
-  const location_id = await getEffectiveLocationId(sessionUser);
-  if (!location_id) {
-    return { ok: false, error: "Selecciona una location activa antes de anular." };
-  }
-
+  let handle;
   try {
-    const commercialCtx = await resolveCommercialEnforcementContext(sessionUser.tenant_id);
-    assertOrganizationModule(commercialCtx, "commerce.purchases");
+    handle = await requireOperationalContext(sessionUser, { module: "commerce.purchases", write: true });
   } catch (err) {
-    if (err instanceof CommercialEnforcementError) return { ok: false, error: err.userMessage };
+    if (err instanceof OperationalContextError) return { ok: false, error: err.userMessage };
     throw err;
   }
+  const { context, dispose } = handle;
 
-  const purchase_id = ((formData.get("purchase_id") as string) ?? "").trim();
-  if (!purchase_id) {
-    return { ok: false, error: "purchase_id es requerido." };
+  try {
+    const location_id =
+      context.locationId ??
+      (await getEffectiveLocationId(
+        { ...context.effectiveUser, role: context.effectiveUser.role as SessionUser["role"] } as SessionUser,
+        context.client,
+        context.tenantId,
+      ));
+    if (!location_id) {
+      return { ok: false, error: "Selecciona una location activa antes de anular." };
+    }
+
+    const purchase_id = ((formData.get("purchase_id") as string) ?? "").trim();
+    if (!purchase_id) {
+      return { ok: false, error: "purchase_id es requerido." };
+    }
+
+    const email    = ((formData.get("auth_email")    as string) ?? "").trim();
+    const password = ((formData.get("auth_password") as string) ?? "");
+
+    if (!email || !password) {
+      return { ok: false, error: "Correo y contraseña son requeridos." };
+    }
+
+    const auth = await verifyAdminDeleteCredentials(
+      { email, password },
+      context.tenantId,
+      context.client,
+    );
+
+    if (!auth.authorized) {
+      return { ok: false, error: auth.error };
+    }
+
+    const result = await cancelConfirmedPurchase(
+      purchase_id,
+      context.tenantId,
+      location_id,
+      context.effectiveUser.id,
+      context.client,
+    );
+
+    if (!result.ok) {
+      return { ok: false, error: result.error };
+    }
+
+    revalidatePath(`/dashboard/purchases/${purchase_id}`);
+    revalidatePath("/dashboard/purchases");
+
+    return { ok: true };
+  } finally {
+    await dispose();
   }
-
-  const email    = ((formData.get("auth_email")    as string) ?? "").trim();
-  const password = ((formData.get("auth_password") as string) ?? "");
-
-  if (!email || !password) {
-    return { ok: false, error: "Correo y contraseña son requeridos." };
-  }
-
-  const auth = await verifyAdminDeleteCredentials(
-    { email, password },
-    sessionUser.tenant_id,
-  );
-
-  if (!auth.authorized) {
-    return { ok: false, error: auth.error };
-  }
-
-  const result = await cancelConfirmedPurchase(
-    purchase_id,
-    sessionUser.tenant_id,
-    location_id,
-    sessionUser.id,
-  );
-
-  if (!result.ok) {
-    return { ok: false, error: result.error };
-  }
-
-  revalidatePath(`/dashboard/purchases/${purchase_id}`);
-  revalidatePath("/dashboard/purchases");
-
-  return { ok: true };
 }

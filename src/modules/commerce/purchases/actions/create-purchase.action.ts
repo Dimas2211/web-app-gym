@@ -10,15 +10,14 @@
 // ─────────────────────────────────────────────────────────────────
 
 import { revalidatePath } from "next/cache";
-import { requireAdmin } from "@/lib/permissions/guards";
+import { requireAdmin, type SessionUser } from "@/lib/permissions/guards";
 import { getEffectiveLocationId } from "@/lib/location/active-location";
 import { createPurchaseSchema } from "../schemas/create-purchase.schema";
 import { createPurchase } from "../services/purchase.service";
 import {
-  resolveCommercialEnforcementContext,
-  assertOrganizationModule,
-  CommercialEnforcementError,
-} from "@/modules/platform/runtime/commercial-enforcement";
+  requireOperationalContext,
+  OperationalContextError,
+} from "@/modules/platform/runtime/require-operational-context";
 
 export type CreatePurchaseState =
   | { errors?: Record<string, string[]>; error?: string; id?: string }
@@ -40,46 +39,56 @@ export async function createPurchaseAction(
   formData: FormData,
 ): Promise<CreatePurchaseState> {
   const sessionUser = await requireAdmin();
-  const tenant_id   = sessionUser.tenant_id;
-  const location_id = await getEffectiveLocationId(sessionUser);
 
-  if (!tenant_id)   return { error: "La sesión no tiene un tenant activo." };
-  if (!location_id) return { error: "La sesión no tiene una location activa." };
-
+  let handle;
   try {
-    const commercialCtx = await resolveCommercialEnforcementContext(tenant_id);
-    assertOrganizationModule(commercialCtx, "commerce.purchases");
+    handle = await requireOperationalContext(sessionUser, { module: "commerce.purchases", write: true });
   } catch (err) {
-    if (err instanceof CommercialEnforcementError) return { error: err.userMessage };
+    if (err instanceof OperationalContextError) return { error: err.userMessage };
     throw err;
   }
+  const { context, dispose } = handle;
 
-  const raw = {
-    supplier_id:   str(formData.get("supplier_id")),
-    purchase_date: str(formData.get("purchase_date")),
-    purchase_code: str(formData.get("purchase_code")),
-    notes:         str(formData.get("notes")),
-  };
+  try {
+    const location_id =
+      context.locationId ??
+      (await getEffectiveLocationId(
+        { ...context.effectiveUser, role: context.effectiveUser.role as SessionUser["role"] } as SessionUser,
+        context.client,
+        context.tenantId,
+      ));
+    if (!location_id) return { error: "La sesión no tiene una location activa." };
 
-  const parsed = createPurchaseSchema.safeParse(raw);
-  if (!parsed.success) {
-    return { errors: parsed.error.flatten().fieldErrors };
+    const raw = {
+      supplier_id:   str(formData.get("supplier_id")),
+      purchase_date: str(formData.get("purchase_date")),
+      purchase_code: str(formData.get("purchase_code")),
+      notes:         str(formData.get("notes")),
+    };
+
+    const parsed = createPurchaseSchema.safeParse(raw);
+    if (!parsed.success) {
+      return { errors: parsed.error.flatten().fieldErrors };
+    }
+
+    const result = await createPurchase(
+      context.tenantId,
+      location_id,
+      context.effectiveUser.id,
+      parsed.data,
+      context.client,
+    );
+
+    if (!result.ok) {
+      return result.field
+        ? { errors: { [result.field]: [result.error] } }
+        : { error: result.error };
+    }
+
+    revalidatePath("/dashboard/purchases");
+    // Retorna el id para que el cliente pueda redirigir al detalle
+    return { id: result.id };
+  } finally {
+    await dispose();
   }
-
-  const result = await createPurchase(
-    tenant_id,
-    location_id,
-    sessionUser.id,
-    parsed.data,
-  );
-
-  if (!result.ok) {
-    return result.field
-      ? { errors: { [result.field]: [result.error] } }
-      : { error: result.error };
-  }
-
-  revalidatePath("/dashboard/purchases");
-  // Retorna el id para que el cliente pueda redirigir al detalle
-  return { id: result.id };
 }

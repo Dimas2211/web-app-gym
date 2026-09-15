@@ -10,18 +10,17 @@
 // se inyectan desde sesión — nunca del input del cliente.
 // ─────────────────────────────────────────────────────────────────
 
-import { requireAdmin }           from "@/lib/permissions/guards";
+import { requireAdmin, type SessionUser } from "@/lib/permissions/guards";
+import type { UserRole } from "@prisma/client";
 import { getEffectiveLocationId } from "@/lib/location/active-location";
 import { createCashMovementInputSchema } from "../schemas/cash.schemas";
 import { recordCashMovement }           from "../services/cash-movement.service";
-import { isRuntimeReadOnlyActive, RUNTIME_READONLY_MESSAGE } from "@/modules/platform/runtime/runtime-session";
 import type { CreateCashMovementInput } from "../schemas/cash.schemas";
 import type { CashMovementCreateResult } from "../types/cash.types";
 import {
-  resolveCommercialEnforcementContext,
-  assertOrganizationModule,
-  CommercialEnforcementError,
-} from "@/modules/platform/runtime/commercial-enforcement";
+  requireOperationalContext,
+  OperationalContextError,
+} from "@/modules/platform/runtime/require-operational-context";
 
 export type CreateCashMovementActionResult =
   | { ok: true;  data: CashMovementCreateResult }
@@ -31,41 +30,50 @@ export async function createCashMovementAction(
   input: CreateCashMovementInput,
 ): Promise<CreateCashMovementActionResult> {
   const sessionUser = await requireAdmin();
-  const tenant_id   = sessionUser.tenant_id;
-  const location_id = await getEffectiveLocationId(sessionUser);
 
-  if (!tenant_id)   return { ok: false, error: "La sesión no tiene un tenant activo." };
-  if (!location_id) return { ok: false, error: "La sesión no tiene una location activa." };
-
-  // PASO 6A: bloquear escritura bajo sesión runtime "Operar como cliente"
-  if (await isRuntimeReadOnlyActive()) {
-    return { ok: false, error: RUNTIME_READONLY_MESSAGE };
-  }
-
+  let handle;
   try {
-    const commercialCtx = await resolveCommercialEnforcementContext(tenant_id);
-    assertOrganizationModule(commercialCtx, "commerce.cash");
+    handle = await requireOperationalContext(sessionUser, { module: "commerce.cash", write: true });
   } catch (err) {
-    if (err instanceof CommercialEnforcementError) return { ok: false, error: err.userMessage };
+    if (err instanceof OperationalContextError) return { ok: false, error: err.userMessage };
     throw err;
   }
+  const { context, dispose } = handle;
 
-  const parsed = createCashMovementInputSchema.safeParse(input);
-  if (!parsed.success) {
-    return { ok: false, error: "Datos inválidos para movimiento de caja." };
+  try {
+    const tenant_id = context.tenantId;
+    const location_id =
+      context.locationId ??
+      (await getEffectiveLocationId(
+        { ...context.effectiveUser, role: context.effectiveUser.role as UserRole } as SessionUser,
+        context.client,
+        context.tenantId,
+      ));
+
+    if (!location_id) return { ok: false, error: "La sesión no tiene una location activa." };
+
+    const parsed = createCashMovementInputSchema.safeParse(input);
+    if (!parsed.success) {
+      return { ok: false, error: "Datos inválidos para movimiento de caja." };
+    }
+
+    const result = await recordCashMovement(
+      {
+        tenant_id,
+        location_id,
+        cash_session_id: parsed.data.cash_session_id,
+        movement_type:   parsed.data.movement_type,
+        amount:          parsed.data.amount,
+        reason:          parsed.data.reason,
+        reference:       parsed.data.reference,
+        notes:           parsed.data.notes,
+        performed_by:    context.effectiveUser.id,
+      },
+      context.client,
+    );
+
+    return result;
+  } finally {
+    await dispose();
   }
-
-  const result = await recordCashMovement({
-    tenant_id,
-    location_id,
-    cash_session_id: parsed.data.cash_session_id,
-    movement_type:   parsed.data.movement_type,
-    amount:          parsed.data.amount,
-    reason:          parsed.data.reason,
-    reference:       parsed.data.reference,
-    notes:           parsed.data.notes,
-    performed_by:    sessionUser.id,
-  });
-
-  return result;
 }

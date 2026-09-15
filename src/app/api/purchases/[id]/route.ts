@@ -61,7 +61,7 @@ export async function DELETE(
       return NextResponse.json({ error: RUNTIME_READONLY_MESSAGE }, { status: 403 });
     }
 
-    const result = await deleteDraftPurchase(id, ctx.tenant_id, ctx.location_id);
+    const result = await deleteDraftPurchase(id, ctx.tenant_id, ctx.location_id, ctx.client);
 
     if (!result.ok) {
       return NextResponse.json({ error: result.error }, { status: 422 });

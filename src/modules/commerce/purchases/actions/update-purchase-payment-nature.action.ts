@@ -11,17 +11,16 @@
 // ─────────────────────────────────────────────────────────────────
 
 import { revalidatePath } from "next/cache";
-import { requireAdmin } from "@/lib/permissions/guards";
+import { requireAdmin, type SessionUser } from "@/lib/permissions/guards";
 import { getEffectiveLocationId } from "@/lib/location/active-location";
 import { updatePurchasePaymentNatureSchema } from "../schemas/payment-nature.schema";
 import { updatePurchasePaymentNature } from "../services/purchase.service";
 import { getPurchaseById } from "../queries/get-purchase-by-id";
 import type { PurchaseDetail } from "../types/purchase.types";
 import {
-  resolveCommercialEnforcementContext,
-  assertOrganizationModule,
-  CommercialEnforcementError,
-} from "@/modules/platform/runtime/commercial-enforcement";
+  requireOperationalContext,
+  OperationalContextError,
+} from "@/modules/platform/runtime/require-operational-context";
 
 export type UpdatePurchasePaymentNatureState =
   | { ok: true; detail: PurchaseDetail }
@@ -33,49 +32,62 @@ export async function updatePurchasePaymentNatureAction(
   manual_base:    number | null,
 ): Promise<UpdatePurchasePaymentNatureState> {
   const sessionUser = await requireAdmin();
-  const location_id = await getEffectiveLocationId(sessionUser);
 
-  if (!sessionUser.tenant_id || !location_id) {
-    return { ok: false, error: "Sesión sin tenant o location activa." };
-  }
-
+  let handle;
   try {
-    const commercialCtx = await resolveCommercialEnforcementContext(sessionUser.tenant_id);
-    assertOrganizationModule(commercialCtx, "commerce.purchases");
+    handle = await requireOperationalContext(sessionUser, { module: "commerce.purchases", write: true });
   } catch (err) {
-    if (err instanceof CommercialEnforcementError) return { ok: false, error: err.userMessage };
+    if (err instanceof OperationalContextError) return { ok: false, error: err.userMessage };
     throw err;
   }
+  const { context, dispose } = handle;
 
-  const parsed = updatePurchasePaymentNatureSchema.safeParse({
-    purchase_id,
-    payment_nature,
-    manual_base,
-  });
-  if (!parsed.success) {
-    const first = Object.entries(parsed.error.flatten().fieldErrors)[0];
-    return first
-      ? { ok: false, field: first[0], error: first[1][0] }
-      : { ok: false, error: "Datos inválidos." };
+  try {
+    const location_id =
+      context.locationId ??
+      (await getEffectiveLocationId(
+        { ...context.effectiveUser, role: context.effectiveUser.role as SessionUser["role"] } as SessionUser,
+        context.client,
+        context.tenantId,
+      ));
+
+    if (!location_id) {
+      return { ok: false, error: "Sesión sin tenant o location activa." };
+    }
+
+    const parsed = updatePurchasePaymentNatureSchema.safeParse({
+      purchase_id,
+      payment_nature,
+      manual_base,
+    });
+    if (!parsed.success) {
+      const first = Object.entries(parsed.error.flatten().fieldErrors)[0];
+      return first
+        ? { ok: false, field: first[0], error: first[1][0] }
+        : { ok: false, error: "Datos inválidos." };
+    }
+
+    const result = await updatePurchasePaymentNature(
+      parsed.data.purchase_id,
+      context.tenantId,
+      location_id,
+      context.effectiveUser.id,
+      {
+        payment_nature: parsed.data.payment_nature,
+        manual_base:    parsed.data.manual_base ?? null,
+      },
+      context.client,
+    );
+
+    if (!result.ok) return result;
+
+    revalidatePath(`/dashboard/purchases/${parsed.data.purchase_id}`);
+    revalidatePath(`/dashboard/purchases/${parsed.data.purchase_id}/edit`);
+
+    const detail = await getPurchaseById(parsed.data.purchase_id, context.tenantId, location_id, context.client);
+    if (!detail) return { ok: false, error: "No se pudo recargar el detalle de la compra." };
+    return { ok: true, detail };
+  } finally {
+    await dispose();
   }
-
-  const result = await updatePurchasePaymentNature(
-    parsed.data.purchase_id,
-    sessionUser.tenant_id,
-    location_id,
-    sessionUser.id,
-    {
-      payment_nature: parsed.data.payment_nature,
-      manual_base:    parsed.data.manual_base ?? null,
-    },
-  );
-
-  if (!result.ok) return result;
-
-  revalidatePath(`/dashboard/purchases/${parsed.data.purchase_id}`);
-  revalidatePath(`/dashboard/purchases/${parsed.data.purchase_id}/edit`);
-
-  const detail = await getPurchaseById(parsed.data.purchase_id, sessionUser.tenant_id, location_id);
-  if (!detail) return { ok: false, error: "No se pudo recargar el detalle de la compra." };
-  return { ok: true, detail };
 }

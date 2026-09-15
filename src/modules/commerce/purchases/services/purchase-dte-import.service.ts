@@ -13,6 +13,7 @@
 // ─────────────────────────────────────────────────────────────────
 
 import { Prisma } from "@prisma/client";
+import type { PrismaClient } from "@prisma/client";
 import { prisma } from "@/lib/db/prisma";
 import type { DteMetadata, PurchaseDteImportRecord } from "../types/purchase-dte-import.types";
 
@@ -153,13 +154,14 @@ export async function createPurchaseDteImport(
   location_id: string,
   user_id:     string,
   raw_json:    Record<string, unknown>,
+  db: PrismaClient = prisma,
 ): Promise<CreateDteImportResult> {
   const metadata: DteMetadata = extractDteMetadata(raw_json);
   const warnings: string[]    = [];
 
   // Detección de duplicado por generation_code — solo advierte, no bloquea
   if (metadata.generation_code) {
-    const existing = await prisma.purchaseDteImport.findFirst({
+    const existing = await db.purchaseDteImport.findFirst({
       where: {
         tenant_id,
         location_id,
@@ -174,7 +176,7 @@ export async function createPurchaseDteImport(
     }
   }
 
-  const record = await prisma.purchaseDteImport.create({
+  const record = await db.purchaseDteImport.create({
     data: {
       tenant_id,
       location_id,

@@ -11,6 +11,7 @@
 // ─────────────────────────────────────────────────────────────────
 
 import { prisma } from "@/lib/db/prisma";
+import type { PrismaClient } from "@prisma/client";
 import type {
   CashMovementType,
   CashMovementDirection,
@@ -125,6 +126,7 @@ export type RecordCashMovementResult =
 
 export async function recordCashMovement(
   params: RecordCashMovementParams,
+  db: PrismaClient = prisma,
 ): Promise<RecordCashMovementResult> {
   const {
     tenant_id,
@@ -139,7 +141,7 @@ export async function recordCashMovement(
   } = params;
 
   try {
-    const result = await prisma.$transaction(async (tx) => {
+    const result = await db.$transaction(async (tx) => {
       // 1. Buscar sesión OPEN dentro del scope tenant/location.
       const session = await tx.cashSession.findFirst({
         where: {

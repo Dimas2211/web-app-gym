@@ -3,14 +3,16 @@
 // ─────────────────────────────────────────────────────────────────
 
 import { prisma } from "@/lib/db/prisma";
+import type { PrismaClient } from "@prisma/client";
 import type { SaleItemDetail } from "../types/sale.types";
 
 export async function listSaleItems(
   sale_id:   string,
   tenant_id: string,
+  client:    PrismaClient = prisma,
 ): Promise<SaleItemDetail[]> {
   // Verifica tenant mediante join a Sale sin exponer sale directamente
-  const rows = await prisma.saleItem.findMany({
+  const rows = await client.saleItem.findMany({
     where: {
       sale_id,
       sale: { tenant_id },

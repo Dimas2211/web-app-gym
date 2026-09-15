@@ -10,7 +10,7 @@
 // Diseñada para useActionState con un solo action fijo en PurchaseFormClient.
 // ─────────────────────────────────────────────────────────────────
 
-import { requireAdmin }           from "@/lib/permissions/guards";
+import { requireAdmin, type SessionUser } from "@/lib/permissions/guards";
 import { getEffectiveLocationId } from "@/lib/location/active-location";
 import { createPurchaseSchema }   from "../schemas/create-purchase.schema";
 import { createPurchase, updatePurchaseHeader } from "../services/purchase.service";
@@ -20,10 +20,9 @@ import {
   VALID_CANCELLATION_TYPES,
 } from "../constants/purchase-document.constants";
 import {
-  resolveCommercialEnforcementContext,
-  assertOrganizationModule,
-  CommercialEnforcementError,
-} from "@/modules/platform/runtime/commercial-enforcement";
+  requireOperationalContext,
+  OperationalContextError,
+} from "@/modules/platform/runtime/require-operational-context";
 
 export type SavePurchaseHeaderState =
   | { ok: true;  id: string; created: boolean }
@@ -45,19 +44,37 @@ export async function savePurchaseHeaderAction(
   formData: FormData,
 ): Promise<SavePurchaseHeaderState> {
   const sessionUser = await requireAdmin();
-  const tenant_id   = sessionUser.tenant_id;
-  const location_id = await getEffectiveLocationId(sessionUser);
 
-  if (!tenant_id)   return { ok: false, error: "Sesión sin tenant activo." };
-  if (!location_id) return { ok: false, error: "Sesión sin location activa." };
-
+  let handle;
   try {
-    const commercialCtx = await resolveCommercialEnforcementContext(tenant_id);
-    assertOrganizationModule(commercialCtx, "commerce.purchases");
+    handle = await requireOperationalContext(sessionUser, { module: "commerce.purchases", write: true });
   } catch (err) {
-    if (err instanceof CommercialEnforcementError) return { ok: false, error: err.userMessage };
+    if (err instanceof OperationalContextError) return { ok: false, error: err.userMessage };
     throw err;
   }
+  const { context, dispose } = handle;
+
+  try {
+    return await savePurchaseHeaderInner(context, formData);
+  } finally {
+    await dispose();
+  }
+}
+
+async function savePurchaseHeaderInner(
+  context: Awaited<ReturnType<typeof requireOperationalContext>>["context"],
+  formData: FormData,
+): Promise<SavePurchaseHeaderState> {
+  const tenant_id = context.tenantId;
+  const location_id =
+    context.locationId ??
+    (await getEffectiveLocationId(
+      { ...context.effectiveUser, role: context.effectiveUser.role as SessionUser["role"] } as SessionUser,
+      context.client,
+      context.tenantId,
+    ));
+
+  if (!location_id) return { ok: false, error: "Sesión sin tenant o location activa." };
 
   const purchase_id = str(formData.get("purchase_id"));
 
@@ -126,7 +143,7 @@ export async function savePurchaseHeaderAction(
       purchase_id,
       tenant_id,
       location_id,
-      sessionUser.id,
+      context.effectiveUser.id,
       {
         supplier_id,
         purchase_date,
@@ -138,6 +155,7 @@ export async function savePurchaseHeaderAction(
         payment_condition,
         cancellation_type,
       },
+      context.client,
     );
     if (!result.ok) return result;
     return { ok: true, id: purchase_id, created: false };
@@ -154,7 +172,7 @@ export async function savePurchaseHeaderAction(
         : { ok: false, error: "Datos inválidos." };
     }
 
-    const result = await createPurchase(tenant_id, location_id, sessionUser.id, parsed.data);
+    const result = await createPurchase(tenant_id, location_id, context.effectiveUser.id, parsed.data, context.client);
     if (!result.ok) return result;
     return { ok: true, id: result.id, created: true };
   }

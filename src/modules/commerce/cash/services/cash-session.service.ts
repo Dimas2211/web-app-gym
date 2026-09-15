@@ -13,6 +13,7 @@
 // ─────────────────────────────────────────────────────────────────
 
 import { prisma } from "@/lib/db/prisma";
+import type { PrismaClient } from "@prisma/client";
 import type { CashOpenSessionInfo } from "../types/cash.types";
 
 // ── Tipos internos ────────────────────────────────────────────────
@@ -34,11 +35,12 @@ export type OpenCashSessionResult =
 
 export async function openCashSession(
   params: OpenCashSessionParams,
+  db: PrismaClient = prisma,
 ): Promise<OpenCashSessionResult> {
   const { tenant_id, location_id, cash_register_id, opened_by, opening_amount, notes } = params;
 
   try {
-    const result = await prisma.$transaction(async (tx) => {
+    const result = await db.$transaction(async (tx) => {
       // 1. Verificar que la caja exista dentro del scope y esté activa.
       const register = await tx.cashRegister.findFirst({
         where: { id: cash_register_id, tenant_id, location_id, is_active: true },
@@ -141,11 +143,12 @@ export type CloseCashSessionResult =
 
 export async function closeCashSession(
   params: CloseCashSessionParams,
+  db: PrismaClient = prisma,
 ): Promise<CloseCashSessionResult> {
   const { tenant_id, location_id, cash_session_id, closed_by, declared_cash_amount, notes } = params;
 
   try {
-    const result = await prisma.$transaction(async (tx) => {
+    const result = await db.$transaction(async (tx) => {
       // 1. Buscar la sesión OPEN dentro del scope.
       const session = await tx.cashSession.findFirst({
         where: {

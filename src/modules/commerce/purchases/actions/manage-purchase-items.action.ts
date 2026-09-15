@@ -13,7 +13,7 @@
 // ─────────────────────────────────────────────────────────────────
 
 import { revalidatePath } from "next/cache";
-import { requireAdmin } from "@/lib/permissions/guards";
+import { requireAdmin, type SessionUser } from "@/lib/permissions/guards";
 import { getEffectiveLocationId } from "@/lib/location/active-location";
 import {
   addPurchaseItemSchema,
@@ -27,10 +27,22 @@ import {
 import { getPurchaseById } from "../queries/get-purchase-by-id";
 import type { PurchaseDetail } from "../types/purchase.types";
 import {
-  resolveCommercialEnforcementContext,
-  assertOrganizationModule,
-  CommercialEnforcementError,
-} from "@/modules/platform/runtime/commercial-enforcement";
+  requireOperationalContext,
+  OperationalContextError,
+} from "@/modules/platform/runtime/require-operational-context";
+
+async function resolveLocationId(
+  context: Awaited<ReturnType<typeof requireOperationalContext>>["context"],
+): Promise<string | null> {
+  return (
+    context.locationId ??
+    (await getEffectiveLocationId(
+      { ...context.effectiveUser, role: context.effectiveUser.role as SessionUser["role"] } as SessionUser,
+      context.client,
+      context.tenantId,
+    ))
+  );
+}
 
 export type PurchaseItemState =
   | { ok: true; detail: PurchaseDetail }
@@ -60,55 +72,59 @@ export async function addPurchaseItemAction(
   formData: FormData,
 ): Promise<PurchaseItemState> {
   const sessionUser = await requireAdmin();
-  const tenant_id   = sessionUser.tenant_id;
-  const location_id = await getEffectiveLocationId(sessionUser);
 
-  if (!tenant_id)   return { error: "La sesión no tiene un tenant activo." };
-  if (!location_id) return { error: "La sesión no tiene una location activa." };
-
+  let handle;
   try {
-    const commercialCtx = await resolveCommercialEnforcementContext(tenant_id);
-    assertOrganizationModule(commercialCtx, "commerce.purchases");
+    handle = await requireOperationalContext(sessionUser, { module: "commerce.purchases", write: true });
   } catch (err) {
-    if (err instanceof CommercialEnforcementError) return { error: err.userMessage };
+    if (err instanceof OperationalContextError) return { error: err.userMessage };
     throw err;
   }
+  const { context, dispose } = handle;
 
-  const purchase_id = str(formData.get("purchase_id"));
-  if (!purchase_id) return { error: "purchase_id es requerido." };
+  try {
+    const location_id = await resolveLocationId(context);
+    if (!location_id) return { error: "La sesión no tiene una location activa." };
 
-  const raw = {
-    product_id: str(formData.get("product_id")),
-    quantity:   dec(formData.get("quantity")),
-    unit_cost:  dec(formData.get("unit_cost")),
-    tax_amount: dec(formData.get("tax_amount")),
-    notes:      str(formData.get("notes")),
-  };
+    const purchase_id = str(formData.get("purchase_id"));
+    if (!purchase_id) return { error: "purchase_id es requerido." };
 
-  const parsed = addPurchaseItemSchema.safeParse(raw);
-  if (!parsed.success) {
-    return { errors: parsed.error.flatten().fieldErrors };
+    const raw = {
+      product_id: str(formData.get("product_id")),
+      quantity:   dec(formData.get("quantity")),
+      unit_cost:  dec(formData.get("unit_cost")),
+      tax_amount: dec(formData.get("tax_amount")),
+      notes:      str(formData.get("notes")),
+    };
+
+    const parsed = addPurchaseItemSchema.safeParse(raw);
+    if (!parsed.success) {
+      return { errors: parsed.error.flatten().fieldErrors };
+    }
+
+    const result = await addPurchaseItem(
+      purchase_id,
+      context.tenantId,
+      location_id,
+      context.effectiveUser.id,
+      parsed.data,
+      context.client,
+    );
+
+    if (!result.ok) {
+      return result.field
+        ? { errors: { [result.field]: [result.error] } }
+        : { error: result.error };
+    }
+
+    revalidatePath(`/dashboard/purchases/${purchase_id}/edit`);
+
+    const detail = await getPurchaseById(purchase_id, context.tenantId, location_id, context.client);
+    if (!detail) return { error: "No se pudo recargar el detalle de la compra." };
+    return { ok: true as const, detail };
+  } finally {
+    await dispose();
   }
-
-  const result = await addPurchaseItem(
-    purchase_id,
-    tenant_id,
-    location_id,
-    sessionUser.id,
-    parsed.data,
-  );
-
-  if (!result.ok) {
-    return result.field
-      ? { errors: { [result.field]: [result.error] } }
-      : { error: result.error };
-  }
-
-  revalidatePath(`/dashboard/purchases/${purchase_id}/edit`);
-
-  const detail = await getPurchaseById(purchase_id, tenant_id, location_id);
-  if (!detail) return { error: "No se pudo recargar el detalle de la compra." };
-  return { ok: true as const, detail };
 }
 
 // ── Editar línea ──────────────────────────────────────────────────
@@ -118,49 +134,53 @@ export async function updatePurchaseItemAction(
   formData: FormData,
 ): Promise<PurchaseItemState> {
   const sessionUser = await requireAdmin();
-  const tenant_id   = sessionUser.tenant_id;
-  const location_id = await getEffectiveLocationId(sessionUser);
 
-  if (!tenant_id)   return { error: "La sesión no tiene un tenant activo." };
-  if (!location_id) return { error: "La sesión no tiene una location activa." };
-
+  let handle;
   try {
-    const commercialCtx = await resolveCommercialEnforcementContext(tenant_id);
-    assertOrganizationModule(commercialCtx, "commerce.purchases");
+    handle = await requireOperationalContext(sessionUser, { module: "commerce.purchases", write: true });
   } catch (err) {
-    if (err instanceof CommercialEnforcementError) return { error: err.userMessage };
+    if (err instanceof OperationalContextError) return { error: err.userMessage };
     throw err;
   }
+  const { context, dispose } = handle;
 
-  const purchase_id = str(formData.get("purchase_id"));
-  const item_id     = str(formData.get("item_id"));
-  if (!purchase_id) return { error: "purchase_id es requerido." };
-  if (!item_id)     return { error: "item_id es requerido." };
+  try {
+    const location_id = await resolveLocationId(context);
+    if (!location_id) return { error: "La sesión no tiene una location activa." };
 
-  const raw = {
-    quantity:   dec(formData.get("quantity")),
-    unit_cost:  dec(formData.get("unit_cost")),
-    tax_amount: dec(formData.get("tax_amount")),
-    notes:      str(formData.get("notes")),
-  };
+    const purchase_id = str(formData.get("purchase_id"));
+    const item_id     = str(formData.get("item_id"));
+    if (!purchase_id) return { error: "purchase_id es requerido." };
+    if (!item_id)     return { error: "item_id es requerido." };
 
-  const parsed = updatePurchaseItemSchema.safeParse(raw);
-  if (!parsed.success) {
-    return { errors: parsed.error.flatten().fieldErrors };
+    const raw = {
+      quantity:   dec(formData.get("quantity")),
+      unit_cost:  dec(formData.get("unit_cost")),
+      tax_amount: dec(formData.get("tax_amount")),
+      notes:      str(formData.get("notes")),
+    };
+
+    const parsed = updatePurchaseItemSchema.safeParse(raw);
+    if (!parsed.success) {
+      return { errors: parsed.error.flatten().fieldErrors };
+    }
+
+    const result = await updatePurchaseItem(
+      item_id,
+      purchase_id,
+      context.tenantId,
+      location_id,
+      context.effectiveUser.id,
+      parsed.data,
+      context.client,
+    );
+
+    if (!result.ok) return { error: result.error };
+
+    revalidatePath(`/dashboard/purchases/${purchase_id}/edit`);
+  } finally {
+    await dispose();
   }
-
-  const result = await updatePurchaseItem(
-    item_id,
-    purchase_id,
-    tenant_id,
-    location_id,
-    sessionUser.id,
-    parsed.data,
-  );
-
-  if (!result.ok) return { error: result.error };
-
-  revalidatePath(`/dashboard/purchases/${purchase_id}/edit`);
 }
 
 // ── Eliminar línea ────────────────────────────────────────────────
@@ -170,38 +190,42 @@ export async function removePurchaseItemAction(
   formData: FormData,
 ): Promise<PurchaseItemState> {
   const sessionUser = await requireAdmin();
-  const tenant_id   = sessionUser.tenant_id;
-  const location_id = await getEffectiveLocationId(sessionUser);
 
-  if (!tenant_id)   return { error: "La sesión no tiene un tenant activo." };
-  if (!location_id) return { error: "La sesión no tiene una location activa." };
-
+  let handle;
   try {
-    const commercialCtx = await resolveCommercialEnforcementContext(tenant_id);
-    assertOrganizationModule(commercialCtx, "commerce.purchases");
+    handle = await requireOperationalContext(sessionUser, { module: "commerce.purchases", write: true });
   } catch (err) {
-    if (err instanceof CommercialEnforcementError) return { error: err.userMessage };
+    if (err instanceof OperationalContextError) return { error: err.userMessage };
     throw err;
   }
+  const { context, dispose } = handle;
 
-  const purchase_id = str(formData.get("purchase_id"));
-  const item_id     = str(formData.get("item_id"));
-  if (!purchase_id) return { error: "purchase_id es requerido." };
-  if (!item_id)     return { error: "item_id es requerido." };
+  try {
+    const location_id = await resolveLocationId(context);
+    if (!location_id) return { error: "La sesión no tiene una location activa." };
 
-  const result = await removePurchaseItem(
-    item_id,
-    purchase_id,
-    tenant_id,
-    location_id,
-    sessionUser.id,
-  );
+    const purchase_id = str(formData.get("purchase_id"));
+    const item_id     = str(formData.get("item_id"));
+    if (!purchase_id) return { error: "purchase_id es requerido." };
+    if (!item_id)     return { error: "item_id es requerido." };
 
-  if (!result.ok) return { error: result.error };
+    const result = await removePurchaseItem(
+      item_id,
+      purchase_id,
+      context.tenantId,
+      location_id,
+      context.effectiveUser.id,
+      context.client,
+    );
 
-  revalidatePath(`/dashboard/purchases/${purchase_id}/edit`);
+    if (!result.ok) return { error: result.error };
 
-  const detail = await getPurchaseById(purchase_id, tenant_id, location_id);
-  if (!detail) return { error: "No se pudo recargar el detalle de la compra." };
-  return { ok: true as const, detail };
+    revalidatePath(`/dashboard/purchases/${purchase_id}/edit`);
+
+    const detail = await getPurchaseById(purchase_id, context.tenantId, location_id, context.client);
+    if (!detail) return { error: "No se pudo recargar el detalle de la compra." };
+    return { ok: true as const, detail };
+  } finally {
+    await dispose();
+  }
 }

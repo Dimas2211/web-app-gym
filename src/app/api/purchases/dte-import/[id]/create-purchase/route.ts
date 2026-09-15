@@ -13,91 +13,96 @@
 export const dynamic = "force-dynamic";
 
 import { NextRequest, NextResponse } from "next/server";
-import { requireAdmin } from "@/lib/permissions/guards";
+import { requireAdmin, type SessionUser } from "@/lib/permissions/guards";
 import { getEffectiveLocationId } from "@/lib/location/active-location";
 import { createPurchaseFromDteSchema } from "@/modules/commerce/purchases/schemas/dte-import.schema";
 import { createPurchaseDraftFromDteImport } from "@/modules/commerce/purchases/services/create-purchase-from-dte-import.service";
-import { isRuntimeReadOnlyActive, RUNTIME_READONLY_MESSAGE } from "@/modules/platform/runtime/runtime-session";
 import {
-  resolveCommercialEnforcementContext,
-  assertOrganizationModule,
-  CommercialEnforcementError,
-} from "@/modules/platform/runtime/commercial-enforcement";
+  requireOperationalContext,
+  OperationalContextError,
+} from "@/modules/platform/runtime/require-operational-context";
 
 export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
   const sessionUser = await requireAdmin();
-  const tenant_id   = sessionUser.tenant_id;
-  const location_id = await getEffectiveLocationId(sessionUser);
 
-  if (!tenant_id || !location_id) {
-    return NextResponse.json(
-      { error: "Sesión sin tenant o location activa." },
-      { status: 401 },
-    );
-  }
-
-  // PASO 6A: bloquear escritura bajo sesión runtime "Operar como cliente"
-  if (await isRuntimeReadOnlyActive()) {
-    return NextResponse.json({ error: RUNTIME_READONLY_MESSAGE }, { status: 403 });
-  }
-
+  let handle;
   try {
-    const commercialCtx = await resolveCommercialEnforcementContext(tenant_id);
-    assertOrganizationModule(commercialCtx, "commerce.purchases");
+    handle = await requireOperationalContext(sessionUser, { module: "commerce.purchases", write: true });
   } catch (err) {
-    if (err instanceof CommercialEnforcementError) {
+    if (err instanceof OperationalContextError) {
       return NextResponse.json({ error: err.userMessage }, { status: err.httpStatus });
     }
     throw err;
   }
+  const { context, dispose } = handle;
 
-  const { id } = await params;
-
-  // Parsear body
-  let rawBody: unknown;
   try {
-    rawBody = await req.json();
-  } catch {
-    return NextResponse.json(
-      { error: "Body JSON inválido o vacío." },
-      { status: 400 },
+    const location_id =
+      context.locationId ??
+      (await getEffectiveLocationId(
+        { ...context.effectiveUser, role: context.effectiveUser.role as SessionUser["role"] } as SessionUser,
+        context.client,
+        context.tenantId,
+      ));
+
+    if (!location_id) {
+      return NextResponse.json(
+        { error: "Sesión sin tenant o location activa." },
+        { status: 401 },
+      );
+    }
+
+    const { id } = await params;
+
+    // Parsear body
+    let rawBody: unknown;
+    try {
+      rawBody = await req.json();
+    } catch {
+      return NextResponse.json(
+        { error: "Body JSON inválido o vacío." },
+        { status: 400 },
+      );
+    }
+
+    // Validar con Zod
+    const parsed = createPurchaseFromDteSchema.safeParse(rawBody);
+    if (!parsed.success) {
+      return NextResponse.json(
+        { errors: parsed.error.flatten().fieldErrors },
+        { status: 400 },
+      );
+    }
+
+    const result = await createPurchaseDraftFromDteImport(
+      id,
+      context.tenantId,
+      location_id,
+      context.effectiveUser.id,
+      parsed.data,
+      context.client,
     );
-  }
 
-  // Validar con Zod
-  const parsed = createPurchaseFromDteSchema.safeParse(rawBody);
-  if (!parsed.success) {
+    if (!result.ok) {
+      return NextResponse.json(
+        { error: result.error },
+        { status: result.httpStatus },
+      );
+    }
+
     return NextResponse.json(
-      { errors: parsed.error.flatten().fieldErrors },
-      { status: 400 },
+      {
+        ok:             true,
+        purchase:       result.purchase,
+        dte_import:     result.dte_import,
+        alias_warnings: result.alias_warnings,
+      },
+      { status: 201 },
     );
+  } finally {
+    await dispose();
   }
-
-  const result = await createPurchaseDraftFromDteImport(
-    id,
-    tenant_id,
-    location_id,
-    sessionUser.id,
-    parsed.data,
-  );
-
-  if (!result.ok) {
-    return NextResponse.json(
-      { error: result.error },
-      { status: result.httpStatus },
-    );
-  }
-
-  return NextResponse.json(
-    {
-      ok:             true,
-      purchase:       result.purchase,
-      dte_import:     result.dte_import,
-      alias_warnings: result.alias_warnings,
-    },
-    { status: 201 },
-  );
 }

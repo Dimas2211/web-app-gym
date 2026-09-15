@@ -20,6 +20,7 @@
 // ─────────────────────────────────────────────────────────────────
 
 import { Prisma } from "@prisma/client";
+import type { PrismaClient } from "@prisma/client";
 import { prisma } from "@/lib/db/prisma";
 import type { CreateSaleDraftInput, UpdateSaleDraftInput, AddSaleItemInput, UpdateSaleItemInput } from "../schemas/sale.schemas";
 import type { SaleResult, CreateSaleResult, AddSaleItemResult } from "../types/sale.types";
@@ -87,10 +88,11 @@ export async function createSaleDraft(
   location_id: string,
   user_id:     string,
   input:       CreateSaleDraftInput,
+  db:          PrismaClient = prisma,
 ): Promise<CreateSaleResult> {
   // Validar customer si se especificó
   if (input.customer_id) {
-    const customer = await prisma.customer.findFirst({
+    const customer = await db.customer.findFirst({
       where:  { id: input.customer_id, tenant_id, status: "active" },
       select: { id: true },
     });
@@ -106,7 +108,7 @@ export async function createSaleDraft(
   const { year, month } = extractSaleDateParts(input.sale_date);
 
   try {
-    const result = await prisma.$transaction(async (tx) => {
+    const result = await db.$transaction(async (tx) => {
       const sequence  = await getNextSaleSequence(tx, tenant_id, location_id, year, month);
       const sale_code = buildSaleCode(year, month, sequence);
 
@@ -165,8 +167,9 @@ export async function updateSaleDraft(
   location_id: string,
   user_id:     string,
   input:       UpdateSaleDraftInput,
+  db:          PrismaClient = prisma,
 ): Promise<SaleResult> {
-  const sale = await prisma.sale.findFirst({
+  const sale = await db.sale.findFirst({
     where:  { id: sale_id, tenant_id, location_id },
     select: { id: true, status: true },
   });
@@ -180,7 +183,7 @@ export async function updateSaleDraft(
   }
 
   if (input.customer_id !== undefined && input.customer_id !== null) {
-    const customer = await prisma.customer.findFirst({
+    const customer = await db.customer.findFirst({
       where:  { id: input.customer_id, tenant_id, status: "active" },
       select: { id: true },
     });
@@ -201,7 +204,7 @@ export async function updateSaleDraft(
       }
     : {};
 
-  await prisma.sale.update({
+  await db.sale.update({
     where: { id: sale_id },
     data: {
       ...dateData,
@@ -227,8 +230,9 @@ export async function addSaleItemToDraft(
   location_id: string,
   user_id:     string,
   input:       AddSaleItemInput,
+  db:          PrismaClient = prisma,
 ): Promise<AddSaleItemResult> {
-  const sale = await prisma.sale.findFirst({
+  const sale = await db.sale.findFirst({
     where:  { id: sale_id, tenant_id, location_id },
     select: { id: true, status: true },
   });
@@ -242,7 +246,7 @@ export async function addSaleItemToDraft(
   }
 
   // Validar producto
-  const product = await prisma.product.findFirst({
+  const product = await db.product.findFirst({
     where: {
       id:         input.product_id,
       tenant_id,
@@ -281,7 +285,7 @@ export async function addSaleItemToDraft(
   });
 
   try {
-    const result = await prisma.$transaction(async (tx) => {
+    const result = await db.$transaction(async (tx) => {
       const line_number = await getNextLineNumber(tx, sale_id);
 
       const item = await tx.saleItem.create({
@@ -326,8 +330,9 @@ export async function updateSaleItemInDraft(
   location_id: string,
   user_id:     string,
   input:       UpdateSaleItemInput,
+  db:          PrismaClient = prisma,
 ): Promise<SaleResult> {
-  const sale = await prisma.sale.findFirst({
+  const sale = await db.sale.findFirst({
     where:  { id: sale_id, tenant_id, location_id },
     select: { id: true, status: true },
   });
@@ -340,7 +345,7 @@ export async function updateSaleItemInDraft(
     return { ok: false, error: (e as Error).message };
   }
 
-  const item = await prisma.saleItem.findFirst({
+  const item = await db.saleItem.findFirst({
     where:  { id: item_id, sale_id },
     select: {
       id:              true,
@@ -368,7 +373,7 @@ export async function updateSaleItemInDraft(
     tax_rate,
   });
 
-  await prisma.$transaction(async (tx) => {
+  await db.$transaction(async (tx) => {
     await tx.saleItem.update({
       where: { id: item_id },
       data: {
@@ -396,8 +401,9 @@ export async function removeSaleItemFromDraft(
   tenant_id:   string,
   location_id: string,
   user_id:     string,
+  db:          PrismaClient = prisma,
 ): Promise<SaleResult> {
-  const sale = await prisma.sale.findFirst({
+  const sale = await db.sale.findFirst({
     where:  { id: sale_id, tenant_id, location_id },
     select: { id: true, status: true },
   });
@@ -410,7 +416,7 @@ export async function removeSaleItemFromDraft(
     return { ok: false, error: (e as Error).message };
   }
 
-  const item = await prisma.saleItem.findFirst({
+  const item = await db.saleItem.findFirst({
     where:  { id: item_id, sale_id },
     select: { id: true },
   });
@@ -418,7 +424,7 @@ export async function removeSaleItemFromDraft(
     return { ok: false, error: "La línea de venta no existe en este documento." };
   }
 
-  await prisma.$transaction(async (tx) => {
+  await db.$transaction(async (tx) => {
     await tx.saleItem.delete({ where: { id: item_id } });
     await recalcSaleTotals(tx, sale_id, user_id);
   });
@@ -433,8 +439,9 @@ export async function recalculateSaleTotals(
   tenant_id:   string,
   location_id: string,
   user_id:     string,
+  db:          PrismaClient = prisma,
 ): Promise<SaleResult> {
-  const sale = await prisma.sale.findFirst({
+  const sale = await db.sale.findFirst({
     where:  { id: sale_id, tenant_id, location_id },
     select: { id: true, status: true },
   });
@@ -447,7 +454,7 @@ export async function recalculateSaleTotals(
     return { ok: false, error: (e as Error).message };
   }
 
-  await prisma.$transaction(async (tx) => {
+  await db.$transaction(async (tx) => {
     await recalcSaleTotals(tx, sale_id, user_id);
   });
 
@@ -461,8 +468,9 @@ export async function discardDraftSale(
   sale_id:     string,
   tenant_id:   string,
   location_id: string,
+  db:          PrismaClient = prisma,
 ): Promise<SaleResult> {
-  const sale = await prisma.sale.findFirst({
+  const sale = await db.sale.findFirst({
     where:  { id: sale_id, tenant_id, location_id },
     select: { id: true, status: true },
   });
@@ -473,7 +481,7 @@ export async function discardDraftSale(
     return { ok: false, error: "Solo se pueden descartar ventas en estado DRAFT." };
   }
 
-  await prisma.$transaction(async (tx) => {
+  await db.$transaction(async (tx) => {
     await tx.saleItem.deleteMany({ where: { sale_id } });
     await tx.salePayment.deleteMany({ where: { sale_id } });
     await tx.sale.delete({ where: { id: sale_id } });
@@ -504,9 +512,10 @@ export async function confirmSale(
   tenant_id:   string,
   location_id: string,
   user_id:     string,
+  db:          PrismaClient = prisma,
 ): Promise<SaleResult> {
   // 1. Cargar venta con líneas
-  const sale = await prisma.sale.findFirst({
+  const sale = await db.sale.findFirst({
     where: { id: sale_id, tenant_id, location_id },
     select: {
       id:                    true,
@@ -597,7 +606,7 @@ export async function confirmSale(
           error: "La Factura de Exportación (FEX 11) requiere un cliente extranjero seleccionado.",
         };
       }
-      const exportDetails = await prisma.saleExportDetails.findUnique({
+      const exportDetails = await db.saleExportDetails.findUnique({
         where:  { sale_id },
         select: { id: true },
       });
@@ -628,7 +637,7 @@ export async function confirmSale(
   if (totalQtyByProduct.size > 0) {
     const stockableProductIds = [...totalQtyByProduct.keys()];
 
-    const productLocations = await prisma.productLocation.findMany({
+    const productLocations = await db.productLocation.findMany({
       where: {
         tenant_id,
         location_id,
@@ -697,7 +706,7 @@ export async function confirmSale(
   //       count=0 → rollback. No hay stock negativo ni decrementos perdidos.
   //    c) Si cualquier paso falla → rollback total → venta y stock sin cambios.
   try {
-    await prisma.$transaction(async (tx) => {
+    await db.$transaction(async (tx) => {
       // Paso A: Reclamar la venta atómicamente.
       //   DRAFT        → CONFIRMED + inventory_moved=true (todo en un solo write)
       //   CONFIRMED+   → inventory_moved=true
@@ -821,8 +830,9 @@ export async function cancelDraftSale(
   tenant_id:   string,
   location_id: string,
   user_id:     string,
+  db:          PrismaClient = prisma,
 ): Promise<SaleResult> {
-  const sale = await prisma.sale.findFirst({
+  const sale = await db.sale.findFirst({
     where:  { id: sale_id, tenant_id, location_id },
     select: { id: true, status: true },
   });
@@ -836,7 +846,7 @@ export async function cancelDraftSale(
     return { ok: false, error: "La venta ya está cancelada." };
   }
 
-  await prisma.sale.update({
+  await db.sale.update({
     where: { id: sale_id },
     data: {
       status:       "CANCELLED",

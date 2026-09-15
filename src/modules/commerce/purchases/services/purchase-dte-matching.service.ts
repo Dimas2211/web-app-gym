@@ -7,6 +7,7 @@
 // de palabras, mantenible y sin dependencias nuevas.
 // ─────────────────────────────────────────────────────────────────
 
+import type { PrismaClient } from "@prisma/client";
 import { prisma } from "@/lib/db/prisma";
 import type {
   DteItemDetected,
@@ -195,12 +196,13 @@ function noProductSuggestion(): DteProductSuggestion {
 export async function matchSupplier(
   detected:  DteSupplierDetected,
   tenant_id: string,
+  db: PrismaClient = prisma,
 ): Promise<DteSupplierMatch> {
   const select = { id: true, supplier_code: true, name: true, nit: true, nrc: true } as const;
 
   // 1. NRC exacto
   if (detected.nrc) {
-    const hit = await prisma.supplier.findFirst({
+    const hit = await db.supplier.findFirst({
       where:  { tenant_id, nrc: detected.nrc },
       select,
     });
@@ -225,7 +227,7 @@ export async function matchSupplier(
   // 2. NIT exacto — compara dígitos normalizados para cubrir formatos con/sin guiones
   if (detected.nit) {
     const nitNorm = normalizeNit(detected.nit);
-    const allForNit = await prisma.supplier.findMany({
+    const allForNit = await db.supplier.findMany({
       where:  { tenant_id, nit: { not: null } },
       select,
       take:   SUPPLIER_FETCH_LIMIT,
@@ -251,7 +253,7 @@ export async function matchSupplier(
 
   // 3. Nombre normalizado similar — carga todos y puntúa en memoria
   if (detected.name) {
-    const all = await prisma.supplier.findMany({
+    const all = await db.supplier.findMany({
       where:  { tenant_id },
       select,
       take:   SUPPLIER_FETCH_LIMIT,
@@ -313,10 +315,11 @@ export async function matchProducts(
   lines:       unknown[],
   tenant_id:   string,
   supplier_id?: string | null,
+  db: PrismaClient = prisma,
 ): Promise<DteItemMatch[]> {
   if (lines.length === 0) return [];
 
-  const products = await prisma.product.findMany({
+  const products = await db.product.findMany({
     where: {
       tenant_id,
       allow_purchase: true,
@@ -328,7 +331,7 @@ export async function matchProducts(
 
   // Cargar aliases del proveedor en batch (una sola consulta para todas las líneas)
   const aliases = supplier_id
-    ? await loadAliasesForSupplier(tenant_id, supplier_id)
+    ? await loadAliasesForSupplier(tenant_id, supplier_id, db)
     : [];
 
   const result: DteItemMatch[] = [];
@@ -449,6 +452,7 @@ export async function matchProducts(
 export async function matchDteImport(
   record:               PurchaseDteImportRecord,
   override_supplier_id?: string | null,
+  db: PrismaClient = prisma,
 ): Promise<DteMatchResult> {
   // Extrae el objeto raíz del raw_json de forma segura
   const rawObj =
@@ -464,7 +468,7 @@ export async function matchDteImport(
     name: record.issuer_name,
   };
 
-  const supplier_match = await matchSupplier(detected, record.tenant_id);
+  const supplier_match = await matchSupplier(detected, record.tenant_id, db);
 
   // Determinar el supplier_id efectivo para el matching de aliases:
   // Se prioriza el override explícito; si no hay, se usa la sugerencia HIGH.
@@ -479,7 +483,7 @@ export async function matchDteImport(
       ? (rawObj["cuerpoDocumento"] as unknown[])
       : [];
 
-  const item_matches = await matchProducts(cuerpo, record.tenant_id, effective_supplier_id);
+  const item_matches = await matchProducts(cuerpo, record.tenant_id, effective_supplier_id, db);
 
   return {
     dte_import_id: record.id,

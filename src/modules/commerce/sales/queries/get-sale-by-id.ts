@@ -6,6 +6,7 @@
 // ─────────────────────────────────────────────────────────────────
 
 import { prisma } from "@/lib/db/prisma";
+import type { PrismaClient } from "@prisma/client";
 
 export interface SaleHeader {
   id:             string;
@@ -32,8 +33,9 @@ export async function getSaleById(
   id:          string,
   tenant_id:   string,
   location_id: string,
+  client:      PrismaClient = prisma,
 ): Promise<SaleHeader | null> {
-  const row = await prisma.sale.findFirst({
+  const row = await client.sale.findFirst({
     where: { id, tenant_id, location_id },
     select: {
       id:              true,
