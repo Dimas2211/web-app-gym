@@ -8,6 +8,7 @@
 // Solo lectura. Respeta tenant_id/location_id.
 // ─────────────────────────────────────────────────────────────────
 
+import type { PrismaClient } from "@prisma/client";
 import { prisma } from "@/lib/db/prisma";
 import type { CommerceReportFilters } from "../types/commerce-report-filters.types";
 import type { CustomerSummaryRow } from "../types/commerce-report.types";
@@ -20,6 +21,7 @@ export interface CustomerSummaryFilters extends CommerceReportFilters {
 
 export async function getCustomerSummaryReport(
   filters: CustomerSummaryFilters,
+  client: PrismaClient = prisma,
 ): Promise<CustomerSummaryRow[]> {
   const {
     tenant_id,
@@ -40,7 +42,7 @@ export async function getCustomerSummaryReport(
   };
 
   // Group sales by customer_id (nullable)
-  const saleGroups = await prisma.sale.groupBy({
+  const saleGroups = await client.sale.groupBy({
     by:      ["customer_id"],
     where:   baseWhere,
     _sum:    { total_amount: true },
@@ -59,7 +61,7 @@ export async function getCustomerSummaryReport(
 
   // Fetch customer names
   const customers = customerIds.length
-    ? await prisma.customer.findMany({
+    ? await client.customer.findMany({
         where:  { id: { in: customerIds } },
         select: { id: true, name: true },
       })
@@ -68,7 +70,7 @@ export async function getCustomerSummaryReport(
   const customerNameMap = new Map(customers.map((c) => [c.id, c.name]));
 
   // Top product per customer (by line_total sum) — null customer_id handled via separate query
-  const topProductGroups = await prisma.saleItem.groupBy({
+  const topProductGroups = await client.saleItem.groupBy({
     by:    ["product_name_snapshot", "sale_id"],
     where: {
       sale: {
@@ -86,7 +88,7 @@ export async function getCustomerSummaryReport(
   const saleCustomerMap = saleIds.length
     ? new Map(
         (
-          await prisma.sale.findMany({
+          await client.sale.findMany({
             where:  { id: { in: saleIds } },
             select: { id: true, customer_id: true },
           })

@@ -2,6 +2,7 @@
 // commerce/reports — get-top-sold-services.ts
 // ─────────────────────────────────────────────────────────────────
 
+import type { PrismaClient } from "@prisma/client";
 import { prisma } from "@/lib/db/prisma";
 import type { CommerceReportFilters } from "../types/commerce-report-filters.types";
 import type { TopItemData } from "../types/commerce-report.types";
@@ -11,10 +12,11 @@ export async function getTopSoldServices(
   filters: CommerceReportFilters,
   limit = 10,
   sortBy: "total" | "quantity" = "total",
+  client: PrismaClient = prisma,
 ): Promise<TopItemData[]> {
   const { tenant_id, location_id, date_from, date_to } = filters;
 
-  const rows = await prisma.saleItem.groupBy({
+  const rows = await client.saleItem.groupBy({
     by:    ["product_name_snapshot"],
     where: {
       product_type_snapshot: "SERVICE",

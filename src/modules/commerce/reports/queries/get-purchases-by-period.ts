@@ -2,6 +2,7 @@
 // commerce/reports — get-purchases-by-period.ts
 // ─────────────────────────────────────────────────────────────────
 
+import type { PrismaClient } from "@prisma/client";
 import { prisma } from "@/lib/db/prisma";
 import type { CommerceReportFilters } from "../types/commerce-report-filters.types";
 import type { PeriodDataPoint } from "../types/commerce-report.types";
@@ -9,10 +10,11 @@ import { dateOnly } from "../utils/report-date-range";
 
 export async function getPurchasesByPeriod(
   filters: CommerceReportFilters,
+  client: PrismaClient = prisma,
 ): Promise<PeriodDataPoint[]> {
   const { tenant_id, location_id, date_from, date_to } = filters;
 
-  const rows = await prisma.purchase.groupBy({
+  const rows = await client.purchase.groupBy({
     by:      ["purchase_date"],
     where:   {
       tenant_id,

@@ -185,6 +185,11 @@ describe("sale.service — aislamiento cross-tenant", () => {
     const fakeDb = {
       sale: { findFirst: saleFindFirst },
       productLocation: { findMany: vi.fn().mockResolvedValue([]) },
+      // FASE VI-D6: getAnyOpenCashSessionForLocation ahora recibe `db`
+      // explícitamente (antes usaba prisma global sin parámetro) — el
+      // mock debe cubrir esa lectura para que confirmSale no toque nada
+      // fuera de `fakeDb`.
+      cashSession: { findFirst: vi.fn().mockResolvedValue(null) },
       $transaction: dbTransactionSpy,
     } as never;
 

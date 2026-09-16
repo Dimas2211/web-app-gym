@@ -2,6 +2,7 @@
 // commerce/reports — get-product-vs-service-sales.ts
 // ─────────────────────────────────────────────────────────────────
 
+import type { PrismaClient } from "@prisma/client";
 import { prisma } from "@/lib/db/prisma";
 import type { CommerceReportFilters } from "../types/commerce-report-filters.types";
 import type { ProductVsServiceData } from "../types/commerce-report.types";
@@ -9,6 +10,7 @@ import { dateOnly } from "../utils/report-date-range";
 
 export async function getProductVsServiceSales(
   filters: CommerceReportFilters,
+  client: PrismaClient = prisma,
 ): Promise<ProductVsServiceData> {
   const { tenant_id, location_id, date_from, date_to } = filters;
 
@@ -20,14 +22,14 @@ export async function getProductVsServiceSales(
   };
 
   const [productsAgg, servicesAgg] = await Promise.all([
-    prisma.saleItem.aggregate({
+    client.saleItem.aggregate({
       where: {
         product_type_snapshot: "PRODUCT",
         sale: saleWhere,
       },
       _sum: { line_total: true },
     }),
-    prisma.saleItem.aggregate({
+    client.saleItem.aggregate({
       where: {
         product_type_snapshot: "SERVICE",
         sale: saleWhere,

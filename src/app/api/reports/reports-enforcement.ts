@@ -23,6 +23,7 @@
 
 import type { PrismaClient } from "@prisma/client";
 import { NextResponse } from "next/server";
+import type { SessionUser } from "@/lib/permissions/guards";
 import {
   resolveCommercialEnforcementContext,
   hasOrganizationModule,
@@ -69,8 +70,12 @@ export type ReportApiContext =
 export async function resolveReportApiContext(
   baseTenantId: string,
   moduleCode: string,
+  user?: Pick<SessionUser, "id" | "auth_scope" | "organization_id" | "tenant_id" | "location_id" | "role">,
 ): Promise<ReportApiContext> {
-  const { context, dispose } = await resolveEffectiveApiContext({ tenantId: baseTenantId });
+  // FASE VI-D6: `user` se propaga a resolveEffectiveApiContext — antes se
+  // omitía y una identidad RUNTIME_CLIENT caía silenciosamente al branch
+  // PLATFORM_NATIVO (Prisma global + tenant_id de JWT sin revalidar).
+  const { context, dispose } = await resolveEffectiveApiContext({ tenantId: baseTenantId }, user);
 
   try {
     const commercialCtx = await resolveCommercialEnforcementContext(context.tenantId);

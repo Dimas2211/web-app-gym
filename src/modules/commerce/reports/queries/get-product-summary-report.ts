@@ -7,6 +7,7 @@
 // Solo lectura. Respeta tenant_id/location_id.
 // ─────────────────────────────────────────────────────────────────
 
+import type { PrismaClient } from "@prisma/client";
 import { prisma } from "@/lib/db/prisma";
 import type { CommerceReportFilters } from "../types/commerce-report-filters.types";
 import type { ProductSummaryRow } from "../types/commerce-report.types";
@@ -19,6 +20,7 @@ export interface ProductSummaryFilters extends CommerceReportFilters {
 
 export async function getProductSummaryReport(
   filters: ProductSummaryFilters,
+  client: PrismaClient = prisma,
 ): Promise<ProductSummaryRow[]> {
   const {
     tenant_id,
@@ -50,14 +52,14 @@ export async function getProductSummaryReport(
 
   // Run sales groupBy, purchase groupBy, and max-date subqueries in parallel
   const [saleGroups, purchaseGroups] = await Promise.all([
-    prisma.saleItem.groupBy({
+    client.saleItem.groupBy({
       by:      ["product_id"],
       where:   saleWhere,
       _sum:    { line_total: true, quantity: true },
       orderBy: { _sum: { line_total: "desc" } },
       take:    limit,
     }),
-    prisma.purchaseItem.groupBy({
+    client.purchaseItem.groupBy({
       by:      ["product_id"],
       where:   purchaseWhere,
       _sum:    { line_total: true, quantity: true },
@@ -75,7 +77,7 @@ export async function getProductSummaryReport(
 
   // Fetch product metadata + last dates in one pass
   const [products, lastSaleDates, lastPurchaseDates] = await Promise.all([
-    prisma.product.findMany({
+    client.product.findMany({
       where:  { id: { in: allProductIds } },
       select: {
         id:           true,
@@ -88,13 +90,13 @@ export async function getProductSummaryReport(
       },
     }),
     // Last sale date per product
-    prisma.saleItem.groupBy({
+    client.saleItem.groupBy({
       by:    ["product_id"],
       where: { product_id: { in: saleProductIds }, sale: { tenant_id, location_id, status: "CONFIRMED" as const } },
       _max:  { created_at: true },
     }),
     // Last purchase date per product
-    prisma.purchaseItem.groupBy({
+    client.purchaseItem.groupBy({
       by:    ["product_id"],
       where: { product_id: { in: purchaseProductIds }, purchase: { tenant_id, location_id, status: "CONFIRMED" as const } },
       _max:  { created_at: true },

@@ -61,6 +61,26 @@ vi.mock("@/modules/platform/runtime/commercial-enforcement", async () => {
   return { ...actual, resolveCommercialEnforcementContext: resolveCommercialEnforcementContextMock };
 });
 
+// FASE VI-D6: product-summary ahora resuelve el contexto EFECTIVO vía
+// resolveEffectiveApiContext antes del module gate — se mockea para
+// reproducir el mismo comportamiento PLATFORM_NATIVO de siempre
+// (SESSION_USER no tiene auth_scope RUNTIME_CLIENT) sin depender de
+// cookies()/next-headers en el entorno de test.
+vi.mock("@/modules/platform/runtime/effective-tenant-context", () => ({
+  resolveEffectiveApiContext: vi.fn(async (base: { tenantId: string; locationId?: string | null }) => ({
+    context: {
+      tenantId:      base.tenantId,
+      locationId:    base.locationId ?? null,
+      client:        {},
+      runtime:       null,
+      runtimeMode:   "PLATFORM_NATIVE",
+      readOnly:      false,
+      effectiveRole: "super_admin",
+    },
+    dispose: vi.fn(),
+  })),
+}));
+
 import { GET } from "./route";
 
 const SESSION_USER = { id: "u1", tenant_id: "tenant-1", location_id: "loc-1", role: "super_admin" };

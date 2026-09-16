@@ -681,7 +681,7 @@ export async function confirmSale(
   //    (CONFIRMED + !inventory_moved) no sobrescribe cash_session_id.
   let openCashSessionId: string | null = null;
   if (isDraft) {
-    const openSession = await getAnyOpenCashSessionForLocation({ tenant_id, location_id });
+    const openSession = await getAnyOpenCashSessionForLocation({ tenant_id, location_id }, db);
     openCashSessionId = openSession?.id ?? null;
   }
 

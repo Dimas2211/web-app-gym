@@ -20,15 +20,20 @@ export async function GET(req: NextRequest) {
   if (!ALLOWED_ROLES.includes(user.role)) return NextResponse.json({ error: "Acceso denegado" }, { status: 403 });
 
   // PASO 6C: tenant/PrismaClient EFECTIVOS bajo sesión runtime "Operar como cliente".
-  const { context, dispose } = await resolveEffectiveApiContext({ tenantId: user.tenant_id });
+  // FASE VI-D6: `user` se propaga — antes se omitía y una identidad
+  // RUNTIME_CLIENT caía silenciosamente al branch PLATFORM_NATIVO (Prisma
+  // global + tenant_id de JWT sin revalidar).
+  const { context, dispose } = await resolveEffectiveApiContext({ tenantId: user.tenant_id }, user);
 
   try {
     const { searchParams } = req.nextUrl;
     const branchIdParam = searchParams.get("branchId") ?? undefined;
 
+    // location_id EFECTIVO (context.locationId, live para RUNTIME_CLIENT) —
+    // nunca el de JWT, que puede estar desactualizado o ser el de otro tenant.
     const branchId =
       user.role === "branch_admin" || user.role === "reception"
-        ? (user.location_id ?? undefined)
+        ? (context.locationId ?? undefined)
         : branchIdParam;
 
     const data = await getActiveClients({ tenantId: context.tenantId, branchId }, context.client);

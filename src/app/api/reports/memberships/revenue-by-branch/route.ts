@@ -21,7 +21,7 @@ export async function GET(req: NextRequest) {
   }
 
   // PASO 6C: tenant/PrismaClient EFECTIVOS bajo sesión runtime "Operar como cliente".
-  const reportCtx = await resolveReportApiContext(user.tenant_id, "gym.memberships");
+  const reportCtx = await resolveReportApiContext(user.tenant_id, "gym.memberships", user);
   if (!reportCtx.ok) return reportCtx.response;
 
   try {

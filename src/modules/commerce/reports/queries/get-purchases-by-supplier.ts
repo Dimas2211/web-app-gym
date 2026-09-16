@@ -2,6 +2,7 @@
 // commerce/reports — get-purchases-by-supplier.ts
 // ─────────────────────────────────────────────────────────────────
 
+import type { PrismaClient } from "@prisma/client";
 import { prisma } from "@/lib/db/prisma";
 import type { CommerceReportFilters } from "../types/commerce-report-filters.types";
 import type { SupplierPurchaseData } from "../types/commerce-report.types";
@@ -10,10 +11,11 @@ import { dateOnly } from "../utils/report-date-range";
 export async function getPurchasesBySupplier(
   filters: CommerceReportFilters,
   limit = 10,
+  client: PrismaClient = prisma,
 ): Promise<SupplierPurchaseData[]> {
   const { tenant_id, location_id, date_from, date_to } = filters;
 
-  const grouped = await prisma.purchase.groupBy({
+  const grouped = await client.purchase.groupBy({
     by:    ["supplier_id"],
     where: {
       tenant_id,
@@ -30,7 +32,7 @@ export async function getPurchasesBySupplier(
   if (!grouped.length) return [];
 
   const supplierIds = grouped.map((g) => g.supplier_id);
-  const suppliers = await prisma.supplier.findMany({
+  const suppliers = await client.supplier.findMany({
     where:  { id: { in: supplierIds } },
     select: { id: true, name: true },
   });

@@ -316,6 +316,72 @@ pasando `context.client` a cada llamada de servicio.
   `RUNTIME_HOST_AUTH_ENABLED` sigue `false`; sin login runtime real en ningún
   ambiente; sin push, sin deploy.
 
+**VI-D6** (este commit) — auditoría transversal + cierre de brechas
+concretas de la capa operacional NO-DTE. Ver
+`docs/modules/platform-phase-6d-non-dte-runtime-certification.md` para la
+matriz de certificación completa. Resumen:
+
+- **Hallazgo crítico cerrado**: `getSaleApiContext()`/`getPurchaseApiContext()`
+  (`src/app/api/sales/sale-api-context.ts`,
+  `src/app/api/purchases/purchase-api-context.ts`) nunca pasaban `user` a
+  `resolveEffectiveApiContext(base, user?)` — por contrato documentado de esa
+  función, omitir `user` hace que CUALQUIER identidad (incluida
+  RUNTIME_CLIENT) caiga al branch PLATFORM_NATIVO (Prisma global +
+  `tenant_id` de JWT sin revalidar) en vez de fallar cerrado. Esto contradice
+  lo certificado en VI-D5: las lecturas API de Sales/Purchases **no eran
+  realmente runtime-safe**. Cerrado pasando `user` en ambos archivos +
+  rechequeo de capability con rol LIVE (`context.effectiveRole`) después de
+  resolver contexto — mismo criterio de VI-D2. Mismo patrón cerrado en
+  `resolveReportApiContext` (`reports-enforcement.ts`, +6 call sites GYM) y
+  en `reports/clients/active/route.ts`.
+- **Reports de Commerce migrados** (nunca estaban en el contrato runtime):
+  los 8 Route Handlers de `src/app/api/reports/commerce/**` usaban
+  `assertReportModule`/`resolveEnabledReportModules` (solo module-gate, sin
+  resolución de tenant/DB efectivo) — migrados a
+  `resolveReportApiContext`/`resolveEffectiveApiContext` + `context.client`,
+  preservando exactamente la lógica de degradación por sección de los 3
+  reportes compuestos (`dashboard`, `product-summary`, `filter-options` —
+  nunca exigir TODOS los módulos, nunca ANY-habilita-TODO). Los 15 archivos
+  de `src/modules/commerce/reports/queries/*.ts` reciben `client:
+  PrismaClient = prisma`.
+- **`confirmPurchase` — atomicidad cerrada**: el `productLocation.upsert`
+  corría en `db` FUERA de la transacción de confirmación (podía dejar un
+  ProductLocation huérfano si la tx posterior fallaba). Se fusionó dentro
+  del mismo `db.$transaction` — Purchase + ProductLocation +
+  InventoryMovement son ahora o-todo-o-nada. `confirmSale` re-auditado: ya
+  era atómico; se cerró un missed-call-site (`getAnyOpenCashSessionForLocation`
+  no aceptaba `client`, usaba Prisma global incondicionalmente dentro de
+  `confirmSale`).
+- **`categories-lookup`** (`ProductCategory`, tenant-owned) migrado a
+  contexto efectivo — antes usaba Prisma global sin resolver runtime.
+- **Deuda NUEVA documentada, no cerrada en esta fase** (requiere alcance de
+  módulo completo, no un fix acotado): vertical GYM completa
+  (`clients`/`memberships`/`trainers`/`classes`/`weekly-plans`/`client-portal`)
+  tiene TODA su escritura en Prisma global, gateada solo por rol de sesión
+  — nunca fue declarada cerrada en VI-D1-D5 (esas fases listaron
+  explícitamente los 9 módulos commerce/core, nunca GYM). Junto con ella:
+  `settings/actions.ts` (`updateClientOperationalCodeAction`/
+  `updateClientAvatarAction`) y `suggestNextClientCode` (mismo modelo
+  Client). `dte-api-context.ts` tiene el mismo patrón de `user` faltante
+  pero gatea solo rutas fiscales — no tocado (fuera de alcance DTE de
+  VI-D). `login/actions.ts` tiene un bug de comportamiento de bajo riesgo
+  (redirect incorrecto para `role=client` en runtime) — no alcanzable hoy
+  porque `RUNTIME_HOST_AUTH_ENABLED=false`. `units-lookup` tiene una
+  ambigüedad de producto pendiente (¿unidades por tenant o globales?).
+- **6 tests nuevos** (2 api-context de Sales/Purchases, 2 atomicidad de
+  `confirmPurchase`, 2 ajustes de mocks en tests existentes de reports
+  compuestos que ahora resuelven contexto efectivo). 618/618 tests PASS
+  (antes 612/612). `tsc --noEmit` limpio. `npm run lint` sin errores nuevos.
+  `npm run build` PASS. Sin cambios de schema, sin migraciones nuevas.
+- **`NON_DTE_RUNTIME_OPERATIONAL_LAYER_CLOSED = NO`** — los 9 módulos
+  commerce/core (Products, Customers, Suppliers, Inventory, Locations,
+  Users, Sales, Purchases, Cash) y Reports quedan genuinamente cerrados y
+  certificados, pero la vertical GYM completa queda con un subárbol de
+  escritura 100% en Prisma global alcanzable por RUNTIME_CLIENT — declarar
+  la capa "cerrada" mientras eso persiste no sería honesto.
+  `READY_FOR_VI_E_DTE_RUNTIME = YES` de todas formas (la frontera fiscal es
+  ortogonal a GYM).
+
 ## Arquitectura activa
 - El proyecto funciona como monolito modular.
 - Core contiene identidad, usuarios, permisos, clientes, locations y lógica compartida.

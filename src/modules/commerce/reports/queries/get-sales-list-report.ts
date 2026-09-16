@@ -6,6 +6,7 @@
 // Solo lectura. Respeta tenant_id/location_id.
 // ─────────────────────────────────────────────────────────────────
 
+import type { PrismaClient } from "@prisma/client";
 import { prisma } from "@/lib/db/prisma";
 import type { CommerceReportFilters } from "../types/commerce-report-filters.types";
 import type { SalesListRow } from "../types/commerce-report.types";
@@ -18,6 +19,7 @@ export interface SalesListReportFilters extends CommerceReportFilters {
 
 export async function getSalesListReport(
   filters: SalesListReportFilters,
+  client: PrismaClient = prisma,
 ): Promise<SalesListRow[]> {
   const {
     tenant_id,
@@ -28,7 +30,7 @@ export async function getSalesListReport(
     limit = 500,
   } = filters;
 
-  const sales = await prisma.sale.findMany({
+  const sales = await client.sale.findMany({
     where: {
       tenant_id,
       location_id,

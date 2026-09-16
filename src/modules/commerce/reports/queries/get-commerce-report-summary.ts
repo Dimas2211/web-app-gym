@@ -2,6 +2,7 @@
 // commerce/reports — get-commerce-report-summary.ts
 // ─────────────────────────────────────────────────────────────────
 
+import type { PrismaClient } from "@prisma/client";
 import { prisma } from "@/lib/db/prisma";
 import type { CommerceReportFilters } from "../types/commerce-report-filters.types";
 import type { CommerceReportSummary } from "../types/commerce-report.types";
@@ -9,6 +10,7 @@ import { dateOnly } from "../utils/report-date-range";
 
 export async function getCommerceReportSummary(
   filters: CommerceReportFilters,
+  client: PrismaClient = prisma,
 ): Promise<CommerceReportSummary> {
   const { tenant_id, location_id, date_from, date_to } = filters;
 
@@ -18,17 +20,17 @@ export async function getCommerceReportSummary(
   };
 
   const [salesAgg, purchasesAgg, topProduct, topService] = await Promise.all([
-    prisma.sale.aggregate({
+    client.sale.aggregate({
       where: { tenant_id, location_id, status: "CONFIRMED", sale_date: dateFilter },
       _sum:   { total_amount: true },
       _count: { id: true },
     }),
-    prisma.purchase.aggregate({
+    client.purchase.aggregate({
       where: { tenant_id, location_id, status: "CONFIRMED", purchase_date: dateFilter },
       _sum:   { total_amount: true },
       _count: { id: true },
     }),
-    prisma.saleItem.groupBy({
+    client.saleItem.groupBy({
       by:    ["product_name_snapshot"],
       where: {
         product_type_snapshot: "PRODUCT",
@@ -38,7 +40,7 @@ export async function getCommerceReportSummary(
       orderBy:  { _sum: { line_total: "desc" } },
       take: 1,
     }),
-    prisma.saleItem.groupBy({
+    client.saleItem.groupBy({
       by:    ["product_name_snapshot"],
       where: {
         product_type_snapshot: "SERVICE",

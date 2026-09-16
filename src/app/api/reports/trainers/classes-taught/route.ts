@@ -19,7 +19,7 @@ export async function GET(req: NextRequest) {
   // El nombre del entrenador es un join incidental de display, no el
   // recurso gestionado por el endpoint.
   // PASO 6C: tenant/PrismaClient EFECTIVOS bajo sesión runtime "Operar como cliente".
-  const reportCtx = await resolveReportApiContext(user.tenant_id, "gym.classes");
+  const reportCtx = await resolveReportApiContext(user.tenant_id, "gym.classes", user);
   if (!reportCtx.ok) return reportCtx.response;
 
   try {

@@ -519,67 +519,18 @@ export async function confirmPurchase(
     }
   }
 
-  // 3. Asegurar ProductLocation para cada línea stockable.
+  // 3+4. Transacción atómica única: asegurar ProductLocation + marcar
+  //      CONFIRMED + registrar todos los PURCHASE_IN.
   //
-  //    Se usa upsert (no findFirst+create) para evitar la race condition
-  //    que generaría P2002 si dos requests intentan crear el mismo PL simultáneamente.
-  //    @@unique([tenant_id, location_id, product_id]) lo hace seguro.
-  //
-  //    Side effect documentado: si la transacción de la fase 4 falla,
-  //    el PL recién creado queda con current_stock=0 y sin movimientos.
-  //    Es inofensivo — un registro vacío que no corrompe el inventario.
-  //    No se puede evitar sin envolver también el upsert en la misma tx,
-  //    lo que requeriría crear el PL dentro de la tx de confirmación
-  //    y complicaría innecesariamente la lógica en esta etapa.
-  const stockableItems = purchase.items.filter((i) => i.product.is_stockable);
-
-  const entries: {
-    plId:      string;
-    productId: string;
-    quantity:  number;
-    unitCost:  number;
-  }[] = [];
-
-  for (const item of stockableItems) {
-    const pl = await db.productLocation.upsert({
-      where: {
-        tenant_id_location_id_product_id: {
-          tenant_id,
-          location_id,
-          product_id: item.product_id,
-        },
-      },
-      create: {
-        tenant_id,
-        location_id,
-        product_id:       item.product_id,
-        current_stock:    0,
-        min_stock:        0,
-        reorder_quantity: 0,
-        is_active:        true,
-        created_by:       user_id,
-        updated_by:       user_id,
-      },
-      update: {}, // si ya existe, no se toca nada
-      select: { id: true, is_active: true },
-    });
-
-    if (!pl.is_active) {
-      return {
-        ok:    false,
-        error: `El producto ${item.product_id} está inactivo en el inventario de esta location. Reactívalo antes de confirmar.`,
-      };
-    }
-
-    entries.push({
-      plId:      pl.id,
-      productId: item.product_id,
-      quantity:  Number(item.quantity),
-      unitCost:  Number(item.unit_cost),
-    });
-  }
-
-  // 4. Transacción atómica: marcar CONFIRMED + registrar todos los PURCHASE_IN.
+  //    FASE VI-D6: el upsert de ProductLocation (antes fase 3, fuera de la
+  //    tx) se fusionó dentro de la misma `db.$transaction` que marca la
+  //    compra CONFIRMED y registra los movimientos — antes, si la tx de
+  //    movimientos fallaba DESPUÉS de un upsert exitoso, quedaba un
+  //    ProductLocation huérfano (current_stock=0, sin movimientos). Se usa
+  //    upsert (no findFirst+create) para evitar la race condition que
+  //    generaría P2002 si dos requests intentan crear el mismo PL
+  //    simultáneamente — @@unique([tenant_id, location_id, product_id]) lo
+  //    hace seguro incluso dentro de la tx.
   //
   //    Por qué se inlinea la lógica de movimiento en lugar de llamar a recordInventoryMovement():
   //    recordInventoryMovement usa prisma.$transaction internamente, lo que hace imposible
@@ -587,14 +538,61 @@ export async function confirmPurchase(
   //    PURCHASE_IN es siempre aditivo — no requiere getMovementDirection().
   //
   //    Garantías de esta transacción:
-  //    - Si cualquier movimiento falla → rollback completo → compra queda en DRAFT.
+  //    - Si cualquier movimiento (o el upsert de ProductLocation) falla → rollback completo → compra queda en DRAFT, sin ProductLocation huérfano.
   //    - Si el update de CONFIRMED falla → rollback completo → sin movimientos registrados.
   //    - No hay estado intermedio visible: o todo ocurre, o nada.
   //
   //    Nota de concurrencia: stock_before se lee dentro de la tx para capturar
-  //    el saldo vigente al momento exacto del movimiento, no el de la fase 3.
+  //    el saldo vigente al momento exacto del movimiento, no el de un paso previo.
+  const stockableItems = purchase.items.filter((i) => i.product.is_stockable);
+
   try {
     await db.$transaction(async (tx) => {
+      const entries: {
+        plId:      string;
+        productId: string;
+        quantity:  number;
+        unitCost:  number;
+      }[] = [];
+
+      for (const item of stockableItems) {
+        const pl = await tx.productLocation.upsert({
+          where: {
+            tenant_id_location_id_product_id: {
+              tenant_id,
+              location_id,
+              product_id: item.product_id,
+            },
+          },
+          create: {
+            tenant_id,
+            location_id,
+            product_id:       item.product_id,
+            current_stock:    0,
+            min_stock:        0,
+            reorder_quantity: 0,
+            is_active:        true,
+            created_by:       user_id,
+            updated_by:       user_id,
+          },
+          update: {}, // si ya existe, no se toca nada
+          select: { id: true, is_active: true },
+        });
+
+        if (!pl.is_active) {
+          throw new Error(
+            `El producto ${item.product_id} está inactivo en el inventario de esta location. Reactívalo antes de confirmar.`,
+          );
+        }
+
+        entries.push({
+          plId:      pl.id,
+          productId: item.product_id,
+          quantity:  Number(item.quantity),
+          unitCost:  Number(item.unit_cost),
+        });
+      }
+
       // Marcar la compra como CONFIRMED
       await tx.purchase.update({
         where: { id: purchase_id },

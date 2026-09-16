@@ -6,6 +6,7 @@
 // Solo lectura. Respeta tenant_id/location_id.
 // ─────────────────────────────────────────────────────────────────
 
+import type { PrismaClient } from "@prisma/client";
 import { prisma } from "@/lib/db/prisma";
 import type { CommerceReportFilters } from "../types/commerce-report-filters.types";
 import type { SupplierSummaryRow } from "../types/commerce-report.types";
@@ -18,6 +19,7 @@ export interface SupplierSummaryFilters extends CommerceReportFilters {
 
 export async function getSupplierSummaryReport(
   filters: SupplierSummaryFilters,
+  client: PrismaClient = prisma,
 ): Promise<SupplierSummaryRow[]> {
   const {
     tenant_id,
@@ -37,7 +39,7 @@ export async function getSupplierSummaryReport(
   };
 
   const [purchaseGroups, topProductGroups] = await Promise.all([
-    prisma.purchase.groupBy({
+    client.purchase.groupBy({
       by:      ["supplier_id"],
       where:   baseWhere,
       _sum:    { total_amount: true },
@@ -47,7 +49,7 @@ export async function getSupplierSummaryReport(
       take:    limit,
     }),
     // Top product per supplier via purchase items
-    prisma.purchaseItem.groupBy({
+    client.purchaseItem.groupBy({
       by:      ["product_id"],
       where:   { purchase: baseWhere },
       _sum:    { line_total: true },
@@ -62,18 +64,18 @@ export async function getSupplierSummaryReport(
   const productIds   = [...new Set(topProductGroups.map((g) => g.product_id))];
 
   const [suppliers, products, purchaseItemsBySupplier] = await Promise.all([
-    prisma.supplier.findMany({
+    client.supplier.findMany({
       where:  { id: { in: supplierIds } },
       select: { id: true, name: true },
     }),
     productIds.length
-      ? prisma.product.findMany({
+      ? client.product.findMany({
           where:  { id: { in: productIds } },
           select: { id: true, name: true },
         })
       : Promise.resolve([]),
     // Need supplier→top product: fetch purchase_id → supplier_id for top items
-    prisma.purchaseItem.findMany({
+    client.purchaseItem.findMany({
       where: {
         product_id: { in: productIds },
         purchase:   baseWhere,

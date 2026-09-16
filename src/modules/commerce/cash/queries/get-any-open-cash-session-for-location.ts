@@ -10,6 +10,7 @@
 // ─────────────────────────────────────────────────────────────────
 
 import { prisma } from "@/lib/db/prisma";
+import type { PrismaClient } from "@prisma/client";
 
 export interface OpenCashSessionRef {
   id:               string;
@@ -19,13 +20,16 @@ export interface OpenCashSessionRef {
   expected_cash_amount: number;
 }
 
-export async function getAnyOpenCashSessionForLocation(params: {
-  tenant_id:   string;
-  location_id: string;
-}): Promise<OpenCashSessionRef | null> {
+export async function getAnyOpenCashSessionForLocation(
+  params: {
+    tenant_id:   string;
+    location_id: string;
+  },
+  client: PrismaClient = prisma,
+): Promise<OpenCashSessionRef | null> {
   const { tenant_id, location_id } = params;
 
-  const session = await prisma.cashSession.findFirst({
+  const session = await client.cashSession.findFirst({
     where: { tenant_id, location_id, status: "OPEN" },
     orderBy: { opened_at: "desc" },
     select: {
