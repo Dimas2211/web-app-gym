@@ -320,7 +320,7 @@ git diff --check          → sin errores de whitespace (solo warnings LF/CRLF d
 | Client Portal | YES | YES | YES (vía `client.id` propio) | YES | YES | YES | NO |
 | Settings (gym/sports/goals/codes/client+user code+avatar) | YES | YES | YES | n/a | YES | YES | NO |
 | Lookups/Catálogos — `categories` (tenant-owned) | YES | n/a | YES | n/a | n/a | n/a | NO |
-| Lookups/Catálogos — `units` (RUNTIME_REFERENCE) | YES vía page.tsx dashboard; **NO vía `/api/products/units-lookup`** (ver §P — gap nuevo, no cerrado, Products fuera de alcance VI-D8) | n/a | n/a | n/a | n/a | n/a | **SÍ, en `units-lookup` route únicamente** |
+| Lookups/Catálogos — `units` (RUNTIME_REFERENCE) | YES vía page.tsx dashboard y vía `/api/products/units-lookup` (VI-D9 — corregido, usa `resolveEffectiveApiContext` igual que categories-lookup) | n/a | n/a | n/a | n/a | n/a | NO |
 | Lookups/Catálogos — `sport`/`goal` (RUNTIME_LOCAL_CATALOG, PLATFORM-only) | YES | n/a | n/a | n/a | n/a | n/a | NO |
 | `commerce/sales/export` (FEX-11) — `DTE_PENDING_VI_E` | **NO** — diferido a VI-E (frontera DTE) | **NO** | — | — | — | — | **SÍ (deliberado, fuera de alcance)** |
 | `login/actions.ts` (redirect preview) | n/a | n/a | — | — | — | — | Inalcanzable hoy (`RUNTIME_HOST_AUTH_ENABLED=false`); diferido a VI-F |
@@ -368,13 +368,18 @@ LOGIN_REDIRECT_BUG_FIXED = DEFERRED (VI-F — requiere resolver tenant desde hos
 REFERENCE_CATALOGS_CLASSIFIED = YES
 
 RUNTIME_CLIENT_NON_DTE_CAN_HIT_GLOBAL_PRISMA = NO
-  (para todo path operacional NON-DTE TENANT-OWNED — GYM, Client Portal,
-  Settings, categories-lookup. Excepción NO tenant-owned documentada
-  aparte: `/api/products/units-lookup` sigue en Prisma global vía
-  `getUnitsLookup()` sin argumento — ver §P y NEW_BLOCKER_VI_D8 abajo;
-  UnitOfMeasure no es tenant-owned así que no viola este flag en sentido
-  estricto, pero sí viola el modelo RUNTIME_REFERENCE recién clasificado)
+  (VI-D9 cierra la última excepción: `/api/products/units-lookup` ahora
+  resuelve `resolveEffectiveApiContext` y pasa `context.client` a
+  `getUnitsLookup()`, igual que categories-lookup. Ya no hay ningún path
+  operacional NON-DTE — tenant-owned o RUNTIME_REFERENCE — que pueda
+  llegar a Prisma global.)
 RUNTIME_CLIENT_CAN_FALLBACK_GLOBAL = NO (para todo lo dentro de alcance de esta fase)
+
+PRODUCT_UNIT_LOOKUP_SAME_RUNTIME_DB = YES
+  (Product.unit_id y UnitOfMeasure.id se resuelven ambos contra
+  context.client — la misma DB física efectiva — nunca se mapean IDs
+  entre bases)
+RUNTIME_CLIENT_UNITS_LOOKUP_CAN_HIT_GLOBAL_PRISMA = NO
 
 DTE_EXPORT_FEX11_RUNTIME_READY = NO
 
@@ -390,19 +395,20 @@ PRODUCTION_RUNTIME_LOGIN_ENABLED = NO
 SCHEMA_CHANGE = NO
 MIGRATION_REQUIRED = NO
 
-ALL_TESTS_PASS = YES (631/631)
+ALL_TESTS_PASS = YES (636/636, 96 test files)
 BUILD_PASS = YES
 
 NON_DTE_RUNTIME_OPERATIONAL_LAYER_CLOSED = YES
-  (para todo path TENANT-OWNED. Ver NEW_BLOCKER_VI_D8 abajo — hallazgo
-  nuevo de esta microfase, no tenant-owned pero sí Prisma-global-reachable,
-  sin cerrar porque `Products` está fuera de alcance de VI-D8 por
-  instrucción explícita)
+  (VI-D9 cierra el último blocker conocido — units-lookup ahora usa
+  contexto efectivo. Ya no quedan paths NON-DTE alcanzables con fuga a
+  Prisma global.)
 
 READY_FOR_VI_E_DTE_RUNTIME = YES
 
-NON_DTE_BLOCKERS = [
-  "NUEVO (VI-D8): /api/products/units-lookup/route.ts llama getUnitsLookup() SIN pasar `client` — cae al Prisma global incondicionalmente. UnitOfMeasure no es tenant-owned (no hay fuga cross-tenant de datos), pero bajo la clasificación RUNTIME_REFERENCE recién establecida (id local por runtime DB, no pinneado), una identidad RUNTIME_CLIENT que use esta ruta recibiría IDs de la base PLATFORM en vez de los IDs de su propia runtime DB — inconsistentes con Product.unit_id real de esa base. Requiere wiring de resolveEffectiveApiContext igual que categories-lookup/route.ts (mismo directorio, ya corregido en VI-D6). Fuera de alcance de VI-D8 (Products no se toca en esta microfase salvo el test de categories-lookup). No es DTE (VI-E) ni login cutover (VI-F) — es deuda puntual de Products/commerce a resolver en una microfase dedicada o junto con la próxima vez que se abra ese módulo.",
+NON_DTE_BLOCKERS = []
+
+VI_D8_BLOCKERS_RESUELTOS_EN_VI_D9 = [
+  "/api/products/units-lookup/route.ts llamaba getUnitsLookup() SIN pasar `client` — caía al Prisma global incondicionalmente. Corregido en VI-D9: ahora resuelve resolveEffectiveApiContext(user) y pasa context.client, igual que categories-lookup/route.ts. Certificado por src/app/api/products/units-lookup/route.test.ts.",
 ]
 
 VI_D7_BLOCKERS_HISTORICOS = [

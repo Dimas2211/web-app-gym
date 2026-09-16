@@ -551,6 +551,49 @@ inicio del documento) para el detalle completo.
   build` PASS. Sin cambios de schema, sin migraciones, sin push, sin
   deploy.
 
+### VI-D9 — fix puntual: units-lookup runtime routing (cierre definitivo non-DTE)
+
+Corrige el único blocker NON-DTE que quedó abierto al cierre de VI-D8.
+Alcance estrictamente acotado a un archivo — no reabre Products, no toca
+DTE, no toca schema/migraciones, sin login cutover.
+
+- **Causa raíz**: `src/app/api/products/units-lookup/route.ts` llamaba
+  `getUnitsLookup()` sin pasar `client` — caía al parámetro default
+  (`prisma` global) incondicionalmente. `UnitOfMeasure` es
+  `RUNTIME_REFERENCE` (ver clasificación VI-D8 arriba): se siembra por
+  runtime DB con `id = @default(uuid())` sin pinnear, así que
+  `Product.unit_id` de una identidad `RUNTIME_CLIENT` solo tiene sentido
+  resuelto contra la MISMA DB física — nunca contra la base PLATFORM.
+- **Fix**: migrado al mismo patrón ya certificado de
+  `categories-lookup/route.ts` — resuelve
+  `resolveEffectiveApiContext({ tenantId: user.tenant_id }, user)`
+  (pasando `user` siempre, nunca omitido) y llama
+  `getUnitsLookup(context.client)`, con `try/finally { await dispose() }`.
+  No se tocó `get-units-lookup.ts` (ya soportaba `client` opcional desde
+  antes) ni `dashboard/products/page.tsx` (ya pasaba `client`
+  correctamente).
+- **Re-auditoría de callers de `getUnitsLookup`**: solo 2 call sites en
+  todo el repo — `dashboard/products/page.tsx` (ya correcto) y
+  `/api/products/units-lookup/route.ts` (corregido ahora). No se
+  encontró un tercer caller.
+- **Test nuevo dedicado**: `units-lookup/route.test.ts` (3 casos) —
+  certifica que `RUNTIME_CLIENT` pasa `user` a
+  `resolveEffectiveApiContext`, que `getUnitsLookup` recibe
+  EXACTAMENTE `context.client` (nunca Prisma global), y que roles no
+  autorizados / sesiones ausentes nunca llegan a resolver contexto ni
+  tocar la DB.
+- **636/636 tests PASS** (633 de VI-D8 + 3 nuevos de esta microfase, 96
+  test files). `tsc --noEmit` limpio. `npm run lint` sin errores nuevos
+  (mismos warnings preexistentes, ninguno introducido ni en este
+  archivo). `npm run build` PASS. Sin cambios de schema, sin
+  migraciones, sin push, sin deploy.
+- **`NON_DTE_BLOCKERS = []`** — con este fix, `commerce/sales/export/**`
+  (FEX-11, `DTE_PENDING_VI_E`) y `login/actions.ts` (VI-F) son las únicas
+  exclusiones restantes, y ambas están fuera del perímetro NON-DTE por
+  diseño (DTE real / login cutover), no son blockers non-DTE olvidados.
+  `NON_DTE_RUNTIME_OPERATIONAL_LAYER_CLOSED = YES` sin excepciones
+  pendientes de código. `READY_FOR_VI_E_DTE_RUNTIME = YES`.
+
 ## Arquitectura activa
 - El proyecto funciona como monolito modular.
 - Core contiene identidad, usuarios, permisos, clientes, locations y lógica compartida.
