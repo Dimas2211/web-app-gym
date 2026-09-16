@@ -8,6 +8,7 @@ import {
   getLastExpiredMembership,
 } from "@/modules/client-portal/queries";
 import { PlanDayCard } from "./plan-day-card";
+import { resolveEffectiveTenantContext } from "@/modules/platform/runtime/effective-tenant-context";
 
 /**
  * Cuenta días hábiles (lun–vie) transcurridos desde `date` hasta hoy,
@@ -48,47 +49,50 @@ const WEEKDAY_NAMES = [
 
 export default async function PlanSemanalPage() {
   const sessionUser = await requireClient();
-  const client = await getClientByUserId(sessionUser.id);
+  const { context, dispose } = await resolveEffectiveTenantContext(sessionUser);
 
-  if (!client) {
-    return (
-      <div className="space-y-4">
-        <h1 className="text-xl font-bold text-zinc-800">Mi plan semanal</h1>
-        <div className="bg-amber-50 border border-amber-200 rounded-xl p-6 text-center">
-          <p className="text-amber-800 font-medium">Perfil de cliente no configurado.</p>
+  try {
+    const client = await getClientByUserId(sessionUser.id, context.client);
+
+    if (!client) {
+      return (
+        <div className="space-y-4">
+          <h1 className="text-xl font-bold text-zinc-800">Mi plan semanal</h1>
+          <div className="bg-amber-50 border border-amber-200 rounded-xl p-6 text-center">
+            <p className="text-amber-800 font-medium">Perfil de cliente no configurado.</p>
+          </div>
         </div>
-      </div>
-    );
-  }
-
-  const [activePlan, allPlans, hasMembership] = await Promise.all([
-    getMyActivePlan(client.id),
-    getMyPlans(client.id),
-    hasActiveMembership(client.id),
-  ]);
-
-  // ── Regla de visibilidad de planes tras vencimiento ───────────
-  // Si no hay membresía activa, verificar si pasaron 3+ días hábiles desde el vencimiento.
-  let plansVisible = true;
-  let expiredDate: string | null = null;
-
-  if (!hasMembership) {
-    const lastExpired = await getLastExpiredMembership(client.id);
-    if (lastExpired) {
-      expiredDate = new Date(lastExpired.end_date).toLocaleDateString("es-MX", {
-        day: "2-digit",
-        month: "short",
-        year: "numeric",
-      });
-      const businessDays = countBusinessDaysSince(new Date(lastExpired.end_date));
-      if (businessDays >= 3) plansVisible = false;
+      );
     }
-  }
-  // ─────────────────────────────────────────────────────────────
 
-  const generalTemplates = hasMembership
-    ? await getMyGeneralTemplates(client)
-    : [];
+    const [activePlan, allPlans, hasMembership] = await Promise.all([
+      getMyActivePlan(client.id, context.client),
+      getMyPlans(client.id, context.client),
+      hasActiveMembership(client.id, context.client),
+    ]);
+
+    // ── Regla de visibilidad de planes tras vencimiento ───────────
+    // Si no hay membresía activa, verificar si pasaron 3+ días hábiles desde el vencimiento.
+    let plansVisible = true;
+    let expiredDate: string | null = null;
+
+    if (!hasMembership) {
+      const lastExpired = await getLastExpiredMembership(client.id, context.client);
+      if (lastExpired) {
+        expiredDate = new Date(lastExpired.end_date).toLocaleDateString("es-MX", {
+          day: "2-digit",
+          month: "short",
+          year: "numeric",
+        });
+        const businessDays = countBusinessDaysSince(new Date(lastExpired.end_date));
+        if (businessDays >= 3) plansVisible = false;
+      }
+    }
+    // ─────────────────────────────────────────────────────────────
+
+    const generalTemplates = hasMembership
+      ? await getMyGeneralTemplates(client, context.client)
+      : [];
 
   const todayWeekday = new Date().getDay();
 
@@ -359,5 +363,8 @@ export default async function PlanSemanalPage() {
         )}
       </section>}
     </div>
-  );
+    );
+  } finally {
+    await dispose();
+  }
 }

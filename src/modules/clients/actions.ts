@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import bcrypt from "bcryptjs";
 import { z } from "zod";
-import { prisma } from "@/lib/db/prisma";
+import type { UserRole } from "@prisma/client";
 import {
   requireClientManager,
   canManageClient,
@@ -16,7 +16,10 @@ import {
 } from "@/lib/permissions/delete-authorization";
 import { createClientSchema, updateClientSchema } from "./schemas";
 import { suggestNextClientCode, generateQrToken } from "@/lib/utils/operational-codes";
-import { isRuntimeReadOnlyActive, RUNTIME_READONLY_MESSAGE } from "@/modules/platform/runtime/runtime-session";
+import {
+  requireOperationalContext,
+  OperationalContextError,
+} from "@/modules/platform/runtime/require-operational-context";
 
 export type ClientActionState =
   | { errors?: Record<string, string[]>; error?: string }
@@ -55,46 +58,60 @@ export async function createClientAction(
   _prev: ClientActionState,
   formData: FormData
 ): Promise<ClientActionState> {
+  // requireClientManager(): gate de sesión/rol inicial sin cambios para PLATFORM.
   const sessionUser = await requireClientManager();
 
-  // PASO 6D: bloquear escritura bajo sesión runtime "Operar como cliente"
-  if (await isRuntimeReadOnlyActive()) {
-    return { error: RUNTIME_READONLY_MESSAGE };
+  // FASE VI-D7: contexto operacional runtime (DB efectiva, readOnly bajo
+  // Support Session, ROL LIVE) — reemplaza el chequeo manual de
+  // isRuntimeReadOnlyActive() + Prisma global + sessionUser.tenant_id/role
+  // crudo del JWT. `clients` no tiene module code propio en el registro
+  // comercial (es base de la vertical GYM, no un módulo activable/desactivable).
+  let handle;
+  try {
+    handle = await requireOperationalContext(sessionUser, { write: true });
+  } catch (err) {
+    if (err instanceof OperationalContextError) return { error: err.userMessage };
+    throw err;
   }
+  const { context, dispose } = handle;
 
-  const raw = parseFormData(formData);
+  try {
+    const raw = parseFormData(formData);
 
-  // reception solo puede crear en su sucursal
-  if (sessionUser.role === "reception") {
-    if (raw.branch_id !== sessionUser.location_id) {
-      return { error: "Solo puedes registrar clientes en tu propia sucursal." };
+    // reception solo puede crear en su sucursal — evaluado con el ROL/location LIVE.
+    if (context.effectiveUser.role === "reception") {
+      if (raw.branch_id !== context.locationId) {
+        return { error: "Solo puedes registrar clientes en tu propia sucursal." };
+      }
     }
+
+    const parsed = createClientSchema.safeParse(raw);
+    if (!parsed.success) {
+      return { errors: parsed.error.flatten().fieldErrors };
+    }
+
+    const { branch_id, birth_date, gender, ...rest } = parsed.data;
+
+    // Generar código operativo y token QR para el nuevo cliente
+    const operational_code = await suggestNextClientCode(context.tenantId, context.client);
+    const qr_token = generateQrToken();
+
+    await context.client.client.create({
+      data: {
+        gym_id: context.tenantId,
+        tenant_id: context.tenantId,
+        branch_id,
+        ...rest,
+        birth_date: birth_date ? new Date(birth_date) : null,
+        gender: gender ?? null,
+        status: "active",
+        operational_code,
+        qr_token,
+      },
+    });
+  } finally {
+    await dispose();
   }
-
-  const parsed = createClientSchema.safeParse(raw);
-  if (!parsed.success) {
-    return { errors: parsed.error.flatten().fieldErrors };
-  }
-
-  const { branch_id, birth_date, gender, ...rest } = parsed.data;
-
-  // Generar código operativo y token QR para el nuevo cliente
-  const operational_code = await suggestNextClientCode(sessionUser.tenant_id);
-  const qr_token = generateQrToken();
-
-  await prisma.client.create({
-    data: {
-      gym_id: sessionUser.tenant_id,
-      tenant_id: sessionUser.tenant_id,
-      branch_id,
-      ...rest,
-      birth_date: birth_date ? new Date(birth_date) : null,
-      gender: gender ?? null,
-      status: "active",
-      operational_code,
-      qr_token,
-    },
-  });
 
   revalidatePath("/dashboard/clients");
   redirect("/dashboard/clients");
@@ -109,41 +126,56 @@ export async function updateClientAction(
 ): Promise<ClientActionState> {
   const sessionUser = await requireClientManager();
 
-  // PASO 6D: bloquear escritura bajo sesión runtime "Operar como cliente"
-  if (await isRuntimeReadOnlyActive()) {
-    return { error: RUNTIME_READONLY_MESSAGE };
+  let handle;
+  try {
+    handle = await requireOperationalContext(sessionUser, { write: true });
+  } catch (err) {
+    if (err instanceof OperationalContextError) return { error: err.userMessage };
+    throw err;
   }
+  const { context, dispose } = handle;
 
-  const id = formData.get("id") as string;
-  if (!id) return { error: "ID de cliente requerido." };
+  try {
+    const id = formData.get("id") as string;
+    if (!id) return { error: "ID de cliente requerido." };
 
-  const target = await prisma.client.findUnique({ where: { id } });
-  if (!target) return { error: "Cliente no encontrado." };
-  if (!canManageClient(sessionUser, target)) {
-    return { error: "Sin permiso para editar este cliente." };
+    const target = await context.client.client.findFirst({
+      where: { id, tenant_id: context.tenantId },
+    });
+    if (!target) return { error: "Cliente no encontrado." };
+
+    const effectiveSessionUser = {
+      ...context.effectiveUser,
+      role: context.effectiveUser.role as UserRole,
+    };
+    if (!canManageClient(effectiveSessionUser, target)) {
+      return { error: "Sin permiso para editar este cliente." };
+    }
+
+    const raw = parseFormData(formData);
+
+    const parsed = updateClientSchema.safeParse(raw);
+    if (!parsed.success) {
+      return { errors: parsed.error.flatten().fieldErrors };
+    }
+
+    const { branch_id, birth_date, gender, ...rest } = parsed.data;
+
+    await context.client.client.update({
+      where: { id },
+      data: {
+        branch_id,
+        ...rest,
+        birth_date: birth_date ? new Date(birth_date) : null,
+        gender: gender ?? null,
+      },
+    });
+  } finally {
+    await dispose();
   }
-
-  const raw = parseFormData(formData);
-
-  const parsed = updateClientSchema.safeParse(raw);
-  if (!parsed.success) {
-    return { errors: parsed.error.flatten().fieldErrors };
-  }
-
-  const { branch_id, birth_date, gender, ...rest } = parsed.data;
-
-  await prisma.client.update({
-    where: { id },
-    data: {
-      branch_id,
-      ...rest,
-      birth_date: birth_date ? new Date(birth_date) : null,
-      gender: gender ?? null,
-    },
-  });
 
   revalidatePath("/dashboard/clients");
-  revalidatePath(`/dashboard/clients/${id}`);
+  revalidatePath(`/dashboard/clients/${formData.get("id")}`);
   redirect("/dashboard/clients");
 }
 
@@ -168,63 +200,78 @@ export async function enableClientPortalAction(
 ): Promise<ClientActionState> {
   const sessionUser = await requireClientManager();
 
-  // PASO 6D: bloquear escritura bajo sesión runtime "Operar como cliente"
-  if (await isRuntimeReadOnlyActive()) {
-    return { error: RUNTIME_READONLY_MESSAGE };
+  let handle;
+  try {
+    handle = await requireOperationalContext(sessionUser, { write: true });
+  } catch (err) {
+    if (err instanceof OperationalContextError) return { error: err.userMessage };
+    throw err;
   }
+  const { context, dispose } = handle;
 
-  const clientId = formData.get("client_id") as string;
-  if (!clientId) return { error: "ID de cliente requerido." };
+  try {
+    const clientId = formData.get("client_id") as string;
+    if (!clientId) return { error: "ID de cliente requerido." };
 
-  const client = await prisma.client.findUnique({ where: { id: clientId } });
-  if (!client) return { error: "Cliente no encontrado." };
-  if (!canManageClient(sessionUser, client)) {
-    return { error: "Sin permiso para modificar este cliente." };
-  }
-  if (client.user_id) {
-    return { error: "Este cliente ya tiene acceso al portal habilitado." };
-  }
-
-  const raw = {
-    portal_email: formData.get("portal_email"),
-    portal_password: formData.get("portal_password"),
-  };
-
-  const parsed = enablePortalSchema.safeParse(raw);
-  if (!parsed.success) {
-    return { errors: parsed.error.flatten().fieldErrors };
-  }
-
-  const existingUser = await prisma.user.findUnique({
-    where: { email: parsed.data.portal_email },
-  });
-  if (existingUser) {
-    return { errors: { portal_email: ["Este correo ya está en uso por otra cuenta."] } };
-  }
-
-  const password_hash = await bcrypt.hash(parsed.data.portal_password, 10);
-
-  await prisma.$transaction(async (tx) => {
-    const newUser = await tx.user.create({
-      data: {
-        gym_id: client.gym_id,
-        branch_id: client.branch_id,
-        email: parsed.data.portal_email,
-        password_hash,
-        first_name: client.first_name,
-        last_name: client.last_name,
-        role: "client",
-        status: "active",
-      },
+    const client = await context.client.client.findFirst({
+      where: { id: clientId, tenant_id: context.tenantId },
     });
-    await tx.client.update({
-      where: { id: clientId },
-      data: { user_id: newUser.id },
-    });
-  });
+    if (!client) return { error: "Cliente no encontrado." };
 
-  revalidatePath(`/dashboard/clients/${clientId}`);
-  revalidatePath("/dashboard/clients");
+    const effectiveSessionUser = {
+      ...context.effectiveUser,
+      role: context.effectiveUser.role as UserRole,
+    };
+    if (!canManageClient(effectiveSessionUser, client)) {
+      return { error: "Sin permiso para modificar este cliente." };
+    }
+    if (client.user_id) {
+      return { error: "Este cliente ya tiene acceso al portal habilitado." };
+    }
+
+    const raw = {
+      portal_email: formData.get("portal_email"),
+      portal_password: formData.get("portal_password"),
+    };
+
+    const parsed = enablePortalSchema.safeParse(raw);
+    if (!parsed.success) {
+      return { errors: parsed.error.flatten().fieldErrors };
+    }
+
+    const existingUser = await context.client.user.findUnique({
+      where: { email: parsed.data.portal_email },
+    });
+    if (existingUser) {
+      return { errors: { portal_email: ["Este correo ya está en uso por otra cuenta."] } };
+    }
+
+    const password_hash = await bcrypt.hash(parsed.data.portal_password, 10);
+
+    await context.client.$transaction(async (tx) => {
+      const newUser = await tx.user.create({
+        data: {
+          gym_id: client.gym_id,
+          branch_id: client.branch_id,
+          email: parsed.data.portal_email,
+          password_hash,
+          first_name: client.first_name,
+          last_name: client.last_name,
+          role: "client",
+          status: "active",
+        },
+      });
+      await tx.client.update({
+        where: { id: clientId },
+        data: { user_id: newUser.id },
+      });
+    });
+
+    revalidatePath(`/dashboard/clients/${clientId}`);
+    revalidatePath("/dashboard/clients");
+  } finally {
+    await dispose();
+  }
 }
 
 // ──────────────────────────────────────────────
@@ -240,29 +287,42 @@ export async function toggleClientPortalStatusAction(
 ): Promise<void> {
   const sessionUser = await requireClientManager();
 
-  // PASO 6D: bloquear escritura bajo sesión runtime "Operar como cliente"
-  if (await isRuntimeReadOnlyActive()) return;
+  let handle;
+  try {
+    handle = await requireOperationalContext(sessionUser, { write: true });
+  } catch {
+    return;
+  }
+  const { context, dispose } = handle;
 
-  const clientId = formData.get("client_id") as string;
-  if (!clientId) return;
+  try {
+    const clientId = formData.get("client_id") as string;
+    if (!clientId) return;
 
-  const client = await prisma.client.findUnique({
-    where: { id: clientId },
-    include: { user: { select: { id: true, status: true } } },
-  });
+    const client = await context.client.client.findFirst({
+      where: { id: clientId, tenant_id: context.tenantId },
+      include: { user: { select: { id: true, status: true } } },
+    });
 
-  if (!client || !canManageClient(sessionUser, client)) return;
-  if (!client.user_id || !client.user) return;
+    const effectiveSessionUser = {
+      ...context.effectiveUser,
+      role: context.effectiveUser.role as UserRole,
+    };
+    if (!client || !canManageClient(effectiveSessionUser, client)) return;
+    if (!client.user_id || !client.user) return;
 
-  await prisma.user.update({
-    where: { id: client.user_id },
-    data: {
-      status: client.user.status === "active" ? "inactive" : "active",
-    },
-  });
+    await context.client.user.update({
+      where: { id: client.user_id },
+      data: {
+        status: client.user.status === "active" ? "inactive" : "active",
+      },
+    });
 
-  revalidatePath(`/dashboard/clients/${clientId}`);
-  revalidatePath("/dashboard/clients");
+    revalidatePath(`/dashboard/clients/${clientId}`);
+    revalidatePath("/dashboard/clients");
+  } finally {
+    await dispose();
+  }
 }
 
 // ──────────────────────────────────────────────
@@ -272,58 +332,78 @@ export async function deleteClientAction(
   _prev: DeleteAuthActionState,
   formData: FormData
 ): Promise<DeleteAuthActionState> {
+  // getSessionOrRedirect(): gate de sesión mínimo — la validación de
+  // permisos real ocurre abajo con canManageClient sobre el ROL LIVE.
   const sessionUser = await getSessionOrRedirect();
 
-  // PASO 6D: bloquear escritura bajo sesión runtime "Operar como cliente"
-  if (await isRuntimeReadOnlyActive()) {
-    return { error: RUNTIME_READONLY_MESSAGE };
+  let handle;
+  try {
+    handle = await requireOperationalContext(sessionUser, { write: true });
+  } catch (err) {
+    if (err instanceof OperationalContextError) return { error: err.userMessage };
+    throw err;
   }
+  const { context, dispose } = handle;
 
-  const id = formData.get("id") as string;
-  if (!id) return { error: "Datos inválidos" };
+  try {
+    const id = formData.get("id") as string;
+    if (!id) return { error: "Datos inválidos" };
 
-  const target = await prisma.client.findFirst({
-    where: { id, tenant_id: sessionUser.tenant_id },
-    include: {
-      _count: {
-        select: {
-          memberships: true,
-          class_bookings: true,
-          class_attendance: true,
-          weekly_plans: true,
+    const target = await context.client.client.findFirst({
+      where: { id, tenant_id: context.tenantId },
+      include: {
+        _count: {
+          select: {
+            memberships: true,
+            class_bookings: true,
+            class_attendance: true,
+            weekly_plans: true,
+          },
         },
       },
-    },
-  });
+    });
 
-  if (!target) return { error: "Cliente no encontrado." };
-  if (!canManageClient(sessionUser, target)) {
-    return { error: "Sin permisos para gestionar este cliente." };
-  }
+    if (!target) return { error: "Cliente no encontrado." };
 
-  // Bloqueos por dependencias: cualquier historial impide la eliminación
-  const blocks: string[] = [];
-  if (target._count.memberships > 0)
-    blocks.push(`${target._count.memberships} membresía(s)`);
-  if (target._count.class_bookings > 0)
-    blocks.push(`${target._count.class_bookings} reserva(s) de clase`);
-  if (target._count.class_attendance > 0)
-    blocks.push(`${target._count.class_attendance} registro(s) de asistencia`);
-  if (target._count.weekly_plans > 0)
-    blocks.push(`${target._count.weekly_plans} plan(es) semanal(es)`);
-  if (target.user_id)
-    blocks.push("portal de acceso habilitado (deshabilítalo primero desde la ficha del cliente)");
-
-  if (blocks.length > 0) {
-    return {
-      error: `No se puede eliminar: el cliente tiene ${blocks.join(", ")}. Desactívalo en su lugar, o elimina primero esos registros.`,
+    const effectiveSessionUser = {
+      ...context.effectiveUser,
+      role: context.effectiveUser.role as UserRole,
     };
+    if (!canManageClient(effectiveSessionUser, target)) {
+      return { error: "Sin permisos para gestionar este cliente." };
+    }
+
+    // Bloqueos por dependencias: cualquier historial impide la eliminación
+    const blocks: string[] = [];
+    if (target._count.memberships > 0)
+      blocks.push(`${target._count.memberships} membresía(s)`);
+    if (target._count.class_bookings > 0)
+      blocks.push(`${target._count.class_bookings} reserva(s) de clase`);
+    if (target._count.class_attendance > 0)
+      blocks.push(`${target._count.class_attendance} registro(s) de asistencia`);
+    if (target._count.weekly_plans > 0)
+      blocks.push(`${target._count.weekly_plans} plan(es) semanal(es)`);
+    if (target.user_id)
+      blocks.push("portal de acceso habilitado (deshabilítalo primero desde la ficha del cliente)");
+
+    if (blocks.length > 0) {
+      return {
+        error: `No se puede eliminar: el cliente tiene ${blocks.join(", ")}. Desactívalo en su lugar, o elimina primero esos registros.`,
+      };
+    }
+
+    const auth = await checkDeleteAuth(
+      formData,
+      { role: context.effectiveUser.role as UserRole, tenant_id: context.tenantId },
+      context.client,
+    );
+    if (!auth.ok) return { error: auth.error };
+
+    await context.client.client.delete({ where: { id } });
+  } finally {
+    await dispose();
   }
 
-  const auth = await checkDeleteAuth(formData, sessionUser);
-  if (!auth.ok) return { error: auth.error };
-
-  await prisma.client.delete({ where: { id } });
   revalidatePath("/dashboard/clients");
   redirect("/dashboard/clients");
 }
@@ -334,19 +414,34 @@ export async function deleteClientAction(
 export async function toggleClientStatusAction(formData: FormData): Promise<void> {
   const sessionUser = await requireClientManager();
 
-  // PASO 6D: bloquear escritura bajo sesión runtime "Operar como cliente"
-  if (await isRuntimeReadOnlyActive()) return;
+  let handle;
+  try {
+    handle = await requireOperationalContext(sessionUser, { write: true });
+  } catch {
+    return;
+  }
+  const { context, dispose } = handle;
 
-  const id = formData.get("id") as string;
-  if (!id) return;
+  try {
+    const id = formData.get("id") as string;
+    if (!id) return;
 
-  const target = await prisma.client.findUnique({ where: { id } });
-  if (!target || !canManageClient(sessionUser, target)) return;
+    const target = await context.client.client.findFirst({
+      where: { id, tenant_id: context.tenantId },
+    });
+    const effectiveSessionUser = {
+      ...context.effectiveUser,
+      role: context.effectiveUser.role as UserRole,
+    };
+    if (!target || !canManageClient(effectiveSessionUser, target)) return;
 
-  await prisma.client.update({
-    where: { id },
-    data: { status: target.status === "active" ? "inactive" : "active" },
-  });
+    await context.client.client.update({
+      where: { id },
+      data: { status: target.status === "active" ? "inactive" : "active" },
+    });
 
-  revalidatePath("/dashboard/clients");
+    revalidatePath("/dashboard/clients");
+  } finally {
+    await dispose();
+  }
 }

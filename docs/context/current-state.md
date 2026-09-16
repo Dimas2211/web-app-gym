@@ -382,6 +382,116 @@ matriz de certificación completa. Resumen:
   `READY_FOR_VI_E_DTE_RUNTIME = YES` de todas formas (la frontera fiscal es
   ortogonal a GYM).
 
+## Platform — FASE VI-D7: cierre de la vertical GYM + cierre transversal non-DTE (cerrada)
+
+VI-D6 descubrió el hueco (vertical GYM completa sin runtime routing). VI-D7
+lo resolvió, más una re-auditoría transversal que encontró y cerró 2 huecos
+adicionales fuera de GYM que VI-D6 no había detectado.
+
+- **Vertical GYM migrada completa** — `clients`, `memberships`, `trainers`
+  (+ `availability-validator.ts`), `classes`, `weekly-plans`: los 7 archivos
+  `actions.ts` pasaron del patrón `isRuntimeReadOnlyActive()` +
+  `assert<Modulo>Module(sessionUser.tenant_id)` + Prisma global +
+  `sessionUser.role`/`.tenant_id`/`.location_id` (JWT, hasta 8h de
+  antigüedad) al patrón ya validado en commerce:
+  `requireOperationalContext(sessionUser, { module?, write: true })` →
+  `context.client` / `context.tenantId` / `context.effectiveUser.role`
+  (ROL LIVE) → `try/finally { await dispose() }`. `clients` no tiene module
+  code propio (no se inventó `gym.clients`); memberships/trainers/classes/
+  weekly-plans usan los códigos ya registrados
+  (`gym.memberships`/`gym.trainers`/`gym.classes`/`gym.weekly_plans`).
+  Todo `$transaction` (borrado de trainer+disponibilidad, plantilla+días,
+  plan+días) migró de `prisma.$transaction` a `context.client.$transaction`.
+  `checkDeleteAuth(formData, sessionUser)` (7 call sites) se corrigió para
+  pasar `{ role: context.effectiveUser.role, tenant_id: context.tenantId }`
+  + `context.client` — antes evaluaba con el ROL/tenant del JWT y por
+  default caía al Prisma global si no se pasaba `db`.
+- **Client Portal (`/portal/*`) migrado completo** — era el hueco de mayor
+  impacto: a diferencia del resto de GYM (cuyas *lecturas* dashboard-side ya
+  estaban parametrizadas desde fases previas), aquí ni lecturas ni
+  escrituras tenían wiring runtime. `client-portal/queries.ts` (12
+  funciones) y `client-portal/actions.ts` (3 Server Actions:
+  `bookClassAction`/`cancelBookingAction`/`submitPlanDayAction`) ahora
+  aceptan/usan `client: PrismaClient = prisma` y `context.client`
+  respectivamente. Los 6 `page.tsx` de `(portal)/portal/**` resuelven
+  `resolveEffectiveTenantContext(sessionUser)` y pasan `context.client` a
+  cada query — incluyendo `credencial/page.tsx`, que además tenía un
+  `prisma.gym.findUnique` inline sin ningún wiring.
+- **`settings/actions.ts` — fix del "half-migration"**:
+  `updateClientOperationalCodeAction`/`updateClientAvatarAction` ya
+  resolvían contexto operacional en una fase previa pero el write real de
+  `Client` seguía en `prisma.client.update(...)` (Prisma global) en vez de
+  `context.client.client.update(...)` — exactamente el patrón que parece
+  "cerrado" en revisión superficial de código pero no lo está. Corregido
+  con test dedicado (`update-client-operational-code.test.ts`) que hubiera
+  fallado contra el código viejo. El resto del archivo (gym/sports/goals,
+  antes con `isRuntimeReadOnlyActive()` + Prisma global) también migró a
+  `requireOperationalContext({ write: true })` — son `PLATFORM_NATIVE_ONLY`
+  (detrás de `requireSuperAdmin()`, inalcanzables por RUNTIME_CLIENT) pero
+  se enrutaron igual por consistencia y para dejar cero `prisma.` directo
+  reachable en el archivo.
+- **`suggestNextClientCode`/`isStaffCodeAvailable`/`isClientCodeAvailable`**
+  (`src/lib/utils/operational-codes.ts`) — les faltaba el parámetro
+  `db: PrismaClient = prisma` que sus hermanas (`suggestNextStaffCode`) ya
+  tenían desde VI-D4. Corregido.
+- **Re-auditoría transversal non-DTE (fuera de GYM) — 2 huecos nuevos
+  encontrados y cerrados**:
+  1. `settings/queries.ts` — `getSports`/`getSportById`/`getGoals`/
+     `getGoalById` no aceptaban `client` (a diferencia de `getGym`/
+     `getGymSettings`, ya correctas). Los 5 `page.tsx` que los llaman
+     (`settings`, `settings/sports`, `settings/sports/[id]/edit`,
+     `settings/goals`, `settings/goals/[id]/edit`) ya resolvían
+     `context`/`resolveEffectiveTenantContext` pero no lo propagaban.
+  2. `dashboard/credential/page.tsx` — página de credencial propia de
+     staff (cualquier rol: trainer/reception/branch_admin/super_admin), sin
+     NINGÚN wiring de contexto runtime, `prisma.user.findUnique` directo.
+     Corregido con `resolveEffectiveTenantContext`.
+- **Hallazgo fuera de alcance, documentado y NO tocado (frontera DTE)**:
+  `src/modules/commerce/sales/export/**` (flujo FEX-11 — factura de
+  exportación) tiene el mismo patrón de Prisma global sin runtime routing
+  en sus queries (`get-unit-mh-context.ts`, `search-export-products.ts`,
+  `search-foreign-customers.ts`) y su guard `requireExportSession()`
+  (`export-sale.actions.ts`) nunca resuelve contexto runtime. FEX-11 es un
+  tipo de documento DTE (fiscal) — cae dentro de la exclusión explícita de
+  DTE de esta fase, igual que `dte-api-context.ts`. Queda diferido a VI-E
+  junto con el resto de DTE, no se tocó ningún archivo del subárbol.
+- **`login/actions.ts` — bug de redirect, DIFERIDO a VI-F**: el preview de
+  rol pre-login (`prisma.user.findUnique({where:{email}}, select:{role}})`,
+  para decidir `/portal` vs `/dashboard`) consulta el `User` global ANTES
+  de autenticar. Bajo un futuro login runtime por hostname, un usuario
+  cuya cuenta vive solo en la DB runtime del tenant no existiría en el
+  `User` global → `redirectTo` caería siempre a `/dashboard` aunque el rol
+  real fuera `client`. No es un fix acotado: arreglarlo bien requiere
+  resolver tenant/DB efectivo desde el hostname ANTES de autenticar — eso
+  es exactamente el trabajo del cutover final de login (VI-F), no algo
+  seguro de aislar hoy mientras `RUNTIME_HOST_AUTH_ENABLED=false`. Se deja
+  documentado como blocker exacto para VI-F, sin tocar el archivo.
+- **`units-lookup` — clasificado, sin cambio de código**: `UnitOfMeasure`
+  (`prisma/schema.prisma`) no tiene `tenant_id`, tiene `@@unique([symbol])`
+  GLOBAL, y `Product.unit_id` referencia esas filas globales directamente.
+  Es un catálogo de referencia GLOBAL_REFERENCE compartido entre tenants
+  (como `Country`/`EconomicActivity` en suppliers) — no tenant-owned, no
+  requiere runtime routing. Ya vivía correctamente bajo `commerce/products`
+  (cerrado en VI-D1), confirmado aquí, sin fix necesario.
+- **13 tests nuevos**: `reports-enforcement.test.ts` (2, cierra el gap de
+  cobertura de `resolveReportApiContext` que VI-D6 dejó sin test dedicado),
+  `client-portal/actions.test.ts` (2, primer test de ese archivo — no
+  existía ninguno), `settings/update-client-operational-code.test.ts` (4,
+  certifica el fix del half-migration), más ajustes de los 6 tests
+  `actions.test.ts` de GYM (clients/memberships/trainers/classes/
+  weekly-plans/settings) del patrón `isRuntimeReadOnlyActive` mock al
+  patrón `requireOperationalContext` mock. **631/631 tests PASS** (antes
+  618/618). `tsc --noEmit` limpio. `npm run lint` sin errores nuevos
+  (mismos warnings preexistentes, ninguno introducido). `npm run build`
+  PASS. Sin cambios de schema, sin migraciones nuevas.
+- **`NON_DTE_RUNTIME_OPERATIONAL_LAYER_CLOSED = YES`** — con la excepción
+  documentada y deliberada de `commerce/sales/export/**` (FEX-11, frontera
+  DTE, diferido a VI-E) y `login/actions.ts` (diferido a VI-F, no
+  alcanzable hoy). Ningún path de escritura/lectura tenant-owned alcanzable
+  por `RUNTIME_CLIENT` en GYM, Client Portal o Settings queda en Prisma
+  global. `RUNTIME_HOST_AUTH_ENABLED` sigue en `FALSE`. Sin push, sin
+  deploy, sin login runtime real habilitado.
+
 ## Arquitectura activa
 - El proyecto funciona como monolito modular.
 - Core contiene identidad, usuarios, permisos, clientes, locations y lógica compartida.

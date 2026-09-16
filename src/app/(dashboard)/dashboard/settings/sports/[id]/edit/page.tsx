@@ -23,7 +23,7 @@ export default async function EditSportPage({ params }: Props) {
       redirect("/dashboard/settings/sports");
     }
 
-    const sport = await getSportById(id);
+    const sport = await getSportById(id, context.client);
     if (!sport) notFound();
 
     return (

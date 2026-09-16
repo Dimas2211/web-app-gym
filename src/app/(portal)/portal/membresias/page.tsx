@@ -4,6 +4,7 @@ import {
   getMyActiveMembership,
   getMyMemberships,
 } from "@/modules/client-portal/queries";
+import { resolveEffectiveTenantContext } from "@/modules/platform/runtime/effective-tenant-context";
 
 function formatDate(date: Date | string) {
   return new Date(date).toLocaleDateString("es-MX", {
@@ -37,7 +38,10 @@ const PAYMENT_STATUS_LABELS: Record<string, string> = {
 
 export default async function MembresiasPage() {
   const sessionUser = await requireClient();
-  const client = await getClientByUserId(sessionUser.id);
+  const { context, dispose } = await resolveEffectiveTenantContext(sessionUser);
+
+  try {
+  const client = await getClientByUserId(sessionUser.id, context.client);
 
   if (!client) {
     return (
@@ -54,8 +58,8 @@ export default async function MembresiasPage() {
   }
 
   const [activeMembership, allMemberships] = await Promise.all([
-    getMyActiveMembership(client.id),
-    getMyMemberships(client.id),
+    getMyActiveMembership(client.id, context.client),
+    getMyMemberships(client.id, context.client),
   ]);
 
   return (
@@ -180,5 +184,8 @@ export default async function MembresiasPage() {
         )}
       </div>
     </div>
-  );
+    );
+  } finally {
+    await dispose();
+  }
 }

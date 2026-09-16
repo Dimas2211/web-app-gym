@@ -1,3 +1,4 @@
+import type { PrismaClient } from "@prisma/client";
 import { prisma } from "@/lib/db/prisma";
 
 function dayOfWeekFromDateString(dateStr: string): number {
@@ -15,10 +16,11 @@ export async function validateClassWithinTrainerAvailability(
   classDate: string, // YYYY-MM-DD
   startTime: string, // HH:mm
   endTime: string,   // HH:mm
+  db: PrismaClient = prisma,
 ): Promise<AvailabilityCheckResult> {
   const dayOfWeek = dayOfWeekFromDateString(classDate);
 
-  const blocks = await prisma.trainerAvailability.findMany({
+  const blocks = await db.trainerAvailability.findMany({
     where: { trainer_id: trainerId, day_of_week: dayOfWeek, status: "active" },
     select: { start_time: true, end_time: true },
   });
@@ -39,9 +41,10 @@ export async function checkAvailabilitySlotCanBeRemoved(
   slotId: string,
   trainerId: string,
   dayOfWeek: number,
+  db: PrismaClient = prisma,
 ): Promise<{ canRemove: true } | { canRemove: false; message: string }> {
   // Remaining active slots for this day after removing this one
-  const remainingSlots = await prisma.trainerAvailability.findMany({
+  const remainingSlots = await db.trainerAvailability.findMany({
     where: {
       trainer_id: trainerId,
       day_of_week: dayOfWeek,
@@ -55,7 +58,7 @@ export async function checkAvailabilitySlotCanBeRemoved(
   const today = new Date();
   today.setUTCHours(0, 0, 0, 0);
 
-  const upcomingClasses = await prisma.scheduledClass.findMany({
+  const upcomingClasses = await db.scheduledClass.findMany({
     where: {
       trainer_id: trainerId,
       status: { not: "cancelled" },

@@ -18,8 +18,8 @@ export default async function SettingsPage() {
 
   const [gym, sports, goals] = await Promise.all([
     isGym ? getGym(effectiveUser, context.client) : Promise.resolve(null),
-    isGym ? getSports() : Promise.resolve([]),
-    isGym ? getGoals() : Promise.resolve([]),
+    isGym ? getSports(context.client) : Promise.resolve([]),
+    isGym ? getGoals(context.client) : Promise.resolve([]),
   ]);
   await dispose();
 

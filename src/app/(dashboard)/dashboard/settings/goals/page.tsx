@@ -17,7 +17,7 @@ export default async function GoalsPage() {
   try {
     await requireEffectiveVertical(context.tenantId, "GYM");
 
-    const goals = await getGoals();
+    const goals = await getGoals(context.client);
     const canManage = !context.runtime;
 
     return (

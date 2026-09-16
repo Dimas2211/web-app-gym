@@ -1,10 +1,12 @@
 // ─────────────────────────────────────────────────────────────────
 // classes — actions.test.ts
 //
-// PASO 6C — Auditoría de aislamiento GYM: sesión runtime "Operar como
-// cliente" activa (siempre solo lectura) debe bloquear cualquier
-// write de classes ANTES de tocar prisma — sin importar el rol del
-// super_admin autenticado ni el estado de gym.classes.
+// PASO 6C: sesión runtime "Operar como cliente" activa (siempre solo
+// lectura) debe bloquear cualquier write de classes.
+//
+// FASE VI-D7: migrado a requireOperationalContext({ module: "gym.classes",
+// write: true }) — certifica READ_ONLY y MODULE_DISABLED ANTES de tocar
+// classType.update, con todo el acceso a datos vía context.client.
 // ─────────────────────────────────────────────────────────────────
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
@@ -18,49 +20,57 @@ vi.mock("@/lib/permissions/guards", () => ({
   canManageClass: vi.fn(() => true),
 }));
 
-const { classTypeUpdateSpy, classTypeFindFirstSpy } = vi.hoisted(() => ({
-  classTypeUpdateSpy: vi.fn(),
-  classTypeFindFirstSpy: vi.fn(async () => ({ id: "type-1", status: "active", tenant_id: "tenant-1" })),
-}));
-
-vi.mock("@/lib/db/prisma", () => ({
-  prisma: {
-    classType: { findFirst: classTypeFindFirstSpy, update: classTypeUpdateSpy },
-  },
-}));
-
-const { isRuntimeReadOnlyActiveMock, resolveCommercialEnforcementContextMock } = vi.hoisted(() => ({
-  isRuntimeReadOnlyActiveMock: vi.fn(async () => false),
-  resolveCommercialEnforcementContextMock: vi.fn(async () => ({
-    mode: "LEGACY_UNMANAGED",
-    tenantId: "tenant-1",
-    organizationId: null,
-    planId: null,
-    verticalId: null,
-    effectiveModules: new Map(),
-    effectiveEntitlements: new Map(),
-  })),
-}));
-
-vi.mock("@/modules/platform/runtime/runtime-session", () => ({
-  isRuntimeReadOnlyActive: isRuntimeReadOnlyActiveMock,
-  RUNTIME_READONLY_MESSAGE: "Modo \"Operar como cliente\" activo (solo lectura).",
-}));
-
-vi.mock("@/modules/platform/runtime/commercial-enforcement", async () => {
-  const actual = await vi.importActual<typeof import("@/modules/platform/runtime/commercial-enforcement")>(
-    "@/modules/platform/runtime/commercial-enforcement",
-  );
-  return { ...actual, resolveCommercialEnforcementContext: resolveCommercialEnforcementContextMock };
+const {
+  classTypeUpdateSpy,
+  classTypeFindFirstSpy,
+  requireOperationalContextMock,
+  disposeMock,
+  FakeOperationalContextError,
+} = vi.hoisted(() => {
+  class FakeOperationalContextError extends Error {
+    code: string;
+    httpStatus: number;
+    userMessage: string;
+    constructor(code: string, userMessage: string, httpStatus: number) {
+      super(userMessage);
+      this.code = code;
+      this.httpStatus = httpStatus;
+      this.userMessage = userMessage;
+    }
+  }
+  return {
+    classTypeUpdateSpy: vi.fn(),
+    classTypeFindFirstSpy: vi.fn(async () => ({ id: "type-1", status: "active", tenant_id: "tenant-1" })),
+    requireOperationalContextMock: vi.fn(),
+    disposeMock: vi.fn().mockResolvedValue(undefined),
+    FakeOperationalContextError,
+  };
 });
 
+vi.mock("@/modules/platform/runtime/require-operational-context", () => ({
+  requireOperationalContext: requireOperationalContextMock,
+  OperationalContextError: FakeOperationalContextError,
+}));
+
 import { toggleClassTypeStatusAction } from "./actions";
+
+function fakeHandle(overrides: Partial<{ role: string; tenantId: string }> = {}) {
+  return {
+    context: {
+      effectiveUser: { id: "u1", role: overrides.role ?? "super_admin", location_id: "loc-1" },
+      tenantId: overrides.tenantId ?? "tenant-1",
+      locationId: "loc-1",
+      client: { classType: { findFirst: classTypeFindFirstSpy, update: classTypeUpdateSpy } },
+    },
+    dispose: disposeMock,
+  };
+}
 
 beforeEach(() => {
   classTypeUpdateSpy.mockReset();
   classTypeFindFirstSpy.mockClear();
-  isRuntimeReadOnlyActiveMock.mockReset();
-  isRuntimeReadOnlyActiveMock.mockResolvedValue(false);
+  requireOperationalContextMock.mockReset();
+  disposeMock.mockClear();
 });
 
 function fd(entries: Record<string, string>): FormData {
@@ -70,8 +80,10 @@ function fd(entries: Record<string, string>): FormData {
 }
 
 describe('toggleClassTypeStatusAction — sesión runtime "Operar como cliente" activa bloquea el write', () => {
-  it("isRuntimeReadOnlyActive() true -> bloquea ANTES de tocar prisma.classType.findFirst/update", async () => {
-    isRuntimeReadOnlyActiveMock.mockResolvedValue(true);
+  it("requireOperationalContext rechaza (READ_ONLY) -> bloquea ANTES de tocar classType.findFirst/update", async () => {
+    requireOperationalContextMock.mockRejectedValue(
+      new FakeOperationalContextError("READ_ONLY", "Modo \"Operar como cliente\" activo (solo lectura).", 403),
+    );
 
     await toggleClassTypeStatusAction(fd({ id: "type-1" }));
 
@@ -79,11 +91,25 @@ describe('toggleClassTypeStatusAction — sesión runtime "Operar como cliente" 
     expect(classTypeUpdateSpy).not.toHaveBeenCalled();
   });
 
-  it("modo normal (sin sesión runtime) -> el write procede normalmente", async () => {
-    isRuntimeReadOnlyActiveMock.mockResolvedValue(false);
+  it("requireOperationalContext rechaza (MODULE_DISABLED, gym.classes no habilitado) -> bloquea el write", async () => {
+    requireOperationalContextMock.mockRejectedValue(
+      new FakeOperationalContextError("MODULE_DISABLED", "Módulo no habilitado.", 402),
+    );
 
     await toggleClassTypeStatusAction(fd({ id: "type-1" }));
 
+    expect(classTypeUpdateSpy).not.toHaveBeenCalled();
+  });
+
+  it("modo normal (sin sesión runtime) -> el write procede normalmente, filtrado por tenant efectivo", async () => {
+    requireOperationalContextMock.mockResolvedValue(fakeHandle());
+
+    await toggleClassTypeStatusAction(fd({ id: "type-1" }));
+
+    expect(classTypeFindFirstSpy).toHaveBeenCalledWith({
+      where: { id: "type-1", tenant_id: "tenant-1" },
+    });
     expect(classTypeUpdateSpy).toHaveBeenCalledTimes(1);
+    expect(disposeMock).toHaveBeenCalledTimes(1);
   });
 });

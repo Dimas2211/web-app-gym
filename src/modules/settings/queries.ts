@@ -45,9 +45,9 @@ export async function getGymSettings(tenantId: string, client: PrismaClient = pr
 // Sports
 // ──────────────────────────────────────────────
 
-/** Lista todos los deportes (catálogo global) */
-export async function getSports() {
-  return prisma.sport.findMany({
+/** Lista todos los deportes (catálogo global). `client` opcional: runtime-aware. */
+export async function getSports(client: PrismaClient = prisma) {
+  return client.sport.findMany({
     where: { status: { not: "deleted" } },
     include: {
       _count: { select: { clients: true, weekly_plan_templates: true } },
@@ -56,18 +56,18 @@ export async function getSports() {
   });
 }
 
-/** Obtiene un deporte por id */
-export async function getSportById(id: string) {
-  return prisma.sport.findUnique({ where: { id } });
+/** Obtiene un deporte por id. `client` opcional: runtime-aware. */
+export async function getSportById(id: string, client: PrismaClient = prisma) {
+  return client.sport.findUnique({ where: { id } });
 }
 
 // ──────────────────────────────────────────────
 // Goals
 // ──────────────────────────────────────────────
 
-/** Lista todas las metas de entrenamiento (catálogo global) */
-export async function getGoals() {
-  return prisma.goal.findMany({
+/** Lista todas las metas de entrenamiento (catálogo global). `client` opcional: runtime-aware. */
+export async function getGoals(client: PrismaClient = prisma) {
+  return client.goal.findMany({
     where: { status: { not: "deleted" } },
     include: {
       _count: { select: { clients: true, weekly_plan_templates: true } },
@@ -76,7 +76,7 @@ export async function getGoals() {
   });
 }
 
-/** Obtiene una meta por id */
-export async function getGoalById(id: string) {
-  return prisma.goal.findUnique({ where: { id } });
+/** Obtiene una meta por id. `client` opcional: runtime-aware. */
+export async function getGoalById(id: string, client: PrismaClient = prisma) {
+  return client.goal.findUnique({ where: { id } });
 }

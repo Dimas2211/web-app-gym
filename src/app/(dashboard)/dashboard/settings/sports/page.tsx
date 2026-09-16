@@ -18,7 +18,7 @@ export default async function SportsPage() {
   try {
     await requireEffectiveVertical(context.tenantId, "GYM");
 
-    const sports = await getSports();
+    const sports = await getSports(context.client);
     const canManage = !context.runtime;
 
     return (

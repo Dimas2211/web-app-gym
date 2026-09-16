@@ -56,11 +56,11 @@ export async function suggestNextStaffCode(tenantId: string, db: PrismaClient = 
 /**
  * Sugiere el siguiente código de cliente disponible para el gym.
  */
-export async function suggestNextClientCode(tenantId: string): Promise<string> {
-  const { client } = await getSettings(tenantId);
+export async function suggestNextClientCode(tenantId: string, db: PrismaClient = prisma): Promise<string> {
+  const { client } = await getSettings(tenantId, db);
   const { prefix, digits, start } = client;
 
-  const clients = await prisma.client.findMany({
+  const clients = await db.client.findMany({
     where: { gym_id: tenantId, operational_code: { startsWith: prefix } },
     select: { operational_code: true },
   });
@@ -87,9 +87,10 @@ export function generateQrToken(): string {
 export async function isStaffCodeAvailable(
   tenantId: string,
   code: string,
-  excludeUserId?: string
+  excludeUserId?: string,
+  db: PrismaClient = prisma
 ): Promise<boolean> {
-  const existing = await prisma.user.findFirst({
+  const existing = await db.user.findFirst({
     where: {
       gym_id: tenantId,
       operational_code: code,
@@ -106,9 +107,10 @@ export async function isStaffCodeAvailable(
 export async function isClientCodeAvailable(
   tenantId: string,
   code: string,
-  excludeClientId?: string
+  excludeClientId?: string,
+  db: PrismaClient = prisma
 ): Promise<boolean> {
-  const existing = await prisma.client.findFirst({
+  const existing = await db.client.findFirst({
     where: {
       gym_id: tenantId,
       operational_code: code,

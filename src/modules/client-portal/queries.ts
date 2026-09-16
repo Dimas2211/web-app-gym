@@ -1,13 +1,19 @@
 import { prisma } from "@/lib/db/prisma";
-import type { Gender } from "@prisma/client";
+import type { Gender, PrismaClient } from "@prisma/client";
+
+// FASE VI-D7: `client` opcional, default Prisma global solo para
+// compatibilidad de callers no migrados. El Client Portal (`/portal/*`)
+// es la superficie más expuesta al aislamiento runtime — un miembro real
+// de un tenant hosteado nunca debe leer su perfil/membresía/clases/plan
+// desde el Prisma global de la plataforma.
 
 // ============================================================
 // PERFIL DEL CLIENTE
 // ============================================================
 
 /** Retorna el registro Client vinculado a un usuario, o null si no tiene perfil. */
-export async function getClientByUserId(userId: string) {
-  return prisma.client.findUnique({
+export async function getClientByUserId(userId: string, client: PrismaClient = prisma) {
+  return client.client.findUnique({
     where: { user_id: userId },
     include: {
       branch: { select: { id: true, name: true } },
@@ -25,10 +31,10 @@ export async function getClientByUserId(userId: string) {
 // ============================================================
 
 /** Retorna la membresía activa y vigente del cliente (la más reciente si hay varias). */
-export async function getMyActiveMembership(clientId: string) {
+export async function getMyActiveMembership(clientId: string, client: PrismaClient = prisma) {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
-  return prisma.clientMembership.findFirst({
+  return client.clientMembership.findFirst({
     where: {
       client_id: clientId,
       status: "active",
@@ -49,10 +55,10 @@ export async function getMyActiveMembership(clientId: string) {
  * Retorna la membresía más reciente que ya venció (end_date en el pasado) y fue pagada.
  * Se usa para mostrar el aviso de membresía caducada y calcular días hábiles desde el vencimiento.
  */
-export async function getLastExpiredMembership(clientId: string) {
+export async function getLastExpiredMembership(clientId: string, client: PrismaClient = prisma) {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
-  return prisma.clientMembership.findFirst({
+  return client.clientMembership.findFirst({
     where: {
       client_id: clientId,
       end_date: { lt: today },
@@ -65,8 +71,8 @@ export async function getLastExpiredMembership(clientId: string) {
 }
 
 /** Historial completo de membresías del cliente. */
-export async function getMyMemberships(clientId: string) {
-  return prisma.clientMembership.findMany({
+export async function getMyMemberships(clientId: string, client: PrismaClient = prisma) {
+  return client.clientMembership.findMany({
     where: { client_id: clientId },
     include: {
       membership_plan: {
@@ -82,10 +88,10 @@ export async function getMyMemberships(clientId: string) {
 // ============================================================
 
 /** Clases próximas programadas en la sucursal del cliente (hoy en adelante). */
-export async function getAvailableClasses(branchId: string) {
+export async function getAvailableClasses(branchId: string, client: PrismaClient = prisma) {
   const today = new Date();
   today.setUTCHours(0, 0, 0, 0);
-  return prisma.scheduledClass.findMany({
+  return client.scheduledClass.findMany({
     where: {
       branch_id: branchId,
       status: "scheduled",
@@ -105,8 +111,8 @@ export async function getAvailableClasses(branchId: string) {
 }
 
 /** Reserva activa del cliente para una clase específica. */
-export async function getMyBookingForClass(clientId: string, classId: string) {
-  return prisma.classBooking.findUnique({
+export async function getMyBookingForClass(clientId: string, classId: string, client: PrismaClient = prisma) {
+  return client.classBooking.findUnique({
     where: {
       scheduled_class_id_client_id: {
         scheduled_class_id: classId,
@@ -117,8 +123,8 @@ export async function getMyBookingForClass(clientId: string, classId: string) {
 }
 
 /** Todas las reservas del cliente con detalle de clase. */
-export async function getMyBookings(clientId: string) {
-  return prisma.classBooking.findMany({
+export async function getMyBookings(clientId: string, client: PrismaClient = prisma) {
+  return client.classBooking.findMany({
     where: { client_id: clientId },
     include: {
       scheduled_class: {
@@ -138,10 +144,10 @@ export async function getMyBookings(clientId: string) {
 // ============================================================
 
 /** Plan semanal activo y vigente del cliente. */
-export async function getMyActivePlan(clientId: string) {
+export async function getMyActivePlan(clientId: string, client: PrismaClient = prisma) {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
-  return prisma.clientWeeklyPlan.findFirst({
+  return client.clientWeeklyPlan.findFirst({
     where: {
       client_id: clientId,
       status: "active",
@@ -158,8 +164,8 @@ export async function getMyActivePlan(clientId: string) {
 }
 
 /** Historial de planes semanales del cliente. */
-export async function getMyPlans(clientId: string) {
-  return prisma.clientWeeklyPlan.findMany({
+export async function getMyPlans(clientId: string, client: PrismaClient = prisma) {
+  return client.clientWeeklyPlan.findMany({
     where: { client_id: clientId },
     include: {
       template: { select: { name: true } },
@@ -179,10 +185,10 @@ export async function getMyPlans(clientId: string) {
 // ============================================================
 
 /** Devuelve true si el cliente tiene membresía activa y vigente hoy. */
-export async function hasActiveMembership(clientId: string): Promise<boolean> {
+export async function hasActiveMembership(clientId: string, client: PrismaClient = prisma): Promise<boolean> {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
-  const found = await prisma.clientMembership.findFirst({
+  const found = await client.clientMembership.findFirst({
     where: {
       client_id: clientId,
       status: "active",
@@ -212,31 +218,34 @@ export async function hasActiveMembership(clientId: string): Promise<boolean> {
  * Plantillas con todos los criterios en null se muestran a cualquier cliente
  * del mismo gimnasio/sucursal (programación verdaderamente general).
  */
-export async function getMyGeneralTemplates(client: {
-  gym_id: string;
-  branch_id: string;
-  sport_id: string | null;
-  goal_id: string | null;
-  gender: Gender | null;
-}) {
-  return prisma.weeklyPlanTemplate.findMany({
+export async function getMyGeneralTemplates(
+  profile: {
+    gym_id: string;
+    branch_id: string;
+    sport_id: string | null;
+    goal_id: string | null;
+    gender: Gender | null;
+  },
+  client: PrismaClient = prisma,
+) {
+  return client.weeklyPlanTemplate.findMany({
     where: {
-      gym_id: client.gym_id,
+      gym_id: profile.gym_id,
       status: "active",
       AND: [
         // scope de sucursal: global (null) o la sucursal del cliente
-        { OR: [{ branch_id: null }, { branch_id: client.branch_id }] },
+        { OR: [{ branch_id: null }, { branch_id: profile.branch_id }] },
         // deporte: si el cliente tiene uno, acepta null o coincidencia exacta
-        client.sport_id
-          ? { OR: [{ target_sport_id: null }, { target_sport_id: client.sport_id }] }
+        profile.sport_id
+          ? { OR: [{ target_sport_id: null }, { target_sport_id: profile.sport_id }] }
           : { target_sport_id: null },
         // meta: ídem
-        client.goal_id
-          ? { OR: [{ target_goal_id: null }, { target_goal_id: client.goal_id }] }
+        profile.goal_id
+          ? { OR: [{ target_goal_id: null }, { target_goal_id: profile.goal_id }] }
           : { target_goal_id: null },
         // género: ídem
-        client.gender
-          ? { OR: [{ target_gender: null }, { target_gender: client.gender }] }
+        profile.gender
+          ? { OR: [{ target_gender: null }, { target_gender: profile.gender }] }
           : { target_gender: null },
       ],
     },
@@ -250,8 +259,8 @@ export async function getMyGeneralTemplates(client: {
 }
 
 /** Historial de asistencia registrada del cliente (últimas 60 entradas). */
-export async function getMyAttendance(clientId: string) {
-  return prisma.classAttendance.findMany({
+export async function getMyAttendance(clientId: string, client: PrismaClient = prisma) {
+  return client.classAttendance.findMany({
     where: { client_id: clientId },
     include: {
       scheduled_class: {

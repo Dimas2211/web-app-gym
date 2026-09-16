@@ -5,6 +5,7 @@ import {
   getMyBookings,
 } from "@/modules/client-portal/queries";
 import { BookClassButton } from "./book-class-button";
+import { resolveEffectiveTenantContext } from "@/modules/platform/runtime/effective-tenant-context";
 
 function formatDate(date: Date | string) {
   const d = typeof date === "string" ? new Date(date + "T12:00:00") : new Date(date);
@@ -17,23 +18,26 @@ function formatDate(date: Date | string) {
 
 export default async function ClasesPage() {
   const sessionUser = await requireClient();
-  const client = await getClientByUserId(sessionUser.id);
+  const { context, dispose } = await resolveEffectiveTenantContext(sessionUser);
 
-  if (!client) {
-    return (
-      <div className="space-y-4">
-        <h1 className="text-xl font-bold text-zinc-800">Clases disponibles</h1>
-        <div className="bg-amber-50 border border-amber-200 rounded-xl p-6 text-center">
-          <p className="text-amber-800 font-medium">Perfil de cliente no configurado.</p>
+  try {
+    const client = await getClientByUserId(sessionUser.id, context.client);
+
+    if (!client) {
+      return (
+        <div className="space-y-4">
+          <h1 className="text-xl font-bold text-zinc-800">Clases disponibles</h1>
+          <div className="bg-amber-50 border border-amber-200 rounded-xl p-6 text-center">
+            <p className="text-amber-800 font-medium">Perfil de cliente no configurado.</p>
+          </div>
         </div>
-      </div>
-    );
-  }
+      );
+    }
 
-  const [classes, myBookings] = await Promise.all([
-    getAvailableClasses(client.branch_id),
-    getMyBookings(client.id),
-  ]);
+    const [classes, myBookings] = await Promise.all([
+      getAvailableClasses(client.branch_id, context.client),
+      getMyBookings(client.id, context.client),
+    ]);
 
   // Mapa de classId → estado de reserva del cliente
   const bookingMap = new Map<string, string>();
@@ -167,5 +171,8 @@ export default async function ClasesPage() {
         )}
       </div>
     </div>
-  );
+    );
+  } finally {
+    await dispose();
+  }
 }

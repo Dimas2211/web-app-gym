@@ -1,9 +1,10 @@
 // ─────────────────────────────────────────────────────────────────
 // trainers — actions.test.ts
 //
-// Bloque B (pasada de cobertura completa) — módulo GYM: gym.trainers
-// deshabilitado debe bloquear toggleTrainerStatusAction ANTES del
-// write real de prisma.trainer.update.
+// FASE VI-D7: migrado a requireOperationalContext({ module: "gym.trainers",
+// write: true }) — certifica MODULE_DISABLED (gym.trainers) y READ_ONLY
+// (Support Session) ANTES de tocar trainer.update, y que el acceso a
+// datos pasa por context.client (runtime-aware) filtrado por tenant efectivo.
 // ─────────────────────────────────────────────────────────────────
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
@@ -17,42 +18,57 @@ vi.mock("@/lib/permissions/guards", () => ({
   canManageTrainer: vi.fn(() => true),
 }));
 
-const { trainerUpdateSpy, trainerFindUniqueSpy, resolveCommercialEnforcementContextMock } = vi.hoisted(() => ({
-  trainerUpdateSpy: vi.fn(),
-  trainerFindUniqueSpy: vi.fn(async () => ({ id: "trainer-1", status: "active", branch_id: "loc-1", gym_id: "tenant-1" })),
-  resolveCommercialEnforcementContextMock: vi.fn(),
-}));
-
-vi.mock("@/lib/db/prisma", () => ({
-  prisma: {
-    trainer: { findUnique: trainerFindUniqueSpy, update: trainerUpdateSpy },
-  },
-}));
-
-vi.mock("@/modules/platform/runtime/commercial-enforcement", async () => {
-  const actual = await vi.importActual<typeof import("@/modules/platform/runtime/commercial-enforcement")>(
-    "@/modules/platform/runtime/commercial-enforcement",
-  );
-  return { ...actual, resolveCommercialEnforcementContext: resolveCommercialEnforcementContextMock };
+const {
+  trainerUpdateSpy,
+  trainerFindFirstSpy,
+  requireOperationalContextMock,
+  disposeMock,
+  FakeOperationalContextError,
+} = vi.hoisted(() => {
+  class FakeOperationalContextError extends Error {
+    code: string;
+    httpStatus: number;
+    userMessage: string;
+    constructor(code: string, userMessage: string, httpStatus: number) {
+      super(userMessage);
+      this.code = code;
+      this.httpStatus = httpStatus;
+      this.userMessage = userMessage;
+    }
+  }
+  return {
+    trainerUpdateSpy: vi.fn(),
+    trainerFindFirstSpy: vi.fn(async () => ({ id: "trainer-1", status: "active", branch_id: "loc-1", gym_id: "tenant-1" })),
+    requireOperationalContextMock: vi.fn(),
+    disposeMock: vi.fn().mockResolvedValue(undefined),
+    FakeOperationalContextError,
+  };
 });
 
-const { isRuntimeReadOnlyActiveMock } = vi.hoisted(() => ({
-  isRuntimeReadOnlyActiveMock: vi.fn(async () => false),
-}));
-
-vi.mock("@/modules/platform/runtime/runtime-session", () => ({
-  isRuntimeReadOnlyActive: isRuntimeReadOnlyActiveMock,
-  RUNTIME_READONLY_MESSAGE: "Modo \"Operar como cliente\" activo (solo lectura).",
+vi.mock("@/modules/platform/runtime/require-operational-context", () => ({
+  requireOperationalContext: requireOperationalContextMock,
+  OperationalContextError: FakeOperationalContextError,
 }));
 
 import { toggleTrainerStatusAction } from "./actions";
 
+function fakeHandle(overrides: Partial<{ role: string; tenantId: string }> = {}) {
+  return {
+    context: {
+      effectiveUser: { id: "u1", role: overrides.role ?? "super_admin", location_id: "loc-1" },
+      tenantId: overrides.tenantId ?? "tenant-1",
+      locationId: "loc-1",
+      client: { trainer: { findFirst: trainerFindFirstSpy, update: trainerUpdateSpy } },
+    },
+    dispose: disposeMock,
+  };
+}
+
 beforeEach(() => {
   trainerUpdateSpy.mockReset();
-  trainerFindUniqueSpy.mockClear();
-  resolveCommercialEnforcementContextMock.mockReset();
-  isRuntimeReadOnlyActiveMock.mockReset();
-  isRuntimeReadOnlyActiveMock.mockResolvedValue(false);
+  trainerFindFirstSpy.mockClear();
+  requireOperationalContextMock.mockReset();
+  disposeMock.mockClear();
 });
 
 function fd(entries: Record<string, string>): FormData {
@@ -62,30 +78,39 @@ function fd(entries: Record<string, string>): FormData {
 }
 
 describe("toggleTrainerStatusAction — módulo GYM (gym.trainers) deshabilitado bloquea el write", () => {
-  it("gym.trainers deshabilitado -> bloquea, prisma.trainer.update NUNCA se invoca", async () => {
-    resolveCommercialEnforcementContextMock.mockResolvedValue({
-      mode: "MANAGED",
-      tenantId: "tenant-1",
-      organizationId: "org-1",
-      planId: "plan-1",
-      verticalId: null,
-      effectiveModules: new Map(),
-      effectiveEntitlements: new Map(),
-    });
+  it("gym.trainers deshabilitado (MODULE_DISABLED) -> bloquea, trainer.update NUNCA se invoca", async () => {
+    requireOperationalContextMock.mockRejectedValue(
+      new FakeOperationalContextError("MODULE_DISABLED", "Módulo no habilitado.", 402),
+    );
 
     await toggleTrainerStatusAction(fd({ id: "trainer-1" }));
 
+    expect(trainerFindFirstSpy).not.toHaveBeenCalled();
     expect(trainerUpdateSpy).not.toHaveBeenCalled();
   });
 });
 
 describe('toggleTrainerStatusAction — sesión runtime "Operar como cliente" activa bloquea el write', () => {
-  it("isRuntimeReadOnlyActive() true -> bloquea ANTES de tocar prisma.trainer.findUnique/update", async () => {
-    isRuntimeReadOnlyActiveMock.mockResolvedValue(true);
+  it("requireOperationalContext rechaza (READ_ONLY) -> bloquea ANTES de tocar trainer.findFirst/update", async () => {
+    requireOperationalContextMock.mockRejectedValue(
+      new FakeOperationalContextError("READ_ONLY", "Modo \"Operar como cliente\" activo (solo lectura).", 403),
+    );
 
     await toggleTrainerStatusAction(fd({ id: "trainer-1" }));
 
-    expect(trainerFindUniqueSpy).not.toHaveBeenCalled();
+    expect(trainerFindFirstSpy).not.toHaveBeenCalled();
     expect(trainerUpdateSpy).not.toHaveBeenCalled();
+  });
+
+  it("modo normal -> el write procede, filtrado por tenant efectivo", async () => {
+    requireOperationalContextMock.mockResolvedValue(fakeHandle());
+
+    await toggleTrainerStatusAction(fd({ id: "trainer-1" }));
+
+    expect(trainerFindFirstSpy).toHaveBeenCalledWith({
+      where: { id: "trainer-1", tenant_id: "tenant-1" },
+    });
+    expect(trainerUpdateSpy).toHaveBeenCalledTimes(1);
+    expect(disposeMock).toHaveBeenCalledTimes(1);
   });
 });

@@ -2,10 +2,8 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { prisma } from "@/lib/db/prisma";
 import { requireSuperAdmin, requireAdmin } from "@/lib/permissions/guards";
 import { gymSchema, sportSchema, goalSchema, gymSettingsSchema } from "./schemas";
-import { isRuntimeReadOnlyActive, RUNTIME_READONLY_MESSAGE } from "@/modules/platform/runtime/runtime-session";
 import {
   requireOperationalContext,
   OperationalContextError,
@@ -25,36 +23,50 @@ export async function updateGymAction(
 ): Promise<SettingsActionState> {
   const user = await requireSuperAdmin();
 
-  // PASO 6E: bloquear escritura bajo sesión runtime "Operar como cliente"
-  if (await isRuntimeReadOnlyActive()) {
-    return { error: RUNTIME_READONLY_MESSAGE };
+  // FASE VI-D7: contexto operacional runtime — reemplaza
+  // isRuntimeReadOnlyActive() + Prisma global. requireSuperAdmin() ya
+  // exige auth_scope="PLATFORM" (Platform Admin), por lo que esta acción
+  // es PLATFORM_NATIVE_ONLY — RUNTIME_CLIENT nunca la alcanza — pero se
+  // enruta igual por context.client para no dejar un global.prisma
+  // reachable en el archivo y por consistencia con el resto del módulo.
+  let handle;
+  try {
+    handle = await requireOperationalContext(user, { write: true });
+  } catch (err) {
+    if (err instanceof OperationalContextError) return { error: err.userMessage };
+    throw err;
   }
+  const { context, dispose } = handle;
 
-  const parsed = gymSchema.safeParse({
-    name: formData.get("name"),
-    slug: formData.get("slug"),
-    address: formData.get("address") || undefined,
-    phone: formData.get("phone") || undefined,
-    email: formData.get("email") || undefined,
-    website: formData.get("website") || undefined,
-  });
+  try {
+    const parsed = gymSchema.safeParse({
+      name: formData.get("name"),
+      slug: formData.get("slug"),
+      address: formData.get("address") || undefined,
+      phone: formData.get("phone") || undefined,
+      email: formData.get("email") || undefined,
+      website: formData.get("website") || undefined,
+    });
 
-  if (!parsed.success) {
-    return { errors: parsed.error.flatten().fieldErrors };
+    if (!parsed.success) {
+      return { errors: parsed.error.flatten().fieldErrors };
+    }
+
+    // Verificar slug único (excluyendo el gym actual)
+    const slugConflict = await context.client.gym.findFirst({
+      where: { slug: parsed.data.slug, NOT: { id: context.tenantId } },
+    });
+    if (slugConflict) {
+      return { errors: { slug: ["Este slug ya está en uso por otro gimnasio."] } };
+    }
+
+    await context.client.gym.update({
+      where: { id: context.tenantId },
+      data: parsed.data,
+    });
+  } finally {
+    await dispose();
   }
-
-  // Verificar slug único (excluyendo el gym actual)
-  const slugConflict = await prisma.gym.findFirst({
-    where: { slug: parsed.data.slug, NOT: { id: user.tenant_id } },
-  });
-  if (slugConflict) {
-    return { errors: { slug: ["Este slug ya está en uso por otro gimnasio."] } };
-  }
-
-  await prisma.gym.update({
-    where: { id: user.tenant_id },
-    data: parsed.data,
-  });
 
   revalidatePath("/dashboard/settings/gym");
   revalidatePath("/dashboard/settings");
@@ -69,34 +81,43 @@ export async function createSportAction(
   _prev: SettingsActionState,
   formData: FormData
 ): Promise<SettingsActionState> {
-  await requireSuperAdmin();
+  const user = await requireSuperAdmin();
 
   // PASO 6F: Sport es catálogo global (sin tenant_id), pero esta superficie
   // es funcionalidad GYM — bajo sesión runtime "Operar como cliente" (siempre
   // solo lectura) se bloquea igual que cualquier write operativo.
-  if (await isRuntimeReadOnlyActive()) {
-    return { error: RUNTIME_READONLY_MESSAGE };
+  let handle;
+  try {
+    handle = await requireOperationalContext(user, { write: true });
+  } catch (err) {
+    if (err instanceof OperationalContextError) return { error: err.userMessage };
+    throw err;
   }
+  const { context, dispose } = handle;
 
-  const parsed = sportSchema.safeParse({
-    name: formData.get("name"),
-    description: formData.get("description") || undefined,
-  });
+  try {
+    const parsed = sportSchema.safeParse({
+      name: formData.get("name"),
+      description: formData.get("description") || undefined,
+    });
 
-  if (!parsed.success) {
-    return { errors: parsed.error.flatten().fieldErrors };
+    if (!parsed.success) {
+      return { errors: parsed.error.flatten().fieldErrors };
+    }
+
+    const existing = await context.client.sport.findFirst({
+      where: { name: { equals: parsed.data.name, mode: "insensitive" } },
+    });
+    if (existing) {
+      return { errors: { name: ["Ya existe un deporte con ese nombre."] } };
+    }
+
+    await context.client.sport.create({
+      data: { ...parsed.data, status: "active" },
+    });
+  } finally {
+    await dispose();
   }
-
-  const existing = await prisma.sport.findFirst({
-    where: { name: { equals: parsed.data.name, mode: "insensitive" } },
-  });
-  if (existing) {
-    return { errors: { name: ["Ya existe un deporte con ese nombre."] } };
-  }
-
-  await prisma.sport.create({
-    data: { ...parsed.data, status: "active" },
-  });
 
   revalidatePath("/dashboard/settings/sports");
   redirect("/dashboard/settings/sports");
@@ -106,62 +127,79 @@ export async function updateSportAction(
   _prev: SettingsActionState,
   formData: FormData
 ): Promise<SettingsActionState> {
-  await requireSuperAdmin();
+  const user = await requireSuperAdmin();
 
-  // PASO 6F: bloquear escritura bajo sesión runtime "Operar como cliente"
-  if (await isRuntimeReadOnlyActive()) {
-    return { error: RUNTIME_READONLY_MESSAGE };
+  let handle;
+  try {
+    handle = await requireOperationalContext(user, { write: true });
+  } catch (err) {
+    if (err instanceof OperationalContextError) return { error: err.userMessage };
+    throw err;
   }
+  const { context, dispose } = handle;
 
-  const id = formData.get("id") as string;
-  if (!id) return { error: "ID de deporte requerido." };
+  try {
+    const id = formData.get("id") as string;
+    if (!id) return { error: "ID de deporte requerido." };
 
-  const parsed = sportSchema.safeParse({
-    name: formData.get("name"),
-    description: formData.get("description") || undefined,
-  });
+    const parsed = sportSchema.safeParse({
+      name: formData.get("name"),
+      description: formData.get("description") || undefined,
+    });
 
-  if (!parsed.success) {
-    return { errors: parsed.error.flatten().fieldErrors };
+    if (!parsed.success) {
+      return { errors: parsed.error.flatten().fieldErrors };
+    }
+
+    const existing = await context.client.sport.findFirst({
+      where: {
+        name: { equals: parsed.data.name, mode: "insensitive" },
+        NOT: { id },
+      },
+    });
+    if (existing) {
+      return { errors: { name: ["Ya existe un deporte con ese nombre."] } };
+    }
+
+    await context.client.sport.update({
+      where: { id },
+      data: parsed.data,
+    });
+  } finally {
+    await dispose();
   }
-
-  const existing = await prisma.sport.findFirst({
-    where: {
-      name: { equals: parsed.data.name, mode: "insensitive" },
-      NOT: { id },
-    },
-  });
-  if (existing) {
-    return { errors: { name: ["Ya existe un deporte con ese nombre."] } };
-  }
-
-  await prisma.sport.update({
-    where: { id },
-    data: parsed.data,
-  });
 
   revalidatePath("/dashboard/settings/sports");
   redirect("/dashboard/settings/sports");
 }
 
 export async function toggleSportStatusAction(formData: FormData): Promise<void> {
-  await requireSuperAdmin();
+  const user = await requireSuperAdmin();
 
-  // PASO 6F: bloquear escritura bajo sesión runtime "Operar como cliente"
-  if (await isRuntimeReadOnlyActive()) return;
+  let handle;
+  try {
+    handle = await requireOperationalContext(user, { write: true });
+  } catch {
+    return;
+  }
+  const { context, dispose } = handle;
 
-  const id = formData.get("id") as string;
-  if (!id) return;
+  try {
+    const id = formData.get("id") as string;
+    if (!id) return;
 
-  const sport = await prisma.sport.findUnique({ where: { id } });
-  if (!sport) return;
+    const sport = await context.client.sport.findUnique({ where: { id } });
+    if (!sport) return;
 
-  await prisma.sport.update({
-    where: { id },
-    data: { status: sport.status === "active" ? "inactive" : "active" },
-  });
+    await context.client.sport.update({
+      where: { id },
+      data: { status: sport.status === "active" ? "inactive" : "active" },
+    });
 
-  revalidatePath("/dashboard/settings/sports");
+    revalidatePath("/dashboard/settings/sports");
+  } finally {
+    await dispose();
+  }
 }
 
 // ══════════════════════════════════════════════
@@ -172,34 +210,43 @@ export async function createGoalAction(
   _prev: SettingsActionState,
   formData: FormData
 ): Promise<SettingsActionState> {
-  await requireSuperAdmin();
+  const user = await requireSuperAdmin();
 
   // PASO 6F: Goal es catálogo global (sin tenant_id), pero esta superficie
   // es funcionalidad GYM — bajo sesión runtime "Operar como cliente" se
   // bloquea igual que cualquier write operativo.
-  if (await isRuntimeReadOnlyActive()) {
-    return { error: RUNTIME_READONLY_MESSAGE };
+  let handle;
+  try {
+    handle = await requireOperationalContext(user, { write: true });
+  } catch (err) {
+    if (err instanceof OperationalContextError) return { error: err.userMessage };
+    throw err;
   }
+  const { context, dispose } = handle;
 
-  const parsed = goalSchema.safeParse({
-    name: formData.get("name"),
-    description: formData.get("description") || undefined,
-  });
+  try {
+    const parsed = goalSchema.safeParse({
+      name: formData.get("name"),
+      description: formData.get("description") || undefined,
+    });
 
-  if (!parsed.success) {
-    return { errors: parsed.error.flatten().fieldErrors };
+    if (!parsed.success) {
+      return { errors: parsed.error.flatten().fieldErrors };
+    }
+
+    const existing = await context.client.goal.findFirst({
+      where: { name: { equals: parsed.data.name, mode: "insensitive" } },
+    });
+    if (existing) {
+      return { errors: { name: ["Ya existe una meta con ese nombre."] } };
+    }
+
+    await context.client.goal.create({
+      data: { ...parsed.data, status: "active" },
+    });
+  } finally {
+    await dispose();
   }
-
-  const existing = await prisma.goal.findFirst({
-    where: { name: { equals: parsed.data.name, mode: "insensitive" } },
-  });
-  if (existing) {
-    return { errors: { name: ["Ya existe una meta con ese nombre."] } };
-  }
-
-  await prisma.goal.create({
-    data: { ...parsed.data, status: "active" },
-  });
 
   revalidatePath("/dashboard/settings/goals");
   redirect("/dashboard/settings/goals");
@@ -209,62 +256,79 @@ export async function updateGoalAction(
   _prev: SettingsActionState,
   formData: FormData
 ): Promise<SettingsActionState> {
-  await requireSuperAdmin();
+  const user = await requireSuperAdmin();
 
-  // PASO 6F: bloquear escritura bajo sesión runtime "Operar como cliente"
-  if (await isRuntimeReadOnlyActive()) {
-    return { error: RUNTIME_READONLY_MESSAGE };
+  let handle;
+  try {
+    handle = await requireOperationalContext(user, { write: true });
+  } catch (err) {
+    if (err instanceof OperationalContextError) return { error: err.userMessage };
+    throw err;
   }
+  const { context, dispose } = handle;
 
-  const id = formData.get("id") as string;
-  if (!id) return { error: "ID de meta requerido." };
+  try {
+    const id = formData.get("id") as string;
+    if (!id) return { error: "ID de meta requerido." };
 
-  const parsed = goalSchema.safeParse({
-    name: formData.get("name"),
-    description: formData.get("description") || undefined,
-  });
+    const parsed = goalSchema.safeParse({
+      name: formData.get("name"),
+      description: formData.get("description") || undefined,
+    });
 
-  if (!parsed.success) {
-    return { errors: parsed.error.flatten().fieldErrors };
+    if (!parsed.success) {
+      return { errors: parsed.error.flatten().fieldErrors };
+    }
+
+    const existing = await context.client.goal.findFirst({
+      where: {
+        name: { equals: parsed.data.name, mode: "insensitive" },
+        NOT: { id },
+      },
+    });
+    if (existing) {
+      return { errors: { name: ["Ya existe una meta con ese nombre."] } };
+    }
+
+    await context.client.goal.update({
+      where: { id },
+      data: parsed.data,
+    });
+  } finally {
+    await dispose();
   }
-
-  const existing = await prisma.goal.findFirst({
-    where: {
-      name: { equals: parsed.data.name, mode: "insensitive" },
-      NOT: { id },
-    },
-  });
-  if (existing) {
-    return { errors: { name: ["Ya existe una meta con ese nombre."] } };
-  }
-
-  await prisma.goal.update({
-    where: { id },
-    data: parsed.data,
-  });
 
   revalidatePath("/dashboard/settings/goals");
   redirect("/dashboard/settings/goals");
 }
 
 export async function toggleGoalStatusAction(formData: FormData): Promise<void> {
-  await requireSuperAdmin();
+  const user = await requireSuperAdmin();
 
-  // PASO 6F: bloquear escritura bajo sesión runtime "Operar como cliente"
-  if (await isRuntimeReadOnlyActive()) return;
+  let handle;
+  try {
+    handle = await requireOperationalContext(user, { write: true });
+  } catch {
+    return;
+  }
+  const { context, dispose } = handle;
 
-  const id = formData.get("id") as string;
-  if (!id) return;
+  try {
+    const id = formData.get("id") as string;
+    if (!id) return;
 
-  const goal = await prisma.goal.findUnique({ where: { id } });
-  if (!goal) return;
+    const goal = await context.client.goal.findUnique({ where: { id } });
+    if (!goal) return;
 
-  await prisma.goal.update({
-    where: { id },
-    data: { status: goal.status === "active" ? "inactive" : "active" },
-  });
+    await context.client.goal.update({
+      where: { id },
+      data: { status: goal.status === "active" ? "inactive" : "active" },
+    });
 
-  revalidatePath("/dashboard/settings/goals");
+    revalidatePath("/dashboard/settings/goals");
+  } finally {
+    await dispose();
+  }
 }
 
 // ══════════════════════════════════════════════
@@ -277,29 +341,37 @@ export async function updateGymSettingsAction(
 ): Promise<SettingsActionState> {
   const user = await requireSuperAdmin();
 
-  // PASO 6E: bloquear escritura bajo sesión runtime "Operar como cliente"
-  if (await isRuntimeReadOnlyActive()) {
-    return { error: RUNTIME_READONLY_MESSAGE };
+  let handle;
+  try {
+    handle = await requireOperationalContext(user, { write: true });
+  } catch (err) {
+    if (err instanceof OperationalContextError) return { error: err.userMessage };
+    throw err;
   }
+  const { context, dispose } = handle;
 
-  const parsed = gymSettingsSchema.safeParse({
-    staff_code_prefix: formData.get("staff_code_prefix"),
-    staff_code_digits: formData.get("staff_code_digits"),
-    staff_code_start: formData.get("staff_code_start"),
-    client_code_prefix: formData.get("client_code_prefix"),
-    client_code_digits: formData.get("client_code_digits"),
-    client_code_start: formData.get("client_code_start"),
-  });
+  try {
+    const parsed = gymSettingsSchema.safeParse({
+      staff_code_prefix: formData.get("staff_code_prefix"),
+      staff_code_digits: formData.get("staff_code_digits"),
+      staff_code_start: formData.get("staff_code_start"),
+      client_code_prefix: formData.get("client_code_prefix"),
+      client_code_digits: formData.get("client_code_digits"),
+      client_code_start: formData.get("client_code_start"),
+    });
 
-  if (!parsed.success) {
-    return { errors: parsed.error.flatten().fieldErrors };
+    if (!parsed.success) {
+      return { errors: parsed.error.flatten().fieldErrors };
+    }
+
+    await context.client.gymSettings.upsert({
+      where: { gym_id: context.tenantId },
+      create: { gym_id: context.tenantId, ...parsed.data },
+      update: parsed.data,
+    });
+  } finally {
+    await dispose();
   }
-
-  await prisma.gymSettings.upsert({
-    where: { gym_id: user.tenant_id },
-    create: { gym_id: user.tenant_id, ...parsed.data },
-    update: parsed.data,
-  });
 
   revalidatePath("/dashboard/settings/codes");
   revalidatePath("/dashboard/settings");
@@ -373,32 +445,47 @@ export async function updateClientOperationalCodeAction(
 ): Promise<SettingsActionState> {
   const sessionUser = await requireSuperAdmin();
 
-  // PASO 6D: bloquear escritura bajo sesión runtime "Operar como cliente"
-  if (await isRuntimeReadOnlyActive()) {
-    return { error: RUNTIME_READONLY_MESSAGE };
+  // FASE VI-D7: FIX — esta acción resolvía requireOperationalContext()
+  // (arriba, en versiones previas via isRuntimeReadOnlyActive) pero seguía
+  // escribiendo el registro Client a través del Prisma GLOBAL en vez de
+  // context.client — un "half-migration" que parecía cerrado en revisión
+  // de código pero dejaba el write real fuera del enrutamiento runtime.
+  // Ahora usa context.client/context.tenantId de punta a punta, igual que
+  // updateUserOperationalCodeAction arriba.
+  let handle;
+  try {
+    handle = await requireOperationalContext(sessionUser, { write: true });
+  } catch (err) {
+    if (err instanceof OperationalContextError) return { error: err.userMessage };
+    throw err;
   }
+  const { context, dispose } = handle;
 
-  const id = formData.get("entity_id") as string;
-  if (!id) return { error: "ID requerido." };
+  try {
+    const id = formData.get("entity_id") as string;
+    if (!id) return { error: "ID requerido." };
 
-  const code = (formData.get("operational_code") as string)?.trim() || null;
+    const code = (formData.get("operational_code") as string)?.trim() || null;
 
-  if (code) {
-    const duplicate = await prisma.client.findFirst({
-      where: { tenant_id: sessionUser.tenant_id, operational_code: code, id: { not: id } },
-    });
-    if (duplicate) {
-      return { errors: { operational_code: ["Este código ya está en uso por otro cliente."] } };
+    if (code) {
+      const duplicate = await context.client.client.findFirst({
+        where: { tenant_id: context.tenantId, operational_code: code, id: { not: id } },
+      });
+      if (duplicate) {
+        return { errors: { operational_code: ["Este código ya está en uso por otro cliente."] } };
+      }
     }
+
+    await context.client.client.update({ where: { id }, data: { operational_code: code } });
+
+    revalidatePath("/dashboard/clients");
+    revalidatePath(`/dashboard/clients/${id}`);
+    revalidatePath(`/dashboard/clients/${id}/edit`);
+    revalidatePath(`/dashboard/clients/${id}/credential`);
+    return undefined;
+  } finally {
+    await dispose();
   }
-
-  await prisma.client.update({ where: { id }, data: { operational_code: code } });
-
-  revalidatePath("/dashboard/clients");
-  revalidatePath(`/dashboard/clients/${id}`);
-  revalidatePath(`/dashboard/clients/${id}/edit`);
-  revalidatePath(`/dashboard/clients/${id}/credential`);
-  return undefined;
 }
 
 // ══════════════════════════════════════════════
@@ -437,16 +524,27 @@ export async function updateUserAvatarAction(formData: FormData): Promise<void> 
 // ══════════════════════════════════════════════
 
 export async function updateClientAvatarAction(formData: FormData): Promise<void> {
-  await requireSuperAdmin();
+  const sessionUser = await requireSuperAdmin();
 
-  // PASO 6D: bloquear escritura bajo sesión runtime "Operar como cliente"
-  if (await isRuntimeReadOnlyActive()) return;
+  // FASE VI-D7: mismo fix que updateClientOperationalCodeAction — antes
+  // escribía Client vía Prisma global pese a estar en el archivo migrado.
+  let handle;
+  try {
+    handle = await requireOperationalContext(sessionUser, { write: true });
+  } catch {
+    return;
+  }
+  const { context, dispose } = handle;
 
-  const id = formData.get("entity_id") as string;
-  const url = formData.get("avatar_url") as string;
-  if (!id || !url) return;
+  try {
+    const id = formData.get("entity_id") as string;
+    const url = formData.get("avatar_url") as string;
+    if (!id || !url) return;
 
-  await prisma.client.update({ where: { id }, data: { avatar_url: url } });
-  revalidatePath(`/dashboard/clients/${id}`);
-  revalidatePath(`/dashboard/clients/${id}/credential`);
+    await context.client.client.update({ where: { id }, data: { avatar_url: url } });
+    revalidatePath(`/dashboard/clients/${id}`);
+    revalidatePath(`/dashboard/clients/${id}/credential`);
+  } finally {
+    await dispose();
+  }
 }

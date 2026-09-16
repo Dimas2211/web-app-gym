@@ -11,6 +11,7 @@ import { prisma } from "@/lib/db/prisma";
 import { CredentialCard } from "@/components/ui/credential-card";
 import { PrintButton } from "@/components/ui/print-button";
 import { ROLE_LABELS } from "@/lib/utils/roles";
+import { resolveEffectiveTenantContext } from "@/modules/platform/runtime/effective-tenant-context";
 
 export default async function MyCredentialPage() {
   const sessionUser = await getSessionOrRedirect();
@@ -18,8 +19,14 @@ export default async function MyCredentialPage() {
   // El rol client usa el portal, no el dashboard
   if (sessionUser.role === "client") redirect("/portal/credencial");
 
+  // FASE VI-D7: enrutar por el PrismaClient EFECTIVO — esta página nunca
+  // tenía wiring de contexto runtime y hacía prisma.user.findUnique
+  // directo contra el Prisma global, alcanzable por cualquier rol de staff.
+  const { context, dispose } = await resolveEffectiveTenantContext(sessionUser);
+
+  try {
   // Obtener los propios datos del usuario con su sucursal y gym
-  const user = await prisma.user.findUnique({
+  const user = await (context.client ?? prisma).user.findUnique({
     where: { id: sessionUser.id },
     include: {
       branch: { select: { name: true } },
@@ -125,5 +132,8 @@ export default async function MyCredentialPage() {
         </div>
       </div>
     </div>
-  );
+    );
+  } finally {
+    await dispose();
+  }
 }

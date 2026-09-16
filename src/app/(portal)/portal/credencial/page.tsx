@@ -9,11 +9,14 @@ import { getClientByUserId } from "@/modules/client-portal/queries";
 import { prisma } from "@/lib/db/prisma";
 import { CredentialCard } from "@/components/ui/credential-card";
 import { PrintButton } from "@/components/ui/print-button";
+import { resolveEffectiveTenantContext } from "@/modules/platform/runtime/effective-tenant-context";
 
 export default async function ClientCredentialPage() {
   const sessionUser = await requireClient();
+  const { context, dispose } = await resolveEffectiveTenantContext(sessionUser);
 
-  const client = await getClientByUserId(sessionUser.id);
+  try {
+  const client = await getClientByUserId(sessionUser.id, context.client);
 
   if (!client) {
     return (
@@ -31,7 +34,7 @@ export default async function ClientCredentialPage() {
     );
   }
 
-  const gym = await prisma.gym.findUnique({
+  const gym = await (context.client ?? prisma).gym.findUnique({
     where: { id: client.gym_id },
     select: { name: true },
   });
@@ -123,5 +126,8 @@ export default async function ClientCredentialPage() {
         </div>
       </div>
     </div>
-  );
+    );
+  } finally {
+    await dispose();
+  }
 }

@@ -9,6 +9,7 @@ import {
   getLastExpiredMembership,
 } from "@/modules/client-portal/queries";
 import { MembershipAlertBanner } from "@/components/ui/membership-alert-banner";
+import { resolveEffectiveTenantContext } from "@/modules/platform/runtime/effective-tenant-context";
 
 /**
  * Cuenta días hábiles (lun–vie) transcurridos desde `date` hasta hoy,
@@ -48,33 +49,40 @@ const WEEKDAY_NAMES = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"];
 
 export default async function PortalHomePage() {
   const sessionUser = await requireClient();
-  const client = await getClientByUserId(sessionUser.id);
 
-  if (!client) {
-    return (
-      <div className="space-y-6">
-        <h1 className="text-2xl font-bold text-zinc-800">
-          Bienvenido, {sessionUser.name?.split(" ")[0]}
-        </h1>
-        <div className="bg-amber-50 border border-amber-200 rounded-xl p-6 text-center">
-          <p className="text-amber-800 font-medium">Tu perfil de cliente aún no está configurado.</p>
-          <p className="text-amber-700 text-sm mt-1">
-            Acércate a recepción para que vinculen tu cuenta con tu expediente.
-          </p>
+  // FASE VI-D7: tenant/PrismaClient EFECTIVOS bajo sesión runtime — el
+  // Client Portal es la superficie más expuesta (usuarios finales reales
+  // de un tenant hosteado), nunca debe leer desde el prisma singleton.
+  const { context, dispose } = await resolveEffectiveTenantContext(sessionUser);
+
+  try {
+    const client = await getClientByUserId(sessionUser.id, context.client);
+
+    if (!client) {
+      return (
+        <div className="space-y-6">
+          <h1 className="text-2xl font-bold text-zinc-800">
+            Bienvenido, {sessionUser.name?.split(" ")[0]}
+          </h1>
+          <div className="bg-amber-50 border border-amber-200 rounded-xl p-6 text-center">
+            <p className="text-amber-800 font-medium">Tu perfil de cliente aún no está configurado.</p>
+            <p className="text-amber-700 text-sm mt-1">
+              Acércate a recepción para que vinculen tu cuenta con tu expediente.
+            </p>
+          </div>
         </div>
-      </div>
-    );
-  }
+      );
+    }
 
-  const [activeMembership, activePlan, allBookings, generalTemplates] = await Promise.all([
-    getMyActiveMembership(client.id),
-    getMyActivePlan(client.id),
-    getMyBookings(client.id),
-    getMyGeneralTemplates(client),
-  ]);
+    const [activeMembership, activePlan, allBookings, generalTemplates] = await Promise.all([
+      getMyActiveMembership(client.id, context.client),
+      getMyActivePlan(client.id, context.client),
+      getMyBookings(client.id, context.client),
+      getMyGeneralTemplates(client, context.client),
+    ]);
 
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
 
   // ── Aviso de vencimiento ──────────────────────────────────────
   type AlertBannerProps =
@@ -99,7 +107,7 @@ export default async function PortalHomePage() {
       };
     }
   } else {
-    const lastExpired = await getLastExpiredMembership(client.id);
+    const lastExpired = await getLastExpiredMembership(client.id, context.client);
     if (lastExpired) {
       membershipAlert = {
         type: "expired",
@@ -429,5 +437,8 @@ export default async function PortalHomePage() {
         <span className="text-zinc-400 group-hover:text-zinc-700 transition-colors text-lg">→</span>
       </Link>
     </div>
-  );
+    );
+  } finally {
+    await dispose();
+  }
 }

@@ -23,7 +23,7 @@ export default async function EditGoalPage({ params }: Props) {
       redirect("/dashboard/settings/goals");
     }
 
-    const goal = await getGoalById(id);
+    const goal = await getGoalById(id, context.client);
     if (!goal) notFound();
 
     return (

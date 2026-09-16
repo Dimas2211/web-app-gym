@@ -1,5 +1,6 @@
 import { requireClient } from "@/lib/permissions/guards";
 import { getClientByUserId, getMyBookings, getMyAttendance } from "@/modules/client-portal/queries";
+import { resolveEffectiveTenantContext } from "@/modules/platform/runtime/effective-tenant-context";
 
 function formatDate(date: Date | string) {
   return new Date(date).toLocaleDateString("es-MX", {
@@ -25,7 +26,10 @@ const ATTENDANCE_STATUS_LABELS: Record<string, string> = {
 
 export default async function HistorialPage() {
   const sessionUser = await requireClient();
-  const client = await getClientByUserId(sessionUser.id);
+  const { context, dispose } = await resolveEffectiveTenantContext(sessionUser);
+
+  try {
+  const client = await getClientByUserId(sessionUser.id, context.client);
 
   if (!client) {
     return (
@@ -39,8 +43,8 @@ export default async function HistorialPage() {
   }
 
   const [bookings, attendance] = await Promise.all([
-    getMyBookings(client.id),
-    getMyAttendance(client.id),
+    getMyBookings(client.id, context.client),
+    getMyAttendance(client.id, context.client),
   ]);
 
   const today = new Date();
@@ -152,5 +156,8 @@ export default async function HistorialPage() {
         )}
       </div>
     </div>
-  );
+    );
+  } finally {
+    await dispose();
+  }
 }
