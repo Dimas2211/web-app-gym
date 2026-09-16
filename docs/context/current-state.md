@@ -400,8 +400,10 @@ adicionales fuera de GYM que VI-D6 no había detectado.
   code propio (no se inventó `gym.clients`); memberships/trainers/classes/
   weekly-plans usan los códigos ya registrados
   (`gym.memberships`/`gym.trainers`/`gym.classes`/`gym.weekly_plans`).
-  Todo `$transaction` (borrado de trainer+disponibilidad, plantilla+días,
-  plan+días) migró de `prisma.$transaction` a `context.client.$transaction`.
+  Las 4 (no 3 — corregido en VI-D8) llamadas `$transaction` de la
+  vertical (borrado de trainer+disponibilidad, plantilla+días, plan+días,
+  y creación de `User`+`Client.update` en `enablePortalAction`) migraron
+  de `prisma.$transaction` a `context.client.$transaction`.
   `checkDeleteAuth(formData, sessionUser)` (7 call sites) se corrigió para
   pasar `{ role: context.effectiveUser.role, tenant_id: context.tenantId }`
   + `context.client` — antes evaluaba con el ROL/tenant del JWT y por
@@ -452,8 +454,11 @@ adicionales fuera de GYM que VI-D6 no había detectado.
   en sus queries (`get-unit-mh-context.ts`, `search-export-products.ts`,
   `search-foreign-customers.ts`) y su guard `requireExportSession()`
   (`export-sale.actions.ts`) nunca resuelve contexto runtime. FEX-11 es un
-  tipo de documento DTE (fiscal) — cae dentro de la exclusión explícita de
-  DTE de esta fase, igual que `dte-api-context.ts`. Queda diferido a VI-E
+  tipo de documento DTE (fiscal) — clasificación: **`DTE_PENDING_VI_E`**
+  (el dominio funcional es fiscal/DTE independientemente de que el código
+  viva bajo la carpeta `sales/export`; la ubicación de carpeta no
+  redefine el dominio) — cae dentro de la exclusión explícita de DTE de
+  esta fase, igual que `dte-api-context.ts`. Queda diferido a VI-E
   junto con el resto de DTE, no se tocó ningún archivo del subárbol.
 - **`login/actions.ts` — bug de redirect, DIFERIDO a VI-F**: el preview de
   rol pre-login (`prisma.user.findUnique({where:{email}}, select:{role}})`,
@@ -466,13 +471,33 @@ adicionales fuera de GYM que VI-D6 no había detectado.
   es exactamente el trabajo del cutover final de login (VI-F), no algo
   seguro de aislar hoy mientras `RUNTIME_HOST_AUTH_ENABLED=false`. Se deja
   documentado como blocker exacto para VI-F, sin tocar el archivo.
-- **`units-lookup` — clasificado, sin cambio de código**: `UnitOfMeasure`
-  (`prisma/schema.prisma`) no tiene `tenant_id`, tiene `@@unique([symbol])`
-  GLOBAL, y `Product.unit_id` referencia esas filas globales directamente.
-  Es un catálogo de referencia GLOBAL_REFERENCE compartido entre tenants
-  (como `Country`/`EconomicActivity` en suppliers) — no tenant-owned, no
-  requiere runtime routing. Ya vivía correctamente bajo `commerce/products`
-  (cerrado en VI-D1), confirmado aquí, sin fix necesario.
+- **`units-lookup` — clasificado como `RUNTIME_REFERENCE` (corregido en
+  VI-D8, antes decía `GLOBAL_REFERENCE`)**: `UnitOfMeasure`
+  (`prisma/schema.prisma`) no tiene `tenant_id` y tiene
+  `@@unique([symbol])`, pero su `id` es `@default(uuid())` **sin pinnear
+  por seed** (el seed hace `upsert` por `symbol`, no por `id`) — cada
+  runtime DB genera su propio UUID para la misma unidad conceptual.
+  `Product.unit_id` referencia el `id` LOCAL de su propia base, no un `id`
+  global compartido. Es un catálogo conceptual común, no tenant-editable,
+  pero físicamente replicado y resuelto dentro de cada runtime DB
+  (`RUNTIME_REFERENCE`) — distinto de `Country`/`EconomicActivity` en
+  Suppliers, que sí son tablas verdaderamente globales sin ambigüedad de
+  `id` por base. `Sport`/`Goal` (sin `tenant_id`, `@@unique([name])`) se
+  clasifican igual: `RUNTIME_LOCAL_CATALOG`, administrados solo desde
+  flujo PLATFORM. Sin cambio de schema, sin pinnear UUIDs, sin migrar
+  datos, sin tocar el seed.
+  **Hallazgo nuevo de VI-D8 (código, no cerrado)**:
+  `src/app/api/products/units-lookup/route.ts` llama `getUnitsLookup()`
+  SIN pasar `client` — cae al Prisma global incondicionalmente, a
+  diferencia de `categories-lookup/route.ts` (mismo directorio,
+  corregido en VI-D6) y de `dashboard/products/page.tsx` (sí pasa el
+  `client` runtime). No es fuga tenant-owned, pero rompe el modelo
+  `RUNTIME_REFERENCE`: una identidad `RUNTIME_CLIENT` recibiría `id` de
+  la base PLATFORM en vez de los `id` de su propia runtime DB. Fuera de
+  alcance de VI-D8 (`Products` no se toca salvo el test de
+  `categories-lookup`) — documentado como blocker puntual para una
+  microfase futura de Products/commerce, no es DTE (VI-E) ni login
+  cutover (VI-F).
 - **13 tests nuevos**: `reports-enforcement.test.ts` (2, cierra el gap de
   cobertura de `resolveReportApiContext` que VI-D6 dejó sin test dedicado),
   `client-portal/actions.test.ts` (2, primer test de ese archivo — no
@@ -485,12 +510,46 @@ adicionales fuera de GYM que VI-D6 no había detectado.
   (mismos warnings preexistentes, ninguno introducido). `npm run build`
   PASS. Sin cambios de schema, sin migraciones nuevas.
 - **`NON_DTE_RUNTIME_OPERATIONAL_LAYER_CLOSED = YES`** — con la excepción
-  documentada y deliberada de `commerce/sales/export/**` (FEX-11, frontera
-  DTE, diferido a VI-E) y `login/actions.ts` (diferido a VI-F, no
-  alcanzable hoy). Ningún path de escritura/lectura tenant-owned alcanzable
-  por `RUNTIME_CLIENT` en GYM, Client Portal o Settings queda en Prisma
-  global. `RUNTIME_HOST_AUTH_ENABLED` sigue en `FALSE`. Sin push, sin
-  deploy, sin login runtime real habilitado.
+  documentada y deliberada de `commerce/sales/export/**` (FEX-11,
+  `DTE_PENDING_VI_E`, diferido a VI-E) y `login/actions.ts` (diferido a
+  VI-F, no alcanzable hoy). Ningún path de escritura/lectura TENANT-OWNED
+  alcanzable por `RUNTIME_CLIENT` en GYM, Client Portal o Settings queda
+  en Prisma global. `RUNTIME_HOST_AUTH_ENABLED` sigue en `FALSE`. Sin
+  push, sin deploy, sin login runtime real habilitado.
+
+### VI-D8 — cierre documental/test (auditoría final de VI-D7, sin reabrir funcionalmente)
+
+Corrige exclusivamente clasificaciones y conteos de VI-D7 detectados en su
+auditoría read-only final; agrega la cobertura de test que faltaba. Ver
+`docs/modules/platform-phase-6d7-gym-runtime-certification.md` (addendum al
+inicio del documento) para el detalle completo.
+
+- `units-lookup` reclasificado `GLOBAL_REFERENCE` → `RUNTIME_REFERENCE`;
+  `sport`/`goal` reclasificados como `RUNTIME_LOCAL_CATALOG` — ver arriba.
+- `RUNTIME_CLIENT_NON_DTE_CAN_HIT_GLOBAL_PRISMA` corregido `YES` → `NO`
+  para todo path TENANT-OWNED (verificado, ninguno queda en Prisma
+  global) — con un blocker NUEVO no tenant-owned documentado:
+  `/api/products/units-lookup/route.ts` sigue en Prisma global (ver
+  arriba), fuera de alcance porque `Products` no se toca en esta
+  microfase.
+- `commerce/sales/export/**` (FEX-11) reclasificado explícitamente
+  `DTE_PENDING_VI_E` (el dominio es fiscal/DTE pese a vivir bajo
+  `sales/export`).
+- Test nuevo dedicado: `categories-lookup/route.test.ts` (2 casos) —
+  certifica que `RUNTIME_CLIENT` pasa `user` a
+  `resolveEffectiveApiContext`, usa `context.tenantId`/`context.client`
+  efectivos (nunca el `tenant_id` crudo del JWT ni Prisma global), y que
+  un rol no autorizado nunca llega a resolver contexto.
+- Conteo de transacciones GYM corregido: **4** (no 3) — se omitía
+  `enablePortalAction` (`clients/actions.ts`).
+- Conteo de tests nuevos de VI-D7 **verificado por evidencia
+  (`git show` + conteo de `it(` por archivo)**: se confirmó que **13**
+  (no 14) es el número correcto — 631−618=13, desglose exacto documentado
+  en el certification doc.
+- **633/633 tests PASS** (631 de VI-D7 + 2 nuevos de esta microfase).
+  `tsc --noEmit` limpio. `npm run lint` sin errores nuevos. `npm run
+  build` PASS. Sin cambios de schema, sin migraciones, sin push, sin
+  deploy.
 
 ## Arquitectura activa
 - El proyecto funciona como monolito modular.
