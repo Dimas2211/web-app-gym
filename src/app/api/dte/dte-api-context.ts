@@ -9,6 +9,7 @@ import type { NextRequest } from "next/server";
 import type { PrismaClient, UserRole } from "@prisma/client";
 import { cookies } from "next/headers";
 import { auth } from "@/lib/auth/auth";
+import type { SessionUser } from "@/lib/permissions/guards";
 import { getCapabilities } from "@/core/permissions/role-capabilities";
 import { getLocationById } from "@/core/modules/locations/queries";
 import { ACTIVE_LOCATION_COOKIE } from "@/lib/location/active-location";
@@ -43,11 +44,10 @@ type DteApiContext =
 
 export async function getDteApiContext(req: NextRequest): Promise<DteApiContext> {
   const session = await auth();
-  const user = session?.user;
-
-  if (!user) {
+  if (!session?.user) {
     return { ok: false, status: 401, error: "No autorizado." };
   }
+  const user = session.user as SessionUser;
 
   const role = user.role as UserRole;
   if (!getCapabilities(role).canManageStaff) {
@@ -83,10 +83,14 @@ export async function getDteApiContext(req: NextRequest): Promise<DteApiContext>
     }
   }
 
-  const { context, dispose } = await resolveEffectiveApiContext({
-    tenantId:   tenant_id,
-    locationId: baseLocationId,
-  });
+  // FASE VI-E2A: `user` SIEMPRE se pasa como segundo argumento — antes se
+  // omitía y una identidad RUNTIME_CLIENT caía silenciosamente al branch
+  // PLATFORM_NATIVE (Prisma global + tenant_id de JWT sin revalidar) en
+  // vez de resolverse vía requireRuntimeOrganizationContext (fail closed).
+  const { context, dispose } = await resolveEffectiveApiContext(
+    { tenantId: tenant_id, locationId: baseLocationId },
+    user,
+  );
 
   if (!context.locationId) {
     await dispose();
@@ -97,6 +101,15 @@ export async function getDteApiContext(req: NextRequest): Promise<DteApiContext>
         ? "El tenant runtime no tiene sucursales activas configuradas."
         : "Selecciona una location activa para operar con documentos DTE.",
     };
+  }
+
+  // Rechequeo con ROL LIVE (context.effectiveRole) — para RUNTIME_CLIENT es
+  // el rol vigente en runtimeDb.user, no el del JWT (hasta 8h de antigüedad).
+  // Para PLATFORM_NATIVE/SUPPORT_RUNTIME, effectiveRole es el mismo valor de
+  // JWT ya chequeado arriba — el rechequeo es redundante pero inofensivo.
+  if (!getCapabilities(context.effectiveRole as UserRole).canManageStaff) {
+    await dispose();
+    return { ok: false, status: 403, error: "Sin permisos para esta operación." };
   }
 
   // Bloque B — guard central único: cubre automáticamente los Route

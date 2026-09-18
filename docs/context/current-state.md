@@ -594,6 +594,60 @@ DTE, no toca schema/migraciones, sin login cutover.
   `NON_DTE_RUNTIME_OPERATIONAL_LAYER_CLOSED = YES` sin excepciones
   pendientes de código. `READY_FOR_VI_E_DTE_RUNTIME = YES`.
 
+## Platform — FASE VI-E2A: DTE runtime context + read boundary (cerrada — solo LECTURA)
+
+Primer paso de la frontera fiscal DTE hacia el contrato `RUNTIME_CLIENT` de VI-C/D.
+Alcance estrictamente acotado a LECTURA — creación/firma/transmisión/invalidación/
+correlativos/credenciales/MariaDB DTE **no se tocaron**, siguen en Prisma global.
+
+- **Causa raíz cerrada**: `getDteApiContext()` (`src/app/api/dte/dte-api-context.ts`)
+  tenía el mismo hallazgo ya cerrado en VI-D6 para Sales/Purchases —
+  `resolveEffectiveApiContext({ tenantId, locationId })` se llamaba SIN el
+  segundo argumento `user`. Por contrato de esa función, omitir `user` hace
+  que CUALQUIER identidad (incluida `RUNTIME_CLIENT`) caiga al branch
+  `PLATFORM_NATIVE` (Prisma global + `tenant_id` de JWT sin revalidar) en vez
+  de resolverse vía `requireRuntimeOrganizationContext` (fail closed). Fix:
+  se pasa `user` (`session.user as SessionUser`) siempre, más rechequeo de
+  capability con ROL LIVE (`context.effectiveRole`) después de resolver
+  contexto — mismo patrón exacto de `purchase-api-context.ts`/
+  `sale-api-context.ts`.
+- **4 GET callers no requirieron cambios propios**: `issuer-config` GET,
+  `outgoing/[id]` GET, `outgoing/[id]/logs` GET,
+  `outgoing/by-sale/[saleId]` GET — los cuatro ya consumían `ctx.client`/
+  `ctx.tenant_id`/`ctx.location_id` de forma genérica (nunca Prisma global
+  directo), así que corrigiendo únicamente `dte-api-context.ts` los cuatro
+  quedan runtime-safe sin tocar sus archivos.
+- **Ownership ya correcto**: las queries usadas por esos 4 GETs
+  (`get-dte-outgoing-document-by-id.ts`, `get-dte-outgoing-detail-by-id.ts`,
+  `list-dte-outgoing-documents-by-sale.ts`, `list-dte-issuer-configs.ts`)
+  ya filtraban por `id + tenant_id` (nunca solo `id`) — un documento de
+  tenant B consultado desde runtime A resuelve `null`/404, sin fuga. `logs`
+  además valida `doc.location_id === ctx.location_id` explícitamente antes
+  de listar logs.
+- **PLATFORM_NATIVE**: comportamiento preservado (Prisma global, sin cambios).
+- **SUPPORT_RUNTIME**: preservado — sigue leyendo la DB runtime seleccionada,
+  `readOnly=true`; la excepción `DELIVER_EXTERNAL` (fuera de esta fase) no se
+  tocó; `require-runtime-dte-write-access.ts` no se tocó.
+- **Fail closed**: `RUNTIME_CLIENT` con organización inválida, perfil runtime
+  ausente, tenant mismatch o location inválida sigue lanzando vía
+  `requireRuntimeOrganizationContext` — ningún `catch → prisma` ni
+  `client ?? prisma` nuevo introducido.
+- **8 tests nuevos**: `dte-api-context.test.ts` (7 casos — propagación de
+  `user`, `client` runtime real vs Prisma global, tenant efectivo del
+  runtime context y no del JWT crudo, rechequeo de rol LIVE, PLATFORM_NATIVE
+  preservado, SUPPORT_RUNTIME readOnly, fail-closed sin location) y
+  `get-dte-outgoing-document-by-id.test.ts` (2 casos — aislamiento
+  cross-tenant a nivel de query). **645/645 tests PASS** (antes 636 —
+  636+9=645). `tsc --noEmit`
+  limpio. `npm run lint` sin errores nuevos (mismos warnings preexistentes).
+  `npm run build` PASS. Sin cambios de schema, sin migraciones.
+- **`DTE_API_CONTEXT_RUNTIME_READY = YES`**, `DTE_GET_READS_RUNTIME_READY = YES`.
+  `DTE_CREATION_RUNTIME_READY`/`DTE_ISSUER_WRITES_RUNTIME_READY`/
+  `DTE_CREDENTIAL_WRITES_RUNTIME_READY`/`DTE_CORRELATIVES_RUNTIME_READY`/
+  `DTE_SIGNING_RUNTIME_READY`/`DTE_TRANSMISSION_RUNTIME_READY` siguen `NO` —
+  toda la superficie de escritura fiscal queda diferida a fases posteriores
+  de VI-E. Ver `docs/modules/platform-phase-6e2a-dte-runtime-read-context.md`.
+
 ## Arquitectura activa
 - El proyecto funciona como monolito modular.
 - Core contiene identidad, usuarios, permisos, clientes, locations y lógica compartida.
