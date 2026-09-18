@@ -2,6 +2,7 @@
 // commerce/dte — get-active-dte-issuer-config.ts
 // ─────────────────────────────────────────────────────────────────
 
+import type { PrismaClient } from "@prisma/client";
 import { prisma } from "@/lib/db/prisma";
 import type { DteIssuerConfigDetail, DteEnvironment } from "../types/dte.types";
 
@@ -9,8 +10,9 @@ export async function getActiveDteIssuerConfig(
   tenant_id:   string,
   location_id: string,
   environment: DteEnvironment,
+  db:          PrismaClient = prisma,
 ): Promise<DteIssuerConfigDetail | null> {
-  const row = await prisma.dteIssuerConfig.findFirst({
+  const row = await db.dteIssuerConfig.findFirst({
     where: {
       tenant_id,
       location_id,

@@ -10,16 +10,12 @@
 
 import { revalidatePath } from "next/cache";
 import { requireAdmin } from "@/lib/permissions/guards";
-import { getEffectiveLocationId } from "@/lib/location/active-location";
-import { prisma } from "@/lib/db/prisma";
-import { isRuntimeReadOnlyActive, RUNTIME_READONLY_MESSAGE } from "@/modules/platform/runtime/runtime-session";
 import { upsertDteCredentialSchema } from "../schemas/dte-credential.schemas";
 import { upsertDteCredential } from "../services/dte-credential.service";
 import {
-  resolveCommercialEnforcementContext,
-  assertOrganizationModule,
-  CommercialEnforcementError,
-} from "@/modules/platform/runtime/commercial-enforcement";
+  requireOperationalContext,
+  OperationalContextError,
+} from "@/modules/platform/runtime/require-operational-context";
 
 export type UpsertDteCredentialActionState =
   | { errors?: Record<string, string[]>; error?: string; success?: false }
@@ -31,63 +27,62 @@ export async function upsertDteCredentialAction(
   formData: FormData,
 ): Promise<UpsertDteCredentialActionState> {
   const sessionUser = await requireAdmin();
-  const tenant_id   = sessionUser.tenant_id;
-  const location_id = await getEffectiveLocationId(sessionUser);
 
-  if (!tenant_id)   return { error: "La sesión no tiene un tenant activo." };
-  if (!location_id) return { error: "Selecciona una location activa." };
-
-  // PASO 6A: bloquear escritura bajo sesión runtime "Operar como cliente"
-  if (await isRuntimeReadOnlyActive()) {
-    return { error: RUNTIME_READONLY_MESSAGE };
-  }
-
+  let handle;
   try {
-    const commercialCtx = await resolveCommercialEnforcementContext(tenant_id);
-    assertOrganizationModule(commercialCtx, "fiscal.dte");
+    handle = await requireOperationalContext(sessionUser, { module: "fiscal.dte", write: true });
   } catch (err) {
-    if (err instanceof CommercialEnforcementError) return { error: err.userMessage };
+    if (err instanceof OperationalContextError) return { error: err.userMessage };
     throw err;
   }
+  const { context, dispose } = handle;
 
-  const raw = {
-    issuer_config_id:          formData.get("issuer_config_id"),
-    apiUser:                   formData.get("apiUser") || undefined,
-    apiPassword:                formData.get("apiPassword") || undefined,
-    signerUrl:                 formData.get("signerUrl") || undefined,
-    signerNit:                 formData.get("signerNit") || undefined,
-    signerPrivateKeyPassword:  formData.get("signerPrivateKeyPassword") || undefined,
-    signerApiKey:              formData.get("signerApiKey") || undefined,
-  };
+  try {
+    if (!context.locationId) {
+      return { error: "Selecciona una location activa." };
+    }
 
-  const parsed = upsertDteCredentialSchema.safeParse(raw);
-  if (!parsed.success) {
-    return { errors: parsed.error.flatten().fieldErrors };
+    const raw = {
+      issuer_config_id:          formData.get("issuer_config_id"),
+      apiUser:                   formData.get("apiUser") || undefined,
+      apiPassword:                formData.get("apiPassword") || undefined,
+      signerUrl:                 formData.get("signerUrl") || undefined,
+      signerNit:                 formData.get("signerNit") || undefined,
+      signerPrivateKeyPassword:  formData.get("signerPrivateKeyPassword") || undefined,
+      signerApiKey:              formData.get("signerApiKey") || undefined,
+    };
+
+    const parsed = upsertDteCredentialSchema.safeParse(raw);
+    if (!parsed.success) {
+      return { errors: parsed.error.flatten().fieldErrors };
+    }
+
+    // El issuer_config_id debe pertenecer realmente al tenant/location
+    // efectivos — nunca confiar en el valor del formulario sin validar.
+    const issuer = await context.client.dteIssuerConfig.findFirst({
+      where:  { id: parsed.data.issuer_config_id, tenant_id: context.tenantId, location_id: context.locationId },
+      select: { id: true },
+    });
+    if (!issuer) {
+      return { error: "La configuración DTE indicada no pertenece a esta sucursal." };
+    }
+
+    const result = await upsertDteCredential(issuer.id, context.effectiveUser.id, {
+      apiUser:                  parsed.data.apiUser,
+      apiPassword:               parsed.data.apiPassword,
+      signerUrl:                 parsed.data.signerUrl,
+      signerNit:                 parsed.data.signerNit,
+      signerPrivateKeyPassword:  parsed.data.signerPrivateKeyPassword,
+      signerApiKey:              parsed.data.signerApiKey,
+    }, context.client);
+
+    if (!result.ok) {
+      return { error: result.error };
+    }
+
+    revalidatePath("/dashboard/settings/dte");
+    return { success: true };
+  } finally {
+    await dispose();
   }
-
-  // El issuer_config_id debe pertenecer realmente al tenant/location de
-  // la sesión — nunca confiar en el valor del formulario sin validar.
-  const issuer = await prisma.dteIssuerConfig.findFirst({
-    where:  { id: parsed.data.issuer_config_id, tenant_id, location_id },
-    select: { id: true },
-  });
-  if (!issuer) {
-    return { error: "La configuración DTE indicada no pertenece a esta sucursal." };
-  }
-
-  const result = await upsertDteCredential(issuer.id, sessionUser.id, {
-    apiUser:                  parsed.data.apiUser,
-    apiPassword:               parsed.data.apiPassword,
-    signerUrl:                 parsed.data.signerUrl,
-    signerNit:                 parsed.data.signerNit,
-    signerPrivateKeyPassword:  parsed.data.signerPrivateKeyPassword,
-    signerApiKey:              parsed.data.signerApiKey,
-  });
-
-  if (!result.ok) {
-    return { error: result.error };
-  }
-
-  revalidatePath("/dashboard/settings/dte");
-  return { success: true };
 }

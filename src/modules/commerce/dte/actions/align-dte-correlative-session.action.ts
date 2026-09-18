@@ -24,15 +24,12 @@
 
 import { revalidatePath } from "next/cache";
 import { requireSuperAdmin } from "@/lib/permissions/guards";
-import { prisma } from "@/lib/db/prisma";
-import { isRuntimeReadOnlyActive, RUNTIME_READONLY_MESSAGE } from "@/modules/platform/runtime/runtime-session";
 import { alignDteCorrelativeSessionSchema } from "../schemas/align-dte-correlative-session.schema";
 import { alignDteCorrelativeBaseline } from "../services/dte-correlative.service";
 import {
-  resolveCommercialEnforcementContext,
-  assertOrganizationModule,
-  CommercialEnforcementError,
-} from "@/modules/platform/runtime/commercial-enforcement";
+  requireOperationalContext,
+  OperationalContextError,
+} from "@/modules/platform/runtime/require-operational-context";
 
 export type AlignDteCorrelativeSessionActionState =
   | { errors?: Record<string, string[]>; error?: string; success?: false }
@@ -44,80 +41,84 @@ export async function alignDteCorrelativeSessionAction(
   formData: FormData,
 ): Promise<AlignDteCorrelativeSessionActionState> {
   const sessionUser = await requireSuperAdmin();
-  const tenant_id = sessionUser.tenant_id;
-  if (!tenant_id) return { error: "La sesión no tiene un tenant activo." };
 
-  // PASO 6A: bloquear escritura bajo sesión runtime "Operar como cliente"
-  if (await isRuntimeReadOnlyActive()) {
-    return { error: RUNTIME_READONLY_MESSAGE };
-  }
-
+  // FASE VI-E2B: contexto operacional runtime — solo se usa
+  // context.tenantId/context.client/context.effectiveUser aquí, NO
+  // context.locationId: super_admin puede alinear correlativos de
+  // cualquier location de su tenant, la propiedad real se valida abajo
+  // con el lookup de emisor (tenant_id + location_id del formulario +
+  // environment), igual que antes de esta migración.
+  let handle;
   try {
-    const commercialCtx = await resolveCommercialEnforcementContext(tenant_id);
-    assertOrganizationModule(commercialCtx, "fiscal.dte");
+    handle = await requireOperationalContext(sessionUser, { module: "fiscal.dte", write: true });
   } catch (err) {
-    if (err instanceof CommercialEnforcementError) return { error: err.userMessage };
+    if (err instanceof OperationalContextError) return { error: err.userMessage };
     throw err;
   }
+  const { context, dispose } = handle;
 
-  const raw = {
-    location_id:        formData.get("location_id"),
-    issuer_config_id:   formData.get("issuer_config_id"),
-    environment:        formData.get("environment"),
-    dte_type_code:      formData.get("dte_type_code"),
-    cod_estable_mh:     formData.get("cod_estable_mh"),
-    cod_punto_venta_mh: formData.get("cod_punto_venta_mh"),
-    last_used_sequence: formData.get("last_used_sequence"),
-    source:             formData.get("source") ?? "",
-    notes:              formData.get("notes"),
-    evidence_ref:       formData.get("evidence_ref") || null,
-  };
+  try {
+    const raw = {
+      location_id:        formData.get("location_id"),
+      issuer_config_id:   formData.get("issuer_config_id"),
+      environment:        formData.get("environment"),
+      dte_type_code:      formData.get("dte_type_code"),
+      cod_estable_mh:     formData.get("cod_estable_mh"),
+      cod_punto_venta_mh: formData.get("cod_punto_venta_mh"),
+      last_used_sequence: formData.get("last_used_sequence"),
+      source:             formData.get("source") ?? "",
+      notes:              formData.get("notes"),
+      evidence_ref:       formData.get("evidence_ref") || null,
+    };
 
-  const parsed = alignDteCorrelativeSessionSchema.safeParse(raw);
-  if (!parsed.success) {
-    return { errors: parsed.error.flatten().fieldErrors };
+    const parsed = alignDteCorrelativeSessionSchema.safeParse(raw);
+    if (!parsed.success) {
+      return { errors: parsed.error.flatten().fieldErrors };
+    }
+
+    const input = parsed.data;
+
+    // El emisor debe pertenecer realmente al tenant/location/ambiente
+    // efectivos — evita alinear un correlativo con datos manipulados en el form.
+    const issuer = await context.client.dteIssuerConfig.findFirst({
+      where: {
+        id:          input.issuer_config_id,
+        tenant_id:   context.tenantId,
+        location_id: input.location_id,
+        environment: input.environment,
+      },
+      select: { id: true, cod_estable_mh: true, cod_punto_venta_mh: true },
+    });
+    if (!issuer) {
+      return { error: "La configuración de emisor DTE indicada no corresponde a este tenant/sucursal/ambiente." };
+    }
+    if (issuer.cod_estable_mh !== input.cod_estable_mh || issuer.cod_punto_venta_mh !== input.cod_punto_venta_mh) {
+      return { error: "Los códigos MH de establecimiento/punto de venta no coinciden con la configuración actual del emisor. Recargue la página." };
+    }
+
+    const result = await alignDteCorrelativeBaseline({
+      tenant_id:          context.tenantId,
+      location_id:        input.location_id,
+      issuer_config_id:   input.issuer_config_id,
+      environment:        input.environment,
+      dte_type_code:      input.dte_type_code,
+      cod_estable_mh:     input.cod_estable_mh,
+      cod_punto_venta_mh: input.cod_punto_venta_mh,
+      last_used_sequence: input.last_used_sequence,
+      source:             input.source ?? "",
+      notes:              input.notes,
+      evidence_ref:       input.evidence_ref ?? null,
+      user_id:            context.effectiveUser.id,
+    }, context.client);
+
+    if (!result.ok) {
+      return { error: result.error };
+    }
+
+    revalidatePath("/dashboard/dte/correlatives");
+
+    return { success: true, next_sequence: result.next_sequence };
+  } finally {
+    await dispose();
   }
-
-  const input = parsed.data;
-
-  // El emisor debe pertenecer realmente al tenant/location/ambiente de la
-  // sesión — evita alinear un correlativo con datos manipulados en el form.
-  const issuer = await prisma.dteIssuerConfig.findFirst({
-    where: {
-      id:          input.issuer_config_id,
-      tenant_id,
-      location_id: input.location_id,
-      environment: input.environment,
-    },
-    select: { id: true, cod_estable_mh: true, cod_punto_venta_mh: true },
-  });
-  if (!issuer) {
-    return { error: "La configuración de emisor DTE indicada no corresponde a este tenant/sucursal/ambiente." };
-  }
-  if (issuer.cod_estable_mh !== input.cod_estable_mh || issuer.cod_punto_venta_mh !== input.cod_punto_venta_mh) {
-    return { error: "Los códigos MH de establecimiento/punto de venta no coinciden con la configuración actual del emisor. Recargue la página." };
-  }
-
-  const result = await alignDteCorrelativeBaseline({
-    tenant_id,
-    location_id:        input.location_id,
-    issuer_config_id:   input.issuer_config_id,
-    environment:        input.environment,
-    dte_type_code:      input.dte_type_code,
-    cod_estable_mh:     input.cod_estable_mh,
-    cod_punto_venta_mh: input.cod_punto_venta_mh,
-    last_used_sequence: input.last_used_sequence,
-    source:             input.source ?? "",
-    notes:              input.notes,
-    evidence_ref:       input.evidence_ref ?? null,
-    user_id:            sessionUser.id,
-  });
-
-  if (!result.ok) {
-    return { error: result.error };
-  }
-
-  revalidatePath("/dashboard/dte/correlatives");
-
-  return { success: true, next_sequence: result.next_sequence };
 }

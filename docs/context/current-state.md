@@ -648,6 +648,89 @@ correlativos/credenciales/MariaDB DTE **no se tocaron**, siguen en Prisma global
   toda la superficie de escritura fiscal queda diferida a fases posteriores
   de VI-E. Ver `docs/modules/platform-phase-6e2a-dte-runtime-read-context.md`.
 
+## Platform — FASE VI-E2B: DTE fiscal foundation (issuer config + credentials + correlativos, cerrada — foundation, NO creación de DTE)
+
+Segundo paso de la frontera fiscal DTE: issuer config, credenciales MH y el
+servicio de correlativos (status/baseline admin) quedan runtime-capable.
+Alcance estrictamente acotado — `dte-outgoing.service.ts`,
+`create-credit-note-dte.service.ts`, `export-sale.service.ts`,
+`sign-dte-document.service.ts`, builders FE01/CCFE03/FEX11/FSE14/NC05,
+firma, transmisión, invalidación, contingencia, metering y MariaDB delivery
+**no se tocaron** — siguen en Prisma global, exactamente como antes.
+
+- **Patrón de escritura elegido**: `requireOperationalContext` (el helper
+  genérico de VI-D2, no un wrapper DTE-específico nuevo) para las 6 Server
+  Actions de escritura (`create-dte-issuer-config.action.ts`,
+  `update-dte-issuer-config.action.ts`,
+  `upsert-dte-issuer-config-for-client.action.ts` ×2,
+  `switch-dte-environment.action.ts`, `upsert-dte-credential.action.ts`,
+  `align-dte-correlative-session.action.ts`), con `{ module: "fiscal.dte",
+  write: true }`. Reemplaza en cada una: `requireAdmin` + `getEffectiveLocationId`
+  + `isRuntimeReadOnlyActive()` + gate comercial manual + Prisma global
+  implícito por una sola resolución de contexto operacional runtime-aware.
+  Para las rutas API `POST /api/dte/issuer-config` y
+  `PATCH /api/dte/issuer-config/:id` se reutilizó `getDteApiContext` (ya
+  certificado en VI-E2A para GET) — se le agregó `readOnly: boolean` al
+  contrato de retorno para que los handlers de escritura puedan bloquear bajo
+  Support Session.
+- **Gap de VI-E1.1 cerrado**: `create-dte-issuer-config.action.ts` y
+  `update-dte-issuer-config.action.ts` nunca bloqueaban escritura bajo
+  Support Session (a diferencia de su hermana `...-for-client.action.ts`,
+  que sí lo hacía) — al migrar ambas a `requireOperationalContext`, el
+  bloqueo queda estructural (`options.write: true`), no un chequeo manual
+  que se pudo omitir.
+- **Servicios migrados a `db: PrismaClient = prisma`** (con default para no
+  romper callers PLATFORM_NATIVE): `createDteIssuerConfig`,
+  `updateDteIssuerConfig`, `getActiveIssuerConfigOrThrow`,
+  `switchActiveDteEnvironment` (`dte-issuer-config.service.ts`);
+  `upsertDteCredential` (`dte-credential.service.ts`);
+  `alignDteCorrelativeBaseline` (`dte-correlative.service.ts`) — su llamada
+  interna a `getDteCorrelativeStatus(input)` ahora forwardea `db` (antes
+  corría siempre contra Prisma global aunque el caller pasara un client
+  runtime — bug latente cerrado). También `getActiveDteIssuerConfig`
+  (query, sin callers productivos hoy) y
+  `getFseCorrelativeStatusForPurchase` (query de solo lectura consumida por
+  `purchases/[id]/page.tsx`, que SIGUE sin migrar — el módulo purchases está
+  cerrado y fuera de alcance de esta fase; la query queda runtime-capable
+  pero su único caller real sigue pasando el default global).
+- **`DteCredential` sin tenant_id/location_id propios**: su aislamiento es
+  transitivo vía `issuer_config_id` — el ownership real se garantiza
+  forzando que el lookup del issuer Y la escritura de la credencial corran
+  siempre sobre el MISMO `db` (certificado por test). Por la misma razón,
+  `DTE_CREDENTIAL_ENVIRONMENT_ISOLATED` es estructural, no necesita
+  validación adicional: una credencial pertenece a exactamente un
+  `issuer_config_id`, y ese issuer tiene exactamente un `environment` — no
+  existe combinación posible de credencial TEST + issuer PRODUCTION.
+- **Correlativos — límite explícito de esta fase**: `getDteCorrelativeStatus`
+  y `alignDteCorrelativeBaseline` (status/baseline admin) quedan
+  runtime-capable y sus callers de sesión/Platform Admin migrados donde
+  aplica. `reserveDteControlNumber` (reserva real dentro de creación de DTE)
+  y sus callers en `dte-outgoing.service.ts`/`create-credit-note-dte.service.ts`/
+  `export-sale.service.ts` **no se tocaron** — siguen abriendo su
+  `$transaction` sobre Prisma global. Aislamiento físico entre runtime DBs
+  certificado por test (upsert de un client nunca toca otro).
+- **SUPPORT_RUNTIME**: solo lectura preservado — los 6 write paths y las 2
+  rutas API de escritura bloquean con `RUNTIME_READONLY_MESSAGE` (403) antes
+  de tocar la DB. `require-runtime-dte-write-access.ts` no se tocó — su
+  allowlist sigue siendo únicamente `DELIVER_EXTERNAL`.
+- **22 tests nuevos/reescritos** (667/667 PASS total, antes 645):
+  `dte-issuer-config.service.runtime-write.test.ts` (5),
+  `dte-credential.service.upsert-runtime-write.test.ts` (4),
+  `dte-correlative.service.baseline-runtime-write.test.ts` (3),
+  `create-dte-issuer-config.action.test.ts` (2, nuevo), más 4 archivos de
+  action tests existentes reescritos para mockear `requireOperationalContext`
+  en vez de `isRuntimeReadOnlyActive`/Prisma global crudo (8 tests netos
+  adicionales entre los 4). `tsc --noEmit` limpio, `npm run lint` sin errores
+  nuevos, `npm run build` PASS. Sin cambios de schema, sin migraciones.
+- **`DTE_ISSUER_CONFIG_RUNTIME_READY = YES`**,
+  `DTE_CREDENTIAL_RUNTIME_READY = YES`,
+  `DTE_CORRELATIVE_SERVICE_RUNTIME_CAPABLE = YES`,
+  `DTE_CORRELATIVE_ADMIN_RUNTIME_READY = YES`. Siguen `NO`:
+  `DTE_CREATION_RUNTIME_READY`, `FE01_RUNTIME_READY`, `CCFE03_RUNTIME_READY`,
+  `FEX11_RUNTIME_READY`, `FSE14_RUNTIME_READY`, `DTE_SIGNING_RUNTIME_READY`,
+  `DTE_TRANSMISSION_RUNTIME_READY` — diferidas a VI-E3/VI-E4. Ver
+  `docs/modules/platform-phase-6e2b-dte-fiscal-foundation.md`.
+
 ## Arquitectura activa
 - El proyecto funciona como monolito modular.
 - Core contiene identidad, usuarios, permisos, clientes, locations y lógica compartida.

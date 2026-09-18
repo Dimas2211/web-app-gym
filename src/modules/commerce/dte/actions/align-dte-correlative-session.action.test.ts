@@ -1,9 +1,11 @@
 // ─────────────────────────────────────────────────────────────────
 // commerce/dte — align-dte-correlative-session.action.test.ts
 //
-// FASE 5 (bug residual post FASE IV-A) — alinear el baseline de un
-// correlativo DTE debe bloquearse ANTES de tocar la DB bajo sesión
-// runtime read-only.
+// FASE VI-E2B — migrado a requireOperationalContext: certifica que
+// alignDteCorrelativeSessionAction usa context.client (efectivo/
+// runtime), bloquea bajo Support Session de solo lectura ANTES de
+// tocar la DB, y falla closed si el contexto operacional no puede
+// resolverse.
 // ─────────────────────────────────────────────────────────────────
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
@@ -15,42 +17,40 @@ vi.mock("@/lib/permissions/guards", () => ({
 }));
 
 const {
-  isRuntimeReadOnlyActiveMock,
+  requireOperationalContextMock,
+  disposeMock,
+  FakeOperationalContextError,
   dteIssuerConfigFindFirstSpy,
   alignDteCorrelativeBaselineSpy,
-} = vi.hoisted(() => ({
-  isRuntimeReadOnlyActiveMock: vi.fn(),
-  dteIssuerConfigFindFirstSpy: vi.fn(),
-  alignDteCorrelativeBaselineSpy: vi.fn(),
-}));
+} = vi.hoisted(() => {
+  class FakeOperationalContextError extends Error {
+    code: string;
+    httpStatus: number;
+    userMessage: string;
+    constructor(code: string, userMessage: string, httpStatus: number) {
+      super(userMessage);
+      this.code = code;
+      this.httpStatus = httpStatus;
+      this.userMessage = userMessage;
+    }
+  }
+  return {
+    requireOperationalContextMock: vi.fn(),
+    disposeMock: vi.fn().mockResolvedValue(undefined),
+    FakeOperationalContextError,
+    dteIssuerConfigFindFirstSpy: vi.fn(),
+    alignDteCorrelativeBaselineSpy: vi.fn(),
+  };
+});
 
-vi.mock("@/lib/db/prisma", () => ({
-  prisma: { dteIssuerConfig: { findFirst: dteIssuerConfigFindFirstSpy } },
-}));
-
-vi.mock("@/modules/platform/runtime/runtime-session", () => ({
-  isRuntimeReadOnlyActive: isRuntimeReadOnlyActiveMock,
-  RUNTIME_READONLY_MESSAGE: "Modo runtime read-only activo.",
+vi.mock("@/modules/platform/runtime/require-operational-context", () => ({
+  requireOperationalContext: requireOperationalContextMock,
+  OperationalContextError: FakeOperationalContextError,
 }));
 
 vi.mock("../services/dte-correlative.service", () => ({
   alignDteCorrelativeBaseline: alignDteCorrelativeBaselineSpy,
 }));
-
-vi.mock("@/modules/platform/runtime/commercial-enforcement", async () => {
-  const actual = await vi.importActual<typeof import("@/modules/platform/runtime/commercial-enforcement")>(
-    "@/modules/platform/runtime/commercial-enforcement",
-  );
-  return {
-    ...actual,
-    resolveCommercialEnforcementContext: vi.fn(async () => ({
-      mode: "MANAGED", tenantId: "tenant-1", organizationId: "org-1", planId: "plan-1", verticalId: null,
-      effectiveModules: new Map([["fiscal.dte", { module_id: "m1", code: "fiscal.dte", name: "DTE", category: "INTEGRATION", is_core: false, enabled: true, source: "PLAN" }]]),
-      effectiveEntitlements: new Map(),
-      organizationTimezone: "America/El_Salvador",
-    })),
-  };
-});
 
 import { alignDteCorrelativeSessionAction } from "./align-dte-correlative-session.action";
 
@@ -67,15 +67,31 @@ function validFormData(): FormData {
   return fd;
 }
 
+function fakeHandle(overrides: Partial<{ client: unknown; tenantId: string; locationId: string | null }> = {}) {
+  const client = overrides.client ?? { dteIssuerConfig: { findFirst: dteIssuerConfigFindFirstSpy } };
+  return {
+    context: {
+      effectiveUser: { id: "u1", role: "super_admin" },
+      tenantId: overrides.tenantId ?? "tenant-1",
+      locationId: overrides.locationId === undefined ? "loc-1" : overrides.locationId,
+      client,
+    },
+    dispose: disposeMock,
+  };
+}
+
 beforeEach(() => {
-  isRuntimeReadOnlyActiveMock.mockReset();
+  requireOperationalContextMock.mockReset();
+  disposeMock.mockClear();
   dteIssuerConfigFindFirstSpy.mockReset();
   alignDteCorrelativeBaselineSpy.mockReset();
 });
 
-describe("alignDteCorrelativeSessionAction — runtime read-only guard", () => {
-  it("sesión runtime activa -> bloquea ANTES de tocar la DB, alignDteCorrelativeBaseline NUNCA se invoca", async () => {
-    isRuntimeReadOnlyActiveMock.mockResolvedValue(true);
+describe("alignDteCorrelativeSessionAction — FASE VI-E2B", () => {
+  it("requireOperationalContext falla (READ_ONLY bajo Support Session) -> bloquea ANTES de tocar la DB", async () => {
+    requireOperationalContextMock.mockRejectedValue(
+      new FakeOperationalContextError("READ_ONLY", "Modo runtime read-only activo.", 403),
+    );
 
     const result = await alignDteCorrelativeSessionAction(undefined, validFormData());
 
@@ -84,13 +100,39 @@ describe("alignDteCorrelativeSessionAction — runtime read-only guard", () => {
     expect(alignDteCorrelativeBaselineSpy).not.toHaveBeenCalled();
   });
 
-  it("modo normal -> el guard no bloquea, continúa el flujo (llega a consultar el issuer config)", async () => {
-    isRuntimeReadOnlyActiveMock.mockResolvedValue(false);
+  it("modo normal -> el guard no bloquea, continúa el flujo (llega a consultar el issuer config vía context.client)", async () => {
+    requireOperationalContextMock.mockResolvedValue(fakeHandle());
     dteIssuerConfigFindFirstSpy.mockResolvedValue(null);
 
     const result = await alignDteCorrelativeSessionAction(undefined, validFormData());
 
     expect(dteIssuerConfigFindFirstSpy).toHaveBeenCalled();
     expect(result).toMatchObject({ error: expect.stringContaining("no corresponde") });
+  });
+
+  it("datos válidos -> forwardea context.client y context.tenantId al service (nunca Prisma global)", async () => {
+    const runtimeDbMarker = { dteIssuerConfig: { findFirst: dteIssuerConfigFindFirstSpy }, __marker: "RUNTIME_CLIENT_DB" };
+    requireOperationalContextMock.mockResolvedValue(fakeHandle({ client: runtimeDbMarker }));
+    dteIssuerConfigFindFirstSpy.mockResolvedValue({ id: "cfg-1", cod_estable_mh: "M001", cod_punto_venta_mh: "P001" });
+    alignDteCorrelativeBaselineSpy.mockResolvedValue({ ok: true, next_sequence: 6 });
+
+    const result = await alignDteCorrelativeSessionAction(undefined, validFormData());
+
+    expect(result).toMatchObject({ success: true, next_sequence: 6 });
+    expect(alignDteCorrelativeBaselineSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ tenant_id: "tenant-1", user_id: "u1" }),
+      runtimeDbMarker,
+    );
+    expect(disposeMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("cross-tenant: issuer de otro tenant no aparece en context.client -> deniega, alignDteCorrelativeBaseline NUNCA se invoca", async () => {
+    requireOperationalContextMock.mockResolvedValue(fakeHandle({ tenantId: "tenant-A" }));
+    dteIssuerConfigFindFirstSpy.mockResolvedValue(null);
+
+    const result = await alignDteCorrelativeSessionAction(undefined, validFormData());
+
+    expect(result).toMatchObject({ error: expect.stringContaining("no corresponde") });
+    expect(alignDteCorrelativeBaselineSpy).not.toHaveBeenCalled();
   });
 });

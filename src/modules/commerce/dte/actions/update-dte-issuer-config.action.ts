@@ -11,15 +11,13 @@
 
 import { revalidatePath } from "next/cache";
 import { requireAdmin } from "@/lib/permissions/guards";
-import { getEffectiveLocationId } from "@/lib/location/active-location";
 import { updateDteIssuerConfigSchema } from "../schemas/dte-issuer-config.schemas";
 import { updateDteIssuerConfig } from "../services/dte-issuer-config.service";
 import type { UpdateDteIssuerConfigInput } from "../schemas/dte-issuer-config.schemas";
 import {
-  resolveCommercialEnforcementContext,
-  assertOrganizationModule,
-  CommercialEnforcementError,
-} from "@/modules/platform/runtime/commercial-enforcement";
+  requireOperationalContext,
+  OperationalContextError,
+} from "@/modules/platform/runtime/require-operational-context";
 
 export type UpdateDteIssuerConfigActionResult =
   | { ok: true }
@@ -30,40 +28,55 @@ export async function updateDteIssuerConfigAction(
   input:     UpdateDteIssuerConfigInput,
 ): Promise<UpdateDteIssuerConfigActionResult> {
   const sessionUser = await requireAdmin();
-  const tenant_id   = sessionUser.tenant_id;
-  const location_id = await getEffectiveLocationId(sessionUser);
 
-  if (!tenant_id)   return { ok: false, error: "La sesión no tiene un tenant activo." };
-  if (!location_id) return { ok: false, error: "La sesión no tiene una location activa." };
   if (!config_id?.trim()) return { ok: false, error: "El ID de configuración DTE es requerido." };
 
+  // FASE VI-E2B: mismo reemplazo que create-dte-issuer-config.action.ts —
+  // cierra el gap de VI-E1.1 (esta action tampoco bloqueaba escrituras
+  // bajo sesión runtime de solo lectura).
+  let handle;
   try {
-    const commercialCtx = await resolveCommercialEnforcementContext(tenant_id);
-    assertOrganizationModule(commercialCtx, "fiscal.dte");
+    handle = await requireOperationalContext(sessionUser, { module: "fiscal.dte", write: true });
   } catch (err) {
-    if (err instanceof CommercialEnforcementError) return { ok: false, error: err.userMessage };
+    if (err instanceof OperationalContextError) return { ok: false, error: err.userMessage };
     throw err;
   }
+  const { context, dispose } = handle;
 
-  const parsed = updateDteIssuerConfigSchema.safeParse(input);
-  if (!parsed.success) {
-    return {
-      ok:     false,
-      error:  "Datos de configuración DTE no válidos.",
-      errors: parsed.error.flatten().fieldErrors as Record<string, string[]>,
-    };
+  try {
+    if (!context.locationId) {
+      return { ok: false, error: "La sesión no tiene una location activa." };
+    }
+
+    const parsed = updateDteIssuerConfigSchema.safeParse(input);
+    if (!parsed.success) {
+      return {
+        ok:     false,
+        error:  "Datos de configuración DTE no válidos.",
+        errors: parsed.error.flatten().fieldErrors as Record<string, string[]>,
+      };
+    }
+
+    const result = await updateDteIssuerConfig(
+      config_id,
+      context.tenantId,
+      context.locationId,
+      context.effectiveUser.id,
+      parsed.data,
+      context.client,
+    );
+
+    if (!result.ok) {
+      return result.field
+        ? { ok: false, field: result.field, error: result.error }
+        : { ok: false, error: result.error };
+    }
+
+    revalidatePath("/dashboard/dte/issuer-config");
+    revalidatePath(`/dashboard/dte/issuer-config/${config_id}`);
+
+    return { ok: true };
+  } finally {
+    await dispose();
   }
-
-  const result = await updateDteIssuerConfig(config_id, tenant_id, location_id, sessionUser.id, parsed.data);
-
-  if (!result.ok) {
-    return result.field
-      ? { ok: false, field: result.field, error: result.error }
-      : { ok: false, error: result.error };
-  }
-
-  revalidatePath("/dashboard/dte/issuer-config");
-  revalidatePath(`/dashboard/dte/issuer-config/${config_id}`);
-
-  return { ok: true };
 }

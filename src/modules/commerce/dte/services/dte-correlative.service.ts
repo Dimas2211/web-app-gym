@@ -269,7 +269,7 @@ export async function alignDteCorrelativeBaseline(input: {
   notes:                   string;
   evidence_ref?:           string | null;
   user_id:                 string;
-}): Promise<AlignDteCorrelativeResult> {
+}, db: PrismaClient = prisma): Promise<AlignDteCorrelativeResult> {
   if (!Number.isInteger(input.last_used_sequence) || input.last_used_sequence < 0) {
     return { ok: false, error: "El último número usado externo debe ser un entero mayor o igual a 0." };
   }
@@ -289,7 +289,7 @@ export async function alignDteCorrelativeBaseline(input: {
     },
   };
 
-  const status = await getDteCorrelativeStatus(input);
+  const status = await getDteCorrelativeStatus(input, db);
   const localFloor = Math.max(status.local_last_sequence, status.max_used_in_outgoing);
 
   if (input.last_used_sequence < localFloor) {
@@ -301,7 +301,7 @@ export async function alignDteCorrelativeBaseline(input: {
     };
   }
 
-  await prisma.dteCorrelative.upsert({
+  await db.dteCorrelative.upsert({
     where: key,
     create: {
       tenant_id:          input.tenant_id,

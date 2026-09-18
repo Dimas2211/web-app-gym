@@ -7,7 +7,7 @@
 //   getActiveIssuerConfigOrThrow — obtiene configuración activa o lanza error
 // ─────────────────────────────────────────────────────────────────
 
-import { Prisma } from "@prisma/client";
+import { Prisma, type PrismaClient } from "@prisma/client";
 import { prisma } from "@/lib/db/prisma";
 import { getDteProductionPreflight } from "./dte-production-preflight.service";
 import type { CreateDteIssuerConfigInput, UpdateDteIssuerConfigInput } from "../schemas/dte-issuer-config.schemas";
@@ -27,6 +27,7 @@ export async function createDteIssuerConfig(
   location_id: string,
   user_id:     string,
   input:       CreateDteIssuerConfigInput,
+  db:          PrismaClient = prisma,
 ): Promise<CreateDteIssuerConfigResult> {
   try {
     // F-DTE-ENV — Auditoría TEST/PROD (repair): crear una configuración
@@ -44,7 +45,7 @@ export async function createDteIssuerConfig(
     // tiene preflight + confirmación + auditoría). Chequeo + insert +
     // verificación final ocurren dentro de una única transacción para
     // evitar condiciones de carrera.
-    const configId = await prisma.$transaction(async (tx) => {
+    const configId = await db.$transaction(async (tx) => {
       // Verificar unicidad: solo puede existir una config por tenant+location+environment
       const existing = await tx.dteIssuerConfig.findFirst({
         where: { tenant_id, location_id, environment: input.environment },
@@ -132,8 +133,9 @@ export async function updateDteIssuerConfig(
   location_id: string,
   user_id:     string,
   input:       UpdateDteIssuerConfigInput,
+  db:          PrismaClient = prisma,
 ): Promise<DteResult> {
-  const config = await prisma.dteIssuerConfig.findFirst({
+  const config = await db.dteIssuerConfig.findFirst({
     where:  { id, tenant_id, location_id },
     select: { id: true },
   });
@@ -144,7 +146,7 @@ export async function updateDteIssuerConfig(
     };
   }
 
-  await prisma.dteIssuerConfig.update({
+  await db.dteIssuerConfig.update({
     where: { id },
     data: {
       ...(input.nit                    !== undefined && { nit:                     input.nit }),
@@ -179,8 +181,9 @@ export async function getActiveIssuerConfigOrThrow(
   tenant_id:   string,
   location_id: string,
   environment: DteEnvironment,
+  db:          PrismaClient = prisma,
 ): Promise<DteIssuerConfigDetail> {
-  const config = await prisma.dteIssuerConfig.findFirst({
+  const config = await db.dteIssuerConfig.findFirst({
     where: { tenant_id, location_id, environment, is_active: true },
     select: {
       id:                      true,
@@ -242,7 +245,7 @@ export async function switchActiveDteEnvironment(params: {
   location_id:        string;
   target_issuer_config_id: string;
   user_id:            string;
-}): Promise<SwitchDteEnvironmentResult> {
+}, db: PrismaClient = prisma): Promise<SwitchDteEnvironmentResult> {
   const { tenant_id, location_id, target_issuer_config_id, user_id } = params;
 
   // 1. Cargar el destino y validar que pertenece a este tenant/location
@@ -250,7 +253,7 @@ export async function switchActiveDteEnvironment(params: {
   //    desde el cliente — target_issuer_config_id es el único dato que
   //    llega del formulario; tenant_id/location_id siempre vienen de la
   //    sesión server-side (ver switch-dte-environment.action.ts).
-  const target = await prisma.dteIssuerConfig.findFirst({
+  const target = await db.dteIssuerConfig.findFirst({
     where:  { id: target_issuer_config_id, tenant_id, location_id },
     select: { id: true, environment: true, is_active: true },
   });
@@ -262,7 +265,7 @@ export async function switchActiveDteEnvironment(params: {
   //    dentro de la transacción (es read-only y puede tardar varias
   //    queries) — se valida antes de abrir la transacción de escritura.
   if (target.environment === "PRODUCTION") {
-    const preflight = await getDteProductionPreflight(tenant_id, location_id);
+    const preflight = await getDteProductionPreflight(tenant_id, location_id, db);
     if (preflight.status === "BLOCKED") {
       return {
         ok:    false,
@@ -272,14 +275,14 @@ export async function switchActiveDteEnvironment(params: {
     }
   }
 
-  const previousActive = await prisma.dteIssuerConfig.findFirst({
+  const previousActive = await db.dteIssuerConfig.findFirst({
     where:  { tenant_id, location_id, is_active: true },
     select: { id: true, environment: true },
   });
 
   // Ya está activa y es la única — no-op, pero igual se confirma invariante.
   if (previousActive?.id === target.id) {
-    const activeCount = await prisma.dteIssuerConfig.count({ where: { tenant_id, location_id, is_active: true } });
+    const activeCount = await db.dteIssuerConfig.count({ where: { tenant_id, location_id, is_active: true } });
     if (activeCount === 1) {
       return { ok: true, environment: target.environment as DteEnvironment, issuer_config_id: target.id };
     }
@@ -288,7 +291,7 @@ export async function switchActiveDteEnvironment(params: {
   // 3. Transacción atómica: desactivar todas, activar solo el destino,
   //    registrar auditoría, y verificar la invariante "exactamente 1
   //    activa" antes de confirmar. Cualquier fallo revierte todo.
-  await prisma.$transaction(async (tx) => {
+  await db.$transaction(async (tx) => {
     await tx.dteIssuerConfig.updateMany({
       where: { tenant_id, location_id, is_active: true },
       data:  { is_active: false, updated_by: user_id },

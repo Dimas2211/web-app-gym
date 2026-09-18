@@ -38,6 +38,11 @@ type DteApiContext =
       location_id: string;
       client:      PrismaClient;
       runtime:     RuntimeSessionPayload | null;
+      /** FASE VI-E2B: true bajo Support Session (solo lectura) — los
+       *  handlers de escritura (POST/PATCH) deben rechazar con 403 si
+       *  esto es true, igual que `context.runtime?.readOnly` en el
+       *  patrón general de EffectiveApiContext. */
+      readOnly:    boolean;
       dispose:     () => Promise<void>;
     }
   | { ok: false; status: number; error: string };
@@ -133,6 +138,7 @@ export async function getDteApiContext(req: NextRequest): Promise<DteApiContext>
     location_id: context.locationId,
     client:      context.client,
     runtime:     context.runtime,
+    readOnly:    context.readOnly,
     dispose,
   };
 }

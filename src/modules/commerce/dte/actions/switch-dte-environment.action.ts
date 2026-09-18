@@ -13,17 +13,13 @@
 
 import { revalidatePath } from "next/cache";
 import { requireAdmin } from "@/lib/permissions/guards";
-import { getEffectiveLocationId } from "@/lib/location/active-location";
-import { prisma } from "@/lib/db/prisma";
-import { isRuntimeReadOnlyActive, RUNTIME_READONLY_MESSAGE } from "@/modules/platform/runtime/runtime-session";
 import { switchDteEnvironmentSchema } from "../schemas/dte-credential.schemas";
 import { switchActiveDteEnvironment } from "../services/dte-issuer-config.service";
 import type { DteProductionPreflightResult } from "../services/dte-production-preflight.service";
 import {
-  resolveCommercialEnforcementContext,
-  assertOrganizationModule,
-  CommercialEnforcementError,
-} from "@/modules/platform/runtime/commercial-enforcement";
+  requireOperationalContext,
+  OperationalContextError,
+} from "@/modules/platform/runtime/require-operational-context";
 
 export type SwitchDteEnvironmentActionState =
   | { error: string; preflight?: DteProductionPreflightResult; success?: false }
@@ -37,60 +33,59 @@ export async function switchDteEnvironmentAction(
   formData: FormData,
 ): Promise<SwitchDteEnvironmentActionState> {
   const sessionUser = await requireAdmin();
-  const tenant_id   = sessionUser.tenant_id;
-  const location_id = await getEffectiveLocationId(sessionUser);
 
-  if (!tenant_id)   return { error: "La sesión no tiene un tenant activo." };
-  if (!location_id) return { error: "Selecciona una location activa." };
-
-  // PASO 6A: bloquear escritura bajo sesión runtime "Operar como cliente"
-  if (await isRuntimeReadOnlyActive()) {
-    return { error: RUNTIME_READONLY_MESSAGE };
-  }
-
+  let handle;
   try {
-    const commercialCtx = await resolveCommercialEnforcementContext(tenant_id);
-    assertOrganizationModule(commercialCtx, "fiscal.dte");
+    handle = await requireOperationalContext(sessionUser, { module: "fiscal.dte", write: true });
   } catch (err) {
-    if (err instanceof CommercialEnforcementError) return { error: err.userMessage };
+    if (err instanceof OperationalContextError) return { error: err.userMessage };
     throw err;
   }
+  const { context, dispose } = handle;
 
-  const raw = {
-    target_issuer_config_id: formData.get("target_issuer_config_id"),
-    confirm_text:             formData.get("confirm_text") || undefined,
-  };
+  try {
+    if (!context.locationId) {
+      return { error: "Selecciona una location activa." };
+    }
 
-  const parsed = switchDteEnvironmentSchema.safeParse(raw);
-  if (!parsed.success) {
-    return { error: "Datos de formulario inválidos." };
+    const raw = {
+      target_issuer_config_id: formData.get("target_issuer_config_id"),
+      confirm_text:             formData.get("confirm_text") || undefined,
+    };
+
+    const parsed = switchDteEnvironmentSchema.safeParse(raw);
+    if (!parsed.success) {
+      return { error: "Datos de formulario inválidos." };
+    }
+
+    // El destino debe pertenecer al tenant/location efectivos, y saber
+    // su ambiente para decidir si exige el texto de confirmación.
+    const target = await context.client.dteIssuerConfig.findFirst({
+      where:  { id: parsed.data.target_issuer_config_id, tenant_id: context.tenantId, location_id: context.locationId },
+      select: { id: true, environment: true },
+    });
+    if (!target) {
+      return { error: "La configuración DTE indicada no pertenece a esta sucursal." };
+    }
+
+    if (target.environment === "PRODUCTION" && parsed.data.confirm_text !== PRODUCTION_CONFIRM_TEXT) {
+      return { error: `Para activar PRODUCCIÓN debe escribir exactamente "${PRODUCTION_CONFIRM_TEXT}".` };
+    }
+
+    const result = await switchActiveDteEnvironment({
+      tenant_id:   context.tenantId,
+      location_id: context.locationId,
+      target_issuer_config_id: target.id,
+      user_id: context.effectiveUser.id,
+    }, context.client);
+
+    if (!result.ok) {
+      return { error: result.error, preflight: result.preflight };
+    }
+
+    revalidatePath("/dashboard/settings/dte");
+    return { success: true, environment: result.environment };
+  } finally {
+    await dispose();
   }
-
-  // El destino debe pertenecer al tenant/location de la sesión, y
-  // saber su ambiente para decidir si exige el texto de confirmación.
-  const target = await prisma.dteIssuerConfig.findFirst({
-    where:  { id: parsed.data.target_issuer_config_id, tenant_id, location_id },
-    select: { id: true, environment: true },
-  });
-  if (!target) {
-    return { error: "La configuración DTE indicada no pertenece a esta sucursal." };
-  }
-
-  if (target.environment === "PRODUCTION" && parsed.data.confirm_text !== PRODUCTION_CONFIRM_TEXT) {
-    return { error: `Para activar PRODUCCIÓN debe escribir exactamente "${PRODUCTION_CONFIRM_TEXT}".` };
-  }
-
-  const result = await switchActiveDteEnvironment({
-    tenant_id,
-    location_id,
-    target_issuer_config_id: target.id,
-    user_id: sessionUser.id,
-  });
-
-  if (!result.ok) {
-    return { error: result.error, preflight: result.preflight };
-  }
-
-  revalidatePath("/dashboard/settings/dte");
-  return { success: true, environment: result.environment };
 }

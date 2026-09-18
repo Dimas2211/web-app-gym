@@ -151,8 +151,9 @@ export async function upsertDteCredential(
   issuer_config_id: string,
   user_id:          string,
   input:            UpsertDteCredentialInput,
+  db:               PrismaClient = prisma,
 ): Promise<UpsertDteCredentialResult> {
-  const issuer = await prisma.dteIssuerConfig.findUnique({
+  const issuer = await db.dteIssuerConfig.findUnique({
     where:  { id: issuer_config_id },
     select: { id: true },
   });
@@ -160,7 +161,7 @@ export async function upsertDteCredential(
     return { ok: false, error: "La configuración DTE indicada no existe." };
   }
 
-  const existing = await prisma.dteCredential.findFirst({
+  const existing = await db.dteCredential.findFirst({
     where:  { issuer_config_id, credential_type: CREDENTIAL_TYPE },
     select: { id: true, encrypted_payload: true },
   });
@@ -189,12 +190,12 @@ export async function upsertDteCredential(
   const encrypted_payload = encryptDteCredentialPayload(merged);
 
   if (existing) {
-    await prisma.dteCredential.update({
+    await db.dteCredential.update({
       where: { id: existing.id },
       data:  { encrypted_payload, is_active: true, updated_by: user_id },
     });
   } else {
-    await prisma.dteCredential.create({
+    await db.dteCredential.create({
       data: {
         issuer_config_id,
         credential_type:   CREDENTIAL_TYPE,

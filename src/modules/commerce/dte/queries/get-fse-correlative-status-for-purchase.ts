@@ -21,6 +21,7 @@
 // dte-correlatives-onboarding.md para la regla completa de alineación.
 // ─────────────────────────────────────────────────────────────────
 
+import type { PrismaClient } from "@prisma/client";
 import { prisma } from "@/lib/db/prisma";
 import { getDteCorrelativeStatus } from "../services/dte-correlative.service";
 import { buildControlNumber } from "../utils/dte-control-number";
@@ -49,7 +50,7 @@ export async function getFseCorrelativeStatusForPurchase(params: {
   // nunca inferir desde la config activa actual en ese caso.
   existing_dte_issuer_config_id?: string | null;
   existing_dte_environment?:      "TEST" | "PRODUCTION" | null;
-}): Promise<FseCorrelativeStatusResult> {
+}, db: PrismaClient = prisma): Promise<FseCorrelativeStatusResult> {
   const { tenant_id, location_id } = params;
 
   let issuerConfigId: string;
@@ -58,7 +59,7 @@ export async function getFseCorrelativeStatusForPurchase(params: {
   let codPuntoVentaMh: string | null;
 
   if (params.existing_dte_issuer_config_id) {
-    const issuer = await prisma.dteIssuerConfig.findFirst({
+    const issuer = await db.dteIssuerConfig.findFirst({
       where:  { id: params.existing_dte_issuer_config_id, tenant_id, location_id },
       select: { id: true, environment: true, cod_estable_mh: true, cod_punto_venta_mh: true },
     });
@@ -70,7 +71,7 @@ export async function getFseCorrelativeStatusForPurchase(params: {
     codEstableMh    = issuer.cod_estable_mh;
     codPuntoVentaMh = issuer.cod_punto_venta_mh;
   } else {
-    const activeConfigs = await prisma.dteIssuerConfig.findMany({
+    const activeConfigs = await db.dteIssuerConfig.findMany({
       where:  { tenant_id, location_id, is_active: true },
       select: { id: true, environment: true, cod_estable_mh: true, cod_punto_venta_mh: true },
       take:   3,
@@ -103,7 +104,7 @@ export async function getFseCorrelativeStatusForPurchase(params: {
     dte_type_code:      "14",
     cod_estable_mh:     codEstableMh,
     cod_punto_venta_mh: codPuntoVentaMh,
-  });
+  }, db);
 
   const preview = buildControlNumber({
     dte_type_code:      "14",
