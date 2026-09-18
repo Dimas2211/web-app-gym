@@ -34,6 +34,7 @@
 // Estos valores son Municipality.code, no new_municipality_code.
 // ─────────────────────────────────────────────────────────────────
 
+import type { PrismaClient } from "@prisma/client";
 import { prisma } from "@/lib/db/prisma";
 
 export interface ResolvedDteMunicipality {
@@ -49,14 +50,17 @@ export interface ResolvedDteMunicipality {
  * registro real de Municipality. Devuelve null si el par no existe o
  * no está activo — el llamador decide si eso es bloqueante.
  */
-export async function resolveDteMunicipality(params: {
-  deptCode:          string | null | undefined;
-  municipalityCode:  string | null | undefined;
-}): Promise<ResolvedDteMunicipality | null> {
+export async function resolveDteMunicipality(
+  params: {
+    deptCode:          string | null | undefined;
+    municipalityCode:  string | null | undefined;
+  },
+  db: PrismaClient = prisma,
+): Promise<ResolvedDteMunicipality | null> {
   const { deptCode, municipalityCode } = params;
   if (!deptCode || !municipalityCode) return null;
 
-  const row = await prisma.municipality.findFirst({
+  const row = await db.municipality.findFirst({
     where: {
       dept_code: deptCode,
       code:      municipalityCode,
@@ -93,11 +97,14 @@ export async function resolveDteMunicipality(params: {
  * caso legítimo p.ej. consumidor final sin dirección en FE 01) — pero
  * SÍ falla si solo uno de los dos está presente (par incompleto).
  */
-export async function validateDteAddressCodes(params: {
-  role:              string; // etiqueta para el mensaje de error, ej. "emisor", "receptor", "sujeto excluido"
-  deptCode:          string | null | undefined;
-  municipalityCode:  string | null | undefined;
-}): Promise<{ ok: true } | { ok: false; error: string }> {
+export async function validateDteAddressCodes(
+  params: {
+    role:              string; // etiqueta para el mensaje de error, ej. "emisor", "receptor", "sujeto excluido"
+    deptCode:          string | null | undefined;
+    municipalityCode:  string | null | undefined;
+  },
+  db: PrismaClient = prisma,
+): Promise<{ ok: true } | { ok: false; error: string }> {
   const { role, deptCode, municipalityCode } = params;
 
   if (!deptCode && !municipalityCode) {
@@ -110,7 +117,7 @@ export async function validateDteAddressCodes(params: {
     };
   }
 
-  const resolved = await resolveDteMunicipality({ deptCode, municipalityCode });
+  const resolved = await resolveDteMunicipality({ deptCode, municipalityCode }, db);
   if (!resolved) {
     return {
       ok:    false,

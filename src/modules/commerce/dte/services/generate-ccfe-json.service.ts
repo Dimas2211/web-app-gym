@@ -28,7 +28,7 @@
 //   - ivaPerci1/ivaRete1/reteRenta: 0 en esta fase preliminar.
 // ─────────────────────────────────────────────────────────────────
 
-import { Prisma }                               from "@prisma/client";
+import { Prisma, type PrismaClient }            from "@prisma/client";
 import { prisma }                               from "@/lib/db/prisma";
 import { numeroALetras }                        from "../utils/numero-a-letras";
 import { normalizeNitForDte, normalizeNrcForDte } from "../utils/fiscal-id.utils";
@@ -82,10 +82,11 @@ export async function generateCcfeJsonForDte(
   tenant_id:       string,
   location_id:     string,
   user_id:         string,
+  db: PrismaClient = prisma,
 ): Promise<GenerateCcfeJsonResult> {
   try {
     // ── 1. Cargar DteOutgoingDocument ──────────────────────────────
-    const dteDoc = await prisma.dteOutgoingDocument.findFirst({
+    const dteDoc = await db.dteOutgoingDocument.findFirst({
       where: { id: dte_document_id, tenant_id, location_id },
       select: {
         id:                     true,
@@ -137,7 +138,7 @@ export async function generateCcfeJsonForDte(
     }
 
     // ── 5. Cargar venta completa ──────────────────────────────────
-    const sale = await prisma.sale.findFirst({
+    const sale = await db.sale.findFirst({
       where: { id: dteDoc.sale_id, tenant_id, location_id },
       select: {
         id:                       true,
@@ -243,7 +244,7 @@ export async function generateCcfeJsonForDte(
       role:             "receptor",
       deptCode:         c.dept_code,
       municipalityCode: c.municipality_code,
-    });
+    }, db);
     if (!receptorAddrCheck.ok) return { ok: false, error: receptorAddrCheck.error };
 
     const totalAmount    = Number(sale.total_amount);
@@ -267,7 +268,7 @@ export async function generateCcfeJsonForDte(
     }
 
     // ── 10. Cargar configuración del emisor ───────────────────────
-    const issuerConfig = await prisma.dteIssuerConfig.findFirst({
+    const issuerConfig = await db.dteIssuerConfig.findFirst({
       where: { id: dteDoc.issuer_config_id, tenant_id, location_id },
       select: {
         nit:                     true,
@@ -302,7 +303,7 @@ export async function generateCcfeJsonForDte(
       role:             "emisor",
       deptCode:         issuerConfig.dept_code,
       municipalityCode: issuerConfig.municipality_code,
-    });
+    }, db);
     if (!emisorAddrCheck.ok) return { ok: false, error: emisorAddrCheck.error };
 
     // ── 11. Construir cuerpoDocumento ─────────────────────────────
@@ -564,7 +565,7 @@ export async function generateCcfeJsonForDte(
     };
 
     // ── 20. Persistir: guardar JSON y cambiar estado ──────────────
-    await prisma.dteOutgoingDocument.update({
+    await db.dteOutgoingDocument.update({
       where: { id: dte_document_id },
       data:  {
         json_document: jsonDocument as unknown as Prisma.InputJsonValue,

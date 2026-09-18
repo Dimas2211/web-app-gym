@@ -18,6 +18,7 @@
 
 import Ajv         from "ajv";
 import addFormats  from "ajv-formats";
+import type { PrismaClient } from "@prisma/client";
 import { prisma }  from "@/lib/db/prisma";
 import feSchema    from "../schemas/mh/fe-01.schema.json";
 import ccfeSchema  from "../schemas/mh/ccfe-03.schema.json";
@@ -66,10 +67,11 @@ export async function validateDteJsonSchema(
   tenant_id:       string,
   location_id:     string,
   user_id:         string,
+  db: PrismaClient = prisma,
 ): Promise<ValidateDteJsonSchemaResult> {
   try {
     // 1. Cargar documento con validación tenant/location
-    const dteDoc = await prisma.dteOutgoingDocument.findFirst({
+    const dteDoc = await db.dteOutgoingDocument.findFirst({
       where: { id: dte_document_id, tenant_id, location_id },
       select: {
         id:            true,
@@ -156,7 +158,7 @@ export async function validateDteJsonSchema(
     }
 
     // 7. Actualizar estado → SCHEMA_VALIDATED
-    await prisma.dteOutgoingDocument.update({
+    await db.dteOutgoingDocument.update({
       where: { id: dte_document_id },
       data:  {
         dte_status:          "SCHEMA_VALIDATED",

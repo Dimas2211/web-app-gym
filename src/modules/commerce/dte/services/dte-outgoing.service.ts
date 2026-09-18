@@ -21,6 +21,7 @@
 // ─────────────────────────────────────────────────────────────────
 
 import { randomUUID }     from "crypto";
+import type { PrismaClient } from "@prisma/client";
 import { prisma }         from "@/lib/db/prisma";
 import { reserveDteControlNumber } from "./dte-correlative.service";
 import { validateDteTransmissionInput } from "../utils/dte-transmission-validation.utils";
@@ -51,6 +52,7 @@ export async function createPendingDteForSale(
     contingency_type_code?:  "1" | "2" | "3" | "4" | "5" | null;
     contingency_reason?:     string | null;
   },
+  db: PrismaClient = prisma,
 ): Promise<CreatePendingDteResult> {
   if (!DTE_MVP_TYPE_CODES.includes(input.dte_type_code as typeof DTE_MVP_TYPE_CODES[number])) {
     return {
@@ -71,7 +73,7 @@ export async function createPendingDteForSale(
   }
 
   try {
-    const doc = await prisma.$transaction(async (tx) => {
+    const doc = await db.$transaction(async (tx) => {
 
       // ── 1. Cargar venta con items y cliente ──────────────────────
       const sale = await tx.sale.findFirst({

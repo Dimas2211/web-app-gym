@@ -19,15 +19,13 @@
 
 import { revalidatePath } from "next/cache";
 import { requireAdmin } from "@/lib/permissions/guards";
-import { getEffectiveLocationId } from "@/lib/location/active-location";
 import { createDteOutgoingDocumentDraftSchema } from "../schemas/dte-issuer-config.schemas";
 import { createPendingDteForSale } from "../services/dte-outgoing.service";
 import type { CreateDteOutgoingDocumentDraftInput } from "../schemas/dte-issuer-config.schemas";
 import {
-  resolveCommercialEnforcementContext,
-  assertOrganizationModule,
-  CommercialEnforcementError,
-} from "@/modules/platform/runtime/commercial-enforcement";
+  requireOperationalContext,
+  OperationalContextError,
+} from "@/modules/platform/runtime/require-operational-context";
 
 export type CreatePendingDteForSaleActionResult =
   | { ok: true; dte_document_id: string }
@@ -37,37 +35,50 @@ export async function createPendingDteForSaleAction(
   input: CreateDteOutgoingDocumentDraftInput,
 ): Promise<CreatePendingDteForSaleActionResult> {
   const sessionUser = await requireAdmin();
-  const tenant_id   = sessionUser.tenant_id;
-  const location_id = await getEffectiveLocationId(sessionUser);
 
-  if (!tenant_id)   return { ok: false, error: "La sesión no tiene un tenant activo." };
-  if (!location_id) return { ok: false, error: "La sesión no tiene una location activa." };
-
+  // FASE VI-E3: contexto operacional runtime — reemplaza tenant/location
+  // de sesión + gate comercial manual + Prisma global. RUNTIME_CLIENT crea
+  // el DTE enteramente en su propia DB (Sale, correlativo, documento).
+  let handle;
   try {
-    const commercialCtx = await resolveCommercialEnforcementContext(tenant_id);
-    assertOrganizationModule(commercialCtx, "fiscal.dte");
+    handle = await requireOperationalContext(sessionUser, { module: "fiscal.dte", write: true });
   } catch (err) {
-    if (err instanceof CommercialEnforcementError) return { ok: false, error: err.userMessage };
+    if (err instanceof OperationalContextError) return { ok: false, error: err.userMessage };
     throw err;
   }
+  const { context, dispose } = handle;
 
-  const parsed = createDteOutgoingDocumentDraftSchema.safeParse(input);
-  if (!parsed.success) {
-    return {
-      ok:     false,
-      error:  "Datos del documento DTE no válidos.",
-      errors: parsed.error.flatten().fieldErrors as Record<string, string[]>,
-    };
+  try {
+    if (!context.locationId) {
+      return { ok: false, error: "La sesión no tiene una location activa." };
+    }
+
+    const parsed = createDteOutgoingDocumentDraftSchema.safeParse(input);
+    if (!parsed.success) {
+      return {
+        ok:     false,
+        error:  "Datos del documento DTE no válidos.",
+        errors: parsed.error.flatten().fieldErrors as Record<string, string[]>,
+      };
+    }
+
+    const result = await createPendingDteForSale(
+      context.tenantId,
+      context.locationId,
+      context.effectiveUser.id,
+      parsed.data,
+      context.client,
+    );
+
+    if (!result.ok) {
+      return { ok: false, error: result.error };
+    }
+
+    revalidatePath(`/dashboard/sales/${parsed.data.sale_id}`);
+    revalidatePath("/dashboard/dte/outgoing");
+
+    return { ok: true, dte_document_id: result.dte_document_id };
+  } finally {
+    await dispose();
   }
-
-  const result = await createPendingDteForSale(tenant_id, location_id, sessionUser.id, parsed.data);
-
-  if (!result.ok) {
-    return { ok: false, error: result.error };
-  }
-
-  revalidatePath(`/dashboard/sales/${parsed.data.sale_id}`);
-  revalidatePath("/dashboard/dte/outgoing");
-
-  return { ok: true, dte_document_id: result.dte_document_id };
 }

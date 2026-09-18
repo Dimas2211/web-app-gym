@@ -21,14 +21,11 @@
 
 import { revalidatePath } from "next/cache";
 import { requireAdmin }   from "@/lib/permissions/guards";
-import { getEffectiveLocationId } from "@/lib/location/active-location";
-import { isRuntimeReadOnlyActive, RUNTIME_READONLY_MESSAGE } from "@/modules/platform/runtime/runtime-session";
 import { generateFeJsonForDte } from "../services/generate-fe-json.service";
 import {
-  resolveCommercialEnforcementContext,
-  assertOrganizationModule,
-  CommercialEnforcementError,
-} from "@/modules/platform/runtime/commercial-enforcement";
+  requireOperationalContext,
+  OperationalContextError,
+} from "@/modules/platform/runtime/require-operational-context";
 
 export type GenerateFeJsonForSaleActionResult =
   | { ok: true }
@@ -38,39 +35,42 @@ export async function generateFeJsonForSaleAction(
   dte_document_id: string,
 ): Promise<GenerateFeJsonForSaleActionResult> {
   const sessionUser = await requireAdmin();
-  const tenant_id   = sessionUser.tenant_id;
-  const location_id = await getEffectiveLocationId(sessionUser);
 
-  if (!tenant_id)         return { ok: false, error: "La sesión no tiene un tenant activo." };
-  if (!location_id)       return { ok: false, error: "La sesión no tiene una location activa." };
-  if (!dte_document_id)   return { ok: false, error: "El ID del documento DTE es requerido." };
+  if (!dte_document_id) return { ok: false, error: "El ID del documento DTE es requerido." };
 
-  // PASO 6A: bloquear escritura bajo sesión runtime "Operar como cliente"
-  if (await isRuntimeReadOnlyActive()) {
-    return { ok: false, error: RUNTIME_READONLY_MESSAGE };
-  }
-
+  // FASE VI-E3: contexto operacional runtime — DteOutgoingDocument, Sale
+  // y DteIssuerConfig se leen/actualizan SIEMPRE en la misma DB efectiva.
+  let handle;
   try {
-    const commercialCtx = await resolveCommercialEnforcementContext(tenant_id);
-    assertOrganizationModule(commercialCtx, "fiscal.dte");
+    handle = await requireOperationalContext(sessionUser, { module: "fiscal.dte", write: true });
   } catch (err) {
-    if (err instanceof CommercialEnforcementError) return { ok: false, error: err.userMessage };
+    if (err instanceof OperationalContextError) return { ok: false, error: err.userMessage };
     throw err;
   }
+  const { context, dispose } = handle;
 
-  const result = await generateFeJsonForDte(
-    dte_document_id,
-    tenant_id,
-    location_id,
-    sessionUser.id,
-  );
+  try {
+    if (!context.locationId) {
+      return { ok: false, error: "La sesión no tiene una location activa." };
+    }
 
-  if (!result.ok) {
-    return { ok: false, error: result.error };
+    const result = await generateFeJsonForDte(
+      dte_document_id,
+      context.tenantId,
+      context.locationId,
+      context.effectiveUser.id,
+      context.client,
+    );
+
+    if (!result.ok) {
+      return { ok: false, error: result.error };
+    }
+
+    revalidatePath("/dashboard/sales");
+    revalidatePath("/dashboard/dte/outgoing");
+
+    return { ok: true };
+  } finally {
+    await dispose();
   }
-
-  revalidatePath("/dashboard/sales");
-  revalidatePath("/dashboard/dte/outgoing");
-
-  return { ok: true };
 }
