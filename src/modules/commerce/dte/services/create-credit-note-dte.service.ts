@@ -20,7 +20,7 @@
 // ─────────────────────────────────────────────────────────────────
 
 import { randomUUID }        from "crypto";
-import { Prisma }            from "@prisma/client";
+import { Prisma, type PrismaClient } from "@prisma/client";
 import { prisma }            from "@/lib/db/prisma";
 import { reserveDteControlNumber } from "./dte-correlative.service";
 
@@ -52,11 +52,12 @@ class CreditNoteBusinessError extends Error {
 
 export async function createCreditNoteDteFromAcceptedCcfe(
   input: CreateCreditNoteDteInput,
+  db: PrismaClient = prisma,
 ): Promise<CreateCreditNoteDteResult> {
   const { sourceDteDocumentId, reasonCode, reasonText, userId, tenantId, locationId } = input;
 
   try {
-    const result = await prisma.$transaction(async (tx) => {
+    const result = await db.$transaction(async (tx) => {
 
       // ── 1. Cargar DTE original con scope tenant/location ─────────
       const original = await tx.dteOutgoingDocument.findFirst({

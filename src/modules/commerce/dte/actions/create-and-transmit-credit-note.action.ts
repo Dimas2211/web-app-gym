@@ -18,18 +18,15 @@
 import { z }                             from "zod";
 import { revalidatePath }                from "next/cache";
 import { requireAdmin }                  from "@/lib/permissions/guards";
-import { getEffectiveLocationId }        from "@/lib/location/active-location";
 import { createCreditNoteDteFromAcceptedCcfe } from "../services/create-credit-note-dte.service";
 import { generateNcJsonForDte }          from "../services/generate-nc-json.service";
 import { validateDteJsonSchema }         from "../services/validate-dte-json-schema.service";
 import { signDteDocument }               from "../services/sign-dte-document.service";
 import { transmitDteDocument }           from "../services/transmit-dte-document.service";
-import { isRuntimeReadOnlyActive, RUNTIME_READONLY_MESSAGE } from "@/modules/platform/runtime/runtime-session";
 import {
-  resolveCommercialEnforcementContext,
-  assertOrganizationModule,
-  CommercialEnforcementError,
-} from "@/modules/platform/runtime/commercial-enforcement";
+  requireOperationalContext,
+  OperationalContextError,
+} from "@/modules/platform/runtime/require-operational-context";
 
 // ── Input ─────────────────────────────────────────────────────────
 
@@ -61,91 +58,103 @@ export async function createAndTransmitCreditNoteAction(
   rawInput: CreateAndTransmitCreditNoteInput,
 ): Promise<CreateAndTransmitCreditNoteResult> {
   const sessionUser = await requireAdmin();
-  const tenant_id   = sessionUser.tenant_id;
-  const location_id = await getEffectiveLocationId(sessionUser);
 
-  if (!tenant_id)   return { ok: false, error: "La sesión no tiene un tenant activo." };
-  if (!location_id) return { ok: false, error: "La sesión no tiene una location activa." };
-
-  // PASO 6A: blindaje de solo lectura — bloquea ANTES de crear/generar/
-  // firmar/transmitir la nota de crédito. No toca la lógica de emisión
-  // (createCreditNoteDteFromAcceptedCcfe/generateNcJsonForDte/
-  // validateDteJsonSchema/signDteDocument/transmitDteDocument intactos).
-  if (await isRuntimeReadOnlyActive()) {
-    return { ok: false, error: RUNTIME_READONLY_MESSAGE };
-  }
-
+  // FASE VI-E4B: contexto operacional runtime reemplaza el blindaje manual
+  // de solo lectura (isRuntimeReadOnlyActive) y el gate comercial manual —
+  // ambos quedan cubiertos por requireOperationalContext({ write: true }).
+  // createCreditNoteDteFromAcceptedCcfe/generateNcJsonForDte/
+  // validateDteJsonSchema ahora corren en context.client (runtime DB para
+  // RUNTIME_CLIENT). signDteDocument/transmitDteDocument quedan fuera de
+  // alcance de esta fase (VI-E5) — siguen intactos, solo reciben
+  // tenantId/locationId/userId ya resueltos por el contexto operacional.
+  let handle;
   try {
-    const commercialCtx = await resolveCommercialEnforcementContext(tenant_id);
-    assertOrganizationModule(commercialCtx, "fiscal.dte");
+    handle = await requireOperationalContext(sessionUser, { module: "fiscal.dte", write: true });
   } catch (err) {
-    if (err instanceof CommercialEnforcementError) return { ok: false, error: err.userMessage };
+    if (err instanceof OperationalContextError) return { ok: false, error: err.userMessage };
     throw err;
   }
+  const { context, dispose } = handle;
 
-  const parsed = inputSchema.safeParse(rawInput);
-  if (!parsed.success) {
-    const first = Object.values(parsed.error.flatten().fieldErrors)[0]?.[0];
-    return { ok: false, error: first ?? "Datos no válidos." };
+  try {
+    if (!context.locationId) {
+      return { ok: false, error: "La sesión no tiene una location activa." };
+    }
+
+    const parsed = inputSchema.safeParse(rawInput);
+    if (!parsed.success) {
+      const first = Object.values(parsed.error.flatten().fieldErrors)[0]?.[0];
+      return { ok: false, error: first ?? "Datos no válidos." };
+    }
+
+    const { sourceDteDocumentId, reasonText, reasonCode } = parsed.data;
+    const ctx = {
+      userId:     context.effectiveUser.id,
+      tenantId:   context.tenantId,
+      locationId: context.locationId,
+    };
+
+    // 1. Crear NC 05 en PENDING_GENERATION
+    const createResult = await createCreditNoteDteFromAcceptedCcfe(
+      { sourceDteDocumentId, reasonText, reasonCode, ...ctx },
+      context.client,
+    );
+    if (!createResult.ok) {
+      return { ok: false, error: createResult.message, stepFailed: "crear_nc" };
+    }
+    const { creditNoteDteId, controlNumber, generationCode } = createResult;
+
+    // 2. Generar JSON NC 05 (PENDING_GENERATION → GENERATED)
+    const generateResult = await generateNcJsonForDte(
+      { dteDocumentId: creditNoteDteId, ...ctx },
+      context.client,
+    );
+    if (!generateResult.ok) {
+      return { ok: false, error: generateResult.message, stepFailed: "generar_json" };
+    }
+
+    // 3. Validar schema MH (GENERATED → SCHEMA_VALIDATED)
+    const validateResult = await validateDteJsonSchema(
+      creditNoteDteId,
+      context.tenantId,
+      context.locationId,
+      context.effectiveUser.id,
+      context.client,
+    );
+    if (!validateResult.ok) {
+      const errMsg = validateResult.validation_errors?.length
+        ? `Schema inválido: ${validateResult.validation_errors[0].message}`
+        : (validateResult.error ?? "Error de validación de schema.");
+      return { ok: false, error: errMsg, stepFailed: "validar_schema" };
+    }
+
+    // 4. Firmar DTE (SCHEMA_VALIDATED → SIGNED) — fuera de alcance VI-E4B,
+    //    intacto: sigue operando sobre Prisma global (ver VI-E5).
+    const signResult = await signDteDocument({ dteDocumentId: creditNoteDteId, ...ctx });
+    if (!signResult.ok) {
+      return { ok: false, error: signResult.error, stepFailed: "firmar" };
+    }
+
+    // 5. Transmitir a Hacienda (SIGNED → ACCEPTED | OBSERVED | REJECTED) —
+    //    fuera de alcance VI-E4B, intacto (ver VI-E5).
+    const transmitResult = await transmitDteDocument({ dteDocumentId: creditNoteDteId, ...ctx });
+    if (!transmitResult.ok) {
+      return { ok: false, error: transmitResult.error, stepFailed: "transmitir" };
+    }
+
+    revalidatePath("/dashboard/sales");
+    revalidatePath("/dashboard/dte/outgoing");
+
+    return {
+      ok:              true,
+      creditNoteDteId,
+      controlNumber,
+      generationCode,
+      finalStatus:     transmitResult.dteStatus,
+      selloRecibido:   transmitResult.selloRecibido  ?? null,
+      descripcionMsg:  transmitResult.descripcionMsg ?? null,
+    };
+  } finally {
+    await dispose();
   }
-
-  const { sourceDteDocumentId, reasonText, reasonCode } = parsed.data;
-  const ctx = { userId: sessionUser.id, tenantId: tenant_id, locationId: location_id };
-
-  // 1. Crear NC 05 en PENDING_GENERATION
-  const createResult = await createCreditNoteDteFromAcceptedCcfe({
-    sourceDteDocumentId,
-    reasonText,
-    reasonCode,
-    ...ctx,
-  });
-  if (!createResult.ok) {
-    return { ok: false, error: createResult.message, stepFailed: "crear_nc" };
-  }
-  const { creditNoteDteId, controlNumber, generationCode } = createResult;
-
-  // 2. Generar JSON NC 05 (PENDING_GENERATION → GENERATED)
-  const generateResult = await generateNcJsonForDte({ dteDocumentId: creditNoteDteId, ...ctx });
-  if (!generateResult.ok) {
-    return { ok: false, error: generateResult.message, stepFailed: "generar_json" };
-  }
-
-  // 3. Validar schema MH (GENERATED → SCHEMA_VALIDATED)
-  const validateResult = await validateDteJsonSchema(
-    creditNoteDteId,
-    tenant_id,
-    location_id,
-    sessionUser.id,
-  );
-  if (!validateResult.ok) {
-    const errMsg = validateResult.validation_errors?.length
-      ? `Schema inválido: ${validateResult.validation_errors[0].message}`
-      : (validateResult.error ?? "Error de validación de schema.");
-    return { ok: false, error: errMsg, stepFailed: "validar_schema" };
-  }
-
-  // 4. Firmar DTE (SCHEMA_VALIDATED → SIGNED)
-  const signResult = await signDteDocument({ dteDocumentId: creditNoteDteId, ...ctx });
-  if (!signResult.ok) {
-    return { ok: false, error: signResult.error, stepFailed: "firmar" };
-  }
-
-  // 5. Transmitir a Hacienda (SIGNED → ACCEPTED | OBSERVED | REJECTED)
-  const transmitResult = await transmitDteDocument({ dteDocumentId: creditNoteDteId, ...ctx });
-  if (!transmitResult.ok) {
-    return { ok: false, error: transmitResult.error, stepFailed: "transmitir" };
-  }
-
-  revalidatePath("/dashboard/sales");
-  revalidatePath("/dashboard/dte/outgoing");
-
-  return {
-    ok:              true,
-    creditNoteDteId,
-    controlNumber,
-    generationCode,
-    finalStatus:     transmitResult.dteStatus,
-    selloRecibido:   transmitResult.selloRecibido  ?? null,
-    descripcionMsg:  transmitResult.descripcionMsg ?? null,
-  };
 }

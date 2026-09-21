@@ -22,7 +22,7 @@
 //   - NO regenera generation_code ni control_number.
 // ─────────────────────────────────────────────────────────────────
 
-import { Prisma }                                   from "@prisma/client";
+import { Prisma, type PrismaClient }                from "@prisma/client";
 import { prisma }                                   from "@/lib/db/prisma";
 import { numeroALetras }                            from "../utils/numero-a-letras";
 import { normalizeNitForDte, normalizeNrcForDte }   from "../utils/fiscal-id.utils";
@@ -87,17 +87,20 @@ export type GenerateNcJsonResult =
 
 // ── Función principal ─────────────────────────────────────────────
 
-export async function generateNcJsonForDte(params: {
-  dteDocumentId: string;
-  userId:        string;
-  tenantId:      string;
-  locationId:    string;
-}): Promise<GenerateNcJsonResult> {
+export async function generateNcJsonForDte(
+  params: {
+    dteDocumentId: string;
+    userId:        string;
+    tenantId:      string;
+    locationId:    string;
+  },
+  db: PrismaClient = prisma,
+): Promise<GenerateNcJsonResult> {
   const { dteDocumentId, userId, tenantId, locationId } = params;
 
   try {
     // ── 1. Cargar DteOutgoingDocument NC 05 ───────────────────────
-    const ncDoc = await prisma.dteOutgoingDocument.findFirst({
+    const ncDoc = await db.dteOutgoingDocument.findFirst({
       where: { id: dteDocumentId, tenant_id: tenantId, location_id: locationId },
       select: {
         id:               true,
@@ -146,7 +149,7 @@ export async function generateNcJsonForDte(params: {
     }
 
     // ── 5. Cargar relación CREDIT_NOTE_OF ─────────────────────────
-    const ncRelation = await prisma.dteDocumentRelation.findFirst({
+    const ncRelation = await db.dteDocumentRelation.findFirst({
       where: {
         source_dte_document_id: dteDocumentId,
         relation_type:          "CREDIT_NOTE_OF",
@@ -161,7 +164,7 @@ export async function generateNcJsonForDte(params: {
     }
 
     // ── 6. Cargar CCFE 03 original ────────────────────────────────
-    const originalCcfe = await prisma.dteOutgoingDocument.findFirst({
+    const originalCcfe = await db.dteOutgoingDocument.findFirst({
       where: {
         id:          ncRelation.related_dte_document_id,
         tenant_id:   tenantId,
@@ -232,7 +235,7 @@ export async function generateNcJsonForDte(params: {
     }
 
     // ── 9. Cargar configuración del emisor ────────────────────────
-    const issuerConfig = await prisma.dteIssuerConfig.findFirst({
+    const issuerConfig = await db.dteIssuerConfig.findFirst({
       where: { id: ncDoc.issuer_config_id, tenant_id: tenantId, location_id: locationId },
       select: {
         nit:                     true,
@@ -267,7 +270,7 @@ export async function generateNcJsonForDte(params: {
       role:             "emisor",
       deptCode:         issuerConfig.dept_code,
       municipalityCode: issuerConfig.municipality_code,
-    });
+    }, db);
     if (!emisorAddrCheck.ok) return { ok: false, message: emisorAddrCheck.error };
 
     // ── 10. Construir identificacion ──────────────────────────────
@@ -456,7 +459,7 @@ export async function generateNcJsonForDte(params: {
     };
 
     // ── 18. Persistir: guardar JSON y cambiar estado ──────────────
-    await prisma.dteOutgoingDocument.update({
+    await db.dteOutgoingDocument.update({
       where: { id: dteDocumentId },
       data:  {
         json_document: jsonDocument as unknown as Prisma.InputJsonValue,
