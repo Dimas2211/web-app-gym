@@ -11,9 +11,19 @@
 //   - Delega construcción/validación del JSON al builder (buildInvalidationEventJson).
 //   - NO modifica DteOutgoingDocument — sigue ACCEPTED.
 //   - NO firma. NO transmite. NO toca Prisma schema.
+//
+// FASE VI-E6B — acepta un `db` explícito (PrismaClient runtime) que se
+// usa para TODA lectura/escritura tenant-owned (DteOutgoingDocument,
+// DteIssuerConfig, DteInvalidationEvent existente/nuevo). Sin `db`, cae
+// al Prisma global (comportamiento legacy para callers PLATFORM_NATIVE
+// no migrados). Certifica que para RUNTIME_CLIENT el DTE original + el
+// emisor + el nuevo evento de invalidación salen/entran de la MISMA
+// base runtime — nunca solo mismo tenant_id (mismo patrón que
+// sign-dte-document.service.ts, VI-E5A).
 // ─────────────────────────────────────────────────────────────────
 
 import { randomUUID }                   from "crypto";
+import type { PrismaClient }            from "@prisma/client";
 import { type DteInvalidationStatus, Prisma } from "@prisma/client";
 import { prisma }                       from "@/lib/db/prisma";
 import { buildInvalidationEventJson }   from "./build-invalidation-event-json.service";
@@ -71,6 +81,7 @@ class InvalidationBusinessError extends Error {
 
 export async function createInvalidationEvent(
   params: CreateInvalidationEventParams,
+  db: PrismaClient = prisma,
 ): Promise<CreateInvalidationEventResult> {
   const {
     dteDocumentId,
@@ -86,7 +97,7 @@ export async function createInvalidationEvent(
 
   try {
     // ── 1. Cargar DteOutgoingDocument con scope tenant/location ────
-    const dteDoc = await prisma.dteOutgoingDocument.findFirst({
+    const dteDoc = await db.dteOutgoingDocument.findFirst({
       where: { id: dteDocumentId, tenant_id: tenantId, location_id: locationId },
       select: {
         id:               true,
@@ -99,6 +110,7 @@ export async function createInvalidationEvent(
         reception_stamp:  true,
         json_document:    true,
         issuer_config_id: true,
+        environment:      true,
       },
     });
 
@@ -142,7 +154,7 @@ export async function createInvalidationEvent(
     }
 
     // ── 5. Bloquear si ya existe evento activo para este DTE ───────
-    const existingActive = await prisma.dteInvalidationEvent.findFirst({
+    const existingActive = await db.dteInvalidationEvent.findFirst({
       where: {
         dte_document_id: dteDocumentId,
         status:          { in: Array.from(ACTIVE_INVALIDATION_STATUSES) as DteInvalidationStatus[] },
@@ -156,9 +168,11 @@ export async function createInvalidationEvent(
       );
     }
 
-    // ── 6. Cargar DteIssuerConfig ─────────────────────────────────
-    const issuerConfig = await prisma.dteIssuerConfig.findFirst({
-      where: { id: dteDoc.issuer_config_id },
+    // ── 6. Cargar DteIssuerConfig — misma runtime DB, mismo tenant/
+    //      location que el documento (VI-E6B / F, H). Mismo patrón
+    //      estructural que sign-dte-document.service.ts (VI-E5A).
+    const issuerConfig = await db.dteIssuerConfig.findFirst({
+      where: { id: dteDoc.issuer_config_id, tenant_id: tenantId, location_id: locationId },
       select: {
         id:                     true,
         nit:                    true,
@@ -178,6 +192,16 @@ export async function createInvalidationEvent(
     if (!issuerConfig) {
       throw new InvalidationBusinessError(
         "No se encontró la configuración del emisor DTE asociada al documento.",
+      );
+    }
+
+    // ── 6b. Consistencia de ambiente documento <-> emisor (VI-E6B / I).
+    //       El ambiente fiscal de autoridad para la invalidación es
+    //       siempre dteDoc.environment. Nunca se permite mezclar
+    //       TEST/PRODUCTION entre documento y emisor.
+    if (issuerConfig.environment !== dteDoc.environment) {
+      throw new InvalidationBusinessError(
+        "El ambiente del emisor no coincide con el ambiente del documento DTE. Invalidación bloqueada.",
       );
     }
 
@@ -244,7 +268,7 @@ export async function createInvalidationEvent(
     }
 
     // ── 11. Persistir DteInvalidationEvent en DRAFT ───────────────
-    const invalidationEvent = await prisma.dteInvalidationEvent.create({
+    const invalidationEvent = await db.dteInvalidationEvent.create({
       data: {
         tenant_id:              tenantId,
         location_id:            locationId,

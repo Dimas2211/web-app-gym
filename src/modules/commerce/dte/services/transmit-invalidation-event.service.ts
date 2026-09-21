@@ -13,11 +13,21 @@
 //   - RECHAZADO: marca evento REJECTED, revierte DTE a ACCEPTED.
 //   - Registra DteTransmissionLog en todos los casos.
 //   - No expone signed_jws ni token.
+//
+// FASE VI-E6B — acepta un `db` explícito (PrismaClient runtime), mismo
+// patrón que transmit-dte-document.service.ts (VI-E5B). Con `db`, TODA
+// lectura/escritura tenant-owned (DteInvalidationEvent, DteOutgoingDocument,
+// DteTransmissionLog) y la resolución de credenciales MH (vía
+// MhAuthAdapter({ credentialClient: db })) corren en la MISMA runtime
+// DB. Sin `db`, cae al Prisma global (comportamiento legacy para
+// callers PLATFORM_NATIVE no migrados).
 
+import type { PrismaClient }                  from "@prisma/client";
 import { prisma }                             from "@/lib/db/prisma";
 import { Prisma }                             from "@prisma/client";
 import { getDteMhConfig }                      from "../config/dte-mh.config";
 import { MhInvalidationTransmissionAdapter }  from "../adapters/dte-invalidation-transmission.adapter";
+import { MhAuthAdapter }                       from "../adapters/dte-auth.adapter";
 
 // ── Tipos públicos ────────────────────────────────────────────────
 
@@ -63,12 +73,13 @@ function buildAnularUrl(environment: string): string {
 
 export async function transmitInvalidationEvent(
   params: TransmitInvalidationEventParams,
+  db: PrismaClient = prisma,
 ): Promise<TransmitInvalidationEventResult> {
   const { invalidationEventId, userId, tenantId, locationId } = params;
 
   try {
     // 1. Cargar evento con scope tenant/location
-    const event = await prisma.dteInvalidationEvent.findFirst({
+    const event = await db.dteInvalidationEvent.findFirst({
       where: {
         id:          invalidationEventId,
         tenant_id:   tenantId,
@@ -105,7 +116,7 @@ export async function transmitInvalidationEvent(
     }
 
     // 3. Cargar DTE original
-    const dteDoc = await prisma.dteOutgoingDocument.findFirst({
+    const dteDoc = await db.dteOutgoingDocument.findFirst({
       where: {
         id:          event.dte_document_id,
         tenant_id:   tenantId,
@@ -152,7 +163,7 @@ export async function transmitInvalidationEvent(
     void config;
 
     // Contar intentos previos para attempt_number en el log
-    const previousAttempts = await prisma.dteTransmissionLog.count({
+    const previousAttempts = await db.dteTransmissionLog.count({
       where: {
         dte_document_id: event.dte_document_id,
         operation_type:  "INVALIDATE",
@@ -163,19 +174,22 @@ export async function transmitInvalidationEvent(
     const now = new Date();
 
     // 6. Marcar estados optimistas antes de llamar a MH
-    await prisma.$transaction([
-      prisma.dteInvalidationEvent.update({
+    await db.$transaction([
+      db.dteInvalidationEvent.update({
         where: { id: invalidationEventId },
         data:  { status: "SENT", sent_at: now },
       }),
-      prisma.dteOutgoingDocument.update({
+      db.dteOutgoingDocument.update({
         where: { id: event.dte_document_id },
         data:  { dte_status: "INVALIDATION_PENDING", updated_by: userId ?? undefined },
       }),
     ]);
 
-    // 7. Transmitir a MH
-    const adapter = new MhInvalidationTransmissionAdapter();
+    // 7. Transmitir a MH — MhAuthAdapter con credentialClient: db para
+    //    que la DteCredential (si existe una por emisor/ambiente) se
+    //    resuelva desde la MISMA runtime DB que el documento/evento
+    //    (mismo patrón que transmit-dte-document.service.ts, VI-E5B).
+    const adapter = new MhInvalidationTransmissionAdapter(new MhAuthAdapter({ credentialClient: db }));
     const result  = await adapter.transmit({
       environment,
       signedJws: event.signed_jws,
@@ -185,8 +199,8 @@ export async function transmitInvalidationEvent(
     // ── Caso: error técnico ───────────────────────────────────────
     if (!result.ok) {
       // Revertir estados optimistas
-      await prisma.$transaction([
-        prisma.dteInvalidationEvent.update({
+      await db.$transaction([
+        db.dteInvalidationEvent.update({
           where: { id: invalidationEventId },
           data:  {
             status:     "SIGNED",
@@ -194,11 +208,11 @@ export async function transmitInvalidationEvent(
             last_error: result.message,
           },
         }),
-        prisma.dteOutgoingDocument.update({
+        db.dteOutgoingDocument.update({
           where: { id: event.dte_document_id },
           data:  { dte_status: "ACCEPTED", updated_by: userId ?? undefined },
         }),
-        prisma.dteTransmissionLog.create({
+        db.dteTransmissionLog.create({
           data: {
             dte_document_id: event.dte_document_id,
             attempt_number:  attemptNumber,
@@ -233,8 +247,8 @@ export async function transmitInvalidationEvent(
     if (result.mhEstado === "PROCESADO") {
       const acceptedAt = new Date();
 
-      await prisma.$transaction([
-        prisma.dteInvalidationEvent.update({
+      await db.$transaction([
+        db.dteInvalidationEvent.update({
           where: { id: invalidationEventId },
           data:  {
             status:             "ACCEPTED",
@@ -250,7 +264,7 @@ export async function transmitInvalidationEvent(
             last_error:         null,
           },
         }),
-        prisma.dteOutgoingDocument.update({
+        db.dteOutgoingDocument.update({
           where: { id: event.dte_document_id },
           data:  {
             dte_status:     "INVALIDATED",
@@ -258,7 +272,7 @@ export async function transmitInvalidationEvent(
             updated_by:     userId ?? undefined,
           },
         }),
-        prisma.dteTransmissionLog.create({
+        db.dteTransmissionLog.create({
           data: {
             dte_document_id: event.dte_document_id,
             attempt_number:  attemptNumber,
@@ -286,8 +300,8 @@ export async function transmitInvalidationEvent(
     if (result.mhEstado === "RECHAZADO") {
       const rejectedAt = new Date();
 
-      await prisma.$transaction([
-        prisma.dteInvalidationEvent.update({
+      await db.$transaction([
+        db.dteInvalidationEvent.update({
           where: { id: invalidationEventId },
           data:  {
             status:             "REJECTED",
@@ -302,7 +316,7 @@ export async function transmitInvalidationEvent(
           },
         }),
         // Revertir DTE original a ACCEPTED
-        prisma.dteOutgoingDocument.update({
+        db.dteOutgoingDocument.update({
           where: { id: event.dte_document_id },
           data:  {
             dte_status:     "ACCEPTED",
@@ -310,7 +324,7 @@ export async function transmitInvalidationEvent(
             updated_by:     userId ?? undefined,
           },
         }),
-        prisma.dteTransmissionLog.create({
+        db.dteTransmissionLog.create({
           data: {
             dte_document_id: event.dte_document_id,
             attempt_number:  attemptNumber,
@@ -335,8 +349,8 @@ export async function transmitInvalidationEvent(
     }
 
     // ── Estado MH inesperado: revertir y registrar ────────────────
-    await prisma.$transaction([
-      prisma.dteInvalidationEvent.update({
+    await db.$transaction([
+      db.dteInvalidationEvent.update({
         where: { id: invalidationEventId },
         data:  {
           status:     "SIGNED",
@@ -344,11 +358,11 @@ export async function transmitInvalidationEvent(
           last_error: `Estado MH inesperado: ${result.mhEstado}`,
         },
       }),
-      prisma.dteOutgoingDocument.update({
+      db.dteOutgoingDocument.update({
         where: { id: event.dte_document_id },
         data:  { dte_status: "ACCEPTED", updated_by: userId ?? undefined },
       }),
-      prisma.dteTransmissionLog.create({
+      db.dteTransmissionLog.create({
         data: {
           dte_document_id: event.dte_document_id,
           attempt_number:  attemptNumber,

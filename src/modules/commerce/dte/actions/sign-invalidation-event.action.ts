@@ -9,18 +9,20 @@
 //   - Sesión requerida (requireAdmin).
 //   - tenant_id y location_id se inyectan desde sesión.
 //   - No devuelve JWS ni secretos al frontend.
+//
+// FASE VI-E6B — reemplaza requireAdmin + getEffectiveLocationId +
+// resolveCommercialEnforcementContext manual por
+// requireOperationalContext, mismo patrón que create-invalidation-event.action.ts.
 // ─────────────────────────────────────────────────────────────────
 
 import { z }                         from "zod";
 import { revalidatePath }            from "next/cache";
 import { requireAdmin }              from "@/lib/permissions/guards";
-import { getEffectiveLocationId }    from "@/lib/location/active-location";
 import { signInvalidationEvent }     from "../services/sign-invalidation-event.service";
 import {
-  resolveCommercialEnforcementContext,
-  assertOrganizationModule,
-  CommercialEnforcementError,
-} from "@/modules/platform/runtime/commercial-enforcement";
+  requireOperationalContext,
+  OperationalContextError,
+} from "@/modules/platform/runtime/require-operational-context";
 
 // ── Zod schema ────────────────────────────────────────────────────
 
@@ -44,45 +46,52 @@ export async function signInvalidationEventAction(
   invalidationEventId: string,
 ): Promise<SignInvalidationEventActionResult> {
   const sessionUser = await requireAdmin();
-  const tenant_id   = sessionUser.tenant_id;
-  const location_id = await getEffectiveLocationId(sessionUser);
 
-  if (!tenant_id)   return { ok: false, message: "La sesión no tiene un tenant activo." };
-  if (!location_id) return { ok: false, message: "La sesión no tiene una location activa." };
-
+  let handle;
   try {
-    const commercialCtx = await resolveCommercialEnforcementContext(tenant_id);
-    assertOrganizationModule(commercialCtx, "fiscal.dte");
+    handle = await requireOperationalContext(sessionUser, { module: "fiscal.dte", write: true });
   } catch (err) {
-    if (err instanceof CommercialEnforcementError) return { ok: false, message: err.userMessage };
+    if (err instanceof OperationalContextError) return { ok: false, message: err.userMessage };
     throw err;
   }
+  const { context, dispose } = handle;
 
-  const parsed = signInvalidationEventInputSchema.safeParse({ invalidationEventId });
-  if (!parsed.success) {
+  try {
+    if (!context.locationId) {
+      return { ok: false, message: "La sesión no tiene una location activa." };
+    }
+
+    const parsed = signInvalidationEventInputSchema.safeParse({ invalidationEventId });
+    if (!parsed.success) {
+      return {
+        ok:      false,
+        message: "ID del evento de invalidación no válido.",
+        errors:  parsed.error.flatten().fieldErrors as Record<string, string[]>,
+      };
+    }
+
+    const result = await signInvalidationEvent(
+      {
+        invalidationEventId: parsed.data.invalidationEventId,
+        userId:              context.effectiveUser.id,
+        tenantId:            context.tenantId,
+        locationId:          context.locationId,
+      },
+      context.client,
+    );
+
+    if (!result.ok) {
+      return { ok: false, message: result.error };
+    }
+
+    revalidatePath("/dashboard/dte/outgoing");
+
     return {
-      ok:      false,
-      message: "ID del evento de invalidación no válido.",
-      errors:  parsed.error.flatten().fieldErrors as Record<string, string[]>,
+      ok:       true,
+      status:   "SIGNED",
+      signedAt: result.signedAt,
     };
+  } finally {
+    await dispose();
   }
-
-  const result = await signInvalidationEvent({
-    invalidationEventId: parsed.data.invalidationEventId,
-    userId:              sessionUser.id,
-    tenantId:            tenant_id,
-    locationId:          location_id,
-  });
-
-  if (!result.ok) {
-    return { ok: false, message: result.error };
-  }
-
-  revalidatePath("/dashboard/dte/outgoing");
-
-  return {
-    ok:       true,
-    status:   "SIGNED",
-    signedAt: result.signedAt,
-  };
 }

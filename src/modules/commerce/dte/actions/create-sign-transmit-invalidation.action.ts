@@ -16,21 +16,29 @@
 //   - Si MH rechaza: DTE vuelve a ACCEPTED.
 //   - V1: solo tipo 2 (Rescindir operación) habilitado.
 //   - Permiso: requireAdmin.
+//
+// FASE VI-E6B — reemplaza requireAdmin + getEffectiveLocationId +
+// resolveCommercialEnforcementContext + isRuntimeReadOnlyActive manual
+// por requireOperationalContext (mismo patrón certificado en VI-E3/E4/
+// E5/E6A). El guard de solo lectura para Support Session ahora lo
+// aplica requireOperationalContext internamente (write:true -> READ_ONLY
+// antes de crear/firmar/transmitir nada), reemplazando el chequeo
+// manual isRuntimeReadOnlyActive() previo — mismo comportamiento, una
+// sola fuente de verdad. Los tres pasos (create/sign/transmit) reciben
+// context.client explícito para que TODO el flujo corra en la MISMA
+// runtime DB para RUNTIME_CLIENT.
 // ─────────────────────────────────────────────────────────────────
 
 import { z }                              from "zod";
 import { revalidatePath }                 from "next/cache";
 import { requireAdmin }                   from "@/lib/permissions/guards";
-import { getEffectiveLocationId }         from "@/lib/location/active-location";
 import { createInvalidationEvent }        from "../services/create-invalidation-event.service";
 import { signInvalidationEvent }          from "../services/sign-invalidation-event.service";
 import { transmitInvalidationEvent }      from "../services/transmit-invalidation-event.service";
-import { isRuntimeReadOnlyActive, RUNTIME_READONLY_MESSAGE } from "@/modules/platform/runtime/runtime-session";
 import {
-  resolveCommercialEnforcementContext,
-  assertOrganizationModule,
-  CommercialEnforcementError,
-} from "@/modules/platform/runtime/commercial-enforcement";
+  requireOperationalContext,
+  OperationalContextError,
+} from "@/modules/platform/runtime/require-operational-context";
 
 // ── Input ─────────────────────────────────────────────────────────
 
@@ -72,88 +80,98 @@ export async function createSignTransmitInvalidationAction(
   rawInput: CreateSignTransmitInvalidationInput,
 ): Promise<CreateSignTransmitInvalidationResult> {
   const sessionUser = await requireAdmin();
-  const tenant_id   = sessionUser.tenant_id;
-  const location_id = await getEffectiveLocationId(sessionUser);
 
-  if (!tenant_id)   return { ok: false, error: "La sesión no tiene un tenant activo." };
-  if (!location_id) return { ok: false, error: "La sesión no tiene una location activa." };
-
-  // PASO 6A: blindaje de solo lectura — bloquea ANTES de crear/firmar/
-  // transmitir cualquier evento de invalidación. No toca la lógica de
-  // invalidación en sí (createInvalidationEvent/signInvalidationEvent/
-  // transmitInvalidationEvent quedan intactos).
-  if (await isRuntimeReadOnlyActive()) {
-    return { ok: false, error: RUNTIME_READONLY_MESSAGE };
-  }
-
+  let handle;
   try {
-    const commercialCtx = await resolveCommercialEnforcementContext(tenant_id);
-    assertOrganizationModule(commercialCtx, "fiscal.dte");
+    // write:true -> READ_ONLY (Support Session) rechaza ANTES de crear/
+    // firmar/transmitir cualquier evento de invalidación, sin excepción.
+    // module -> exige fiscal.dte habilitado (MODULE_DISABLED si no).
+    handle = await requireOperationalContext(sessionUser, { module: "fiscal.dte", write: true });
   } catch (err) {
-    if (err instanceof CommercialEnforcementError) return { ok: false, error: err.userMessage };
+    if (err instanceof OperationalContextError) return { ok: false, error: err.userMessage };
     throw err;
   }
+  const { context, dispose } = handle;
 
-  const parsed = inputSchema.safeParse(rawInput);
-  if (!parsed.success) {
-    const first = Object.values(parsed.error.flatten().fieldErrors)[0]?.[0];
-    return { ok: false, error: first ?? "Datos de invalidación no válidos." };
+  try {
+    if (!context.locationId) {
+      return { ok: false, error: "La sesión no tiene una location activa." };
+    }
+
+    const parsed = inputSchema.safeParse(rawInput);
+    if (!parsed.success) {
+      const first = Object.values(parsed.error.flatten().fieldErrors)[0]?.[0];
+      return { ok: false, error: first ?? "Datos de invalidación no válidos." };
+    }
+
+    const { dteDocumentId, invalidationTypeCode, reason, responsable, solicita } = parsed.data;
+    const ctx = {
+      userId:     context.effectiveUser.id,
+      tenantId:   context.tenantId,
+      locationId: context.locationId,
+    };
+
+    // 1. Crear evento de invalidación en DRAFT — misma runtime DB
+    //    (context.client) que el resto del flujo.
+    const createResult = await createInvalidationEvent(
+      {
+        dteDocumentId,
+        invalidationTypeCode,
+        reason:                    reason ?? null,
+        replacementGenerationCode: null,
+        responsable,
+        solicita,
+        ...ctx,
+      },
+      context.client,
+    );
+    if (!createResult.ok) {
+      return { ok: false, error: createResult.message, stepFailed: "crear_evento" };
+    }
+    const { invalidationEventId } = createResult;
+
+    // 2. Firmar evento (DRAFT → SIGNED) — misma runtime DB.
+    const signResult = await signInvalidationEvent(
+      {
+        invalidationEventId,
+        ...ctx,
+      },
+      context.client,
+    );
+    if (!signResult.ok) {
+      return { ok: false, error: signResult.error, stepFailed: "firmar_evento" };
+    }
+
+    // 3. Transmitir a Hacienda (SIGNED → ACCEPTED | REJECTED) — misma
+    //    runtime DB.
+    const transmitResult = await transmitInvalidationEvent(
+      {
+        invalidationEventId,
+        ...ctx,
+      },
+      context.client,
+    );
+    if (!transmitResult.ok) {
+      return { ok: false, error: transmitResult.error, stepFailed: "transmitir_evento" };
+    }
+
+    revalidatePath("/dashboard/sales");
+    revalidatePath("/dashboard/dte/outgoing");
+
+    // Si el evento fue ACCEPTED por MH, el DTE queda INVALIDATED; si REJECTED, vuelve a ACCEPTED
+    const dteStatus: "INVALIDATED" | "ACCEPTED" =
+      transmitResult.eventStatus === "ACCEPTED" ? "INVALIDATED" : "ACCEPTED";
+
+    return {
+      ok:                  true,
+      invalidationEventId,
+      eventStatus:         transmitResult.eventStatus,
+      dteStatus,
+      selloRecibido:       transmitResult.selloRecibido  ?? null,
+      codigoMsg:           transmitResult.codigoMsg      ?? null,
+      descripcionMsg:      transmitResult.descripcionMsg ?? null,
+    };
+  } finally {
+    await dispose();
   }
-
-  const { dteDocumentId, invalidationTypeCode, reason, responsable, solicita } = parsed.data;
-  const ctx = {
-    userId:     sessionUser.id,
-    tenantId:   tenant_id,
-    locationId: location_id,
-  };
-
-  // 1. Crear evento de invalidación en DRAFT
-  const createResult = await createInvalidationEvent({
-    dteDocumentId,
-    invalidationTypeCode,
-    reason:                    reason ?? null,
-    replacementGenerationCode: null,
-    responsable,
-    solicita,
-    ...ctx,
-  });
-  if (!createResult.ok) {
-    return { ok: false, error: createResult.message, stepFailed: "crear_evento" };
-  }
-  const { invalidationEventId } = createResult;
-
-  // 2. Firmar evento (DRAFT → SIGNED)
-  const signResult = await signInvalidationEvent({
-    invalidationEventId,
-    ...ctx,
-  });
-  if (!signResult.ok) {
-    return { ok: false, error: signResult.error, stepFailed: "firmar_evento" };
-  }
-
-  // 3. Transmitir a Hacienda (SIGNED → ACCEPTED | REJECTED)
-  const transmitResult = await transmitInvalidationEvent({
-    invalidationEventId,
-    ...ctx,
-  });
-  if (!transmitResult.ok) {
-    return { ok: false, error: transmitResult.error, stepFailed: "transmitir_evento" };
-  }
-
-  revalidatePath("/dashboard/sales");
-  revalidatePath("/dashboard/dte/outgoing");
-
-  // Si el evento fue ACCEPTED por MH, el DTE queda INVALIDATED; si REJECTED, vuelve a ACCEPTED
-  const dteStatus: "INVALIDATED" | "ACCEPTED" =
-    transmitResult.eventStatus === "ACCEPTED" ? "INVALIDATED" : "ACCEPTED";
-
-  return {
-    ok:                  true,
-    invalidationEventId,
-    eventStatus:         transmitResult.eventStatus,
-    dteStatus,
-    selloRecibido:       transmitResult.selloRecibido  ?? null,
-    codigoMsg:           transmitResult.codigoMsg      ?? null,
-    descripcionMsg:      transmitResult.descripcionMsg ?? null,
-  };
 }

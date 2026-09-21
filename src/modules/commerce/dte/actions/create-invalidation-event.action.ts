@@ -10,20 +10,27 @@
 //   - tenant_id y location_id se inyectan desde sesión.
 //   - No devuelve event_json al frontend.
 //   - Solo indica si la creación fue exitosa, el id, y el eventGenerationCode.
+//
+// FASE VI-E6B — reemplaza requireAdmin + getEffectiveLocationId +
+// resolveCommercialEnforcementContext manual por
+// requireOperationalContext (mismo patrón certificado en VI-E3/E4/E5/
+// E6A). RUNTIME_CLIENT crea el evento contra su propia runtime DB
+// (context.client); Support Session (SUPPORT_RUNTIME) es read-only ->
+// requireOperationalContext rechaza con READ_ONLY antes de tocar el
+// DTE original o crear el evento; PLATFORM_NATIVE conserva su
+// comportamiento previo (Prisma global).
 // ─────────────────────────────────────────────────────────────────
 
 import { z }                         from "zod";
 import { revalidatePath }            from "next/cache";
 import { requireAdmin }              from "@/lib/permissions/guards";
-import { getEffectiveLocationId }    from "@/lib/location/active-location";
 import {
   createInvalidationEvent,
 } from "../services/create-invalidation-event.service";
 import {
-  resolveCommercialEnforcementContext,
-  assertOrganizationModule,
-  CommercialEnforcementError,
-} from "@/modules/platform/runtime/commercial-enforcement";
+  requireOperationalContext,
+  OperationalContextError,
+} from "@/modules/platform/runtime/require-operational-context";
 
 // ── Zod schema ────────────────────────────────────────────────────
 
@@ -73,52 +80,59 @@ export async function createInvalidationEventAction(
   rawInput: CreateInvalidationEventInput,
 ): Promise<CreateInvalidationEventActionResult> {
   const sessionUser = await requireAdmin();
-  const tenant_id   = sessionUser.tenant_id;
-  const location_id = await getEffectiveLocationId(sessionUser);
 
-  if (!tenant_id)   return { ok: false, message: "La sesión no tiene un tenant activo." };
-  if (!location_id) return { ok: false, message: "La sesión no tiene una location activa." };
-
+  let handle;
   try {
-    const commercialCtx = await resolveCommercialEnforcementContext(tenant_id);
-    assertOrganizationModule(commercialCtx, "fiscal.dte");
+    handle = await requireOperationalContext(sessionUser, { module: "fiscal.dte", write: true });
   } catch (err) {
-    if (err instanceof CommercialEnforcementError) return { ok: false, message: err.userMessage };
+    if (err instanceof OperationalContextError) return { ok: false, message: err.userMessage };
     throw err;
   }
+  const { context, dispose } = handle;
 
-  const parsed = createInvalidationEventInputSchema.safeParse(rawInput);
-  if (!parsed.success) {
+  try {
+    if (!context.locationId) {
+      return { ok: false, message: "La sesión no tiene una location activa." };
+    }
+
+    const parsed = createInvalidationEventInputSchema.safeParse(rawInput);
+    if (!parsed.success) {
+      return {
+        ok:      false,
+        message: "Datos del evento de invalidación no válidos.",
+        errors:  parsed.error.flatten().fieldErrors as Record<string, string[]>,
+      };
+    }
+
+    const result = await createInvalidationEvent(
+      {
+        dteDocumentId:             parsed.data.dteDocumentId,
+        invalidationTypeCode:      parsed.data.invalidationTypeCode,
+        reason:                    parsed.data.reason ?? null,
+        replacementGenerationCode: parsed.data.replacementGenerationCode ?? null,
+        responsable:               parsed.data.responsable,
+        solicita:                  parsed.data.solicita,
+        userId:                    context.effectiveUser.id,
+        tenantId:                  context.tenantId,
+        locationId:                context.locationId,
+      },
+      context.client,
+    );
+
+    if (!result.ok) {
+      return { ok: false, message: result.message };
+    }
+
+    revalidatePath("/dashboard/dte/outgoing");
+
     return {
-      ok:      false,
-      message: "Datos del evento de invalidación no válidos.",
-      errors:  parsed.error.flatten().fieldErrors as Record<string, string[]>,
+      ok:                  true,
+      invalidationEventId: result.invalidationEventId,
+      dteDocumentId:       result.dteDocumentId,
+      status:              "DRAFT",
+      eventGenerationCode: result.eventGenerationCode,
     };
+  } finally {
+    await dispose();
   }
-
-  const result = await createInvalidationEvent({
-    dteDocumentId:             parsed.data.dteDocumentId,
-    invalidationTypeCode:      parsed.data.invalidationTypeCode,
-    reason:                    parsed.data.reason ?? null,
-    replacementGenerationCode: parsed.data.replacementGenerationCode ?? null,
-    responsable:               parsed.data.responsable,
-    solicita:                  parsed.data.solicita,
-    userId:                    sessionUser.id,
-    tenantId:                  tenant_id,
-    locationId:                location_id,
-  });
-
-  if (!result.ok) {
-    return { ok: false, message: result.message };
-  }
-
-  revalidatePath("/dashboard/dte/outgoing");
-
-  return {
-    ok:                  true,
-    invalidationEventId: result.invalidationEventId,
-    dteDocumentId:       result.dteDocumentId,
-    status:              "DRAFT",
-    eventGenerationCode: result.eventGenerationCode,
-  };
 }

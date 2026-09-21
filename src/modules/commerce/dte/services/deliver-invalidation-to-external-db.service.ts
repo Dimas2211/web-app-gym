@@ -13,7 +13,20 @@
 //   - signed_jws y event_json no se loguean completos.
 //   - Credenciales MariaDB leídas solo desde env.
 //   - El log en Prisma solo guarda metadatos del resultado, nunca el payload completo.
+//
+// FASE VI-E6B / S — acepta un `client` explícito opcional (PrismaClient
+// runtime), mismo patrón preexistente en deliver-dte-to-external-db.service.ts
+// (fase anterior de entrega externa FE/CCF/NC). Con `client`, la LECTURA
+// del DteInvalidationEvent/DteOutgoingDocument origen y el log de
+// resultado corren contra esa runtime DB. El delivery externo (MariaDB)
+// en sí sigue siendo siempre el mismo, configurado por variables de
+// entorno — nunca depende de `client`. VI-E7 es la fase reservada para
+// el cierre general de MariaDB/entrega externa; este cambio SOLO hace
+// el servicio capaz de leer desde runtime DB — no crea ni cambia el
+// entry point productivo (deliver-invalidation-to-external-db.action.ts
+// sigue sin wiring runtime, ver DTE_MARIADB_DELIVERY_RUNTIME_READY=PARTIAL).
 
+import type { PrismaClient }           from "@prisma/client";
 import { prisma }                      from "@/lib/db/prisma";
 import { getExternalDteMariaDbConfig } from "../config/external-dte-mariadb.config";
 import { ExternalDteMariaDbAdapter }   from "../adapters/external-dte-mariadb.adapter";
@@ -30,6 +43,13 @@ export interface DeliverInvalidationToExternalDbParams {
   userId:              string;
   tenantId:            string;
   locationId:          string;
+  /**
+   * PrismaClient contra el que se lee el evento de invalidación y el
+   * DTE original. Por defecto el singleton global. El delivery externo
+   * (MariaDB) es siempre el mismo, configurado por variables de
+   * entorno — nunca depende de este client.
+   */
+  client?: PrismaClient;
 }
 
 // ── Error de negocio interno ──────────────────────────────────────
@@ -46,12 +66,12 @@ class DeliverInvalidationBusinessError extends Error {
 export async function deliverInvalidationToExternalDb(
   params: DeliverInvalidationToExternalDbParams,
 ): Promise<DeliverInvalidationToExternalDbResult> {
-  const { invalidationEventId, userId, tenantId, locationId } = params;
+  const { invalidationEventId, userId, tenantId, locationId, client = prisma } = params;
 
   try {
     // 1. Cargar evento con scope tenant/location
     //    Campos sensibles (signed_jws, event_json) seleccionados solo aquí.
-    const event = await prisma.dteInvalidationEvent.findFirst({
+    const event = await client.dteInvalidationEvent.findFirst({
       where: {
         id:          invalidationEventId,
         tenant_id:   tenantId,
@@ -81,7 +101,7 @@ export async function deliverInvalidationToExternalDb(
 
     // 2a. Cargar DTE original para resolver codigoEmpresa (NRC).
     //     El event_json de anulación MH no incluye nrc en emisor — viene del DTE base.
-    const dteDoc = await prisma.dteOutgoingDocument.findFirst({
+    const dteDoc = await client.dteOutgoingDocument.findFirst({
       where:  { id: event.dte_document_id },
       select: { json_document: true },
     });
@@ -124,7 +144,7 @@ export async function deliverInvalidationToExternalDb(
     );
 
     // 4. Calcular attempt_number contando logs previos de este mismo tipo para el documento
-    const existingLogs = await prisma.dteTransmissionLog.count({
+    const existingLogs = await client.dteTransmissionLog.count({
       where: {
         dte_document_id: event.dte_document_id,
         operation_type:  "EXTERNAL_INVALIDATION_DELIVERY",
@@ -135,7 +155,7 @@ export async function deliverInvalidationToExternalDb(
     // 5. Registrar resultado en DteTransmissionLog
     //    response_body contiene solo metadatos — sin payload completo ni signed_jws.
     if (deliveryResult.ok) {
-      await prisma.dteTransmissionLog.create({
+      await client.dteTransmissionLog.create({
         data: {
           dte_document_id: event.dte_document_id,
           attempt_number:  attemptNumber,
@@ -164,7 +184,7 @@ export async function deliverInvalidationToExternalDb(
     }
 
     // Delivery fallido — registrar error sanitizado
-    await prisma.dteTransmissionLog.create({
+    await client.dteTransmissionLog.create({
       data: {
         dte_document_id: event.dte_document_id,
         attempt_number:  attemptNumber,
