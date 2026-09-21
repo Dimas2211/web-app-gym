@@ -204,6 +204,29 @@ describe("transmitDteDocument — VI-E5B runtime DB routing", () => {
     expect(mhTransmissionAdapterCtorSpy).toHaveBeenCalledTimes(1);
   });
 
+  it("con `db` explícito: assertDteContingencyTransmissionAllowed recibe db como segundo argumento (VI-E6C — cierra el gap de cross-DB en el guard de contingencia)", async () => {
+    runtimeFindFirstSpy.mockResolvedValue(SIGNED_DOC);
+    runtimeTransactionSpy.mockImplementation(async (arg: unknown) => {
+      if (Array.isArray(arg)) return Promise.all(arg);
+      const cb = arg as (tx: unknown) => Promise<unknown>;
+      return cb({ dteOutgoingDocument: { update: vi.fn() }, dteTransmissionLog: { create: vi.fn() } });
+    });
+
+    const runtimeDb = {
+      dteOutgoingDocument: { findFirst: runtimeFindFirstSpy, update: vi.fn() },
+      dteTransmissionLog: { create: vi.fn() },
+      $transaction: runtimeTransactionSpy,
+    } as unknown as Parameters<typeof transmitDteDocument>[1];
+
+    await transmitDteDocument(
+      { dteDocumentId: "dte-doc-1", userId: "user-1", tenantId: "tenant-1", locationId: "loc-1" },
+      runtimeDb,
+    );
+
+    expect(contingencyGuardMock).toHaveBeenCalledTimes(1);
+    expect(contingencyGuardMock.mock.calls[0][1]).toBe(runtimeDb);
+  });
+
   it("sin `db` (legacy PLATFORM_NATIVE): usa el Prisma global para documento y transacción", async () => {
     globalFindFirstSpy.mockResolvedValue(SIGNED_DOC);
     globalTransactionSpy.mockImplementation(async (arg: unknown) => {

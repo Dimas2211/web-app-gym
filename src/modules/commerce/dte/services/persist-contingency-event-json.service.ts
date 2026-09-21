@@ -10,9 +10,16 @@
 //   - Solo opera sobre DteContingencyEvent.status === "DRAFT".
 //   - Si AJV falla, el evento se mantiene en DRAFT (no se persiste nada).
 //   - NO firma. NO transmite.
+//
+// FASE VI-E6C — acepta un `db` explícito (PrismaClient runtime). Con
+// `db`, TODA lectura/escritura tenant-owned (DteContingencyEvent,
+// DteIssuerConfig) corre en la MISMA runtime DB. Sin `db`, cae al
+// Prisma global (comportamiento legacy para callers PLATFORM_NATIVE
+// no migrados). El builder puro (buildContingencyEventJson) no toca
+// DB y no requiere `db`.
 // ─────────────────────────────────────────────────────────────────
 
-import { type Prisma } from "@prisma/client";
+import { type Prisma, type PrismaClient } from "@prisma/client";
 import { prisma }                     from "@/lib/db/prisma";
 import { buildContingencyEventJson }  from "./build-contingency-event-json.service";
 import type { ContingencyResponsable } from "../types/dte-contingency-event-json.types";
@@ -43,12 +50,13 @@ class PersistContingencyJsonBusinessError extends Error {
 
 export async function buildAndPersistContingencyEventJson(
   params: BuildAndPersistContingencyEventJsonParams,
+  db: PrismaClient = prisma,
 ): Promise<BuildAndPersistContingencyEventJsonResult> {
   const { contingencyEventId, tenantId, locationId, responsable } = params;
 
   try {
     // ── 1. Cargar evento con scope tenant/location ──────────────────
-    const event = await prisma.dteContingencyEvent.findFirst({
+    const event = await db.dteContingencyEvent.findFirst({
       where: { id: contingencyEventId, tenant_id: tenantId, location_id: locationId },
       select: {
         id:                     true,
@@ -107,7 +115,7 @@ export async function buildAndPersistContingencyEventJson(
     }
     const issuerConfigId = event.items[0].dte_document.issuer_config_id!;
 
-    const issuerConfig = await prisma.dteIssuerConfig.findFirst({
+    const issuerConfig = await db.dteIssuerConfig.findFirst({
       where: { id: issuerConfigId },
       select: {
         nit:                     true,
@@ -150,7 +158,7 @@ export async function buildAndPersistContingencyEventJson(
     }
 
     // ── 4. Persistir event_json y avanzar a PENDING_SIGNATURE ─────────
-    await prisma.dteContingencyEvent.update({
+    await db.dteContingencyEvent.update({
       where: { id: contingencyEventId },
       data: {
         event_json: buildResult.eventJson as Prisma.InputJsonValue,

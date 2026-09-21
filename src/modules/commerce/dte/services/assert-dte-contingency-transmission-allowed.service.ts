@@ -25,8 +25,18 @@
 //   - No modifica la máquina de estados normal ni usa
 //     CONTINGENCY_PENDING.
 //   - Error funcional claro, sin secrets.
+//
+// FASE VI-E6C — acepta un `db` explícito (PrismaClient runtime), mismo
+// patrón que el resto de los servicios DTE runtime-aware. Con `db`, la
+// lectura de DteContingencyEventItem/DteContingencyEvent corre en la
+// MISMA runtime DB que el documento que se intenta transmitir. Sin
+// `db`, cae al Prisma global (comportamiento legacy para callers
+// PLATFORM_NATIVE no migrados). El filtro tenant/location/status/tipo
+// se aplica directamente en el `where` del query (no en memoria) para
+// que el enforcement de ownership viva en la consulta misma.
 // ─────────────────────────────────────────────────────────────────
 
+import type { PrismaClient } from "@prisma/client";
 import { prisma } from "@/lib/db/prisma";
 
 export interface AssertDteContingencyTransmissionAllowedParams {
@@ -66,6 +76,7 @@ function eventDetalleIncludesGenerationCode(
  */
 export async function assertDteContingencyTransmissionAllowed(
   params: AssertDteContingencyTransmissionAllowedParams,
+  db: PrismaClient = prisma,
 ): Promise<AssertDteContingencyTransmissionAllowedResult> {
   const {
     dteDocumentId,
@@ -88,26 +99,35 @@ export async function assertDteContingencyTransmissionAllowed(
     };
   }
 
-  const items = await prisma.dteContingencyEventItem.findMany({
-    where:  { dte_document_id: dteDocumentId },
+  if (!contingencyTypeCode) {
+    return {
+      ok:    false,
+      error: "El documento DTE contingente no tiene contingency_type_code asignado.",
+    };
+  }
+
+  // Ownership (tenant/location/status/tipo) se aplica directamente en el
+  // `where` — no en memoria — para que el enforcement viva en la
+  // consulta misma (VI-E6C / sección K).
+  const items = await db.dteContingencyEventItem.findMany({
+    where: {
+      dte_document_id: dteDocumentId,
+      contingency_event: {
+        tenant_id:             tenantId,
+        location_id:           locationId,
+        status:                "ACCEPTED",
+        contingency_type_code: contingencyTypeCode,
+      },
+    },
     select: {
       contingency_event: {
-        select: {
-          tenant_id:             true,
-          location_id:           true,
-          status:                true,
-          contingency_type_code: true,
-          event_json:            true,
-        },
+        select: { event_json: true },
       },
     },
   });
 
   const hasAcceptedCoverage = items.some(({ contingency_event: ev }) => {
     if (!ev) return false;
-    if (ev.tenant_id !== tenantId || ev.location_id !== locationId) return false;
-    if (ev.status !== "ACCEPTED") return false;
-    if (ev.contingency_type_code !== contingencyTypeCode) return false;
     return eventDetalleIncludesGenerationCode(ev.event_json, generationCode);
   });
 

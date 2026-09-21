@@ -14,7 +14,16 @@
 //   - Registra DteTransmissionLog en todos los casos.
 //   - NO transmite el/los DTE asociados a /recepciondte — eso es Bloque C.
 //   - No expone signed_jws ni token.
+//
+// FASE VI-E6C — acepta un `db` explícito (PrismaClient runtime), mismo
+// patrón que transmit-invalidation-event.service.ts (VI-E6B). Con `db`,
+// TODA lectura/escritura tenant-owned (DteContingencyEvent, DteIssuerConfig,
+// DteTransmissionLog) corre en la MISMA runtime DB. Sin `db`, cae al
+// Prisma global (comportamiento legacy para callers PLATFORM_NATIVE no
+// migrados). El adapter de transmisión a MH no toca Prisma.
+// ─────────────────────────────────────────────────────────────────
 
+import type { PrismaClient } from "@prisma/client";
 import { prisma }  from "@/lib/db/prisma";
 import { Prisma }  from "@prisma/client";
 import { normalizeNitForDte } from "../utils/fiscal-id.utils";
@@ -64,12 +73,13 @@ function isRejectedEstado(estado: string): boolean {
 
 export async function transmitContingencyEvent(
   params: TransmitContingencyEventParams,
+  db: PrismaClient = prisma,
 ): Promise<TransmitContingencyEventResult> {
   const { contingencyEventId, tenantId, locationId } = params;
 
   try {
     // 1. Cargar evento con scope tenant/location
-    const event = await prisma.dteContingencyEvent.findFirst({
+    const event = await db.dteContingencyEvent.findFirst({
       where: { id: contingencyEventId, tenant_id: tenantId, location_id: locationId },
       select: {
         id:         true,
@@ -106,7 +116,7 @@ export async function transmitContingencyEvent(
     }
 
     // 2. Cargar emisor (nit + environment)
-    const issuerConfig = await prisma.dteIssuerConfig.findFirst({
+    const issuerConfig = await db.dteIssuerConfig.findFirst({
       where:  { id: refItem.dte_document.issuer_config_id },
       select: { nit: true, environment: true },
     });
@@ -119,13 +129,13 @@ export async function transmitContingencyEvent(
     const environment = issuerConfig.environment as "TEST" | "PRODUCTION";
 
     // Contar intentos previos para attempt_number en el log
-    const previousAttempts = await prisma.dteTransmissionLog.count({
+    const previousAttempts = await db.dteTransmissionLog.count({
       where: { dte_document_id: refItem.dte_document_id, operation_type: "CONTINGENCY_TRANSMIT" },
     });
     const attemptNumber = previousAttempts + 1;
 
     // 3. Marcar estado optimista antes de llamar a MH
-    await prisma.dteContingencyEvent.update({
+    await db.dteContingencyEvent.update({
       where: { id: contingencyEventId },
       data:  { status: "SENT", sent_at: new Date() },
     });
@@ -140,12 +150,12 @@ export async function transmitContingencyEvent(
 
     // ── Caso: error técnico ───────────────────────────────────────
     if (!result.ok) {
-      await prisma.$transaction([
-        prisma.dteContingencyEvent.update({
+      await db.$transaction([
+        db.dteContingencyEvent.update({
           where: { id: contingencyEventId },
           data:  { status: "SIGNED", sent_at: null },
         }),
-        prisma.dteTransmissionLog.create({
+        db.dteTransmissionLog.create({
           data: {
             dte_document_id: refItem.dte_document_id,
             attempt_number:  attemptNumber,
@@ -179,8 +189,8 @@ export async function transmitContingencyEvent(
     const rejected = isRejectedEstado(result.mhEstado);
     const now = new Date();
 
-    await prisma.$transaction([
-      prisma.dteContingencyEvent.update({
+    await db.$transaction([
+      db.dteContingencyEvent.update({
         where: { id: contingencyEventId },
         data: rejected
           ? {
@@ -203,7 +213,7 @@ export async function transmitContingencyEvent(
               accepted_at: now,
             },
       }),
-      prisma.dteTransmissionLog.create({
+      db.dteTransmissionLog.create({
         data: {
           dte_document_id: refItem.dte_document_id,
           attempt_number:  attemptNumber,

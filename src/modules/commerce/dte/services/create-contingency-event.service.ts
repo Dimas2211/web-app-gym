@@ -23,10 +23,18 @@
 //   - NO construye event_json aquí — eso ocurre en
 //     buildAndPersistContingencyEventJson (paso separado, sección 9).
 //   - NO firma. NO transmite. NO toca DteOutgoingDocument.
+//
+// FASE VI-E6C — acepta un `db` explícito (PrismaClient runtime), mismo
+// patrón que create-invalidation-event.service.ts (VI-E6B). Con `db`,
+// TODA lectura/escritura tenant-owned (DteOutgoingDocument,
+// DteContingencyEvent, DteContingencyEventItem) corre en la MISMA
+// runtime DB. Sin `db`, cae al Prisma global (comportamiento legacy
+// para callers PLATFORM_NATIVE no migrados).
 // ─────────────────────────────────────────────────────────────────
 
-import { randomUUID } from "crypto";
-import { prisma }     from "@/lib/db/prisma";
+import { randomUUID }      from "crypto";
+import type { PrismaClient } from "@prisma/client";
+import { prisma }          from "@/lib/db/prisma";
 import type { ContingencyResponsable } from "../types/dte-contingency-event-json.types";
 
 // ── Tipos públicos ────────────────────────────────────────────────
@@ -103,6 +111,7 @@ function extractFiscalEmissionMs(jsonDocument: unknown): number | null {
 
 export async function createContingencyEvent(
   params: CreateContingencyEventParams,
+  db: PrismaClient = prisma,
 ): Promise<CreateContingencyEventResult> {
   const {
     dteDocumentIds,
@@ -182,7 +191,7 @@ export async function createContingencyEvent(
     }
 
     // ── 5. Cargar DTE con scope tenant/location ─────────────────────
-    const dteDocs = await prisma.dteOutgoingDocument.findMany({
+    const dteDocs = await db.dteOutgoingDocument.findMany({
       where: {
         id:          { in: dteDocumentIds },
         tenant_id:   tenantId,
@@ -258,7 +267,7 @@ export async function createContingencyEvent(
     }
 
     // ── 7. Bloquear DTE ya en otro evento activo ────────────────────
-    const conflictingItems = await prisma.dteContingencyEventItem.findMany({
+    const conflictingItems = await db.dteContingencyEventItem.findMany({
       where: {
         dte_document_id:  { in: dteDocumentIds },
         contingency_event: { status: { in: [...ACTIVE_CONTINGENCY_EVENT_STATUSES] } },
@@ -277,7 +286,7 @@ export async function createContingencyEvent(
     const now = new Date();
 
     // ── 9. Persistir DteContingencyEvent + Items en transacción ─────
-    const created = await prisma.$transaction(async (tx) => {
+    const created = await db.$transaction(async (tx) => {
       const event = await tx.dteContingencyEvent.create({
         data: {
           tenant_id:             tenantId,

@@ -7,16 +7,30 @@
 // Reglas:
 //   - Solo opera sobre DteContingencyEvent.status === "PENDING_SIGNATURE".
 //   - event_json debe existir y signed_jws debe ser null.
-//   - Lee credenciales de DTE_SIGNER_NIT y DTE_SIGNER_PASSWORD (env).
+//   - Resuelve firmador + credenciales vía resolveDteSignerConfigForIssuer
+//     (issuer_config_id → DteCredential por emisor/ambiente; si no hay
+//     credencial de emisor utilizable, cae a DTE_SIGNER_NIT/PASSWORD +
+//     DTE_SIGNER_URL_TEST/PRODUCTION global). Ver dte-credential.service.ts.
 //   - Si firma bien: status → SIGNED, guarda signed_jws.
 //   - Si falla: mantiene PENDING_SIGNATURE.
 //   - Registra DteTransmissionLog con operation_type = "CONTINGENCY_SIGN".
 //   - NO transmite. NO toca DteOutgoingDocument. NO toca schema.
+//
+// FASE VI-E6C — acepta un `db` explícito (PrismaClient runtime), mismo
+// patrón que sign-invalidation-event.service.ts (VI-E6B). Con `db`, TODA
+// lectura/escritura tenant-owned (DteContingencyEvent, DteOutgoingDocument,
+// DteCredential vía resolveDteSignerConfigForIssuer, DteTransmissionLog)
+// corre en la MISMA runtime DB. Sin `db`, cae al Prisma global
+// (comportamiento legacy para callers PLATFORM_NATIVE no migrados). Se
+// reemplaza la resolución de credenciales exclusivamente por env
+// (DTE_SIGNER_NIT/PASSWORD) por resolveDteSignerConfigForIssuer, que ya
+// es runtime-aware y reusa el mecanismo certificado en VI-E5A/VI-E6B.
 // ─────────────────────────────────────────────────────────────────
 
-import { type Prisma }            from "@prisma/client";
+import { type Prisma, type PrismaClient } from "@prisma/client";
 import { prisma }                 from "@/lib/db/prisma";
-import { resolveDteSignerConfig, DteSignerConfigError } from "../config/dte-signer.config";
+import { DteSignerConfigError }   from "../config/dte-signer.config";
+import { resolveDteSignerConfigForIssuer } from "./dte-credential.service";
 import { MhHttpDteSignerAdapter } from "../adapters/dte-signer.adapter";
 import type { DteMhEnvironment }  from "../types/dte-mh-auth.types";
 
@@ -45,12 +59,13 @@ class SignContingencyBusinessError extends Error {
 
 export async function signContingencyEvent(
   params: SignContingencyEventParams,
+  db: PrismaClient = prisma,
 ): Promise<SignContingencyEventResult> {
   const { contingencyEventId, tenantId, locationId } = params;
 
   try {
     // 1. Cargar evento con scope tenant/location
-    const event = await prisma.dteContingencyEvent.findFirst({
+    const event = await db.dteContingencyEvent.findFirst({
       where: { id: contingencyEventId, tenant_id: tenantId, location_id: locationId },
       select: {
         id:         true,
@@ -58,7 +73,10 @@ export async function signContingencyEvent(
         event_json: true,
         signed_jws: true,
         items:      {
-          select: { dte_document_id: true, dte_document: { select: { environment: true } } },
+          select: {
+            dte_document_id: true,
+            dte_document: { select: { environment: true, issuer_config_id: true } },
+          },
           take:   1,
         },
       },
@@ -92,17 +110,24 @@ export async function signContingencyEvent(
       );
     }
 
-    // 3. Credenciales del firmador desde env
-    const rawNit      = process.env["DTE_SIGNER_NIT"];
-    const passwordPri = process.env["DTE_SIGNER_PASSWORD"];
+    // 3. Resolver firmador + credenciales — mismo mecanismo certificado
+    //    que sign-invalidation-event.service.ts (VI-E6B). `client: db` —
+    //    misma runtime DB que el evento y el documento.
+    const environment = event.items[0]?.dte_document.environment as DteMhEnvironment;
+    const issuerConfigId = event.items[0]?.dte_document.issuer_config_id ?? undefined;
 
-    if (!rawNit || !passwordPri) {
-      throw new SignContingencyBusinessError(
-        "Credenciales del firmador DTE no configuradas (DTE_SIGNER_NIT / DTE_SIGNER_PASSWORD).",
-      );
+    const signerResolution = await resolveDteSignerConfigForIssuer({
+      issuerConfigId,
+      environment,
+      client: db,
+    });
+
+    if (!signerResolution.ok) {
+      throw new SignContingencyBusinessError(signerResolution.error);
     }
 
-    const nit = rawNit.replace(/-/g, "");
+    const { config: signerConfig, nit, passwordPri } = signerResolution;
+    const { signerUrl } = signerConfig;
 
     // 4. Parsear event_json (Prisma Json puede venir como objeto o string)
     let dteJson: unknown;
@@ -117,10 +142,7 @@ export async function signContingencyEvent(
       );
     }
 
-    // 5. Resolver signer por el ambiente del DTE asociado y llamarlo.
-    const environment = event.items[0]?.dte_document.environment as DteMhEnvironment;
-    const signerConfig  = resolveDteSignerConfig(environment);
-    const { signerUrl } = signerConfig;
+    // 5. Llamar al firmador ya resuelto en el paso 3.
     const adapter        = new MhHttpDteSignerAdapter();
     const signerResult   = await adapter.sign({ nit, passwordPri, dteJson }, signerConfig);
 
@@ -129,12 +151,12 @@ export async function signContingencyEvent(
 
     if (signerResult.ok) {
       // 6a. Firma exitosa → SIGNED + log
-      await prisma.$transaction([
-        prisma.dteContingencyEvent.update({
+      await db.$transaction([
+        db.dteContingencyEvent.update({
           where: { id: contingencyEventId },
           data:  { status: "SIGNED", signed_jws: signerResult.signedJws },
         }),
-        prisma.dteTransmissionLog.create({
+        db.dteTransmissionLog.create({
           data: {
             dte_document_id: refDocumentId,
             attempt_number:  1,
@@ -154,7 +176,7 @@ export async function signContingencyEvent(
       // 6b. Firma fallida → mantiene PENDING_SIGNATURE, registra log
       const httpStatus = signerResult.httpStatus ?? null;
 
-      await prisma.dteTransmissionLog.create({
+      await db.dteTransmissionLog.create({
         data: {
           dte_document_id: refDocumentId,
           attempt_number:  1,

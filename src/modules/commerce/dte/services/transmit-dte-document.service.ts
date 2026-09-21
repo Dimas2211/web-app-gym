@@ -23,10 +23,11 @@
 // comercial (resolveCommercialEnforcementContext) sigue resolviéndose
 // siempre contra Control Plane — capacidad comercial nunca vive en
 // runtime DB (ver dte-fiscal-metering.service.ts).
-// assertDteContingencyTransmissionAllowed permanece fuera de alcance
-// (reconciliación/contingencia se migran en VI-E6) — solo aplica a
-// documentos con transmission_type_code="2", que hoy siguen operando
-// en PLATFORM_NATIVE.
+//
+// FASE VI-E6C — assertDteContingencyTransmissionAllowed ya es runtime-
+// aware y recibe el mismo `db` que el resto del flujo de transmisión,
+// para documentos con transmission_type_code="1" y "2" (cierra el gap
+// previamente documentado en VI-E5B).
 // ─────────────────────────────────────────────────────────────────
 
 import type { PrismaClient }         from "@prisma/client";
@@ -211,7 +212,7 @@ export async function transmitDteDocument(
       transmissionTypeCode: dteDoc.transmission_type_code,
       contingencyTypeCode:  dteDoc.contingency_type_code,
       generationCode:       dteDoc.generation_code,
-    });
+    }, db);
     if (!contingencyGuard.ok) {
       throw new TransmitDteBusinessError(contingencyGuard.error);
     }
