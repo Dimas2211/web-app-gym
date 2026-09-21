@@ -9,6 +9,7 @@
 // de intentar agregar la línea.
 // ─────────────────────────────────────────────────────────────────
 
+import type { PrismaClient } from "@prisma/client";
 import { prisma } from "@/lib/db/prisma";
 
 export interface ExportProductLookup {
@@ -29,10 +30,11 @@ export async function searchExportProducts(
   location_id: string,
   search:      string,
   limit        = 20,
+  db: PrismaClient = prisma,
 ): Promise<ExportProductLookup[]> {
   const trimmed = search.trim();
 
-  const rows = await prisma.product.findMany({
+  const rows = await db.product.findMany({
     where: {
       tenant_id,
       allow_sale: true,

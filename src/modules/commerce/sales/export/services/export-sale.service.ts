@@ -23,7 +23,7 @@
 // ─────────────────────────────────────────────────────────────────
 
 import { randomUUID } from "crypto";
-import { Prisma } from "@prisma/client";
+import { Prisma, type PrismaClient } from "@prisma/client";
 import { prisma } from "@/lib/db/prisma";
 import { createSaleDraft, addSaleItemToDraft, confirmSale } from "../../services/sale.service";
 import { reserveDteControlNumber } from "../../../dte/services/dte-correlative.service";
@@ -67,6 +67,7 @@ export async function createForeignCustomer(
   tenant_id: string,
   user_id:   string,
   input:     CreateForeignCustomerInput,
+  db: PrismaClient = prisma,
 ): Promise<CreateForeignCustomerResult> {
   const [fexCountries, personTypes, idTypes] = await Promise.all([
     // F3-C23D — catálogo de compatibilidad FEX v1 para receptor.codPais,
@@ -88,7 +89,7 @@ export async function createForeignCustomer(
   const dui = id_type_code !== "36" ? input.document_number : null;
 
   try {
-    const created = await prisma.customer.create({
+    const created = await db.customer.create({
       data: {
         tenant_id,
         customer_code,
@@ -137,8 +138,9 @@ interface ActiveTestIssuer {
 async function loadActiveTestIssuerConfigOrError(
   tenant_id: string,
   location_id: string,
+  db: PrismaClient = prisma,
 ): Promise<{ ok: true; issuer: ActiveTestIssuer } | { ok: false; error: string }> {
-  const issuer = await prisma.dteIssuerConfig.findFirst({
+  const issuer = await db.dteIssuerConfig.findFirst({
     where: { tenant_id, location_id, environment: "TEST", is_active: true },
     select: {
       id: true, nit: true, nrc: true, name: true, activity_code: true, activity_name: true,
@@ -198,6 +200,7 @@ export type ConfigureUnitMhCodeResult =
 export async function configureUnitMhCode(
   unit_id: string,
   mh_code:  string,
+  db: PrismaClient = prisma,
 ): Promise<ConfigureUnitMhCodeResult> {
   const normalized = mh_code.trim();
   const numeric = Number(normalized);
@@ -209,12 +212,12 @@ export async function configureUnitMhCode(
     };
   }
 
-  const unit = await prisma.unitOfMeasure.findUnique({ where: { id: unit_id }, select: { id: true } });
+  const unit = await db.unitOfMeasure.findUnique({ where: { id: unit_id }, select: { id: true } });
   if (!unit) {
     return { ok: false, error: "La unidad de medida no existe." };
   }
 
-  const updated = await prisma.unitOfMeasure.update({
+  const updated = await db.unitOfMeasure.update({
     where:  { id: unit_id },
     data:   { mh_unit_code: String(numeric) },
     select: { mh_unit_code: true },
@@ -237,8 +240,9 @@ async function createPendingExportDte(
   location_id: string,
   sale_id:     string,
   issuer:      ActiveTestIssuer,
+  db: PrismaClient = prisma,
 ): Promise<string> {
-  const created = await prisma.$transaction(async (tx) => {
+  const created = await db.$transaction(async (tx) => {
     const { control_number } = await reserveDteControlNumber(tx, {
       tenant_id,
       location_id,
@@ -289,12 +293,13 @@ export async function regenerateRejectedExportDte(
   tenant_id:   string,
   location_id: string,
   dte_document_id: string,
+  db: PrismaClient = prisma,
 ): Promise<RegenerateExportDteResult> {
   if (!isFex11Enabled()) {
     return { ok: false, error: "FEX 11 no está habilitada. Active DTE_FEX11_ENABLED o DTE_FEX11_TEST_ENABLED en ambiente TEST." };
   }
 
-  const rejected = await prisma.dteOutgoingDocument.findFirst({
+  const rejected = await db.dteOutgoingDocument.findFirst({
     where:  { id: dte_document_id, tenant_id, location_id, dte_type_code: "11" },
     select: { id: true, sale_id: true, dte_status: true, issuer_config_id: true },
   });
@@ -314,7 +319,7 @@ export async function regenerateRejectedExportDte(
     return { ok: false, error: "El documento rechazado no está asociado a ninguna venta." };
   }
 
-  const issuerConfig = await prisma.dteIssuerConfig.findFirst({
+  const issuerConfig = await db.dteIssuerConfig.findFirst({
     where:  { id: rejected.issuer_config_id, tenant_id, location_id },
     select: { id: true, cod_estable_mh: true, cod_punto_venta_mh: true },
   });
@@ -326,7 +331,7 @@ export async function regenerateRejectedExportDte(
     id:                 issuerConfig.id,
     cod_estable_mh:     issuerConfig.cod_estable_mh,
     cod_punto_venta_mh: issuerConfig.cod_punto_venta_mh,
-  });
+  }, db);
 
   return { ok: true, dte_document_id: newDteId };
 }
@@ -338,13 +343,14 @@ export async function createExportSale(
   location_id: string,
   user_id:     string,
   input:       CreateExportSaleInput,
+  db: PrismaClient = prisma,
 ): Promise<CreateExportSaleResult> {
   if (!isFex11Enabled()) {
     return { ok: false, error: "FEX 11 no está habilitada. Active DTE_FEX11_ENABLED o DTE_FEX11_TEST_ENABLED en ambiente TEST." };
   }
 
   // 1. Cliente debe ser extranjero
-  const customer = await prisma.customer.findFirst({
+  const customer = await db.customer.findFirst({
     where:  { id: input.customer_id, tenant_id, status: "active" },
     select: {
       id: true, is_foreign: true,
@@ -363,7 +369,7 @@ export async function createExportSale(
 
   // 2. Validar productos (unidad con código MH) y reglas de negocio de exportación
   const productIds = [...new Set(input.items.map((i) => i.product_id))];
-  const products = await prisma.product.findMany({
+  const products = await db.product.findMany({
     where: { id: { in: productIds }, tenant_id, allow_sale: true, status: { notIn: ["BLOCKED_SALE", "INACTIVE", "DISCONTINUED"] } },
     select: { id: true, name: true, unit: { select: { mh_unit_code: true } } },
   });
@@ -393,7 +399,7 @@ export async function createExportSale(
   }
 
   // 3. Resolver emisor TEST activo antes de crear nada (fail fast)
-  const issuerResult = await loadActiveTestIssuerConfigOrError(tenant_id, location_id);
+  const issuerResult = await loadActiveTestIssuerConfigOrError(tenant_id, location_id, db);
   if (!issuerResult.ok) {
     return { ok: false, error: issuerResult.error };
   }
@@ -411,7 +417,7 @@ export async function createExportSale(
     payment_term_code:        input.payment_term_code ?? null,
     payment_term_value:       input.payment_term_value ?? null,
     notes:                    input.notes ?? null,
-  });
+  }, db);
   if (!draft.ok) {
     return draft.field ? { ok: false, field: draft.field, error: draft.error } : { ok: false, error: draft.error };
   }
@@ -427,14 +433,14 @@ export async function createExportSale(
       unit_price:        item.unit_price,
       discount_amount:   item.discount_amount,
       tax_rate_override: 0,
-    });
+    }, db);
     if (!added.ok) {
       return { ok: false, error: `Error agregando línea: ${added.error}` };
     }
   }
 
   // 6. Crear SaleExportDetails
-  await prisma.saleExportDetails.create({
+  await db.saleExportDetails.create({
     data: {
       tenant_id,
       sale_id,
@@ -452,14 +458,14 @@ export async function createExportSale(
   });
 
   // 7. Confirmar venta (CONFIRMED + inventario si aplica + caja si hay sesión abierta)
-  const confirmed = await confirmSale(sale_id, tenant_id, location_id, user_id);
+  const confirmed = await confirmSale(sale_id, tenant_id, location_id, user_id, db);
   if (!confirmed.ok) {
     return { ok: false, error: `No se pudo confirmar la venta de exportación: ${confirmed.error}` };
   }
 
   // 8. Crear DteOutgoingDocument tipo 11 (PENDING_GENERATION) en TEST
-  const sale = await prisma.sale.findFirst({ where: { id: sale_id }, select: { sale_code: true } });
-  const dte_document_id = await createPendingExportDte(tenant_id, location_id, sale_id, issuerResult.issuer);
+  const sale = await db.sale.findFirst({ where: { id: sale_id }, select: { sale_code: true } });
+  const dte_document_id = await createPendingExportDte(tenant_id, location_id, sale_id, issuerResult.issuer, db);
 
   return { ok: true, sale_id, sale_code: sale?.sale_code ?? "", dte_document_id };
 }

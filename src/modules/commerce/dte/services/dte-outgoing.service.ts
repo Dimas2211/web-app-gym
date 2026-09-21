@@ -250,9 +250,10 @@ export async function createPendingDteForPurchase(
     issuer_config_id: string;
     environment:      "TEST" | "PRODUCTION";
   },
+  db: PrismaClient = prisma,
 ): Promise<CreatePendingDteResult> {
   try {
-    const doc = await prisma.$transaction(async (tx) => {
+    const doc = await db.$transaction(async (tx) => {
 
       // ── 1. Cargar compra con proveedor ───────────────────────────
       const purchase = await tx.purchase.findFirst({

@@ -27,7 +27,7 @@
 // importa ningún adaptador de firma, transmisión ni MariaDB.
 // ─────────────────────────────────────────────────────────────────
 
-import { Prisma }                 from "@prisma/client";
+import { Prisma, type PrismaClient } from "@prisma/client";
 import { prisma }                 from "@/lib/db/prisma";
 import { generateFexJsonForSale } from "./generate-fex-json.service";
 import {
@@ -71,11 +71,12 @@ const GENERATABLE_STATUSES = new Set([
 
 export async function generateAndPersistFexJsonForDte(
   params: GenerateAndPersistFexJsonParams,
+  db: PrismaClient = prisma,
 ): Promise<GenerateAndPersistFexJsonResult> {
   const { tenant_id, location_id, dte_document_id, user_id } = params;
 
   // ── 1. Precondiciones sobre el DteOutgoingDocument ────────────────
-  const dteDoc = await prisma.dteOutgoingDocument.findFirst({
+  const dteDoc = await db.dteOutgoingDocument.findFirst({
     where: { id: dte_document_id, tenant_id, location_id },
     select: {
       id:               true,
@@ -118,14 +119,14 @@ export async function generateAndPersistFexJsonForDte(
   }
 
   // ── 2. Construir el JSON candidato (builder puro, no persiste) ────
-  const built = await generateFexJsonForSale({ tenant_id, location_id, dte_document_id });
+  const built = await generateFexJsonForSale({ tenant_id, location_id, dte_document_id }, db);
 
   if (!built.ok) {
     return { ok: false, error: built.error };
   }
 
   // ── 3. Persistir json_document y avanzar a GENERATED ──────────────
-  await prisma.dteOutgoingDocument.update({
+  await db.dteOutgoingDocument.update({
     where: { id: dte_document_id },
     data:  {
       json_document: built.json as unknown as Prisma.InputJsonValue,
@@ -139,7 +140,7 @@ export async function generateAndPersistFexJsonForDte(
   // Reutiliza el mismo servicio que FE/CCFE/NC: si pasa, avanza a
   // SCHEMA_VALIDATED y guarda schema_validated_at; si falla, mantiene
   // GENERATED (con el json_document ya persistido) y no toca el estado.
-  const validated = await validateDteJsonSchema(dte_document_id, tenant_id, location_id, user_id);
+  const validated = await validateDteJsonSchema(dte_document_id, tenant_id, location_id, user_id, db);
 
   if (!validated.ok) {
     return {
@@ -156,7 +157,7 @@ export async function generateAndPersistFexJsonForDte(
   }
 
   // ── 5. Releer estado final persistido ──────────────────────────────
-  const finalDoc = await prisma.dteOutgoingDocument.findFirst({
+  const finalDoc = await db.dteOutgoingDocument.findFirst({
     where: { id: dte_document_id, tenant_id, location_id },
     select: {
       dte_status:          true,

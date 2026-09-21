@@ -9,6 +9,7 @@
 // producto — ver UnitOfMeasure en schema.prisma).
 // ─────────────────────────────────────────────────────────────────
 
+import type { PrismaClient } from "@prisma/client";
 import { prisma } from "@/lib/db/prisma";
 
 export interface UnitMhContext {
@@ -19,14 +20,18 @@ export interface UnitMhContext {
   shared_product_count: number;
 }
 
-export async function getUnitMhContext(tenant_id: string, unit_id: string): Promise<UnitMhContext | null> {
-  const unit = await prisma.unitOfMeasure.findUnique({
+export async function getUnitMhContext(
+  tenant_id: string,
+  unit_id: string,
+  db: PrismaClient = prisma,
+): Promise<UnitMhContext | null> {
+  const unit = await db.unitOfMeasure.findUnique({
     where:  { id: unit_id },
     select: { id: true, name: true, symbol: true, mh_unit_code: true },
   });
   if (!unit) return null;
 
-  const shared_product_count = await prisma.product.count({
+  const shared_product_count = await db.product.count({
     where: { tenant_id, unit_id },
   });
 

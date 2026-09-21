@@ -42,16 +42,14 @@
 
 import { revalidatePath }         from "next/cache";
 import { requireAdmin }           from "@/lib/permissions/guards";
-import { getEffectiveLocationId } from "@/lib/location/active-location";
 import {
   generateAndPersistFexJsonForDte,
 } from "../services/generate-fex-json-pipeline.service";
 import type { DteValidationError } from "../services/validate-dte-json-schema.service";
 import {
-  resolveCommercialEnforcementContext,
-  assertOrganizationModule,
-  CommercialEnforcementError,
-} from "@/modules/platform/runtime/commercial-enforcement";
+  requireOperationalContext,
+  OperationalContextError,
+} from "@/modules/platform/runtime/require-operational-context";
 
 // ── Tipos públicos ────────────────────────────────────────────────
 
@@ -66,42 +64,50 @@ export async function generateFexJsonForSaleAction(
   dte_document_id: string,
 ): Promise<GenerateFexJsonForSaleActionResult> {
   const sessionUser = await requireAdmin();
-  const tenant_id   = sessionUser.tenant_id;
-  const location_id = await getEffectiveLocationId(sessionUser);
 
-  if (!tenant_id)       return { ok: false, error: "La sesión no tiene un tenant activo." };
-  if (!location_id)     return { ok: false, error: "La sesión no tiene una location activa." };
   if (!dte_document_id) return { ok: false, error: "El ID del documento DTE es requerido." };
 
+  let handle;
   try {
-    const commercialCtx = await resolveCommercialEnforcementContext(tenant_id);
-    assertOrganizationModule(commercialCtx, "fiscal.dte");
+    handle = await requireOperationalContext(sessionUser, { module: "fiscal.dte", write: true });
   } catch (err) {
-    if (err instanceof CommercialEnforcementError) return { ok: false, error: err.userMessage };
+    if (err instanceof OperationalContextError) return { ok: false, error: err.userMessage };
     throw err;
   }
+  const { context, dispose } = handle;
 
-  const result = await generateAndPersistFexJsonForDte({
-    tenant_id,
-    location_id,
-    dte_document_id,
-    user_id: sessionUser.id,
-  });
+  try {
+    if (!context.locationId) {
+      return { ok: false, error: "La sesión no tiene una location activa." };
+    }
 
-  if (!result.ok) {
-    return { ok: false, error: result.error ?? "Error desconocido al generar el JSON FEX 11." };
+    const result = await generateAndPersistFexJsonForDte(
+      {
+        tenant_id:       context.tenantId,
+        location_id:     context.locationId,
+        dte_document_id,
+        user_id:         context.effectiveUser.id,
+      },
+      context.client,
+    );
+
+    if (!result.ok) {
+      return { ok: false, error: result.error ?? "Error desconocido al generar el JSON FEX 11." };
+    }
+
+    revalidatePath("/dashboard/sales");
+    revalidatePath("/dashboard/dte/outgoing");
+
+    if (result.dte_status !== "SCHEMA_VALIDATED") {
+      return {
+        ok:                 true,
+        schema_validated:   false,
+        validation_errors:  result.validation_errors ?? [],
+      };
+    }
+
+    return { ok: true, schema_validated: true };
+  } finally {
+    await dispose();
   }
-
-  revalidatePath("/dashboard/sales");
-  revalidatePath("/dashboard/dte/outgoing");
-
-  if (result.dte_status !== "SCHEMA_VALIDATED") {
-    return {
-      ok:                 true,
-      schema_validated:   false,
-      validation_errors:  result.validation_errors ?? [],
-    };
-  }
-
-  return { ok: true, schema_validated: true };
 }

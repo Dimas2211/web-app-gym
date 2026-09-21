@@ -8,18 +8,21 @@
 //
 // Reglas:
 //   - requireAdmin en toda action.
-//   - tenant_id y location_id siempre desde sesión.
+//   - tenant_id y location_id siempre desde el contexto operacional.
 //   - FEX 11 solo opera si DTE_FEX11_ENABLED o DTE_FEX11_TEST_ENABLED
 //     está activo, y solo en ambiente TEST (isFex11Enabled()).
 //   - No se firma, transmite ni entrega a MariaDB aquí — eso ocurre
 //     en las actions ya existentes (generateFexJsonForSaleAction,
 //     signDteDocumentAction, transmitDteDocumentAction,
 //     deliverDteToExternalDbAction), reutilizadas sin cambios.
+//
+// FASE VI-E4A: contexto operacional runtime — reemplaza tenant/location
+// de sesión + gate comercial manual + Prisma global. RUNTIME_CLIENT opera
+// FEX 11 enteramente en su propia DB.
 // ─────────────────────────────────────────────────────────────────
 
 import { revalidatePath }         from "next/cache";
 import { requireAdmin }           from "@/lib/permissions/guards";
-import { getEffectiveLocationId } from "@/lib/location/active-location";
 import { isFex11Enabled }         from "../../../dte/utils/fex11-feature-guard";
 import { searchForeignCustomers, type ForeignCustomerLookup } from "../queries/search-foreign-customers";
 import { searchExportProducts, type ExportProductLookup }     from "../queries/search-export-products";
@@ -35,39 +38,41 @@ import {
 import { createForeignCustomerSchema, createExportSaleSchema } from "../schemas/export-sale.schemas";
 import type { CreateForeignCustomerInput, CreateExportSaleInput } from "../schemas/export-sale.schemas";
 import {
-  resolveCommercialEnforcementContext,
-  assertOrganizationModule,
-  CommercialEnforcementError,
-} from "@/modules/platform/runtime/commercial-enforcement";
+  requireOperationalContext,
+  OperationalContextError,
+  type OperationalContext,
+} from "@/modules/platform/runtime/require-operational-context";
 
 // Bloque B — guard central único: cubre las 6 actions exportadas de este
 // archivo (todas llaman requireExportSession antes de operar).
-async function requireExportSession() {
+async function requireExportSession(write: boolean):
+  Promise<{ context: OperationalContext; dispose: () => Promise<void> } | { error: string }> {
   if (!isFex11Enabled()) {
     return { error: "FEX 11 no está habilitada. Active DTE_FEX11_ENABLED o DTE_FEX11_TEST_ENABLED en ambiente TEST." };
   }
 
   const sessionUser = await requireAdmin();
-  const tenant_id    = sessionUser.tenant_id;
-  const location_id  = await getEffectiveLocationId(sessionUser);
 
-  if (!tenant_id)   return { error: "La sesión no tiene un tenant activo." };
-  if (!location_id) return { error: "La sesión no tiene una location activa." };
-
+  let handle;
   try {
-    const commercialCtx = await resolveCommercialEnforcementContext(tenant_id);
-    assertOrganizationModule(commercialCtx, "commerce.sales");
+    handle = await requireOperationalContext(sessionUser, { module: "commerce.sales", write });
   } catch (err) {
-    if (err instanceof CommercialEnforcementError) return { error: err.userMessage };
+    if (err instanceof OperationalContextError) return { error: err.userMessage };
     throw err;
   }
 
-  return { tenant_id, location_id, user_id: sessionUser.id };
+  if (!handle.context.locationId) {
+    await handle.dispose();
+    return { error: "La sesión no tiene una location activa." };
+  }
+
+  return handle;
 }
 
-function isSession(v: { error: string } | { tenant_id: string; location_id: string; user_id: string }):
-  v is { tenant_id: string; location_id: string; user_id: string } {
-  return "tenant_id" in v;
+function isSession(
+  v: { context: OperationalContext; dispose: () => Promise<void> } | { error: string },
+): v is { context: OperationalContext; dispose: () => Promise<void> } {
+  return "context" in v;
 }
 
 // ── Buscar clientes extranjeros ───────────────────────────────────
@@ -75,11 +80,16 @@ function isSession(v: { error: string } | { tenant_id: string; location_id: stri
 export async function searchForeignCustomersAction(
   search: string,
 ): Promise<{ ok: true; items: ForeignCustomerLookup[] } | { ok: false; error: string }> {
-  const session = await requireExportSession();
+  const session = await requireExportSession(false);
   if (!isSession(session)) return { ok: false, error: session.error };
+  const { context, dispose } = session;
 
-  const items = await searchForeignCustomers(session.tenant_id, search);
-  return { ok: true, items };
+  try {
+    const items = await searchForeignCustomers(context.tenantId, search, 20, context.client);
+    return { ok: true, items };
+  } finally {
+    await dispose();
+  }
 }
 
 // ── Buscar productos exportables ──────────────────────────────────
@@ -87,11 +97,16 @@ export async function searchForeignCustomersAction(
 export async function searchExportProductsAction(
   search: string,
 ): Promise<{ ok: true; items: ExportProductLookup[] } | { ok: false; error: string }> {
-  const session = await requireExportSession();
+  const session = await requireExportSession(false);
   if (!isSession(session)) return { ok: false, error: session.error };
+  const { context, dispose } = session;
 
-  const items = await searchExportProducts(session.tenant_id, session.location_id, search);
-  return { ok: true, items };
+  try {
+    const items = await searchExportProducts(context.tenantId, context.locationId!, search, 20, context.client);
+    return { ok: true, items };
+  } finally {
+    await dispose();
+  }
 }
 
 // ── Configurar unidad MH (CAT-014) para un producto/servicio ──────
@@ -104,24 +119,34 @@ export async function searchExportProductsAction(
 export async function getUnitMhContextAction(
   unit_id: string,
 ): Promise<{ ok: true; context: UnitMhContext } | { ok: false; error: string }> {
-  const session = await requireExportSession();
+  const session = await requireExportSession(false);
   if (!isSession(session)) return { ok: false, error: session.error };
+  const { context, dispose } = session;
 
-  const context = await getUnitMhContext(session.tenant_id, unit_id);
-  if (!context) return { ok: false, error: "La unidad de medida no existe." };
-  return { ok: true, context };
+  try {
+    const unitContext = await getUnitMhContext(context.tenantId, unit_id, context.client);
+    if (!unitContext) return { ok: false, error: "La unidad de medida no existe." };
+    return { ok: true, context: unitContext };
+  } finally {
+    await dispose();
+  }
 }
 
 export async function configureExportUnitMhCodeAction(
   unit_id: string,
   mh_code: string,
 ): Promise<ConfigureUnitMhCodeResult> {
-  const session = await requireExportSession();
+  const session = await requireExportSession(true);
   if (!isSession(session)) return { ok: false, error: session.error };
+  const { context, dispose } = session;
 
-  const result = await configureUnitMhCode(unit_id, mh_code);
-  if (result.ok) revalidatePath("/dashboard/sales/export");
-  return result;
+  try {
+    const result = await configureUnitMhCode(unit_id, mh_code, context.client);
+    if (result.ok) revalidatePath("/dashboard/sales/export");
+    return result;
+  } finally {
+    await dispose();
+  }
 }
 
 // ── Crear cliente extranjero (alta rápida) ────────────────────────
@@ -129,21 +154,26 @@ export async function configureExportUnitMhCodeAction(
 export async function createForeignCustomerAction(
   input: CreateForeignCustomerInput,
 ): Promise<CreateForeignCustomerResult> {
-  const session = await requireExportSession();
+  const session = await requireExportSession(true);
   if (!isSession(session)) return { ok: false, error: session.error };
+  const { context, dispose } = session;
 
-  const parsed = createForeignCustomerSchema.safeParse(input);
-  if (!parsed.success) {
-    return { ok: false, error: parsed.error.issues[0]?.message ?? "Datos de cliente no válidos." };
+  try {
+    const parsed = createForeignCustomerSchema.safeParse(input);
+    if (!parsed.success) {
+      return { ok: false, error: parsed.error.issues[0]?.message ?? "Datos de cliente no válidos." };
+    }
+
+    const result = await createForeignCustomer(context.tenantId, context.effectiveUser.id, parsed.data, context.client);
+
+    if (result.ok) {
+      revalidatePath("/dashboard/sales/export");
+    }
+
+    return result;
+  } finally {
+    await dispose();
   }
-
-  const result = await createForeignCustomer(session.tenant_id, session.user_id, parsed.data);
-
-  if (result.ok) {
-    revalidatePath("/dashboard/sales/export");
-  }
-
-  return result;
 }
 
 // ── Crear venta de exportación completa ───────────────────────────
@@ -151,25 +181,36 @@ export async function createForeignCustomerAction(
 export async function createExportSaleAction(
   input: CreateExportSaleInput,
 ): Promise<CreateExportSaleResult> {
-  const session = await requireExportSession();
+  const session = await requireExportSession(true);
   if (!isSession(session)) return { ok: false, error: session.error };
+  const { context, dispose } = session;
 
-  const parsed = createExportSaleSchema.safeParse(input);
-  if (!parsed.success) {
-    return {
-      ok:    false,
-      error: "Datos de venta de exportación no válidos.",
-      errors: parsed.error.issues.map((i) => i.message),
-    };
+  try {
+    const parsed = createExportSaleSchema.safeParse(input);
+    if (!parsed.success) {
+      return {
+        ok:    false,
+        error: "Datos de venta de exportación no válidos.",
+        errors: parsed.error.issues.map((i) => i.message),
+      };
+    }
+
+    const result = await createExportSale(
+      context.tenantId,
+      context.locationId!,
+      context.effectiveUser.id,
+      parsed.data,
+      context.client,
+    );
+
+    if (result.ok) {
+      revalidatePath("/dashboard/sales/export");
+      revalidatePath("/dashboard/sales");
+      revalidatePath("/dashboard/dte/outgoing");
+    }
+
+    return result;
+  } finally {
+    await dispose();
   }
-
-  const result = await createExportSale(session.tenant_id, session.location_id, session.user_id, parsed.data);
-
-  if (result.ok) {
-    revalidatePath("/dashboard/sales/export");
-    revalidatePath("/dashboard/sales");
-    revalidatePath("/dashboard/dte/outgoing");
-  }
-
-  return result;
 }

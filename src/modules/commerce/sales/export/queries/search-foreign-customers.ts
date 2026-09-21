@@ -5,6 +5,7 @@
 // selector de receptor en el módulo comercial FEX 11.
 // ─────────────────────────────────────────────────────────────────
 
+import type { PrismaClient } from "@prisma/client";
 import { prisma } from "@/lib/db/prisma";
 
 export interface ForeignCustomerLookup {
@@ -28,10 +29,11 @@ export async function searchForeignCustomers(
   tenant_id: string,
   search:    string,
   limit      = 20,
+  db: PrismaClient = prisma,
 ): Promise<ForeignCustomerLookup[]> {
   const trimmed = search.trim();
 
-  const rows = await prisma.customer.findMany({
+  const rows = await db.customer.findMany({
     where: {
       tenant_id,
       status:     "active",

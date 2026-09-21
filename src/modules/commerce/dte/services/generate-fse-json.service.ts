@@ -28,6 +28,7 @@
 // mezclan ni se derivan una de la otra.
 // ─────────────────────────────────────────────────────────────────
 
+import type { PrismaClient } from "@prisma/client";
 import { prisma } from "@/lib/db/prisma";
 import { numeroALetras } from "../utils/numero-a-letras";
 import { normalizeNitForDte, normalizeNrcForDte } from "../utils/fiscal-id.utils";
@@ -136,14 +137,17 @@ export type GenerateFseJsonResult =
 
 // ── Función principal ─────────────────────────────────────────────
 
-export async function generateFseJsonForPurchase(params: {
-  tenant_id:       string;
-  location_id:     string;
-  dte_document_id: string;
-}): Promise<GenerateFseJsonResult> {
+export async function generateFseJsonForPurchase(
+  params: {
+    tenant_id:       string;
+    location_id:     string;
+    dte_document_id: string;
+  },
+  db: PrismaClient = prisma,
+): Promise<GenerateFseJsonResult> {
   const { tenant_id, location_id, dte_document_id } = params;
 
-  const dteDoc = await prisma.dteOutgoingDocument.findFirst({
+  const dteDoc = await db.dteOutgoingDocument.findFirst({
     where: { id: dte_document_id, tenant_id, location_id },
     select: {
       id:               true,
@@ -178,7 +182,7 @@ export async function generateFseJsonForPurchase(params: {
     return { ok: false, error: "El documento DTE no tiene configuración de emisor vinculada." };
   }
 
-  const purchase = await prisma.purchase.findFirst({
+  const purchase = await db.purchase.findFirst({
     where: { id: dteDoc.purchase_id, tenant_id, location_id },
     select: {
       tenant_id:                      true,
@@ -233,7 +237,7 @@ export async function generateFseJsonForPurchase(params: {
     return { ok: false, error: "La compra asociada al DTE no existe o no pertenece a la location activa." };
   }
 
-  const issuerConfig = await prisma.dteIssuerConfig.findFirst({
+  const issuerConfig = await db.dteIssuerConfig.findFirst({
     where: { id: dteDoc.issuer_config_id, tenant_id, location_id },
     select: {
       nit:                true,
@@ -263,14 +267,14 @@ export async function generateFseJsonForPurchase(params: {
     role:             "emisor",
     deptCode:         issuerConfig.dept_code,
     municipalityCode: issuerConfig.municipality_code,
-  });
+  }, db);
   if (!emisorAddrCheck.ok) return { ok: false, error: emisorAddrCheck.error };
 
   const sujetoExcluidoAddrCheck = await validateDteAddressCodes({
     role:             "sujeto excluido",
     deptCode:         purchase.supplier.dept_code,
     municipalityCode: purchase.supplier.municipality_code,
-  });
+  }, db);
   if (!sujetoExcluidoAddrCheck.ok) return { ok: false, error: sujetoExcluidoAddrCheck.error };
 
   return buildFseJsonFromLoadedData({
