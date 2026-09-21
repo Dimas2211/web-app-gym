@@ -291,7 +291,10 @@ export function DteOutgoingClient({
     setInvalidationDeliverySuccess(false);
 
     try {
-      const result = await deliverInvalidationToExternalDbAction(invalidationEventId);
+      // confirmed:true — el usuario ya pasó por InvalidationDeliveryConfirmDialog.
+      // En modo normal (sin runtime) este flag no cambia el comportamiento;
+      // en modo "Operar como cliente" es obligatorio (ver requireRuntimeDteWriteAccess).
+      const result = await deliverInvalidationToExternalDbAction(invalidationEventId, { confirmed: true });
 
       if (result.ok) {
         setInvalidationDeliverySuccess(true);

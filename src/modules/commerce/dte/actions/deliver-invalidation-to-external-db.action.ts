@@ -5,15 +5,24 @@
 // Server Action: entrega un DteInvalidationEvent ACCEPTED a la base MariaDB externa.
 //
 // Reglas:
-//   - Sesión requerida (requireAdmin).
-//   - tenant_id y location_id siempre desde sesión.
+//   - Sin sesión runtime activa: comportamiento sin cambios — requireAdmin(),
+//     tenant_id/location_id de la sesión normal, Prisma global.
+//   - Con sesión runtime "Operar como cliente" activa: runtime-aware vía
+//     requireRuntimeDteWriteAccess("DELIVER_EXTERNAL") — mismo guard y misma
+//     allowlist que deliver-dte-to-external-db.action.ts (FASE VI-E7, cierre
+//     de la deuda documentada en VI-E6B: el servicio ya aceptaba `client`
+//     runtime, pero este entry point todavía no lo resolvía).
+//   - El delivery externo (MariaDB) en sí es siempre el mismo, configurado
+//     por variables de entorno — no cambia con el modo runtime.
 //   - No devuelve payload externo completo al cliente.
 //   - No expone signed_jws, event_json completo ni credenciales MariaDB.
 //   - Revalida /dashboard/sales al completar.
 
-import { revalidatePath }         from "next/cache";
-import { requireAdmin }           from "@/lib/permissions/guards";
-import { getEffectiveLocationId } from "@/lib/location/active-location";
+import { revalidatePath } from "next/cache";
+import {
+  requireRuntimeDteWriteAccess,
+  recordRuntimeDteWriteAudit,
+} from "../runtime/require-runtime-dte-write-access";
 import {
   deliverInvalidationToExternalDb,
   type DeliverInvalidationToExternalDbParams,
@@ -29,31 +38,55 @@ export type { DeliverInvalidationToExternalDbResult };
 
 export async function deliverInvalidationToExternalDbAction(
   invalidationEventId: string,
+  options?: { confirmed?: boolean },
 ): Promise<DeliverInvalidationToExternalDbResult> {
-  const sessionUser = await requireAdmin();
-  const tenant_id   = sessionUser.tenant_id;
-  const location_id = await getEffectiveLocationId(sessionUser);
+  if (!invalidationEventId) return { ok: false, error: "El ID del evento de invalidación es requerido." };
 
-  if (!tenant_id)            return { ok: false, error: "La sesión no tiene un tenant activo." };
-  if (!location_id)          return { ok: false, error: "La sesión no tiene una location activa." };
-  if (!invalidationEventId)  return { ok: false, error: "El ID del evento de invalidación es requerido." };
+  const access = await requireRuntimeDteWriteAccess({
+    action:    "DELIVER_EXTERNAL",
+    confirmed: options?.confirmed ?? false,
+  });
+
+  if (!access.ok) {
+    return { ok: false, error: access.error };
+  }
+
+  const { tenantId, locationId, client, userId, isRuntimeWrite, runtimeInfo, dispose } = access.context;
 
   try {
-    const commercialCtx = await resolveCommercialEnforcementContext(tenant_id);
+    const commercialCtx = await resolveCommercialEnforcementContext(tenantId);
     assertOrganizationModule(commercialCtx, "fiscal.dte");
   } catch (err) {
+    await dispose();
     if (err instanceof CommercialEnforcementError) return { ok: false, error: err.userMessage };
     throw err;
   }
 
-  const params: DeliverInvalidationToExternalDbParams = {
-    invalidationEventId,
-    userId:     sessionUser.id,
-    tenantId:   tenant_id,
-    locationId: location_id,
-  };
+  let result: DeliverInvalidationToExternalDbResult;
+  try {
+    const params: DeliverInvalidationToExternalDbParams = {
+      invalidationEventId,
+      userId,
+      tenantId,
+      locationId,
+      client,
+    };
 
-  const result = await deliverInvalidationToExternalDb(params);
+    result = await deliverInvalidationToExternalDb(params);
+  } finally {
+    await dispose();
+  }
+
+  if (isRuntimeWrite && runtimeInfo) {
+    await recordRuntimeDteWriteAudit({
+      organizationId: runtimeInfo.organizationId,
+      triggeredBy:    userId,
+      action:         "DELIVER_EXTERNAL",
+      dteDocumentId:  invalidationEventId,
+      ok:             result.ok,
+      detail:         result.ok ? undefined : result.error,
+    });
+  }
 
   if (result.ok) {
     revalidatePath("/dashboard/sales");
