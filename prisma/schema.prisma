@@ -2687,6 +2687,7 @@ model PlatformOrganization {
   deployment_jobs       PlatformDeploymentJob[]
   database_profiles     PlatformDatabaseProfile[]
   entitlement_overrides PlatformOrganizationEntitlementOverride[]
+  external_integrations PlatformExternalIntegration[]
 
   @@index([tenant_id])
   @@index([status])
@@ -3161,4 +3162,64 @@ model PlatformDatabaseProfile {
   @@index([environment])
   @@index([is_active])
   @@map("platform_database_profiles")
+}
+
+// ── PlatformExternalIntegration — integraciones externas por organización ──
+// FASE VI-E7 — modelo genérico y liviano para integraciones externas
+// opcionales por organización (arranca con DTE_MARIADB, la entrega DTE a
+// una base MariaDB de terceros; extensible a futuros tipos sin nueva
+// migración estructural, igual que PlatformEntitlementDefinition.code).
+//
+// Reemplaza el destino global por variables de entorno
+// (EXTERNAL_DTE_MARIADB_*) para flujos RUNTIME_CLIENT: cada organización
+// tiene su propio destino, nunca uno compartido. Una organización SIN fila
+// aquí sigue operando con normalidad (login, Commerce, DTE, etc.) — solo la
+// acción explícita de entrega externa retorna NOT_CONFIGURED.
+//
+// encrypted_payload guarda el JSON completo de conexión (host/port/
+// database/user/password/table/invalidationTable/timeoutMs) cifrado con
+// encryptJsonPayload (AES-256-GCM, mismo helper que encrypted_password de
+// PlatformDatabaseProfile) — nunca texto plano, nunca en logs.
+//
+// @@unique([organization_id, type]) — como máximo una fila activa por tipo
+// de integración por organización (mismo criterio "una config vigente" que
+// el resto de la plataforma; no se modela historial de configs
+// deshabilitadas aquí, is_active + updated_at ya lo cubren para auditoría
+// básica).
+model PlatformExternalIntegration {
+  id              String @id @default(uuid())
+  organization_id String
+
+  type  PlatformExternalIntegrationType
+  label String // ej: "TrustMe — MariaDB Legado"
+
+  is_active Boolean @default(true)
+
+  // Payload cifrado — ver encryptJsonPayload/decryptJsonPayload (AES-256-GCM).
+  encrypted_payload String
+
+  // Estado de la última prueba de conexión (opcional, mismo patrón que
+  // PlatformDatabaseProfile.last_test_status).
+  last_tested_at    DateTime?
+  last_test_status  PlatformDatabaseConnectionTestStatus @default(UNTESTED)
+  last_test_message String?
+
+  // Auditoría
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+  created_by String?
+  updated_by String?
+
+  // Relación
+  organization PlatformOrganization @relation(fields: [organization_id], references: [id])
+
+  @@unique([organization_id, type])
+  @@index([organization_id])
+  @@index([type])
+  @@index([is_active])
+  @@map("platform_external_integrations")
+}
+
+enum PlatformExternalIntegrationType {
+  DTE_MARIADB
 }

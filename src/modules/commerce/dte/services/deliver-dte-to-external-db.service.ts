@@ -11,13 +11,20 @@
 //
 // Seguridad:
 //   - signed_jws y json_document no se loguean completos.
-//   - Credenciales MariaDB leídas solo desde env.
+//   - FASE VI-E7: el destino MariaDB se resuelve por ORGANIZACIÓN
+//     (Control Plane, PlatformExternalIntegration tipo DTE_MARIADB) vía
+//     resolveExternalDteMariaDbDestination — ya no por variables de
+//     entorno global. El legado por env SOLO se usa como fallback
+//     opcional para PLATFORM_NATIVE sin PlatformOrganization resoluble
+//     (ver resolve-external-dte-destination.ts). Credenciales siempre
+//     cifradas en reposo (AES-256-GCM) o leídas desde env — nunca texto
+//     plano.
 //   - El log en Prisma solo guarda metadatos del resultado, nunca el payload completo.
 
 import { prisma }                      from "@/lib/db/prisma";
 import type { PrismaClient }           from "@prisma/client";
-import { getExternalDteMariaDbConfig } from "../config/external-dte-mariadb.config";
 import { ExternalDteMariaDbAdapter }   from "../adapters/external-dte-mariadb.adapter";
+import { resolveExternalDteMariaDbDestination } from "../config/resolve-external-dte-destination";
 import {
   buildExternalDtePayload,
   type DteDocumentForExternalPayload,
@@ -41,14 +48,28 @@ export interface DeliverDteToExternalDbParams {
    * este client.
    */
   client?: PrismaClient;
+  /**
+   * Organización efectiva resuelta server-side (ver
+   * require-runtime-dte-write-access.ts). null = sin PlatformOrganization
+   * mapeada — solo relevante si allowLegacyEnvFallback es true.
+   */
+  organizationId: string | null;
+  /**
+   * true SOLO en modo normal sin PlatformOrganization resoluble. SIEMPRE
+   * false en modo runtime ("Operar como cliente") — ver
+   * resolve-external-dte-destination.ts.
+   */
+  allowLegacyEnvFallback: boolean;
 }
 
 // ── Error de negocio interno ──────────────────────────────────────
 
 class DeliverDteBusinessError extends Error {
-  constructor(message: string) {
+  errorCode?: string;
+  constructor(message: string, errorCode?: string) {
     super(message);
     this.name = "DeliverDteBusinessError";
+    this.errorCode = errorCode;
   }
 }
 
@@ -57,11 +78,32 @@ class DeliverDteBusinessError extends Error {
 export async function deliverDteToExternalDb(
   params: DeliverDteToExternalDbParams,
 ): Promise<DeliverDteToExternalDbResult> {
-  const { dteDocumentId, userId, tenantId, locationId, client = prisma } = params;
+  const { dteDocumentId, userId, tenantId, locationId, client = prisma, organizationId, allowLegacyEnvFallback } = params;
 
-  // Config leída antes del try para que esté disponible en todos los paths de retorno,
-  // incluidas las excepciones de negocio que ocurren antes de la llamada al adapter.
-  const config = getExternalDteMariaDbConfig();
+  // Destino resuelto por ORGANIZACIÓN (Control Plane) antes del try, para
+  // que esté disponible en todos los paths de retorno. RUNTIME_CLIENT
+  // nunca cae al legado por variables de entorno (allowLegacyEnvFallback
+  // siempre false en ese modo) — ver resolve-external-dte-destination.ts.
+  const destination = await resolveExternalDteMariaDbDestination({ organizationId, allowLegacyEnvFallback });
+
+  if (destination.status === "NOT_CONFIGURED") {
+    return {
+      ok:          false,
+      error:       "Esta organización no tiene configurada la entrega externa a MariaDB.",
+      targetTable: null,
+      errorCode:   "NOT_CONFIGURED",
+    };
+  }
+  if (destination.status === "DISABLED") {
+    return {
+      ok:          false,
+      error:       "La entrega externa a MariaDB está deshabilitada para esta organización.",
+      targetTable: null,
+      errorCode:   "DISABLED",
+    };
+  }
+
+  const config = destination.config;
 
   try {
     // 1. Cargar documento con scope tenant/location
@@ -191,6 +233,7 @@ export async function deliverDteToExternalDb(
         ok:          false,
         error:       error.message,
         targetTable: config.table || null,
+        errorCode:   error.errorCode,
       };
     }
     throw error;

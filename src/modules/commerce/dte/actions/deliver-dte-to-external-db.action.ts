@@ -12,8 +12,10 @@
 //     `confirmed: true` explícito desde el diálogo de confirmación en UI, y
 //     lee/escribe el documento DTE contra la base del cliente runtime
 //     (nunca contra Prisma global). Registra auditoría en control plane.
-//   - El delivery externo (MariaDB) en sí es siempre el mismo, configurado
-//     por variables de entorno — no cambia con el modo runtime.
+//   - FASE VI-E7: el destino MariaDB ya no es global — se resuelve por
+//     ORGANIZACIÓN (Control Plane) usando access.context.organizationId /
+//     allowLegacyEnvFallback, resueltos server-side por
+//     requireRuntimeDteWriteAccess. Nunca aceptado del browser.
 //   - No devuelve payload externo completo al cliente.
 //   - No expone signed_jws, json_document completo ni credenciales MariaDB.
 //   - Revalida /dashboard/sales al completar.
@@ -51,7 +53,10 @@ export async function deliverDteToExternalDbAction(
     return { ok: false, error: access.error, targetTable: null };
   }
 
-  const { tenantId, locationId, client, userId, isRuntimeWrite, runtimeInfo, dispose } = access.context;
+  const {
+    tenantId, locationId, client, userId, isRuntimeWrite, runtimeInfo, dispose,
+    organizationId, allowLegacyEnvFallback,
+  } = access.context;
 
   // Bloque B — el tenant efectivo ya viene resuelto por
   // requireRuntimeDteWriteAccess (sesión normal o runtime "operar como
@@ -76,6 +81,8 @@ export async function deliverDteToExternalDbAction(
       tenantId,
       locationId,
       client,
+      organizationId,
+      allowLegacyEnvFallback,
     };
 
     result = await deliverDteToExternalDb(params);

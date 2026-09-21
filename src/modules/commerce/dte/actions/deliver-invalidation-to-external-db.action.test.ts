@@ -51,7 +51,7 @@ vi.mock("@/modules/platform/runtime/commercial-enforcement", () => ({
   assertOrganizationModule:            assertOrganizationModuleMock,
   CommercialEnforcementError:          class CommercialEnforcementError extends Error {
     userMessage: string;
-    constructor(userMessage: string) {
+    constructor(_code: string, userMessage: string) {
       super(userMessage);
       this.userMessage = userMessage;
     }
@@ -196,19 +196,12 @@ describe("deliverInvalidationToExternalDbAction — FASE VI-E7", () => {
 
   it("módulo comercial fiscal.dte deshabilitado -> bloquea antes de invocar el servicio, dispose() se llama igual", async () => {
     requireRuntimeDteWriteAccessMock.mockResolvedValue(normalAccess());
-    class FakeCommercialEnforcementError extends Error {
-      userMessage: string;
-      constructor(msg: string) { super(msg); this.userMessage = msg; }
-    }
-    assertOrganizationModuleMock.mockImplementation(() => {
-      throw new FakeCommercialEnforcementError("El módulo fiscal.dte no está habilitado.");
-    });
 
-    // Re-mock CommercialEnforcementError class used by instanceof check in the action:
-    // the module mock above already exports a matching class; reuse it via require.
+    // El mock del módulo (arriba) ya exporta una clase CommercialEnforcementError
+    // compatible con el `instanceof` que hace la action — la reusamos directo.
     const mod = await import("@/modules/platform/runtime/commercial-enforcement");
     assertOrganizationModuleMock.mockImplementation(() => {
-      throw new mod.CommercialEnforcementError("El módulo fiscal.dte no está habilitado.");
+      throw new mod.CommercialEnforcementError("MODULE_NOT_ENABLED", "El módulo fiscal.dte no está habilitado.");
     });
 
     const result = await deliverInvalidationToExternalDbAction("inv-4");

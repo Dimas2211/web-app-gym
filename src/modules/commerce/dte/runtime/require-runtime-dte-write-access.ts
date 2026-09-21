@@ -61,6 +61,24 @@ export interface RuntimeDteWriteContext {
     organizationName: string;
     profileLabel:     string;
   } | null;
+  /**
+   * PlatformOrganization.id resuelto server-side — SIEMPRE la fuente de
+   * verdad para resolver el destino de entrega externa (ver
+   * resolve-external-dte-destination.ts). En modo runtime, es
+   * profile.organizationId (siempre presente). En modo normal, se
+   * resuelve por tenant_id contra el Control Plane — null si el tenant
+   * no está dado de alta como PlatformOrganization (ERP standalone).
+   * Nunca aceptado del browser.
+   */
+  organizationId: string | null;
+  /**
+   * true SOLO en modo normal (isRuntimeWrite=false) — permite que el
+   * resolver de destino externo caiga al legado por variables de
+   * entorno cuando organizationId es null (sin PlatformOrganization
+   * mapeada). SIEMPRE false en modo runtime — ver
+   * resolve-external-dte-destination.ts para el razonamiento completo.
+   */
+  allowLegacyEnvFallback: boolean;
   /** Cierra el PrismaClient runtime si se abrió uno. No-op en modo normal. */
   dispose: () => Promise<void>;
 }
@@ -90,6 +108,14 @@ export async function requireRuntimeDteWriteAccess(input: {
     const locationId = await getEffectiveLocationId(user);
     if (!locationId) return { ok: false, error: "La sesión no tiene una location activa." };
 
+    // Resolver la organización server-side por tenant_id — nunca aceptar
+    // organizationId del cliente. null es un caso legítimo (ERP standalone
+    // sin PlatformOrganization dada de alta).
+    const organization = await controlPlanePrisma.platformOrganization.findUnique({
+      where:  { tenant_id: tenantId },
+      select: { id: true },
+    });
+
     return {
       ok: true,
       context: {
@@ -99,6 +125,8 @@ export async function requireRuntimeDteWriteAccess(input: {
         userId:         user.id,
         isRuntimeWrite: false,
         runtimeInfo:    null,
+        organizationId: organization?.id ?? null,
+        allowLegacyEnvFallback: true,
         dispose:        NOOP_DISPOSE,
       },
     };
@@ -145,6 +173,8 @@ export async function requireRuntimeDteWriteAccess(input: {
         organizationName: profile.organizationName,
         profileLabel:     profile.label,
       },
+      organizationId: profile.organizationId,
+      allowLegacyEnvFallback: false,
       dispose: disconnect,
     },
   };

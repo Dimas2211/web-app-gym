@@ -6,30 +6,31 @@
 //   1. Cargar evento con scope tenant/location.
 //   2. Cargar DteOutgoingDocument original para resolver codigoEmpresa (NRC).
 //   3. Construir payload externo de invalidación.
-//   4. Insertar en MariaDB externa vía adapter — tabla EXTERNAL_DTE_MARIADB_INVALIDATION_TABLE.
+//   4. Insertar en MariaDB externa vía adapter — tabla config.invalidationTable
+//      (resuelta por organización, ver resolveExternalDteMariaDbDestination).
 //   5. Registrar resultado en DteTransmissionLog (operation_type = EXTERNAL_INVALIDATION_DELIVERY).
 //
 // Seguridad:
 //   - signed_jws y event_json no se loguean completos.
-//   - Credenciales MariaDB leídas solo desde env.
+//   - FASE VI-E7: el destino MariaDB se resuelve por ORGANIZACIÓN
+//     (Control Plane, PlatformExternalIntegration tipo DTE_MARIADB) vía
+//     resolveExternalDteMariaDbDestination — MISMO resolver que
+//     deliver-dte-to-external-db.service.ts, nunca un mecanismo
+//     paralelo. El legado por env solo aplica como fallback opcional
+//     para PLATFORM_NATIVE sin PlatformOrganization resoluble.
 //   - El log en Prisma solo guarda metadatos del resultado, nunca el payload completo.
 //
-// FASE VI-E6B / S — acepta un `client` explícito opcional (PrismaClient
-// runtime), mismo patrón preexistente en deliver-dte-to-external-db.service.ts
-// (fase anterior de entrega externa FE/CCF/NC). Con `client`, la LECTURA
-// del DteInvalidationEvent/DteOutgoingDocument origen y el log de
-// resultado corren contra esa runtime DB. El delivery externo (MariaDB)
-// en sí sigue siendo siempre el mismo, configurado por variables de
-// entorno — nunca depende de `client`. VI-E7 es la fase reservada para
-// el cierre general de MariaDB/entrega externa; este cambio SOLO hace
-// el servicio capaz de leer desde runtime DB — no crea ni cambia el
-// entry point productivo (deliver-invalidation-to-external-db.action.ts
-// sigue sin wiring runtime, ver DTE_MARIADB_DELIVERY_RUNTIME_READY=PARTIAL).
+// FASE VI-E6B — acepta un `client` explícito opcional (PrismaClient
+// runtime), mismo patrón preexistente en deliver-dte-to-external-db.service.ts.
+// Con `client`, la LECTURA del DteInvalidationEvent/DteOutgoingDocument
+// origen y el log de resultado corren contra esa runtime DB. FASE VI-E7
+// cerró el entry point productivo (deliver-invalidation-to-external-db.action.ts
+// ahora sí resuelve sesión runtime) y el destino por organización.
 
 import type { PrismaClient }           from "@prisma/client";
 import { prisma }                      from "@/lib/db/prisma";
-import { getExternalDteMariaDbConfig } from "../config/external-dte-mariadb.config";
 import { ExternalDteMariaDbAdapter }   from "../adapters/external-dte-mariadb.adapter";
+import { resolveExternalDteMariaDbDestination } from "../config/resolve-external-dte-destination";
 import {
   buildExternalInvalidationPayload,
   type DteInvalidationEventForExternalPayload,
@@ -50,6 +51,18 @@ export interface DeliverInvalidationToExternalDbParams {
    * entorno — nunca depende de este client.
    */
   client?: PrismaClient;
+  /**
+   * Organización efectiva resuelta server-side (ver
+   * require-runtime-dte-write-access.ts). null = sin PlatformOrganization
+   * mapeada — solo relevante si allowLegacyEnvFallback es true.
+   */
+  organizationId: string | null;
+  /**
+   * true SOLO en modo normal sin PlatformOrganization resoluble. SIEMPRE
+   * false en modo runtime ("Operar como cliente") — ver
+   * resolve-external-dte-destination.ts.
+   */
+  allowLegacyEnvFallback: boolean;
 }
 
 // ── Error de negocio interno ──────────────────────────────────────
@@ -66,7 +79,20 @@ class DeliverInvalidationBusinessError extends Error {
 export async function deliverInvalidationToExternalDb(
   params: DeliverInvalidationToExternalDbParams,
 ): Promise<DeliverInvalidationToExternalDbResult> {
-  const { invalidationEventId, userId, tenantId, locationId, client = prisma } = params;
+  const { invalidationEventId, userId, tenantId, locationId, client = prisma, organizationId, allowLegacyEnvFallback } = params;
+
+  // Destino resuelto por ORGANIZACIÓN (Control Plane) — mismo resolver que
+  // deliver-dte-to-external-db.service.ts, nunca un mecanismo paralelo.
+  const destination = await resolveExternalDteMariaDbDestination({ organizationId, allowLegacyEnvFallback });
+
+  if (destination.status === "NOT_CONFIGURED") {
+    return { ok: false, error: "Esta organización no tiene configurada la entrega externa a MariaDB." };
+  }
+  if (destination.status === "DISABLED") {
+    return { ok: false, error: "La entrega externa a MariaDB está deshabilitada para esta organización." };
+  }
+
+  const config = destination.config;
 
   try {
     // 1. Cargar evento con scope tenant/location
@@ -133,7 +159,6 @@ export async function deliverInvalidationToExternalDb(
     }
 
     // 3. Insertar en MariaDB externa — tabla de invalidaciones
-    const config  = getExternalDteMariaDbConfig();
     const adapter = new ExternalDteMariaDbAdapter();
 
     // Pasar tableName explícito — FE/CCF/NC usan config.table; invalidaciones usan config.invalidationTable.

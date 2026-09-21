@@ -12,8 +12,11 @@
 //     allowlist que deliver-dte-to-external-db.action.ts (FASE VI-E7, cierre
 //     de la deuda documentada en VI-E6B: el servicio ya aceptaba `client`
 //     runtime, pero este entry point todavía no lo resolvía).
-//   - El delivery externo (MariaDB) en sí es siempre el mismo, configurado
-//     por variables de entorno — no cambia con el modo runtime.
+//   - FASE VI-E7: el destino MariaDB ya no es global — se resuelve por
+//     ORGANIZACIÓN (Control Plane) usando access.context.organizationId /
+//     allowLegacyEnvFallback, resueltos server-side por
+//     requireRuntimeDteWriteAccess (mismo resolver que
+//     deliver-dte-to-external-db.action.ts, nunca un mecanismo paralelo).
 //   - No devuelve payload externo completo al cliente.
 //   - No expone signed_jws, event_json completo ni credenciales MariaDB.
 //   - Revalida /dashboard/sales al completar.
@@ -51,7 +54,10 @@ export async function deliverInvalidationToExternalDbAction(
     return { ok: false, error: access.error };
   }
 
-  const { tenantId, locationId, client, userId, isRuntimeWrite, runtimeInfo, dispose } = access.context;
+  const {
+    tenantId, locationId, client, userId, isRuntimeWrite, runtimeInfo, dispose,
+    organizationId, allowLegacyEnvFallback,
+  } = access.context;
 
   try {
     const commercialCtx = await resolveCommercialEnforcementContext(tenantId);
@@ -70,6 +76,8 @@ export async function deliverInvalidationToExternalDbAction(
       tenantId,
       locationId,
       client,
+      organizationId,
+      allowLegacyEnvFallback,
     };
 
     result = await deliverInvalidationToExternalDb(params);

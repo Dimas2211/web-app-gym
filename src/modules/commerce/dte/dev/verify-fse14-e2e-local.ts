@@ -180,7 +180,7 @@ async function main() {
 
       if (finalRetry.dte_status === "ACCEPTED" || finalRetry.dte_status === "OBSERVED") {
         console.log("\n=== Delivery MariaDB (real) tras retry ===");
-        const deliverRes = await deliverDteToExternalDb({ dteDocumentId: retryDteId, userId: ADMIN_USER_ID, tenantId: TENANT_ID, locationId: LOCATION_ID });
+        const deliverRes = await deliverDteToExternalDb({ dteDocumentId: retryDteId, userId: ADMIN_USER_ID, tenantId: TENANT_ID, locationId: LOCATION_ID, organizationId: null, allowLegacyEnvFallback: true });
         console.log("Resultado delivery MariaDB:", JSON.stringify(deliverRes, null, 2));
       }
 
@@ -418,7 +418,7 @@ async function main() {
     // ── FASE 10 — Delivery MariaDB (solo si hay respuesta MH válida) ──
     if (finalDoc.dte_status === "ACCEPTED" || finalDoc.dte_status === "OBSERVED") {
       console.log("\n=== FASE 10 — Delivery MariaDB (real) ===");
-      const deliverRes = await deliverDteToExternalDb({ dteDocumentId: dteId, userId: ADMIN_USER_ID, tenantId: TENANT_ID, locationId: LOCATION_ID });
+      const deliverRes = await deliverDteToExternalDb({ dteDocumentId: dteId, userId: ADMIN_USER_ID, tenantId: TENANT_ID, locationId: LOCATION_ID, organizationId: null, allowLegacyEnvFallback: true });
       console.log("Resultado delivery MariaDB:", JSON.stringify(deliverRes, null, 2));
     } else {
       console.log(`\n=== FASE 10 — Delivery MariaDB OMITIDO (dte_status=${finalDoc.dte_status}, no es ACCEPTED/OBSERVED) ===`);
