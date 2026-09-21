@@ -28,7 +28,38 @@ vi.mock("../utils/dte-territory.resolver", () => ({
 import { generateNcJsonForDte } from "./generate-nc-json.service";
 import { validateDteAddressCodes } from "../utils/dte-territory.resolver";
 
-const NC_DOC = {
+// ── Tipos de fixture — únicamente para que `findFirst` pueda
+//    reasignarse en cada test con distintos valores de json_document
+//    (null | { already: true } | payload CCFE completo) sin que TS
+//    infiera un tipo literal demasiado estrecho a partir del primer
+//    mock. No cambia el contrato real de generateNcJsonForDte —
+//    generate-nc-json.service.ts no se tocó. ──────────────────────
+
+interface NcDocRow {
+  id:               string;
+  dte_type_code:    string;
+  dte_status:       string;
+  generation_code:  string;
+  control_number:   string;
+  environment:      string;
+  issuer_config_id: string;
+  json_document:    Record<string, unknown> | null;
+}
+
+interface CcfeDocRow {
+  id:              string;
+  dte_type_code:   string;
+  dte_status:      string;
+  generation_code: string;
+  control_number:  string;
+  reception_stamp: string;
+  json_document:   Record<string, unknown>;
+}
+
+type FindFirstDocRow = NcDocRow | CcfeDocRow;
+type FindFirstFn     = (args: { where: { id: string } }) => Promise<FindFirstDocRow | null>;
+
+const NC_DOC: NcDocRow = {
   id: "nc-1",
   dte_type_code: "05",
   dte_status: "PENDING_GENERATION",
@@ -39,7 +70,7 @@ const NC_DOC = {
   json_document: null,
 };
 
-const ORIGINAL_CCFE = {
+const ORIGINAL_CCFE: CcfeDocRow = {
   id: "ccfe-1",
   dte_type_code: "03",
   dte_status: "ACCEPTED",
@@ -67,7 +98,7 @@ function buildFakeRuntimeDb() {
   const db = {
     __marker: "RUNTIME_CLIENT_DB",
     dteOutgoingDocument: {
-      findFirst: vi.fn(async ({ where }: { where: { id: string } }) => {
+      findFirst: vi.fn<FindFirstFn>(async ({ where }) => {
         if (where.id === "nc-1") return NC_DOC;
         if (where.id === "ccfe-1") return ORIGINAL_CCFE;
         return null;
@@ -130,7 +161,7 @@ describe("generateNcJsonForDte — FASE VI-E4B (runtime db injection)", () => {
 
   it("relación CREDIT_NOTE_OF apunta a un original en otro tenant/location -> findFirst filtra fail closed", async () => {
     const db = buildFakeRuntimeDb();
-    db.dteOutgoingDocument.findFirst = vi.fn(async ({ where }: { where: { id: string } }) => {
+    db.dteOutgoingDocument.findFirst = vi.fn<FindFirstFn>(async ({ where }) => {
       if (where.id === "nc-1") return NC_DOC;
       return null; // el CCFE original no aparece con ese tenant/location
     });
@@ -143,7 +174,7 @@ describe("generateNcJsonForDte — FASE VI-E4B (runtime db injection)", () => {
 
   it("NC ya tiene json_document -> rechaza (idempotencia preservada)", async () => {
     const db = buildFakeRuntimeDb();
-    db.dteOutgoingDocument.findFirst = vi.fn(async ({ where }: { where: { id: string } }) => {
+    db.dteOutgoingDocument.findFirst = vi.fn<FindFirstFn>(async ({ where }) => {
       if (where.id === "nc-1") return { ...NC_DOC, json_document: { already: true } };
       if (where.id === "ccfe-1") return ORIGINAL_CCFE;
       return null;

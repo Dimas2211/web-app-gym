@@ -1004,10 +1004,75 @@ Migra el flujo completo de **contingencia DTE** (create event → build/persist 
 - **Cierre de ciclo DTE runtime-aware**: con esta fase, creación/firma/transmisión normal (VI-E5A/B), reconciliación/reopen (VI-E6A), invalidación (VI-E6B) y contingencia (VI-E6C) quedan TODOS runtime-aware. `DTE_TRANSMISSION_RUNTIME_READY = YES` (normal + contingencia). **Único paso del ciclo DTE que sigue 100% sobre Prisma global/Control Plane: delivery MariaDB end-to-end (VI-E7)** — `DELIVER_EXTERNAL` sigue siendo la única excepción de escritura runtime allowlisted, y `deliver-*-to-external-db.service.ts` solo acepta `client` opcional para LECTURA, sin entry point productivo migrado.
 - **Fuera de alcance, explícitamente pendiente**: delivery MariaDB runtime-aware end-to-end (VI-E7) — único paso restante.
 
+## Platform — FASE VI-E7: External Delivery / MariaDB Destination Isolation (cerrada)
+
+Cierra el último paso del ciclo DTE runtime-aware. Ver
+`docs/modules/platform-phase-6e7-external-delivery.md` para el detalle
+completo. Resumen:
+
+- **Decisión arquitectónica del usuario**: integración externa opcional POR
+  ORGANIZACIÓN, modelada en el Control Plane. Modelo nuevo
+  `PlatformExternalIntegration` (`organization_id`, `type` enum arrancando
+  en `DTE_MARIADB`, `encrypted_payload` vía `encryptJsonPayload`/AES-256-GCM
+  — mismo helper que `PlatformDatabaseProfile.encrypted_password` — ,
+  `@@unique([organization_id, type])`). Migración
+  `20260921233552_add_platform_external_integration` — puramente aditiva,
+  aplicada SOLO en local.
+- **Resolver único**: `resolveExternalDteMariaDbDestination()`
+  (`src/modules/commerce/dte/config/resolve-external-dte-destination.ts`) —
+  reusado sin duplicar por entrega DTE normal e invalidación. RUNTIME_CLIENT
+  NUNCA cae al legado por variables de entorno; PLATFORM_NATIVE sí puede,
+  únicamente cuando no existe `PlatformOrganization` mapeada (ERP
+  standalone).
+- **`deliver-invalidation-to-external-db.action.ts` migrado** de
+  `requireAdmin()` + Prisma global a `requireRuntimeDteWriteAccess`
+  (mismo patrón y misma allowlist ya usada por `deliver-dte-to-external-db.action.ts`
+  — allowlist sin ampliar, sigue siendo exactamente `["DELIVER_EXTERNAL"]`).
+- `DTE_MARIADB_DELIVERY_RUNTIME_READY` pasa de `PARTIAL` a **`YES`**.
+- 17 tests nuevos (880 en el repo, antes 863), incluido el test obligatorio
+  de aislamiento cruzado SOURCE+DESTINATION juntos
+  (`deliver-dte-to-external-db.service.cross-tenant.test.ts`). `tsc --noEmit`
+  limpio (deuda NC05 preexistente, cerrada en VI-E8). `npm run lint` sin
+  errores nuevos. `npm run build` PASS. Sin llamadas reales a MariaDB en
+  ningún test.
+
+## Platform — FASE VI-E8: DTE Integral Dedicated-Runtime Certification (cerrada)
+
+Certificación de lo implementado en VI-E1..E7 (no re-audit desde cero). Ver
+`docs/modules/platform-phase-6e8-dte-integral-certification.md`. Resumen:
+
+- **Deuda TSC cerrada**: `generate-nc-json.service.runtime-write.test.ts`
+  (mismatch de tipos en mocks de `findFirst`) — solo tipos/mocks, sin tocar
+  `generate-nc-json.service.ts` ni el NC05 builder. `npx tsc --noEmit` → 0
+  errores.
+- Censo acotado de Prisma global en rutas DTE productivas
+  runtime-reachable: `DTE_RUNTIME_CLIENT_CAN_HIT_GLOBAL_PRISMA = NO` (única
+  excepción real, `preview-fex-json.action.ts`, es código muerto sin
+  wiring UI, deuda preexistente documentada, no un riesgo activo).
+- Matriz FE01/CCFE03/FSE14/FEX11/NC05 × CREATE/GENERATE/VALIDATE/SIGN/MH
+  AUTH/TRANSMIT/METERING/RECONCILIATION/EXTERNAL DELIVERY — certificada
+  completa salvo TRANSMIT/RECONCILIATION de FEX11 (no está en el pipeline
+  de transmisión productiva todavía, deuda ya conocida).
+- `DEDICATED_RUNTIME_MODE_PRESERVED = YES`, `SHARED_RUNTIME_IMPLEMENTED = NO`,
+  `HYBRID_RUNTIME_IMPLEMENTED = NO` — no se declara `DEDICATED_RUNTIME_V1 =
+  CERTIFIED` (pendiente de un "Cliente 3" end-to-end real).
+- Validación: 880/880 tests PASS, `tsc --noEmit` limpio, `npm run lint` sin
+  errores nuevos, `npm run build` PASS, `git diff --check` limpio. Sin
+  cambios de schema/migraciones adicionales en E8 (el cambio de schema fue
+  en E7).
+
 ## Próximos pasos
 - Platform Bloque fiscal: contador mensual de `fiscal.dte.monthly_issued` **implementado y certificado** (FASE IV-A a IV-D) — pendiente aún: decisión de política comercial para notas de crédito/débito frente al cupo DTE, activación real de límites finitos para alguna organización.
 - Base técnica de SignerProfile por tenant/emisor/ambiente implementada (resolveDteSignerConfigForIssuer, sin tabla nueva — reutiliza DteCredential). sign-dte-document.service.ts, transmit-dte-document.service.ts y el runner FSE14 TEST ya son issuer-aware con fallback a variables globales intacto. Pendiente: nivel intermedio tenant/organización, escritura runtime-aware de DteCredential para clientes runtime, registrar credenciales reales de TrustMe. Ver docs/modules/dte-signer-multitenant-block.md.
-- Delivery MariaDB runtime-aware end-to-end (VI-E7) — único paso del ciclo DTE que sigue 100% sobre Prisma global/Control Plane tras VI-E6C (creación/firma/transmisión normal, reconciliación, reopen/resign, invalidación y contingencia ya cerrados). Hasta entonces, solo `DELIVER_EXTERNAL` está allowlisted como excepción de escritura runtime; esos flujos solo corren vía runner de soporte (F2-B2, LOCAL/TEST/SANDBOX) o PLATFORM_NATIVE, no desde UI operativa RUNTIME_CLIENT. La contingencia productiva sigue sin Server Action/UI real (`CONTINGENCY_PRODUCT_ENTRYPOINT = NONE`) — los 5 servicios ya son runtime-capable, falta el orquestador cuando exista el caso de uso.
+- **Delivery MariaDB runtime-aware end-to-end — CERRADO (VI-E7)**: destino
+  ahora resuelto por organización vía `PlatformExternalIntegration` (Control
+  Plane), nunca por variables de entorno globales para RUNTIME_CLIENT. Ver
+  sección VI-E7 arriba. La contingencia productiva sigue sin Server
+  Action/UI real (`CONTINGENCY_PRODUCT_ENTRYPOINT = NONE`) — los 5 servicios
+  ya son runtime-capable, falta el orquestador cuando exista el caso de uso
+  (no forma parte de VI-E7/E8).
+- `DEDICATED_RUNTIME_V1 = CERTIFIED` — pendiente de un "Cliente 3" end-to-end
+  real (fase futura, fuera de alcance de VI-E7/E8 por decisión explícita).
 - Runner controlado `SEED_TENANT_BASE` (crear tenant/location/admin contra un PlatformDatabaseProfile, con D0 + dry-run + auditoría) — hoy ese paso solo existe como script ad-hoc (prisma/seed-trustmedb.ts). Ver docs/modules/platform-phase-7-multiclient-provisioning.md §12.
 - Variantes runtime-aware de DteIssuerConfig/DteCredential (hoy solo operan sobre Prisma global) antes de dar de alta un segundo cliente runtime con DTE activo.
 - Fase futura de operación editable completa desde plataforma (products, customers, suppliers, purchases, sales, inventory, cash, DTE) — solo mencionada como pendiente, no diseñada todavía.
