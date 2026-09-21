@@ -471,3 +471,77 @@ describe("reconcileDteWithMh — errores de negocio", () => {
     expect((adapter as { query: ReturnType<typeof vi.fn> }).query).not.toHaveBeenCalled();
   });
 });
+
+// ─────────────────────────────────────────────────────────────────
+// FASE VI-E6A — cross-tenant/location isolation
+// ─────────────────────────────────────────────────────────────────
+
+describe("reconcileDteWithMh — cross-tenant/cross-location (VI-E6A)", () => {
+  it("Tenant A no puede reconciliar un DTE de tenant B -> BUSINESS_ERROR, nunca llama MH", async () => {
+    const { db } = createFakeDb({ doc: baseDoc({ tenant_id: "tenant-B" }), reservation: pendingReservation() });
+    const adapter = fakeAdapter(PROCESSED_ACCEPTED);
+    const result = await reconcileDteWithMh({
+      dteDocumentId: "doc-1",
+      tenantId: TENANT_ID, // pide con tenant-1, el doc real es de tenant-B
+      locationId: LOCATION_ID,
+      runtimeDb: db,
+      queryAdapter: adapter,
+    });
+    expect(result.status).toBe("BUSINESS_ERROR");
+    expect((adapter as { query: ReturnType<typeof vi.fn> }).query).not.toHaveBeenCalled();
+  });
+
+  it("Location A no puede reconciliar un DTE de location B (mismo tenant) -> BUSINESS_ERROR, nunca llama MH", async () => {
+    const { db } = createFakeDb({ doc: baseDoc({ location_id: "loc-B" }), reservation: pendingReservation() });
+    const adapter = fakeAdapter(PROCESSED_ACCEPTED);
+    const result = await reconcileDteWithMh({
+      dteDocumentId: "doc-1",
+      tenantId: TENANT_ID,
+      locationId: LOCATION_ID, // pide con loc-1, el doc real es de loc-B
+      runtimeDb: db,
+      queryAdapter: adapter,
+    });
+    expect(result.status).toBe("BUSINESS_ERROR");
+    expect((adapter as { query: ReturnType<typeof vi.fn> }).query).not.toHaveBeenCalled();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────
+// FASE VI-E6A — integración de ambiente: TEST vs PRODUCTION selecciona
+// la URL de consulta MH correcta (no basta con testear resolveDteMhUrls
+// aislado — aquí se certifica el chain completo dteDoc.environment ->
+// adapter.query({ environment }) -> request_url persistido en el log).
+// ─────────────────────────────────────────────────────────────────
+
+describe("reconcileDteWithMh — integración de ambiente TEST/PRODUCTION (VI-E6A)", () => {
+  it("dteDoc.environment=TEST -> adapter.query recibe environment=TEST y el log QUERY usa la URL de consulta TEST", async () => {
+    const { db, logs } = createFakeDb({
+      doc: baseDoc({ environment: "TEST", dte_status: "SIGNED" }),
+      reservation: null, // TEST nunca tiene ledger
+    });
+    const adapter = fakeAdapter({ kind: "QUERY_NOT_FOUND" } as DteQueryResult);
+    await reconcileDteWithMh({ dteDocumentId: "doc-1", tenantId: TENANT_ID, locationId: LOCATION_ID, runtimeDb: db, queryAdapter: adapter });
+
+    const queryCall = (adapter as { query: ReturnType<typeof vi.fn> }).query.mock.calls[0]?.[0];
+    expect(queryCall.environment).toBe("TEST");
+
+    const queryLog = logs().find((l) => l.operation_type === "QUERY");
+    expect(queryLog?.request_url).toContain("apitest.dtes.mh.gob.sv");
+  });
+
+  it("dteDoc.environment=PRODUCTION -> adapter.query recibe environment=PRODUCTION y el log QUERY usa la URL de consulta PRODUCTION", async () => {
+    const { db, logs } = createFakeDb({
+      doc: baseDoc({ environment: "PRODUCTION", dte_status: "SIGNED" }),
+      reservation: pendingReservation(),
+    });
+    const adapter = fakeAdapter({ kind: "QUERY_NOT_FOUND" } as DteQueryResult);
+    await reconcileDteWithMh({ dteDocumentId: "doc-1", tenantId: TENANT_ID, locationId: LOCATION_ID, runtimeDb: db, queryAdapter: adapter });
+
+    const queryCall = (adapter as { query: ReturnType<typeof vi.fn> }).query.mock.calls[0]?.[0];
+    expect(queryCall.environment).toBe("PRODUCTION");
+
+    const queryLog = logs().find((l) => l.operation_type === "QUERY");
+    expect(queryLog?.request_url).not.toContain("apitest.dtes.mh.gob.sv");
+    expect(queryLog?.request_url).toMatch(/^https:\/\/api\.dtes\.mh\.gob\.sv/);
+  });
+});

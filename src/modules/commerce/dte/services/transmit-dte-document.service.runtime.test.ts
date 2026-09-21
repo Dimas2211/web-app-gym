@@ -224,3 +224,68 @@ describe("transmitDteDocument — VI-E5B runtime DB routing", () => {
     expect(globalTransactionSpy).toHaveBeenCalled();
   });
 });
+
+// ─────────────────────────────────────────────────────────────────
+// FASE VI-E6A — cierra el gap de cobertura reportado en VI-E5B: no
+// existía un test dedicado de aislamiento cross-tenant/cross-location
+// para transmisión. El findFirst real de transmit-dte-document.service.ts
+// hace `where: { id, tenant_id, location_id }` (scoped) — aquí se
+// simula ese scoping real en el fake runtimeDb (a diferencia de los
+// tests de arriba, que resuelven el doc incondicionalmente) para
+// certificar que un tenant/location distinto al del documento real
+// nunca llega a MH, a metering, ni a escribir un TransmissionLog.
+// ─────────────────────────────────────────────────────────────────
+
+describe("transmitDteDocument — VI-E6A aislamiento cross-tenant/cross-location", () => {
+  function scopedRuntimeDb(ownerTenantId: string, ownerLocationId: string) {
+    const findFirst = vi.fn(async (args: { where: { id: string; tenant_id: string; location_id: string } }) => {
+      const { tenant_id, location_id } = args.where;
+      if (tenant_id !== ownerTenantId || location_id !== ownerLocationId) return null;
+      return SIGNED_DOC;
+    });
+    const transaction = vi.fn(async (arg: unknown) => {
+      if (Array.isArray(arg)) return Promise.all(arg);
+      const cb = arg as (tx: unknown) => Promise<unknown>;
+      return cb({ dteOutgoingDocument: { update: vi.fn() }, dteTransmissionLog: { create: vi.fn() } });
+    });
+    return {
+      db: {
+        dteOutgoingDocument: { findFirst, update: vi.fn() },
+        dteTransmissionLog: { create: vi.fn() },
+        $transaction: transaction,
+      } as unknown as Parameters<typeof transmitDteDocument>[1],
+      findFirst,
+      transaction,
+    };
+  }
+
+  it("tenant A no puede transmitir un DTE de tenant B -> 0 llamadas MH/metering/log", async () => {
+    const { db, transaction } = scopedRuntimeDb("tenant-owner", "loc-1");
+
+    const result = await transmitDteDocument(
+      { dteDocumentId: "dte-doc-1", userId: "user-1", tenantId: "tenant-attacker", locationId: "loc-1" },
+      db,
+    );
+
+    expect(result.ok).toBe(false);
+    expect(transmitAdapterSpy).not.toHaveBeenCalled();
+    expect(mhAuthAdapterCtorSpy).not.toHaveBeenCalled();
+    expect(reserveDteFiscalCapacitySpy).not.toHaveBeenCalled();
+    expect(transaction).not.toHaveBeenCalled();
+  });
+
+  it("location A no puede transmitir un DTE de location B (mismo tenant) -> 0 llamadas MH/metering/log", async () => {
+    const { db, transaction } = scopedRuntimeDb("tenant-1", "loc-owner");
+
+    const result = await transmitDteDocument(
+      { dteDocumentId: "dte-doc-1", userId: "user-1", tenantId: "tenant-1", locationId: "loc-attacker" },
+      db,
+    );
+
+    expect(result.ok).toBe(false);
+    expect(transmitAdapterSpy).not.toHaveBeenCalled();
+    expect(mhAuthAdapterCtorSpy).not.toHaveBeenCalled();
+    expect(reserveDteFiscalCapacitySpy).not.toHaveBeenCalled();
+    expect(transaction).not.toHaveBeenCalled();
+  });
+});

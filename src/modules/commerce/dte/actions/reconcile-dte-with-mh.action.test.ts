@@ -1,12 +1,14 @@
 // ─────────────────────────────────────────────────────────────────
 // commerce/dte — reconcile-dte-with-mh.action.test.ts
 //
-// FASE IV-C — garantías de la Server Action manual "Consultar estado
-// MH": guard admin, módulo fiscal.dte, bloqueo TOTAL bajo Support
-// Session (ANTES de tocar reconcileDteWithMh), mapping de cada
-// resultado del servicio a una forma segura sin secretos, y que
-// reconcileDteWithMh recibe siempre tenantId/locationId/runtimeDb
-// resueltos server-side (nunca desde el cliente).
+// FASE VI-E6A — migrada a requireOperationalContext (mismo patrón que
+// reopen-rejected-dte-for-resign.action.ts): garantías de la Server
+// Action manual "Consultar estado MH": guard admin, módulo fiscal.dte,
+// bloqueo TOTAL bajo Support Session (ANTES de tocar reconcileDteWithMh),
+// mapping de cada resultado del servicio a una forma segura sin
+// secretos, y que reconcileDteWithMh recibe siempre
+// tenantId/locationId/runtimeDb resueltos desde context (context.client
+// de la runtime DB del tenant — NUNCA el prisma singleton global).
 // ─────────────────────────────────────────────────────────────────
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
@@ -17,87 +19,109 @@ vi.mock("@/lib/permissions/guards", () => ({
   requireAdmin: vi.fn(async () => ({ id: "user-1", tenant_id: "tenant-1", location_id: "loc-1", role: "super_admin" })),
 }));
 
-vi.mock("@/lib/location/active-location", () => ({
-  getEffectiveLocationId: vi.fn(async () => "loc-1"),
-}));
+const { requireOperationalContextMock, disposeMock, FakeOperationalContextError, reconcileDteWithMhSpy } = vi.hoisted(() => {
+  class FakeOperationalContextError extends Error {
+    code: string;
+    httpStatus: number;
+    userMessage: string;
+    constructor(code: string, userMessage: string, httpStatus: number) {
+      super(userMessage);
+      this.code = code;
+      this.httpStatus = httpStatus;
+      this.userMessage = userMessage;
+    }
+  }
+  return {
+    requireOperationalContextMock: vi.fn(),
+    disposeMock: vi.fn().mockResolvedValue(undefined),
+    FakeOperationalContextError,
+    reconcileDteWithMhSpy: vi.fn(),
+  };
+});
 
-const { isRuntimeReadOnlyActiveMock, reconcileDteWithMhSpy } = vi.hoisted(() => ({
-  isRuntimeReadOnlyActiveMock: vi.fn(),
-  reconcileDteWithMhSpy: vi.fn(),
-}));
-
-vi.mock("@/lib/db/prisma", () => ({
-  prisma: { __marker: "GLOBAL_PRISMA_SINGLETON" },
-}));
-
-vi.mock("@/modules/platform/runtime/runtime-session", () => ({
-  isRuntimeReadOnlyActive: isRuntimeReadOnlyActiveMock,
-  RUNTIME_READONLY_MESSAGE: "Modo runtime read-only activo.",
+vi.mock("@/modules/platform/runtime/require-operational-context", () => ({
+  requireOperationalContext: requireOperationalContextMock,
+  OperationalContextError: FakeOperationalContextError,
 }));
 
 vi.mock("../services/dte-reconciliation.service", () => ({
   reconcileDteWithMh: reconcileDteWithMhSpy,
 }));
 
-vi.mock("@/modules/platform/runtime/commercial-enforcement", async () => {
-  const actual = await vi.importActual<typeof import("@/modules/platform/runtime/commercial-enforcement")>(
-    "@/modules/platform/runtime/commercial-enforcement",
-  );
-  return {
-    ...actual,
-    resolveCommercialEnforcementContext: vi.fn(async () => ({
-      mode: "MANAGED", tenantId: "tenant-1", organizationId: "org-1", planId: "plan-1", verticalId: null,
-      effectiveModules: new Map([["fiscal.dte", { module_id: "m1", code: "fiscal.dte", name: "DTE", category: "INTEGRATION", is_core: false, enabled: true, source: "PLAN" }]]),
-      effectiveEntitlements: new Map(),
-      organizationTimezone: "America/El_Salvador",
-    })),
-  };
-});
-
 import { reconcileDteWithMhAction } from "./reconcile-dte-with-mh.action";
 import { requireAdmin } from "@/lib/permissions/guards";
-import { resolveCommercialEnforcementContext } from "@/modules/platform/runtime/commercial-enforcement";
+
+function fakeHandle(overrides: Partial<{ client: unknown; tenantId: string; locationId: string | null }> = {}) {
+  return {
+    context: {
+      effectiveUser: { id: "user-1", role: "super_admin" },
+      tenantId: overrides.tenantId ?? "tenant-1",
+      locationId: overrides.locationId === undefined ? "loc-1" : overrides.locationId,
+      client: overrides.client ?? { __marker: "RUNTIME_CLIENT_DB" },
+    },
+    dispose: disposeMock,
+  };
+}
 
 beforeEach(() => {
-  isRuntimeReadOnlyActiveMock.mockReset();
+  requireOperationalContextMock.mockReset();
+  disposeMock.mockClear();
   reconcileDteWithMhSpy.mockReset();
   vi.mocked(requireAdmin).mockClear();
 });
 
 describe("reconcileDteWithMhAction — guards", () => {
   it("1. exige requireAdmin (se invoca siempre)", async () => {
-    isRuntimeReadOnlyActiveMock.mockResolvedValue(false);
+    requireOperationalContextMock.mockResolvedValue(fakeHandle());
     reconcileDteWithMhSpy.mockResolvedValue({ status: "NO_OP", reason: "NOT_APPLICABLE", dteStatus: "ACCEPTED" });
     await reconcileDteWithMhAction("doc-1");
     expect(requireAdmin).toHaveBeenCalledTimes(1);
   });
 
   it("2. fiscal.dte deshabilitado -> denied, reconcileDteWithMh nunca se invoca", async () => {
-    isRuntimeReadOnlyActiveMock.mockResolvedValue(false);
-    vi.mocked(resolveCommercialEnforcementContext).mockResolvedValueOnce({
-      mode: "MANAGED", tenantId: "tenant-1", organizationId: "org-1", planId: "plan-1", verticalId: null,
-      effectiveModules: new Map(), // fiscal.dte ausente -> no habilitado
-      effectiveEntitlements: new Map(),
-      organizationTimezone: "America/El_Salvador",
-    });
+    requireOperationalContextMock.mockRejectedValue(
+      new FakeOperationalContextError("MODULE_DISABLED", "El módulo fiscal.dte no está habilitado.", 403),
+    );
 
     const result = await reconcileDteWithMhAction("doc-1");
 
-    expect(result.ok).toBe(false);
+    expect(result).toEqual({ ok: false, error: "El módulo fiscal.dte no está habilitado." });
     expect(reconcileDteWithMhSpy).not.toHaveBeenCalled();
   });
 
   it("3. Support Session activa -> denied ANTES de llamar al service; nunca toca reconcileDteWithMh", async () => {
-    isRuntimeReadOnlyActiveMock.mockResolvedValue(true);
+    requireOperationalContextMock.mockRejectedValue(
+      new FakeOperationalContextError("READ_ONLY", "Modo runtime read-only activo.", 403),
+    );
 
     const result = await reconcileDteWithMhAction("doc-1");
 
     expect(result).toEqual({ ok: false, error: "Modo runtime read-only activo." });
     expect(reconcileDteWithMhSpy).not.toHaveBeenCalled();
+    expect(disposeMock).not.toHaveBeenCalled();
   });
 
-  it("6. runtimeDb efectivo pasado a reconcileDteWithMh es el prisma singleton resuelto server-side", async () => {
-    isRuntimeReadOnlyActiveMock.mockResolvedValue(false);
+  it("sin location activa -> error explícito, service nunca se invoca, dispose llamado", async () => {
+    requireOperationalContextMock.mockResolvedValue(fakeHandle({ locationId: null }));
+
+    const result = await reconcileDteWithMhAction("doc-1");
+
+    expect(result).toEqual({ ok: false, error: "La sesión no tiene una location activa." });
+    expect(reconcileDteWithMhSpy).not.toHaveBeenCalled();
+    expect(disposeMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("dteDocumentId vacío -> error explícito antes de resolver contexto operacional", async () => {
+    const result = await reconcileDteWithMhAction("");
+
+    expect(result).toEqual({ ok: false, error: "El ID del documento DTE es requerido." });
+    expect(requireOperationalContextMock).not.toHaveBeenCalled();
+    expect(reconcileDteWithMhSpy).not.toHaveBeenCalled();
+  });
+
+  it("6. runtimeDb efectivo pasado a reconcileDteWithMh es context.client (runtime DB del tenant, nunca el prisma global)", async () => {
+    const runtimeDbMarker = { __marker: "RUNTIME_CLIENT_DB" };
+    requireOperationalContextMock.mockResolvedValue(fakeHandle({ client: runtimeDbMarker }));
     reconcileDteWithMhSpy.mockResolvedValue({ status: "NO_OP", reason: "NOT_APPLICABLE", dteStatus: "SIGNED" });
 
     await reconcileDteWithMhAction("doc-1");
@@ -111,13 +135,14 @@ describe("reconcileDteWithMhAction — guards", () => {
       }),
     );
     const callArg = reconcileDteWithMhSpy.mock.calls[0]?.[0];
-    expect(callArg.runtimeDb).toEqual({ __marker: "GLOBAL_PRISMA_SINGLETON" });
+    expect(callArg.runtimeDb).toBe(runtimeDbMarker);
+    expect(disposeMock).toHaveBeenCalledTimes(1);
   });
 });
 
 describe("reconcileDteWithMhAction — mapping de resultados (sin secretos)", () => {
   beforeEach(() => {
-    isRuntimeReadOnlyActiveMock.mockResolvedValue(false);
+    requireOperationalContextMock.mockResolvedValue(fakeHandle());
   });
 
   it("7. RESOLVED ACCEPTED -> ok:true", async () => {
@@ -169,5 +194,11 @@ describe("reconcileDteWithMhAction — mapping de resultados (sin secretos)", ()
     for (const forbidden of ["authorization", "bearer", "token", "password", "signed_jws", "encrypted_payload"]) {
       expect(serialized).not.toContain(forbidden);
     }
+  });
+
+  it("14. dispose siempre se invoca tras el camino feliz", async () => {
+    reconcileDteWithMhSpy.mockResolvedValue({ status: "RESOLVED", dteStatus: "ACCEPTED" });
+    await reconcileDteWithMhAction("doc-1");
+    expect(disposeMock).toHaveBeenCalledTimes(1);
   });
 });

@@ -17,6 +17,14 @@
 // Support Session debe permanecer 100% read-only para esta operación,
 // sin excepción y sin bypass posible desde el cliente.
 //
+// FASE VI-E6A — reemplaza requireAdmin + getEffectiveLocationId +
+// resolveCommercialEnforcementContext manual por
+// requireOperationalContext, igual que reopen-rejected-dte-for-resign.
+// El documento se reconcilia en context.client — nunca en el Prisma
+// global — para que la lectura del estado en MH, la credential
+// (resolveMhAuthCredentials) y el ledger de metering resuelto sean
+// todos de la MISMA runtime DB del tenant.
+//
 // Input desde el navegador: ÚNICAMENTE dteDocumentId. tenantId,
 // locationId, issuerConfigId, environment, NIT y generationCode se
 // resuelven siempre server-side (issuerConfigId/environment/NIT/
@@ -24,16 +32,12 @@
 // documento ya scoped por tenant/location).
 // ─────────────────────────────────────────────────────────────────
 
-import { revalidatePath }         from "next/cache";
-import { requireAdmin }           from "@/lib/permissions/guards";
-import { getEffectiveLocationId } from "@/lib/location/active-location";
-import { prisma }                 from "@/lib/db/prisma";
-import { isRuntimeReadOnlyActive, RUNTIME_READONLY_MESSAGE } from "@/modules/platform/runtime/runtime-session";
+import { revalidatePath } from "next/cache";
+import { requireAdmin }   from "@/lib/permissions/guards";
 import {
-  resolveCommercialEnforcementContext,
-  assertOrganizationModule,
-  CommercialEnforcementError,
-} from "@/modules/platform/runtime/commercial-enforcement";
+  requireOperationalContext,
+  OperationalContextError,
+} from "@/modules/platform/runtime/require-operational-context";
 import { reconcileDteWithMh } from "../services/dte-reconciliation.service";
 
 // ── Resultado público — nunca expone secretos, tokens ni rawResponse ──
@@ -52,60 +56,61 @@ export async function reconcileDteWithMhAction(
   dteDocumentId: string,
 ): Promise<ReconcileDteWithMhActionResult> {
   const sessionUser = await requireAdmin();
-  const tenant_id   = sessionUser.tenant_id;
-  const location_id = await getEffectiveLocationId(sessionUser);
 
-  if (!tenant_id)     return { ok: false, error: "La sesión no tiene un tenant activo." };
-  if (!location_id)   return { ok: false, error: "La sesión no tiene una location activa." };
   if (!dteDocumentId) return { ok: false, error: "El ID del documento DTE es requerido." };
 
-  // Guard de solo-lectura ANTES de cualquier posible llamada MH o
-  // write — Support Session ("Operar como cliente") nunca ejecuta
-  // esta operación, sin importar lo que el cliente haya enviado.
-  if (await isRuntimeReadOnlyActive()) {
-    return { ok: false, error: RUNTIME_READONLY_MESSAGE };
-  }
-
+  let handle;
   try {
-    const commercialCtx = await resolveCommercialEnforcementContext(tenant_id);
-    assertOrganizationModule(commercialCtx, "fiscal.dte");
+    // write:true -> READ_ONLY (Support Session) rechaza ANTES de
+    // cualquier llamada MH o mutación, sin excepción. module -> exige
+    // fiscal.dte habilitado (MODULE_DISABLED si no).
+    handle = await requireOperationalContext(sessionUser, { module: "fiscal.dte", write: true });
   } catch (err) {
-    if (err instanceof CommercialEnforcementError) return { ok: false, error: err.userMessage };
+    if (err instanceof OperationalContextError) return { ok: false, error: err.userMessage };
     throw err;
   }
+  const { context, dispose } = handle;
 
-  // reconcileDteWithMh ya valida internamente que dteDocumentId
-  // pertenezca exactamente a tenant_id/location_id (findFirst scoped) —
-  // devuelve BUSINESS_ERROR si no, sin llamar MH.
-  const result = await reconcileDteWithMh({
-    dteDocumentId,
-    tenantId:   tenant_id,
-    locationId: location_id,
-    runtimeDb:  prisma,
-    userId:     sessionUser.id,
-  });
+  try {
+    if (!context.locationId) {
+      return { ok: false, error: "La sesión no tiene una location activa." };
+    }
 
-  if (result.status === "RESOLVED" || result.status === "REPAIRED_LOCAL" || result.status === "NO_OP") {
-    revalidatePath("/dashboard/dte/outgoing");
-    revalidatePath("/dashboard/dte/monitoring");
-  }
+    // reconcileDteWithMh ya valida internamente que dteDocumentId
+    // pertenezca exactamente a tenant_id/location_id (findFirst scoped) —
+    // devuelve BUSINESS_ERROR si no, sin llamar MH.
+    const result = await reconcileDteWithMh({
+      dteDocumentId,
+      tenantId:   context.tenantId,
+      locationId: context.locationId,
+      runtimeDb:  context.client,
+      userId:     context.effectiveUser.id,
+    });
 
-  switch (result.status) {
-    case "RESOLVED":
-      return { ok: true, status: "RESOLVED", dteStatus: result.dteStatus };
-    case "REPAIRED_LOCAL":
-      return { ok: true, status: "REPAIRED_LOCAL", dteStatus: result.dteStatus };
-    case "NO_OP":
-      return { ok: true, status: "NO_OP", reason: result.reason, dteStatus: result.dteStatus };
-    case "PENDING_UNCHANGED":
-      // MH no dio evidencia concluyente — nunca se interpreta como
-      // rechazo ni como "no existe". El documento permanece igual.
-      return { ok: true, status: "PENDING_UNCHANGED" };
-    case "INCONSISTENT_LOCAL_STATE":
-      return { ok: false, status: "INCONSISTENT_LOCAL_STATE", error: result.detail };
-    case "ABORTED_CONCURRENT_CHANGE":
-      return { ok: false, status: "ABORTED_CONCURRENT_CHANGE", error: result.detail };
-    case "BUSINESS_ERROR":
-      return { ok: false, status: "BUSINESS_ERROR", error: result.error };
+    if (result.status === "RESOLVED" || result.status === "REPAIRED_LOCAL" || result.status === "NO_OP") {
+      revalidatePath("/dashboard/dte/outgoing");
+      revalidatePath("/dashboard/dte/monitoring");
+    }
+
+    switch (result.status) {
+      case "RESOLVED":
+        return { ok: true, status: "RESOLVED", dteStatus: result.dteStatus };
+      case "REPAIRED_LOCAL":
+        return { ok: true, status: "REPAIRED_LOCAL", dteStatus: result.dteStatus };
+      case "NO_OP":
+        return { ok: true, status: "NO_OP", reason: result.reason, dteStatus: result.dteStatus };
+      case "PENDING_UNCHANGED":
+        // MH no dio evidencia concluyente — nunca se interpreta como
+        // rechazo ni como "no existe". El documento permanece igual.
+        return { ok: true, status: "PENDING_UNCHANGED" };
+      case "INCONSISTENT_LOCAL_STATE":
+        return { ok: false, status: "INCONSISTENT_LOCAL_STATE", error: result.detail };
+      case "ABORTED_CONCURRENT_CHANGE":
+        return { ok: false, status: "ABORTED_CONCURRENT_CHANGE", error: result.detail };
+      case "BUSINESS_ERROR":
+        return { ok: false, status: "BUSINESS_ERROR", error: result.error };
+    }
+  } finally {
+    await dispose();
   }
 }
