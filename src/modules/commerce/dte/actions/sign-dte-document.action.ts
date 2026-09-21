@@ -25,22 +25,28 @@
 // F3-C17 — FEX 11 se permite únicamente bajo fex11-feature-guard
 // (DTE_FEX11_TEST_ENABLED=YES, TEST, NODE_ENV != production). Sigue sin
 // haber UI para tipo 11.
+//
+// FASE VI-E5A — reemplaza requireAdmin + getEffectiveLocationId +
+// resolveCommercialEnforcementContext manual por
+// requireOperationalContext (mismo patrón ya certificado en VI-E3/E4
+// para creación de DTE). RUNTIME_CLIENT firma contra su propia runtime
+// DB (context.client); Support Session (SUPPORT_RUNTIME) es
+// read-only -> requireOperationalContext rechaza con READ_ONLY antes
+// de tocar el documento o el firmador; PLATFORM_NATIVE conserva su
+// comportamiento previo (Prisma global).
 // ─────────────────────────────────────────────────────────────────
 
 import { revalidatePath }         from "next/cache";
-import { prisma }                 from "@/lib/db/prisma";
 import { requireAdmin }           from "@/lib/permissions/guards";
-import { getEffectiveLocationId } from "@/lib/location/active-location";
 import {
   signDteDocument,
   type SignDteDocumentResult,
 } from "../services/sign-dte-document.service";
 import { canUseFex11InServerFlow } from "../utils/fex11-feature-guard";
 import {
-  resolveCommercialEnforcementContext,
-  assertOrganizationModule,
-  CommercialEnforcementError,
-} from "@/modules/platform/runtime/commercial-enforcement";
+  requireOperationalContext,
+  OperationalContextError,
+} from "@/modules/platform/runtime/require-operational-context";
 
 export type { SignDteDocumentResult };
 
@@ -54,61 +60,69 @@ export async function signDteDocumentAction(
   dteDocumentId: string,
 ): Promise<SignDteDocumentResult> {
   const sessionUser = await requireAdmin();
-  const tenant_id   = sessionUser.tenant_id;
-  const location_id = await getEffectiveLocationId(sessionUser);
 
-  if (!tenant_id)     return { ok: false, error: "La sesión no tiene un tenant activo." };
-  if (!location_id)   return { ok: false, error: "La sesión no tiene una location activa." };
   if (!dteDocumentId) return { ok: false, error: "El ID del documento DTE es requerido." };
 
+  let handle;
   try {
-    const commercialCtx = await resolveCommercialEnforcementContext(tenant_id);
-    assertOrganizationModule(commercialCtx, "fiscal.dte");
+    handle = await requireOperationalContext(sessionUser, { module: "fiscal.dte", write: true });
   } catch (err) {
-    if (err instanceof CommercialEnforcementError) return { ok: false, error: err.userMessage };
+    if (err instanceof OperationalContextError) return { ok: false, error: err.userMessage };
     throw err;
   }
+  const { context, dispose } = handle;
 
-  const dteDoc = await prisma.dteOutgoingDocument.findFirst({
-    where:  { id: dteDocumentId, tenant_id, location_id },
-    select: { dte_type_code: true, dte_status: true, signed_jws: true, environment: true },
-  });
+  try {
+    if (!context.locationId) {
+      return { ok: false, error: "La sesión no tiene una location activa." };
+    }
 
-  if (!dteDoc) {
-    return { ok: false, error: "El documento DTE no existe o no pertenece a la location activa." };
-  }
+    const dteDoc = await context.client.dteOutgoingDocument.findFirst({
+      where:  { id: dteDocumentId, tenant_id: context.tenantId, location_id: context.locationId },
+      select: { dte_type_code: true, dte_status: true, signed_jws: true, environment: true },
+    });
 
-  if (dteDoc.dte_type_code === "11") {
-    const eligible =
-      canUseFex11InServerFlow({ dte_type_code: dteDoc.dte_type_code, environment: dteDoc.environment }) &&
-      dteDoc.dte_status === "SCHEMA_VALIDATED" &&
-      !dteDoc.signed_jws;
+    if (!dteDoc) {
+      return { ok: false, error: "El documento DTE no existe o no pertenece a la location activa." };
+    }
 
-    if (!eligible) {
+    if (dteDoc.dte_type_code === "11") {
+      const eligible =
+        canUseFex11InServerFlow({ dte_type_code: dteDoc.dte_type_code, environment: dteDoc.environment }) &&
+        dteDoc.dte_status === "SCHEMA_VALIDATED" &&
+        !dteDoc.signed_jws;
+
+      if (!eligible) {
+        return {
+          ok:    false,
+          error: "FEX 11 solo está habilitada para pruebas controladas en ambiente TEST.",
+        };
+      }
+    } else if (!SIGNABLE_TYPE_CODES.has(dteDoc.dte_type_code)) {
       return {
         ok:    false,
-        error: "FEX 11 solo está habilitada para pruebas controladas en ambiente TEST.",
+        error: "La firma de Factura de Exportación 11 todavía no está habilitada desde el flujo general. Use la fase controlada FEX 11.",
       };
     }
-  } else if (!SIGNABLE_TYPE_CODES.has(dteDoc.dte_type_code)) {
-    return {
-      ok:    false,
-      error: "La firma de Factura de Exportación 11 todavía no está habilitada desde el flujo general. Use la fase controlada FEX 11.",
-    };
+
+    const result = await signDteDocument(
+      {
+        dteDocumentId,
+        userId:     context.effectiveUser.id,
+        tenantId:   context.tenantId,
+        locationId: context.locationId,
+      },
+      context.client,
+    );
+
+    if (result.ok) {
+      revalidatePath("/dashboard/sales");
+      revalidatePath("/dashboard/purchases");
+      revalidatePath("/dashboard/dte/outgoing");
+    }
+
+    return result;
+  } finally {
+    await dispose();
   }
-
-  const result = await signDteDocument({
-    dteDocumentId,
-    userId:     sessionUser.id,
-    tenantId:   tenant_id,
-    locationId: location_id,
-  });
-
-  if (result.ok) {
-    revalidatePath("/dashboard/sales");
-    revalidatePath("/dashboard/purchases");
-    revalidatePath("/dashboard/dte/outgoing");
-  }
-
-  return result;
 }

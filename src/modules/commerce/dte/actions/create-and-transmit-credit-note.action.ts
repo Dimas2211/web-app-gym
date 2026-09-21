@@ -64,9 +64,19 @@ export async function createAndTransmitCreditNoteAction(
   // ambos quedan cubiertos por requireOperationalContext({ write: true }).
   // createCreditNoteDteFromAcceptedCcfe/generateNcJsonForDte/
   // validateDteJsonSchema ahora corren en context.client (runtime DB para
-  // RUNTIME_CLIENT). signDteDocument/transmitDteDocument quedan fuera de
-  // alcance de esta fase (VI-E5) — siguen intactos, solo reciben
-  // tenantId/locationId/userId ya resueltos por el contexto operacional.
+  // RUNTIME_CLIENT).
+  //
+  // FASE VI-E5A: signDteDocument ahora también recibe context.client — el
+  // paso de firma corre íntegramente en la runtime DB del tenant, igual
+  // que los 3 pasos anteriores. transmitDteDocument (transmit-dte-document
+  // .service.ts) sigue fuera de alcance (VI-E5B) y NUNCA recibe
+  // context.client — sigue operando sobre el Prisma global. Para no dejar
+  // a un RUNTIME_CLIENT alcanzar esa transmisión global con datos fiscales
+  // propios, esta action corta el flujo ANTES del paso 5 cuando
+  // authScope === "RUNTIME_CLIENT": la NC queda firmada (SIGNED) en su
+  // propia runtime DB, lista para transmitirse manualmente vía el flujo
+  // estándar una vez exista VI-E5B. PLATFORM_NATIVE conserva el flujo
+  // completo create+sign+transmit sin cambios.
   let handle;
   try {
     handle = await requireOperationalContext(sessionUser, { module: "fiscal.dte", write: true });
@@ -128,15 +138,32 @@ export async function createAndTransmitCreditNoteAction(
       return { ok: false, error: errMsg, stepFailed: "validar_schema" };
     }
 
-    // 4. Firmar DTE (SCHEMA_VALIDATED → SIGNED) — fuera de alcance VI-E4B,
-    //    intacto: sigue operando sobre Prisma global (ver VI-E5).
-    const signResult = await signDteDocument({ dteDocumentId: creditNoteDteId, ...ctx });
+    // 4. Firmar DTE (SCHEMA_VALIDATED → SIGNED) — VI-E5A: corre en
+    //    context.client (runtime DB del tenant para RUNTIME_CLIENT).
+    const signResult = await signDteDocument({ dteDocumentId: creditNoteDteId, ...ctx }, context.client);
     if (!signResult.ok) {
       return { ok: false, error: signResult.error, stepFailed: "firmar" };
     }
 
+    // VI-E5A / Q: transmitDteDocument sigue fuera de alcance (VI-E5B) y
+    // sigue operando exclusivamente sobre el Prisma global. Un
+    // RUNTIME_CLIENT nunca puede alcanzar esa transmisión con datos
+    // fiscales propios — se corta el flujo aquí, fail-closed, dejando la
+    // NC ya firmada (SIGNED) en su propia runtime DB.
+    if (context.authScope === "RUNTIME_CLIENT") {
+      revalidatePath("/dashboard/sales");
+      revalidatePath("/dashboard/dte/outgoing");
+      return {
+        ok:    false,
+        error: "La Nota de Crédito quedó firmada (SIGNED). La transmisión a Hacienda para este " +
+               "tipo de organización aún no está disponible en este flujo combinado (VI-E5B).",
+        stepFailed: "transmitir_deferred",
+      };
+    }
+
     // 5. Transmitir a Hacienda (SIGNED → ACCEPTED | OBSERVED | REJECTED) —
-    //    fuera de alcance VI-E4B, intacto (ver VI-E5).
+    //    fuera de alcance VI-E4B/VI-E5A, intacto (ver VI-E5B). Solo
+    //    alcanzable por PLATFORM_NATIVE.
     const transmitResult = await transmitDteDocument({ dteDocumentId: creditNoteDteId, ...ctx });
     if (!transmitResult.ok) {
       return { ok: false, error: transmitResult.error, stepFailed: "transmitir" };

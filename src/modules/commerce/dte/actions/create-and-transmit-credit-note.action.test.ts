@@ -2,13 +2,19 @@
 // commerce/dte — create-and-transmit-credit-note.action.test.ts
 //
 // FASE VI-E4B — migra el orquestador a requireOperationalContext.
-// Certifica:
+// FASE VI-E5A — signDteDocument ahora también recibe context.client, y
+// para authScope === "RUNTIME_CLIENT" la action corta el flujo ANTES de
+// transmitDteDocument (que sigue sobre Prisma global, fuera de alcance
+// hasta VI-E5B). Certifica:
 //   - Support Session (READ_ONLY) bloquea ANTES de crear/generar/
 //     validar/firmar/transmitir (ningún paso se invoca).
-//   - Modo normal: create/generate/validate reciben context.client
-//     (runtime DB). sign/transmit (fuera de alcance VI-E4B) reciben
-//     solo tenantId/locationId/userId ya resueltos por el contexto,
-//     sin ningún client — comportamiento externo intacto.
+//   - PLATFORM_NATIVE: create/generate/validate/sign reciben
+//     context.client; transmit corre igual que antes (comportamiento
+//     externo intacto, alcanza ACCEPTED).
+//   - RUNTIME_CLIENT: create/generate/validate/sign reciben
+//     context.client; transmitDteDocument NUNCA se invoca — la NC queda
+//     SIGNED y la action devuelve ok:false / stepFailed:
+//     "transmitir_deferred".
 //   - Si un paso intermedio falla, los pasos siguientes NUNCA se invocan.
 // ─────────────────────────────────────────────────────────────────
 
@@ -76,13 +82,16 @@ vi.mock("../services/transmit-dte-document.service", () => ({
 
 import { createAndTransmitCreditNoteAction } from "./create-and-transmit-credit-note.action";
 
-function fakeHandle(overrides: Partial<{ client: unknown; tenantId: string; locationId: string | null }> = {}) {
+function fakeHandle(
+  overrides: Partial<{ client: unknown; tenantId: string; locationId: string | null; authScope: "PLATFORM" | "RUNTIME_CLIENT" }> = {},
+) {
   return {
     context: {
       effectiveUser: { id: "u1", role: "super_admin" },
       tenantId: overrides.tenantId ?? "tenant-1",
       locationId: overrides.locationId === undefined ? "loc-1" : overrides.locationId,
       client: overrides.client ?? { __marker: "RUNTIME_CLIENT_DB" },
+      authScope: overrides.authScope ?? "PLATFORM",
     },
     dispose: disposeMock,
   };
@@ -119,9 +128,9 @@ describe("createAndTransmitCreditNoteAction — FASE VI-E4B", () => {
     expect(transmitDteDocumentSpy).not.toHaveBeenCalled();
   });
 
-  it("modo normal -> create/generate/validate reciben context.client; sign/transmit reciben solo ctx (sin client)", async () => {
+  it("PLATFORM_NATIVE -> create/generate/validate/sign reciben context.client; transmit corre igual que antes", async () => {
     const runtimeDbMarker = { __marker: "RUNTIME_CLIENT_DB" };
-    requireOperationalContextMock.mockResolvedValue(fakeHandle({ client: runtimeDbMarker }));
+    requireOperationalContextMock.mockResolvedValue(fakeHandle({ client: runtimeDbMarker, authScope: "PLATFORM" }));
 
     createCreditNoteSpy.mockResolvedValue({
       ok: true,
@@ -160,14 +169,12 @@ describe("createAndTransmitCreditNoteAction — FASE VI-E4B", () => {
     );
     expect(validateDteJsonSchemaSpy).toHaveBeenCalledWith("nc-1", "tenant-1", "loc-1", "u1", runtimeDbMarker);
 
-    // Fuera de alcance VI-E4B — deben seguir recibiendo únicamente el ctx
-    // plano (userId/tenantId/locationId), nunca un client explícito.
-    expect(signDteDocumentSpy).toHaveBeenCalledWith({
-      dteDocumentId: "nc-1",
-      userId: "u1",
-      tenantId: "tenant-1",
-      locationId: "loc-1",
-    });
+    // VI-E5A — sign ahora también recibe context.client (runtime DB).
+    expect(signDteDocumentSpy).toHaveBeenCalledWith(
+      { dteDocumentId: "nc-1", userId: "u1", tenantId: "tenant-1", locationId: "loc-1" },
+      runtimeDbMarker,
+    );
+    // transmit sigue fuera de alcance — solo el ctx plano, sin client.
     expect(transmitDteDocumentSpy).toHaveBeenCalledWith({
       dteDocumentId: "nc-1",
       userId: "u1",
@@ -175,6 +182,38 @@ describe("createAndTransmitCreditNoteAction — FASE VI-E4B", () => {
       locationId: "loc-1",
     });
 
+    expect(disposeMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("RUNTIME_CLIENT -> sign recibe context.client, pero transmitDteDocument NUNCA se invoca (fail-closed antes de la transmisión global)", async () => {
+    const runtimeDbMarker = { __marker: "RUNTIME_CLIENT_DB" };
+    requireOperationalContextMock.mockResolvedValue(fakeHandle({ client: runtimeDbMarker, authScope: "RUNTIME_CLIENT" }));
+
+    createCreditNoteSpy.mockResolvedValue({
+      ok: true,
+      creditNoteDteId: "nc-1",
+      controlNumber: "DTE-05-C001P001-000000000000001",
+      generationCode: "GEN-NC-1",
+      dteStatus: "PENDING_GENERATION",
+    });
+    generateNcJsonSpy.mockResolvedValue({
+      ok: true,
+      dteStatus: "GENERATED",
+      dteDocumentId: "nc-1",
+      controlNumber: "DTE-05-C001P001-000000000000001",
+      generationCode: "GEN-NC-1",
+    });
+    validateDteJsonSchemaSpy.mockResolvedValue({ ok: true });
+    signDteDocumentSpy.mockResolvedValue({ ok: true, dteStatus: "SIGNED", signedAt: "2026-01-01T00:00:00.000Z" });
+
+    const result = await createAndTransmitCreditNoteAction(VALID_INPUT);
+
+    expect(result).toMatchObject({ ok: false, stepFailed: "transmitir_deferred" });
+    expect(signDteDocumentSpy).toHaveBeenCalledWith(
+      { dteDocumentId: "nc-1", userId: "u1", tenantId: "tenant-1", locationId: "loc-1" },
+      runtimeDbMarker,
+    );
+    expect(transmitDteDocumentSpy).not.toHaveBeenCalled();
     expect(disposeMock).toHaveBeenCalledTimes(1);
   });
 

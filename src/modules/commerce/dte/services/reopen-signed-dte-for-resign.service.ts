@@ -32,7 +32,11 @@
 // ─────────────────────────────────────────────────────────────────
 
 import { createHash } from "crypto";
+import type { PrismaClient } from "@prisma/client";
 import { prisma } from "@/lib/db/prisma";
+
+// FASE VI-E5A / R — acepta un `db` explícito (PrismaClient runtime), mismo
+// criterio que reopen-rejected-dte-for-resign.service.ts.
 
 export interface ReopenSignedDteForResignParams {
   dteDocumentId: string;
@@ -54,11 +58,12 @@ class ReopenSignedDteBusinessError extends Error {
 
 export async function reopenSignedDteForResign(
   params: ReopenSignedDteForResignParams,
+  db: PrismaClient = prisma,
 ): Promise<ReopenSignedDteForResignResult> {
   const { dteDocumentId, tenantId, locationId, userId } = params;
 
   try {
-    const previousJwsSha256 = await prisma.$transaction(async (tx) => {
+    const previousJwsSha256 = await db.$transaction(async (tx) => {
       const dteDoc = await tx.dteOutgoingDocument.findFirst({
         where: { id: dteDocumentId, tenant_id: tenantId, location_id: locationId },
         select: {

@@ -8,19 +8,23 @@
 // reopen-rejected-dte-for-resign.service.ts para las reglas completas.
 //
 // NUNCA transmite. Solo deja el documento en SCHEMA_VALIDATED, listo
-// para que el flujo normal de firma (signDteDocumentAction, sin
-// modificar) lo firme de nuevo.
+// para que el flujo normal de firma (signDteDocumentAction, ya migrado
+// a runtime en VI-E5A) lo firme de nuevo — en la MISMA runtime DB.
+//
+// FASE VI-E5A — reemplaza requireAdmin + getEffectiveLocationId +
+// resolveCommercialEnforcementContext manual por
+// requireOperationalContext, igual que sign-dte-document.action.ts. El
+// documento se reabre en context.client — nunca en el Prisma global —
+// para que quede en la misma runtime DB donde después se firmará.
 // ─────────────────────────────────────────────────────────────────
 
 import { revalidatePath } from "next/cache";
 import { requireAdmin } from "@/lib/permissions/guards";
-import { getEffectiveLocationId } from "@/lib/location/active-location";
 import { reopenRejectedDteForResign } from "../services/reopen-rejected-dte-for-resign.service";
 import {
-  resolveCommercialEnforcementContext,
-  assertOrganizationModule,
-  CommercialEnforcementError,
-} from "@/modules/platform/runtime/commercial-enforcement";
+  requireOperationalContext,
+  OperationalContextError,
+} from "@/modules/platform/runtime/require-operational-context";
 
 export type ReopenRejectedDteForResignActionResult =
   | { ok: true }
@@ -30,33 +34,41 @@ export async function reopenRejectedDteForResignAction(
   dteDocumentId: string,
 ): Promise<ReopenRejectedDteForResignActionResult> {
   const sessionUser = await requireAdmin();
-  const tenant_id   = sessionUser.tenant_id;
-  const location_id = await getEffectiveLocationId(sessionUser);
 
-  if (!tenant_id)     return { ok: false, error: "La sesión no tiene un tenant activo." };
-  if (!location_id)   return { ok: false, error: "La sesión no tiene una location activa." };
   if (!dteDocumentId) return { ok: false, error: "El ID del documento DTE es requerido." };
 
+  let handle;
   try {
-    const commercialCtx = await resolveCommercialEnforcementContext(tenant_id);
-    assertOrganizationModule(commercialCtx, "fiscal.dte");
+    handle = await requireOperationalContext(sessionUser, { module: "fiscal.dte", write: true });
   } catch (err) {
-    if (err instanceof CommercialEnforcementError) return { ok: false, error: err.userMessage };
+    if (err instanceof OperationalContextError) return { ok: false, error: err.userMessage };
     throw err;
   }
+  const { context, dispose } = handle;
 
-  const result = await reopenRejectedDteForResign({
-    dteDocumentId,
-    tenantId:   tenant_id,
-    locationId: location_id,
-    userId:     sessionUser.id,
-  });
+  try {
+    if (!context.locationId) {
+      return { ok: false, error: "La sesión no tiene una location activa." };
+    }
 
-  if (result.ok) {
-    revalidatePath("/dashboard/sales");
-    revalidatePath("/dashboard/purchases");
-    revalidatePath("/dashboard/dte/outgoing");
+    const result = await reopenRejectedDteForResign(
+      {
+        dteDocumentId,
+        tenantId:   context.tenantId,
+        locationId: context.locationId,
+        userId:     context.effectiveUser.id,
+      },
+      context.client,
+    );
+
+    if (result.ok) {
+      revalidatePath("/dashboard/sales");
+      revalidatePath("/dashboard/purchases");
+      revalidatePath("/dashboard/dte/outgoing");
+    }
+
+    return result;
+  } finally {
+    await dispose();
   }
-
-  return result;
 }

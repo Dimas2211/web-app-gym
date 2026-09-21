@@ -14,8 +14,19 @@
 //   - Si falla: mantiene SCHEMA_VALIDATED, incrementa retry_count.
 //   - Registra DteTransmissionLog en ambos casos.
 //   - NO transmite a Hacienda. NO modifica schema.prisma.
+//
+// FASE VI-E5A — acepta un `db` explícito (PrismaClient runtime) que se
+// usa para TODA lectura/escritura tenant-owned (DteOutgoingDocument,
+// DteIssuerConfig, DteCredential vía resolveDteSignerConfigForIssuer,
+// DteTransmissionLog). Sin `db`, cae al Prisma global (comportamiento
+// legacy para callers PLATFORM_NATIVE no migrados). Certifica que para
+// RUNTIME_CLIENT el documento + emisor + credencial + log de firma
+// salen/entran de la MISMA base runtime — nunca solo mismo tenant_id.
+// No se toca el orden lectura → llamada al firmador → persistencia, ni
+// se envuelve la llamada de red en la transacción.
 // ─────────────────────────────────────────────────────────────────
 
+import type { PrismaClient }      from "@prisma/client";
 import { prisma }                 from "@/lib/db/prisma";
 import { DteSignerConfigError }   from "../config/dte-signer.config";
 import { resolveDteSignerConfigForIssuer } from "./dte-credential.service";
@@ -60,12 +71,13 @@ const BLOCKED_STATUSES = new Set([
 
 export async function signDteDocument(
   params: SignDteDocumentParams,
+  db: PrismaClient = prisma,
 ): Promise<SignDteDocumentResult> {
   const { dteDocumentId, userId, tenantId, locationId } = params;
 
   try {
     // 1. Cargar documento con validación tenant/location
-    const dteDoc = await prisma.dteOutgoingDocument.findFirst({
+    const dteDoc = await db.dteOutgoingDocument.findFirst({
       where:  { id: dteDocumentId, tenant_id: tenantId, location_id: locationId },
       select: {
         id:               true,
@@ -103,15 +115,41 @@ export async function signDteDocument(
       );
     }
 
+    // 3b. Consistencia de ambiente documento <-> emisor (VI-E5A / J).
+    //     issuer_config_id ya pertenece a un único ambiente por diseño
+    //     (@@unique([tenant_id, location_id, environment]) en
+    //     DteIssuerConfig), pero hasta ahora nada lo verificaba de forma
+    //     estructural en este service antes de firmar. Se carga desde el
+    //     mismo `db` (misma runtime DB que el documento) y se rechaza
+    //     explícitamente cualquier mezcla TEST/PRODUCTION.
+    if (dteDoc.issuer_config_id) {
+      const issuerConfig = await db.dteIssuerConfig.findFirst({
+        where:  { id: dteDoc.issuer_config_id, tenant_id: tenantId, location_id: locationId },
+        select: { environment: true },
+      });
+      if (!issuerConfig) {
+        throw new SignDteBusinessError(
+          "La configuración del emisor del documento no existe o no pertenece a la location activa.",
+        );
+      }
+      if (issuerConfig.environment !== dteDoc.environment) {
+        throw new SignDteBusinessError(
+          "El ambiente del emisor no coincide con el ambiente del documento DTE. Firma bloqueada.",
+        );
+      }
+    }
+
     // 4. Resolver firmador + credenciales — SIGNERPROFILE-MULTITENANT.
     //    Prioridad: DteCredential del issuer_config_id del documento
     //    (signerUrl/signerNit/signerPrivateKeyPassword por emisor/ambiente).
     //    Si no hay credencial de emisor utilizable, cae al comportamiento
     //    anterior (DTE_SIGNER_NIT/DTE_SIGNER_PASSWORD + resolveDteSignerConfig
     //    global). Nunca cruza ambientes. Ver dte-credential.service.ts.
+    //    `client: db` — misma runtime DB que el documento (VI-E5A / G, H).
     const signerResolution = await resolveDteSignerConfigForIssuer({
       issuerConfigId: dteDoc.issuer_config_id,
       environment:    dteDoc.environment as DteMhEnvironment,
+      client:         db,
     });
 
     if (!signerResolution.ok) {
@@ -144,8 +182,8 @@ export async function signDteDocument(
       // 7. Firma exitosa → actualizar a SIGNED en transacción con log
       const signedAt = signerResult.signedAt;
 
-      await prisma.$transaction([
-        prisma.dteOutgoingDocument.update({
+      await db.$transaction([
+        db.dteOutgoingDocument.update({
           where: { id: dteDocumentId },
           data:  {
             dte_status: "SIGNED",
@@ -154,7 +192,7 @@ export async function signDteDocument(
             updated_by: userId,
           },
         }),
-        prisma.dteTransmissionLog.create({
+        db.dteTransmissionLog.create({
           data: {
             dte_document_id: dteDocumentId,
             attempt_number:  attemptNumber,
@@ -175,15 +213,15 @@ export async function signDteDocument(
       // 8. Firma fallida → mantener SCHEMA_VALIDATED, incrementar retry_count
       const httpStatus = signerResult.httpStatus ?? null;
 
-      await prisma.$transaction([
-        prisma.dteOutgoingDocument.update({
+      await db.$transaction([
+        db.dteOutgoingDocument.update({
           where: { id: dteDocumentId },
           data:  {
             retry_count: { increment: 1 },
             updated_by:  userId,
           },
         }),
-        prisma.dteTransmissionLog.create({
+        db.dteTransmissionLog.create({
           data: {
             dte_document_id: dteDocumentId,
             attempt_number:  attemptNumber,

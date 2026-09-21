@@ -24,7 +24,13 @@
 // reapertura, quién y cuándo.
 // ─────────────────────────────────────────────────────────────────
 
+import type { PrismaClient } from "@prisma/client";
 import { prisma } from "@/lib/db/prisma";
+
+// FASE VI-E5A / R — acepta un `db` explícito (PrismaClient runtime) para
+// que RUNTIME_CLIENT reabra el documento en la MISMA runtime DB donde
+// luego lo firmará (signDteDocument, ya migrado). Sin `db`, cae al
+// Prisma global (comportamiento legacy para PLATFORM_NATIVE).
 
 // Códigos MH (CAT de errores de recepción) considerados reintentables
 // por re-firma técnica. Deliberadamente restringido — no ampliar sin
@@ -51,11 +57,12 @@ class ReopenRejectedDteBusinessError extends Error {
 
 export async function reopenRejectedDteForResign(
   params: ReopenRejectedDteForResignParams,
+  db: PrismaClient = prisma,
 ): Promise<ReopenRejectedDteForResignResult> {
   const { dteDocumentId, tenantId, locationId, userId } = params;
 
   try {
-    await prisma.$transaction(async (tx) => {
+    await db.$transaction(async (tx) => {
       const dteDoc = await tx.dteOutgoingDocument.findFirst({
         where: { id: dteDocumentId, tenant_id: tenantId, location_id: locationId },
         select: {
