@@ -68,15 +68,16 @@ export async function createAndTransmitCreditNoteAction(
   //
   // FASE VI-E5A: signDteDocument ahora también recibe context.client — el
   // paso de firma corre íntegramente en la runtime DB del tenant, igual
-  // que los 3 pasos anteriores. transmitDteDocument (transmit-dte-document
-  // .service.ts) sigue fuera de alcance (VI-E5B) y NUNCA recibe
-  // context.client — sigue operando sobre el Prisma global. Para no dejar
-  // a un RUNTIME_CLIENT alcanzar esa transmisión global con datos fiscales
-  // propios, esta action corta el flujo ANTES del paso 5 cuando
-  // authScope === "RUNTIME_CLIENT": la NC queda firmada (SIGNED) en su
-  // propia runtime DB, lista para transmitirse manualmente vía el flujo
-  // estándar una vez exista VI-E5B. PLATFORM_NATIVE conserva el flujo
-  // completo create+sign+transmit sin cambios.
+  // que los 3 pasos anteriores.
+  //
+  // FASE VI-E5B: transmitDteDocument ya es runtime-aware (acepta `db`
+  // igual que sign/generate/validate/create) — carga el documento
+  // firmado, resuelve IssuerConfig/DteCredential y persiste
+  // DteTransmissionLog/ledger de metering en la MISMA runtime DB vía
+  // context.client. El flujo combinado ya no se detiene después de
+  // firmar: RUNTIME_CLIENT llega hasta la transmisión igual que
+  // PLATFORM_NATIVE, ambos usando el mismo transmitDteDocument
+  // runtime-aware (sin duplicar implementación).
   let handle;
   try {
     handle = await requireOperationalContext(sessionUser, { module: "fiscal.dte", write: true });
@@ -145,26 +146,11 @@ export async function createAndTransmitCreditNoteAction(
       return { ok: false, error: signResult.error, stepFailed: "firmar" };
     }
 
-    // VI-E5A / Q: transmitDteDocument sigue fuera de alcance (VI-E5B) y
-    // sigue operando exclusivamente sobre el Prisma global. Un
-    // RUNTIME_CLIENT nunca puede alcanzar esa transmisión con datos
-    // fiscales propios — se corta el flujo aquí, fail-closed, dejando la
-    // NC ya firmada (SIGNED) en su propia runtime DB.
-    if (context.authScope === "RUNTIME_CLIENT") {
-      revalidatePath("/dashboard/sales");
-      revalidatePath("/dashboard/dte/outgoing");
-      return {
-        ok:    false,
-        error: "La Nota de Crédito quedó firmada (SIGNED). La transmisión a Hacienda para este " +
-               "tipo de organización aún no está disponible en este flujo combinado (VI-E5B).",
-        stepFailed: "transmitir_deferred",
-      };
-    }
-
     // 5. Transmitir a Hacienda (SIGNED → ACCEPTED | OBSERVED | REJECTED) —
-    //    fuera de alcance VI-E4B/VI-E5A, intacto (ver VI-E5B). Solo
-    //    alcanzable por PLATFORM_NATIVE.
-    const transmitResult = await transmitDteDocument({ dteDocumentId: creditNoteDteId, ...ctx });
+    //    VI-E5B: corre en context.client (runtime DB del tenant para
+    //    RUNTIME_CLIENT), mismo transmitDteDocument runtime-aware usado
+    //    por transmit-dte-document.action.ts.
+    const transmitResult = await transmitDteDocument({ dteDocumentId: creditNoteDteId, ...ctx }, context.client);
     if (!transmitResult.ok) {
       return { ok: false, error: transmitResult.error, stepFailed: "transmitir" };
     }

@@ -12,12 +12,29 @@
 //   - Estado inesperado de MH: mantiene SIGNED, registra log, devuelve error.
 //   - Registra DteTransmissionLog en todos los casos.
 //   - No expone signed_jws ni token.
+//
+// FASE VI-E5B — acepta un `db` explícito (PrismaClient runtime) igual
+// que sign-dte-document.service.ts (VI-E5A). Con `db`, TODA lectura/
+// escritura tenant-owned (DteOutgoingDocument, DteTransmissionLog,
+// metering ledger vía reserveDteFiscalCapacity/finalize/release, y la
+// resolución de credenciales MH vía MhAuthAdapter.credentialClient)
+// corre en la MISMA runtime DB. Sin `db`, cae al Prisma global
+// (comportamiento legacy para PLATFORM_NATIVE no migrado). El gate
+// comercial (resolveCommercialEnforcementContext) sigue resolviéndose
+// siempre contra Control Plane — capacidad comercial nunca vive en
+// runtime DB (ver dte-fiscal-metering.service.ts).
+// assertDteContingencyTransmissionAllowed permanece fuera de alcance
+// (reconciliación/contingencia se migran en VI-E6) — solo aplica a
+// documentos con transmission_type_code="2", que hoy siguen operando
+// en PLATFORM_NATIVE.
 // ─────────────────────────────────────────────────────────────────
 
+import type { PrismaClient }         from "@prisma/client";
 import { prisma }                    from "@/lib/db/prisma";
 import { Prisma }                    from "@prisma/client";
 import { resolveDteMhUrls }           from "../config/dte-mh.config";
 import { MhDteTransmissionAdapter }  from "../adapters/dte-transmission.adapter";
+import { MhAuthAdapter }             from "../adapters/dte-auth.adapter";
 import { canUseFex11InServerFlow }   from "../utils/fex11-feature-guard";
 import { isMhProcessedObserved }     from "../utils/dte-mh-observations.utils";
 import { assertDteContingencyTransmissionAllowed } from "./assert-dte-contingency-transmission-allowed.service";
@@ -121,12 +138,13 @@ function buildReceptionUrl(environment: "TEST" | "PRODUCTION"): string {
 
 export async function transmitDteDocument(
   params: TransmitDteDocumentParams,
+  db: PrismaClient = prisma,
 ): Promise<TransmitDteDocumentResult> {
   const { dteDocumentId, userId, tenantId, locationId } = params;
 
   try {
     // 1. Cargar documento con scope tenant/location
-    const dteDoc = await prisma.dteOutgoingDocument.findFirst({
+    const dteDoc = await db.dteOutgoingDocument.findFirst({
       where:  { id: dteDocumentId, tenant_id: tenantId, location_id: locationId },
       select: {
         id:              true,
@@ -223,7 +241,7 @@ export async function transmitDteDocument(
       tenantId,
       environment,
       commercialCtx,
-      runtimeDb: prisma,
+      runtimeDb: db,
       userId,
     });
     if (!meteringResult.ok) {
@@ -243,7 +261,7 @@ export async function transmitDteDocument(
     }
 
     // 5. Llamar al adapter de transmisión
-    const adapter = new MhDteTransmissionAdapter();
+    const adapter = new MhDteTransmissionAdapter(new MhAuthAdapter({ credentialClient: db }));
     const result  = await adapter.transmit({
       environment,
       issuerConfigId: dteDoc.issuer_config_id ?? undefined,
@@ -257,15 +275,15 @@ export async function transmitDteDocument(
 
     // ── Caso: error técnico ───────────────────────────────────────
     if (!result.ok) {
-      await prisma.$transaction([
-        prisma.dteOutgoingDocument.update({
+      await db.$transaction([
+        db.dteOutgoingDocument.update({
           where: { id: dteDocumentId },
           data:  {
             retry_count: { increment: 1 },
             updated_by:  userId,
           },
         }),
-        prisma.dteTransmissionLog.create({
+        db.dteTransmissionLog.create({
           data: {
             dte_document_id: dteDocumentId,
             attempt_number:  attemptNumber,
@@ -301,8 +319,8 @@ export async function transmitDteDocument(
 
     // Estado MH inesperado: mantener SIGNED
     if (!finalStatus) {
-      await prisma.$transaction([
-        prisma.dteOutgoingDocument.update({
+      await db.$transaction([
+        db.dteOutgoingDocument.update({
           where: { id: dteDocumentId },
           data:  {
             mh_response: mhResponseSanitized,
@@ -310,7 +328,7 @@ export async function transmitDteDocument(
             updated_by:  userId,
           },
         }),
-        prisma.dteTransmissionLog.create({
+        db.dteTransmissionLog.create({
           data: {
             dte_document_id: dteDocumentId,
             attempt_number:  attemptNumber,
@@ -332,7 +350,7 @@ export async function transmitDteDocument(
     // ── Actualizar estado Prisma según resultado fiscal ────────────
 
     if (finalStatus === "ACCEPTED") {
-      await prisma.$transaction(async (tx) => {
+      await db.$transaction(async (tx) => {
         await tx.dteOutgoingDocument.update({
           where: { id: dteDocumentId },
           data:  {
@@ -377,7 +395,7 @@ export async function transmitDteDocument(
         observaciones:   (result.observaciones ?? null) as Prisma.InputJsonValue,
       };
 
-      await prisma.$transaction(async (tx) => {
+      await db.$transaction(async (tx) => {
         await tx.dteOutgoingDocument.update({
           where: { id: dteDocumentId },
           data:  {
@@ -407,7 +425,7 @@ export async function transmitDteDocument(
     }
 
     if (finalStatus === "REJECTED") {
-      await prisma.$transaction(async (tx) => {
+      await db.$transaction(async (tx) => {
         await tx.dteOutgoingDocument.update({
           where: { id: dteDocumentId },
           data:  {

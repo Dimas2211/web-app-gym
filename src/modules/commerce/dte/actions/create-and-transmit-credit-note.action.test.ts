@@ -2,19 +2,17 @@
 // commerce/dte — create-and-transmit-credit-note.action.test.ts
 //
 // FASE VI-E4B — migra el orquestador a requireOperationalContext.
-// FASE VI-E5A — signDteDocument ahora también recibe context.client, y
-// para authScope === "RUNTIME_CLIENT" la action corta el flujo ANTES de
-// transmitDteDocument (que sigue sobre Prisma global, fuera de alcance
-// hasta VI-E5B). Certifica:
+// FASE VI-E5A — signDteDocument también recibe context.client.
+// FASE VI-E5B — transmitDteDocument ya es runtime-aware y también
+// recibe context.client — el flujo combinado ya no se detiene después
+// de firmar. Certifica:
 //   - Support Session (READ_ONLY) bloquea ANTES de crear/generar/
 //     validar/firmar/transmitir (ningún paso se invoca).
-//   - PLATFORM_NATIVE: create/generate/validate/sign reciben
-//     context.client; transmit corre igual que antes (comportamiento
-//     externo intacto, alcanza ACCEPTED).
-//   - RUNTIME_CLIENT: create/generate/validate/sign reciben
-//     context.client; transmitDteDocument NUNCA se invoca — la NC queda
-//     SIGNED y la action devuelve ok:false / stepFailed:
-//     "transmitir_deferred".
+//   - PLATFORM_NATIVE: create/generate/validate/sign/transmit reciben
+//     context.client (comportamiento externo intacto, alcanza ACCEPTED).
+//   - RUNTIME_CLIENT: create/generate/validate/sign/transmit reciben
+//     context.client — el flujo llega hasta la transmisión igual que
+//     PLATFORM_NATIVE.
 //   - Si un paso intermedio falla, los pasos siguientes NUNCA se invocan.
 // ─────────────────────────────────────────────────────────────────
 
@@ -174,18 +172,16 @@ describe("createAndTransmitCreditNoteAction — FASE VI-E4B", () => {
       { dteDocumentId: "nc-1", userId: "u1", tenantId: "tenant-1", locationId: "loc-1" },
       runtimeDbMarker,
     );
-    // transmit sigue fuera de alcance — solo el ctx plano, sin client.
-    expect(transmitDteDocumentSpy).toHaveBeenCalledWith({
-      dteDocumentId: "nc-1",
-      userId: "u1",
-      tenantId: "tenant-1",
-      locationId: "loc-1",
-    });
+    // VI-E5B — transmit ahora también recibe context.client (runtime DB).
+    expect(transmitDteDocumentSpy).toHaveBeenCalledWith(
+      { dteDocumentId: "nc-1", userId: "u1", tenantId: "tenant-1", locationId: "loc-1" },
+      runtimeDbMarker,
+    );
 
     expect(disposeMock).toHaveBeenCalledTimes(1);
   });
 
-  it("RUNTIME_CLIENT -> sign recibe context.client, pero transmitDteDocument NUNCA se invoca (fail-closed antes de la transmisión global)", async () => {
+  it("RUNTIME_CLIENT -> sign y transmit reciben context.client, flujo completo hasta ACCEPTED", async () => {
     const runtimeDbMarker = { __marker: "RUNTIME_CLIENT_DB" };
     requireOperationalContextMock.mockResolvedValue(fakeHandle({ client: runtimeDbMarker, authScope: "RUNTIME_CLIENT" }));
 
@@ -205,15 +201,24 @@ describe("createAndTransmitCreditNoteAction — FASE VI-E4B", () => {
     });
     validateDteJsonSchemaSpy.mockResolvedValue({ ok: true });
     signDteDocumentSpy.mockResolvedValue({ ok: true, dteStatus: "SIGNED", signedAt: "2026-01-01T00:00:00.000Z" });
+    transmitDteDocumentSpy.mockResolvedValue({
+      ok: true,
+      dteStatus: "ACCEPTED",
+      selloRecibido: "SELLO-1",
+      descripcionMsg: "Procesado",
+    });
 
     const result = await createAndTransmitCreditNoteAction(VALID_INPUT);
 
-    expect(result).toMatchObject({ ok: false, stepFailed: "transmitir_deferred" });
+    expect(result).toMatchObject({ ok: true, creditNoteDteId: "nc-1", finalStatus: "ACCEPTED" });
     expect(signDteDocumentSpy).toHaveBeenCalledWith(
       { dteDocumentId: "nc-1", userId: "u1", tenantId: "tenant-1", locationId: "loc-1" },
       runtimeDbMarker,
     );
-    expect(transmitDteDocumentSpy).not.toHaveBeenCalled();
+    expect(transmitDteDocumentSpy).toHaveBeenCalledWith(
+      { dteDocumentId: "nc-1", userId: "u1", tenantId: "tenant-1", locationId: "loc-1" },
+      runtimeDbMarker,
+    );
     expect(disposeMock).toHaveBeenCalledTimes(1);
   });
 
