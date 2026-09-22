@@ -37,7 +37,8 @@ export default async function PurchasesPage() {
 
     const location_id = context.runtime
       ? await resolveRuntimeFirstLocationId(context)
-      : await getEffectiveLocationId(sessionUser);
+      : (context.locationId ??
+        (await getEffectiveLocationId(sessionUser, context.client, context.tenantId)));
 
     if (!tenant_id || !location_id) {
       return (
@@ -47,21 +48,19 @@ export default async function PurchasesPage() {
       );
     }
 
-    const { items, total } = await getPurchases({
-      tenant_id,
-      location_id,
-      sort_field:     "purchase_date",
-      sort_direction: "desc",
-      page:      1,
-      page_size: 100,
-    }, client);
-
-    return (
-      <PurchasesClient
-        initialItems={items}
-        initialTotal={total}
-      />
+    const { items, total } = await getPurchases(
+      {
+        tenant_id,
+        location_id,
+        sort_field: "purchase_date",
+        sort_direction: "desc",
+        page: 1,
+        page_size: 100,
+      },
+      client
     );
+
+    return <PurchasesClient initialItems={items} initialTotal={total} />;
   } finally {
     await dispose();
   }

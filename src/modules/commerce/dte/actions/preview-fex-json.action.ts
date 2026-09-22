@@ -25,35 +25,34 @@
 
 "use server";
 
-import Ajv        from "ajv";
-import addFormats  from "ajv-formats";
-import { prisma }  from "@/lib/db/prisma";
-import { requireAdmin }           from "@/lib/permissions/guards";
+import Ajv from "ajv";
+import addFormats from "ajv-formats";
+import { requireAdmin, type SessionUser } from "@/lib/permissions/guards";
+import type { UserRole } from "@prisma/client";
 import { getEffectiveLocationId } from "@/lib/location/active-location";
 import fexSchema from "../schemas/mh/fex-11.schema.json";
 import { generateFexJsonForSale } from "../services/generate-fex-json.service";
 import type { FexJsonDocument } from "../types/fex-json.types";
 import {
-  resolveCommercialEnforcementContext,
-  assertOrganizationModule,
-  CommercialEnforcementError,
-} from "@/modules/platform/runtime/commercial-enforcement";
+  requireOperationalContext,
+  OperationalContextError,
+} from "@/modules/platform/runtime/require-operational-context";
 
 // ── Tipos públicos ────────────────────────────────────────────────
 
 export interface PreviewFexJsonValidationError {
-  path:    string;
+  path: string;
   message: string;
 }
 
 export interface PreviewFexJsonSummary {
-  tipoDte:             string;
-  numeroControl:       string;
-  codigoGeneracion:    string;
+  tipoDte: string;
+  numeroControl: string;
+  codigoGeneracion: string;
   montoTotalOperacion: number;
-  totalPagar:          number;
-  receptor:            string;
-  cantidadLineas:      number;
+  totalPagar: number;
+  receptor: string;
+  cantidadLineas: number;
 }
 
 export type PreviewFexJsonActionResult =
@@ -64,17 +63,13 @@ export type PreviewFexJsonActionResult =
 // Cualquier estado posterior a GENERATED/SCHEMA_VALIDATED implica que
 // el documento ya avanzó en el ciclo fiscal real (firmado/transmitido)
 // y esta preview aislada no debe operar sobre él.
-const PREVIEWABLE_STATUSES = new Set([
-  "PENDING_GENERATION",
-  "GENERATED",
-  "SCHEMA_VALIDATED",
-]);
+const PREVIEWABLE_STATUSES = new Set(["PENDING_GENERATION", "GENERATED", "SCHEMA_VALIDATED"]);
 
 // ── Validación AJV local (no persiste, no reutiliza el servicio que
 // actualiza dte_status a SCHEMA_VALIDATED) ─────────────────────────
 
 function validateFexAjv(
-  doc: unknown,
+  doc: unknown
 ): { ok: true } | { ok: false; errors: PreviewFexJsonValidationError[] } {
   const ajv = new Ajv({ strict: false, allErrors: true, multipleOfPrecision: 2 });
   addFormats(ajv);
@@ -105,92 +100,113 @@ function validateFexAjv(
 // ── Action principal ────────────────────────────────────────────────
 
 export async function previewFexJsonAction(
-  dte_document_id: string,
+  dte_document_id: string
 ): Promise<PreviewFexJsonActionResult> {
   const sessionUser = await requireAdmin();
-  const tenant_id   = sessionUser.tenant_id;
-  const location_id = await getEffectiveLocationId(sessionUser);
 
-  if (!tenant_id)       return { ok: false, error: "La sesión no tiene un tenant activo." };
-  if (!location_id)     return { ok: false, error: "La sesión no tiene una location activa." };
-  if (!dte_document_id) return { ok: false, error: "El ID del documento DTE es requerido." };
-
+  let handle;
   try {
-    const commercialCtx = await resolveCommercialEnforcementContext(tenant_id);
-    assertOrganizationModule(commercialCtx, "fiscal.dte");
+    handle = await requireOperationalContext(sessionUser, { module: "fiscal.dte" });
   } catch (err) {
-    if (err instanceof CommercialEnforcementError) return { ok: false, error: err.userMessage };
+    if (err instanceof OperationalContextError) return { ok: false, error: err.userMessage };
     throw err;
   }
+  const { context, dispose } = handle;
 
-  // ── 1. Precondiciones sobre el DteOutgoingDocument ────────────────
-  // Validaciones que generateFexJsonForSale no cubre (no está firmado,
-  // no está transmitido, estado compatible con preview).
-  const dteDoc = await prisma.dteOutgoingDocument.findFirst({
-    where: { id: dte_document_id, tenant_id, location_id },
-    select: {
-      id:            true,
-      dte_type_code: true,
-      sale_id:       true,
-      signed_jws:    true,
-      dte_status:    true,
-    },
-  });
+  try {
+    const tenant_id = context.tenantId;
+    const location_id =
+      context.locationId ??
+      (await getEffectiveLocationId(
+        { ...context.effectiveUser, role: context.effectiveUser.role as UserRole } as SessionUser,
+        context.client,
+        context.tenantId
+      ));
 
-  if (!dteDoc) {
-    return { ok: false, error: "El documento DTE no existe o no pertenece a la location activa." };
-  }
-  if (dteDoc.dte_type_code !== "11") {
+    if (!location_id) return { ok: false, error: "La sesión no tiene una location activa." };
+    if (!dte_document_id) return { ok: false, error: "El ID del documento DTE es requerido." };
+
+    // ── 1. Precondiciones sobre el DteOutgoingDocument ────────────────
+    // Validaciones que generateFexJsonForSale no cubre (no está firmado,
+    // no está transmitido, estado compatible con preview).
+    const dteDoc = await context.client.dteOutgoingDocument.findFirst({
+      where: { id: dte_document_id, tenant_id, location_id },
+      select: {
+        id: true,
+        dte_type_code: true,
+        sale_id: true,
+        signed_jws: true,
+        dte_status: true,
+      },
+    });
+
+    if (!dteDoc) {
+      return {
+        ok: false,
+        error: "El documento DTE no existe o no pertenece a la location activa.",
+      };
+    }
+    if (dteDoc.dte_type_code !== "11") {
+      return {
+        ok: false,
+        error: `Esta preview solo aplica a Factura de Exportación (11). El documento es tipo "${dteDoc.dte_type_code}".`,
+      };
+    }
+    if (!dteDoc.sale_id) {
+      return { ok: false, error: "El documento DTE no está asociado a ninguna venta." };
+    }
+    if (dteDoc.signed_jws) {
+      return {
+        ok: false,
+        error:
+          "El documento DTE ya está firmado. No se puede generar una preview sobre un documento firmado.",
+      };
+    }
+    if (!PREVIEWABLE_STATUSES.has(dteDoc.dte_status)) {
+      return {
+        ok: false,
+        error: `El documento DTE está en estado "${dteDoc.dte_status}", incompatible con preview/generación. Estados permitidos: ${Array.from(PREVIEWABLE_STATUSES).join(", ")}.`,
+      };
+    }
+
+    // ── 2. Generar JSON candidato (sin persistir) ─────────────────────
+    const buildResult = await generateFexJsonForSale(
+      { tenant_id, location_id, dte_document_id },
+      context.client
+    );
+
+    if (!buildResult.ok) {
+      return { ok: false, error: buildResult.error };
+    }
+
+    // ── 3. Validar JSON candidato contra el schema oficial MH (AJV) ───
+    const ajvResult = validateFexAjv(buildResult.json);
+
+    if (!ajvResult.ok) {
+      return {
+        ok: false,
+        error: "El JSON generado no cumple el schema oficial MH para FEX 11.",
+        validation_errors: ajvResult.errors,
+      };
+    }
+
+    // ── 4. Resultado estructurado (solo lectura) ───────────────────────
+    const { identificacion, receptor, resumen, cuerpoDocumento } = buildResult.json;
+
     return {
-      ok:    false,
-      error: `Esta preview solo aplica a Factura de Exportación (11). El documento es tipo "${dteDoc.dte_type_code}".`,
+      ok: true,
+      json: buildResult.json,
+      summary: {
+        tipoDte: identificacion.tipoDte,
+        numeroControl: identificacion.numeroControl,
+        codigoGeneracion: identificacion.codigoGeneracion,
+        montoTotalOperacion: resumen.montoTotalOperacion,
+        totalPagar: resumen.totalPagar,
+        receptor: receptor.nombre,
+        cantidadLineas: cuerpoDocumento.length,
+      },
     };
+  } finally {
+    await dispose();
   }
-  if (!dteDoc.sale_id) {
-    return { ok: false, error: "El documento DTE no está asociado a ninguna venta." };
-  }
-  if (dteDoc.signed_jws) {
-    return { ok: false, error: "El documento DTE ya está firmado. No se puede generar una preview sobre un documento firmado." };
-  }
-  if (!PREVIEWABLE_STATUSES.has(dteDoc.dte_status)) {
-    return {
-      ok:    false,
-      error: `El documento DTE está en estado "${dteDoc.dte_status}", incompatible con preview/generación. Estados permitidos: ${Array.from(PREVIEWABLE_STATUSES).join(", ")}.`,
-    };
-  }
-
-  // ── 2. Generar JSON candidato (sin persistir) ─────────────────────
-  const buildResult = await generateFexJsonForSale({ tenant_id, location_id, dte_document_id });
-
-  if (!buildResult.ok) {
-    return { ok: false, error: buildResult.error };
-  }
-
-  // ── 3. Validar JSON candidato contra el schema oficial MH (AJV) ───
-  const ajvResult = validateFexAjv(buildResult.json);
-
-  if (!ajvResult.ok) {
-    return {
-      ok:                 false,
-      error:              "El JSON generado no cumple el schema oficial MH para FEX 11.",
-      validation_errors:  ajvResult.errors,
-    };
-  }
-
-  // ── 4. Resultado estructurado (solo lectura) ───────────────────────
-  const { identificacion, receptor, resumen, cuerpoDocumento } = buildResult.json;
-
-  return {
-    ok:   true,
-    json: buildResult.json,
-    summary: {
-      tipoDte:             identificacion.tipoDte,
-      numeroControl:       identificacion.numeroControl,
-      codigoGeneracion:    identificacion.codigoGeneracion,
-      montoTotalOperacion: resumen.montoTotalOperacion,
-      totalPagar:          resumen.totalPagar,
-      receptor:            receptor.nombre,
-      cantidadLineas:      cuerpoDocumento.length,
-    },
-  };
 }

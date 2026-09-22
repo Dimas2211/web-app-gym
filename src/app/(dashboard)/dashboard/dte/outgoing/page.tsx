@@ -50,7 +50,8 @@ export default async function DteOutgoingPage({ searchParams }: PageProps) {
 
     const locationId = context.runtime
       ? await resolveRuntimeFirstLocationId(context)
-      : await getEffectiveLocationId(sessionUser);
+      : (context.locationId ??
+        (await getEffectiveLocationId(sessionUser, context.client, context.tenantId)));
 
     if (!locationId) {
       return (
@@ -63,44 +64,47 @@ export default async function DteOutgoingPage({ searchParams }: PageProps) {
     // Parsear filtros desde searchParams — nunca contienen tenantId/locationId.
     const rawParams = await searchParams;
     const parsedFilters = dteOutgoingFiltersSchema.safeParse({
-      search:      rawParams.search,
-      dteType:     rawParams.dteType,
-      status:      rawParams.status,
+      search: rawParams.search,
+      dteType: rawParams.dteType,
+      status: rawParams.status,
       environment: rawParams.environment,
-      dateFrom:    rawParams.dateFrom,
-      dateTo:      rawParams.dateTo,
-      sortField:   rawParams.sortField,
-      sortDir:     rawParams.sortDir,
-      page:        rawParams.page,
-      pageSize:    rawParams.pageSize,
+      dateFrom: rawParams.dateFrom,
+      dateTo: rawParams.dateTo,
+      sortField: rawParams.sortField,
+      sortDir: rawParams.sortDir,
+      page: rawParams.page,
+      pageSize: rawParams.pageSize,
     });
 
     const filters = parsedFilters.success ? parsedFilters.data : { page: 1, pageSize: 50 };
 
-    const initialResult = await listDteOutgoingGlobal({
-      tenantId,
-      locationId,
-      ...filters,
-    }, client);
+    const initialResult = await listDteOutgoingGlobal(
+      {
+        tenantId,
+        locationId,
+        ...filters,
+      },
+      client
+    );
 
     // Metadata segura para el diálogo de confirmación de acciones runtime-aware
     // (deliver-dte-to-external-db.action.ts). Nunca incluye credenciales.
     const runtimeWriteInfo = context.runtime
       ? {
           organizationName: context.runtime.organizationName,
-          profileLabel:     context.runtime.profileLabel,
+          profileLabel: context.runtime.profileLabel,
         }
       : null;
 
     const externalConfig = getExternalDteMariaDbConfig();
     const externalDeliveryTarget = {
-      host:     externalConfig.host || null,
+      host: externalConfig.host || null,
       database: externalConfig.database || null,
-      table:    externalConfig.table || null,
+      table: externalConfig.table || null,
     };
 
     return (
-      <div className="-mx-4 sm:-mx-6 -mt-8 -mb-8 h-[calc(100vh-3.5rem)] overflow-hidden flex flex-col">
+      <div className="-mx-4 -mt-8 -mb-8 flex h-[calc(100vh-3.5rem)] flex-col overflow-hidden sm:-mx-6">
         <DteOutgoingClient
           initialResult={initialResult}
           initialFilters={filters}

@@ -41,7 +41,7 @@ export default async function DteSettingsPage() {
     if (!tenantId) {
       return (
         <div className="p-6">
-          <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg px-4 py-3">
+          <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
             La sesión no tiene un tenant activo — no se puede resolver contexto fiscal DTE.
           </div>
         </div>
@@ -50,12 +50,13 @@ export default async function DteSettingsPage() {
 
     const location_id = context.runtime
       ? await resolveRuntimeFirstLocationId(context)
-      : await getEffectiveLocationId(sessionUser);
+      : (context.locationId ??
+        (await getEffectiveLocationId(sessionUser, context.client, context.tenantId)));
 
     if (!location_id) {
       return (
         <div className="p-6">
-          <div className="bg-amber-50 border border-amber-200 text-amber-700 text-sm rounded-lg px-4 py-3">
+          <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
             {context.runtime
               ? "El tenant runtime no tiene ninguna sucursal activa — no se puede resolver contexto fiscal DTE."
               : "Selecciona una sucursal activa para ver/administrar su configuración de Facturación Electrónica."}
@@ -70,13 +71,13 @@ export default async function DteSettingsPage() {
     ]);
 
     return (
-      <div className="p-6 space-y-5 max-w-5xl mx-auto">
+      <div className="mx-auto max-w-5xl space-y-5 p-6">
         <div>
           <h1 className="text-lg font-bold text-zinc-800">Facturación Electrónica</h1>
-          <p className="text-sm text-zinc-500 mt-1">
+          <p className="mt-1 text-sm text-zinc-500">
             Ambiente, emisor y credenciales DTE ante el Ministerio de Hacienda para esta sucursal.
           </p>
-          <p className="text-xs text-zinc-400 mt-1">
+          <p className="mt-1 text-xs text-zinc-400">
             Sucursal: {activeLocation ? activeLocation.name : "—"}
           </p>
         </div>
@@ -84,8 +85,9 @@ export default async function DteSettingsPage() {
         <DteEnvironmentSettingsPanel data={data} readOnly={!!context.runtime} />
 
         <p className="text-xs text-zinc-400">
-          Activar PRODUCCIÓN no transmite ni modifica documentos existentes — solo determina el ambiente de
-          los próximos Documentos Tributarios Electrónicos que se generen para esta sucursal.
+          Activar PRODUCCIÓN no transmite ni modifica documentos existentes — solo determina el
+          ambiente de los próximos Documentos Tributarios Electrónicos que se generen para esta
+          sucursal.
         </p>
       </div>
     );

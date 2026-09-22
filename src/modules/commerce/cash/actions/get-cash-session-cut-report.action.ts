@@ -10,16 +10,16 @@
 // tenant_id y location_id se inyectan desde sesión — nunca del input.
 // ─────────────────────────────────────────────────────────────────
 
-import { requireAdmin }           from "@/lib/permissions/guards";
+import { requireAdmin } from "@/lib/permissions/guards";
 import { getEffectiveLocationId } from "@/lib/location/active-location";
 import {
   resolveEffectiveTenantContext,
   resolveRuntimeFirstLocationId,
 } from "@/modules/platform/runtime/effective-tenant-context";
 import { getCashSessionCutReportInputSchema } from "../schemas/cash.schemas";
-import { getCashSessionCutReport }            from "../queries/get-cash-session-cut-report";
-import type { GetCashSessionCutReportInput }  from "../schemas/cash.schemas";
-import type { CashSessionCutReport }          from "../types/cash.types";
+import { getCashSessionCutReport } from "../queries/get-cash-session-cut-report";
+import type { GetCashSessionCutReportInput } from "../schemas/cash.schemas";
+import type { CashSessionCutReport } from "../types/cash.types";
 import {
   resolveCommercialEnforcementContext,
   assertOrganizationModule,
@@ -27,11 +27,11 @@ import {
 } from "@/modules/platform/runtime/commercial-enforcement";
 
 export type GetCashSessionCutReportActionResult =
-  | { ok: true;  data: CashSessionCutReport }
+  | { ok: true; data: CashSessionCutReport }
   | { ok: false; error: string };
 
 export async function getCashSessionCutReportAction(
-  input: GetCashSessionCutReportInput,
+  input: GetCashSessionCutReportInput
 ): Promise<GetCashSessionCutReportActionResult> {
   const sessionUser = await requireAdmin();
 
@@ -41,9 +41,10 @@ export async function getCashSessionCutReportAction(
   try {
     const location_id = context.runtime
       ? await resolveRuntimeFirstLocationId(context)
-      : await getEffectiveLocationId(sessionUser);
+      : (context.locationId ??
+        (await getEffectiveLocationId(sessionUser, context.client, context.tenantId)));
 
-    if (!tenant_id)   return { ok: false, error: "La sesión no tiene un tenant activo." };
+    if (!tenant_id) return { ok: false, error: "La sesión no tiene un tenant activo." };
     if (!location_id) return { ok: false, error: "La sesión no tiene una location activa." };
 
     try {
@@ -59,11 +60,14 @@ export async function getCashSessionCutReportAction(
       return { ok: false, error: "Parámetros de consulta no válidos." };
     }
 
-    const data = await getCashSessionCutReport({
-      tenant_id,
-      location_id,
-      cash_session_id: parsed.data.cash_session_id,
-    }, client);
+    const data = await getCashSessionCutReport(
+      {
+        tenant_id,
+        location_id,
+        cash_session_id: parsed.data.cash_session_id,
+      },
+      client
+    );
     if (!data) {
       return { ok: false, error: "La sesión no existe o no pertenece a esta sucursal." };
     }

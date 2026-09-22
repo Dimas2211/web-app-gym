@@ -10,16 +10,16 @@
 // tenant_id y location_id se inyectan desde sesión — nunca del input.
 // ─────────────────────────────────────────────────────────────────
 
-import { requireAdmin }           from "@/lib/permissions/guards";
+import { requireAdmin } from "@/lib/permissions/guards";
 import { getEffectiveLocationId } from "@/lib/location/active-location";
 import {
   resolveEffectiveTenantContext,
   resolveRuntimeFirstLocationId,
 } from "@/modules/platform/runtime/effective-tenant-context";
 import { listCashMovementsInputSchema } from "../schemas/cash.schemas";
-import { listCashMovementsBySession }  from "../queries/list-cash-movements-by-session";
+import { listCashMovementsBySession } from "../queries/list-cash-movements-by-session";
 import type { ListCashMovementsInput } from "../schemas/cash.schemas";
-import type { CashMovementItem }       from "../types/cash.types";
+import type { CashMovementItem } from "../types/cash.types";
 import {
   resolveCommercialEnforcementContext,
   assertOrganizationModule,
@@ -27,11 +27,11 @@ import {
 } from "@/modules/platform/runtime/commercial-enforcement";
 
 export type ListCashMovementsActionResult =
-  | { ok: true;  data: CashMovementItem[] }
+  | { ok: true; data: CashMovementItem[] }
   | { ok: false; error: string };
 
 export async function listCashMovementsAction(
-  input: ListCashMovementsInput,
+  input: ListCashMovementsInput
 ): Promise<ListCashMovementsActionResult> {
   const sessionUser = await requireAdmin();
 
@@ -41,9 +41,10 @@ export async function listCashMovementsAction(
   try {
     const location_id = context.runtime
       ? await resolveRuntimeFirstLocationId(context)
-      : await getEffectiveLocationId(sessionUser);
+      : (context.locationId ??
+        (await getEffectiveLocationId(sessionUser, context.client, context.tenantId)));
 
-    if (!tenant_id)   return { ok: false, error: "La sesión no tiene un tenant activo." };
+    if (!tenant_id) return { ok: false, error: "La sesión no tiene un tenant activo." };
     if (!location_id) return { ok: false, error: "La sesión no tiene una location activa." };
 
     try {
@@ -59,11 +60,14 @@ export async function listCashMovementsAction(
       return { ok: false, error: "Parámetros de consulta no válidos." };
     }
 
-    const data = await listCashMovementsBySession({
-      tenant_id,
-      location_id,
-      cash_session_id: parsed.data.cash_session_id,
-    }, client);
+    const data = await listCashMovementsBySession(
+      {
+        tenant_id,
+        location_id,
+        cash_session_id: parsed.data.cash_session_id,
+      },
+      client
+    );
     return { ok: true, data };
   } catch {
     return { ok: false, error: "No se pudieron cargar los movimientos de caja." };

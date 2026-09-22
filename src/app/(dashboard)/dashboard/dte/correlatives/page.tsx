@@ -43,7 +43,7 @@ export default async function DteCorrelativesPage() {
     if (!tenantId) {
       return (
         <div className="p-6">
-          <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg px-4 py-3">
+          <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
             La sesión no tiene un tenant activo — no se puede resolver contexto fiscal DTE.
           </div>
         </div>
@@ -54,21 +54,29 @@ export default async function DteCorrelativesPage() {
 
     const [rows, effectiveLocationId] = await Promise.all([
       listDteCorrelativeAlignmentRows(tenantId, client),
-      context.runtime ? resolveRuntimeFirstLocationId(context) : getEffectiveLocationId(sessionUser),
+      context.runtime
+        ? resolveRuntimeFirstLocationId(context)
+        : (context.locationId ??
+          getEffectiveLocationId(sessionUser, context.client, context.tenantId)),
     ]);
 
-    const activeLocation = effectiveLocationId ? await getLocationById(effectiveLocationId, client) : null;
+    const activeLocation = effectiveLocationId
+      ? await getLocationById(effectiveLocationId, client)
+      : null;
 
     return (
-      <div className="p-6 space-y-5 max-w-6xl mx-auto">
+      <div className="mx-auto max-w-6xl space-y-5 p-6">
         <div>
           <h1 className="text-lg font-bold text-zinc-800">Correlativos DTE</h1>
-          <p className="text-sm text-zinc-500 mt-1">
-            Alineación inicial de correlativos por sucursal, ambiente y tipo DTE — para empresas que migran
-            desde otro sistema de facturación y ya tienen numeroControl usados ante Hacienda.
+          <p className="mt-1 text-sm text-zinc-500">
+            Alineación inicial de correlativos por sucursal, ambiente y tipo DTE — para empresas que
+            migran desde otro sistema de facturación y ya tienen numeroControl usados ante Hacienda.
           </p>
-          <p className="text-xs text-zinc-400 mt-1">
-            Sucursal activa: {activeLocation ? activeLocation.name : "— ninguna seleccionada (se muestran todas las sucursales del tenant) —"}
+          <p className="mt-1 text-xs text-zinc-400">
+            Sucursal activa:{" "}
+            {activeLocation
+              ? activeLocation.name
+              : "— ninguna seleccionada (se muestran todas las sucursales del tenant) —"}
           </p>
         </div>
 

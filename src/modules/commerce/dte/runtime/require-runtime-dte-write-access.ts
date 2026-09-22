@@ -29,8 +29,9 @@
 // ─────────────────────────────────────────────────────────────────
 
 import type { PrismaClient } from "@prisma/client";
+import type { UserRole } from "@prisma/client";
 import { prisma } from "@/lib/db/prisma";
-import { requireAdmin, requireSuperAdmin } from "@/lib/permissions/guards";
+import { requireAdmin, requireSuperAdmin, type SessionUser } from "@/lib/permissions/guards";
 import { getEffectiveLocationId } from "@/lib/location/active-location";
 import { getRuntimeSession } from "@/modules/platform/runtime/runtime-session";
 import {
@@ -40,6 +41,10 @@ import {
 } from "@/modules/platform/runtime/runtime-database-router";
 import { resolveRuntimeFirstLocationId } from "@/modules/platform/runtime/effective-tenant-context";
 import { controlPlanePrisma } from "@/modules/platform/runtime/control-plane-prisma";
+import {
+  requireOperationalContext,
+  OperationalContextError,
+} from "@/modules/platform/runtime/require-operational-context";
 
 // ── Allowlist — Tarea 3 de este bloque: solo delivery externo ────
 // Ampliar en subfases futuras (GENERATE_JSON, VALIDATE_SCHEMA, SIGN,
@@ -49,17 +54,17 @@ export const RUNTIME_DTE_WRITE_ALLOWLIST = ["DELIVER_EXTERNAL"] as const;
 export type RuntimeDteWriteAction = (typeof RUNTIME_DTE_WRITE_ALLOWLIST)[number];
 
 export interface RuntimeDteWriteContext {
-  tenantId:   string;
+  tenantId: string;
   locationId: string;
-  client:     PrismaClient;
-  userId:     string;
+  client: PrismaClient;
+  userId: string;
   /** true si esta escritura corre contra la base de un cliente vía "Operar como cliente". */
   isRuntimeWrite: boolean;
   /** Metadata segura para mostrar en UI/auditoría — nunca credenciales. */
   runtimeInfo: {
-    organizationId:   string;
+    organizationId: string;
     organizationName: string;
-    profileLabel:     string;
+    profileLabel: string;
   } | null;
   /**
    * PlatformOrganization.id resuelto server-side — SIEMPRE la fuente de
@@ -90,11 +95,14 @@ export type RuntimeDteWriteAccessResult =
 const NOOP_DISPOSE = async () => {};
 
 export async function requireRuntimeDteWriteAccess(input: {
-  action:    RuntimeDteWriteAction;
+  action: RuntimeDteWriteAction;
   confirmed: boolean;
 }): Promise<RuntimeDteWriteAccessResult> {
   if (!RUNTIME_DTE_WRITE_ALLOWLIST.includes(input.action)) {
-    return { ok: false, error: `Acción DTE "${input.action}" no está permitida para escritura runtime.` };
+    return {
+      ok: false,
+      error: `Acción DTE "${input.action}" no está permitida para escritura runtime.`,
+    };
   }
 
   const runtime = await getRuntimeSession();
@@ -105,6 +113,50 @@ export async function requireRuntimeDteWriteAccess(input: {
     const tenantId = user.tenant_id;
     if (!tenantId) return { ok: false, error: "La sesión no tiene un tenant activo." };
 
+    // Una identidad RUNTIME_CLIENT también carece de Support Session,
+    // pero su Prisma efectivo vive en la base dedicada de la organización.
+    // Nunca debe caer al Prisma global de PLATFORM_NATIVE.
+    if (user.auth_scope === "RUNTIME_CLIENT") {
+      let handle;
+      try {
+        handle = await requireOperationalContext(user, { module: "fiscal.dte", write: true });
+      } catch (err) {
+        if (err instanceof OperationalContextError) {
+          return { ok: false, error: err.userMessage };
+        }
+        throw err;
+      }
+      const { context, dispose } = handle;
+
+      const locationId =
+        context.locationId ??
+        (await getEffectiveLocationId(
+          { ...context.effectiveUser, role: context.effectiveUser.role as UserRole } as SessionUser,
+          context.client,
+          context.tenantId
+        ));
+
+      if (!locationId) {
+        await dispose();
+        return { ok: false, error: "La sesión no tiene una location activa." };
+      }
+
+      return {
+        ok: true,
+        context: {
+          tenantId: context.tenantId,
+          locationId,
+          client: context.client,
+          userId: context.effectiveUser.id,
+          isRuntimeWrite: true,
+          runtimeInfo: null,
+          organizationId: context.organizationId,
+          allowLegacyEnvFallback: false,
+          dispose,
+        },
+      };
+    }
+
     const locationId = await getEffectiveLocationId(user);
     if (!locationId) return { ok: false, error: "La sesión no tiene una location activa." };
 
@@ -112,7 +164,7 @@ export async function requireRuntimeDteWriteAccess(input: {
     // organizationId del cliente. null es un caso legítimo (ERP standalone
     // sin PlatformOrganization dada de alta).
     const organization = await controlPlanePrisma.platformOrganization.findUnique({
-      where:  { tenant_id: tenantId },
+      where: { tenant_id: tenantId },
       select: { id: true },
     });
 
@@ -121,13 +173,13 @@ export async function requireRuntimeDteWriteAccess(input: {
       context: {
         tenantId,
         locationId,
-        client:         prisma,
-        userId:         user.id,
+        client: prisma,
+        userId: user.id,
         isRuntimeWrite: false,
-        runtimeInfo:    null,
+        runtimeInfo: null,
         organizationId: organization?.id ?? null,
         allowLegacyEnvFallback: true,
-        dispose:        NOOP_DISPOSE,
+        dispose: NOOP_DISPOSE,
       },
     };
   }
@@ -138,7 +190,8 @@ export async function requireRuntimeDteWriteAccess(input: {
   if (!input.confirmed) {
     return {
       ok: false,
-      error: "Esta acción escribe contra la base de un cliente en modo \"Operar como cliente\" y requiere confirmación explícita.",
+      error:
+        'Esta acción escribe contra la base de un cliente en modo "Operar como cliente" y requiere confirmación explícita.',
     };
   }
 
@@ -146,15 +199,20 @@ export async function requireRuntimeDteWriteAccess(input: {
   try {
     profile = await resolveRuntimeDatabaseProfileById(runtime.profileId);
   } catch (err) {
-    const message = err instanceof RuntimeDatabaseRouterError
-      ? err.message
-      : "No se pudo resolver el perfil runtime activo.";
+    const message =
+      err instanceof RuntimeDatabaseRouterError
+        ? err.message
+        : "No se pudo resolver el perfil runtime activo.";
     return { ok: false, error: message };
   }
 
   const { client, disconnect } = createRuntimePrismaClient(profile);
 
-  const locationId = await resolveRuntimeFirstLocationId({ tenantId: profile.tenantId, client, runtime });
+  const locationId = await resolveRuntimeFirstLocationId({
+    tenantId: profile.tenantId,
+    client,
+    runtime,
+  });
   if (!locationId) {
     await disconnect();
     return { ok: false, error: "El cliente runtime no tiene una location activa." };
@@ -163,15 +221,15 @@ export async function requireRuntimeDteWriteAccess(input: {
   return {
     ok: true,
     context: {
-      tenantId:       profile.tenantId,
+      tenantId: profile.tenantId,
       locationId,
       client,
-      userId:         user.id,
+      userId: user.id,
       isRuntimeWrite: true,
       runtimeInfo: {
-        organizationId:   profile.organizationId,
+        organizationId: profile.organizationId,
         organizationName: profile.organizationName,
-        profileLabel:     profile.label,
+        profileLabel: profile.label,
       },
       organizationId: profile.organizationId,
       allowLegacyEnvFallback: false,
@@ -186,21 +244,21 @@ export async function requireRuntimeDteWriteAccess(input: {
 
 export async function recordRuntimeDteWriteAudit(input: {
   organizationId: string;
-  triggeredBy:    string;
-  action:         RuntimeDteWriteAction;
-  dteDocumentId:  string;
-  ok:             boolean;
-  detail?:        string;
+  triggeredBy: string;
+  action: RuntimeDteWriteAction;
+  dteDocumentId: string;
+  ok: boolean;
+  detail?: string;
 }): Promise<void> {
   await controlPlanePrisma.platformDeploymentLog.create({
     data: {
       organization_id: input.organizationId,
-      action:          `DTE_RUNTIME_${input.action}`,
-      status:          input.ok ? "SUCCESS" : "FAILED",
-      triggered_by:    input.triggeredBy,
-      notes:           input.detail ?? null,
-      metadata:        { dteDocumentId: input.dteDocumentId },
-      ended_at:        new Date(),
+      action: `DTE_RUNTIME_${input.action}`,
+      status: input.ok ? "SUCCESS" : "FAILED",
+      triggered_by: input.triggeredBy,
+      notes: input.detail ?? null,
+      metadata: { dteDocumentId: input.dteDocumentId },
+      ended_at: new Date(),
     },
   });
 }

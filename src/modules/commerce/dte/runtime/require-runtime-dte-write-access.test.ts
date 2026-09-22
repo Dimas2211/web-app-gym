@@ -26,6 +26,7 @@ const {
   resolveRuntimeDatabaseProfileByIdMock,
   createRuntimePrismaClientMock,
   resolveRuntimeFirstLocationIdMock,
+  requireOperationalContextMock,
   platformOrganizationFindUniqueMock,
 } = vi.hoisted(() => ({
   requireAdminMock: vi.fn(),
@@ -35,6 +36,7 @@ const {
   resolveRuntimeDatabaseProfileByIdMock: vi.fn(),
   createRuntimePrismaClientMock: vi.fn(),
   resolveRuntimeFirstLocationIdMock: vi.fn(),
+  requireOperationalContextMock: vi.fn(),
   platformOrganizationFindUniqueMock: vi.fn(),
 }));
 
@@ -43,8 +45,12 @@ vi.mock("@/lib/permissions/guards", () => ({
   requireAdmin: requireAdminMock,
   requireSuperAdmin: requireSuperAdminMock,
 }));
-vi.mock("@/lib/location/active-location", () => ({ getEffectiveLocationId: getEffectiveLocationIdMock }));
-vi.mock("@/modules/platform/runtime/runtime-session", () => ({ getRuntimeSession: getRuntimeSessionMock }));
+vi.mock("@/lib/location/active-location", () => ({
+  getEffectiveLocationId: getEffectiveLocationIdMock,
+}));
+vi.mock("@/modules/platform/runtime/runtime-session", () => ({
+  getRuntimeSession: getRuntimeSessionMock,
+}));
 vi.mock("@/modules/platform/runtime/runtime-database-router", () => ({
   resolveRuntimeDatabaseProfileById: resolveRuntimeDatabaseProfileByIdMock,
   createRuntimePrismaClient: createRuntimePrismaClientMock,
@@ -53,6 +59,17 @@ vi.mock("@/modules/platform/runtime/runtime-database-router", () => ({
 vi.mock("@/modules/platform/runtime/effective-tenant-context", () => ({
   resolveRuntimeFirstLocationId: resolveRuntimeFirstLocationIdMock,
 }));
+vi.mock("@/modules/platform/runtime/require-operational-context", () => ({
+  requireOperationalContext: requireOperationalContextMock,
+  OperationalContextError: class OperationalContextError extends Error {
+    userMessage: string;
+
+    constructor(userMessage: string) {
+      super(userMessage);
+      this.userMessage = userMessage;
+    }
+  },
+}));
 vi.mock("@/modules/platform/runtime/control-plane-prisma", () => ({
   controlPlanePrisma: {
     platformOrganization: { findUnique: platformOrganizationFindUniqueMock },
@@ -60,7 +77,10 @@ vi.mock("@/modules/platform/runtime/control-plane-prisma", () => ({
   },
 }));
 
-import { requireRuntimeDteWriteAccess, RUNTIME_DTE_WRITE_ALLOWLIST } from "./require-runtime-dte-write-access";
+import {
+  requireRuntimeDteWriteAccess,
+  RUNTIME_DTE_WRITE_ALLOWLIST,
+} from "./require-runtime-dte-write-access";
 
 beforeEach(() => {
   requireAdminMock.mockReset();
@@ -70,11 +90,12 @@ beforeEach(() => {
   resolveRuntimeDatabaseProfileByIdMock.mockReset();
   createRuntimePrismaClientMock.mockReset();
   resolveRuntimeFirstLocationIdMock.mockReset();
+  requireOperationalContextMock.mockReset();
   platformOrganizationFindUniqueMock.mockReset();
 });
 
 describe("requireRuntimeDteWriteAccess — FASE VI-E7 (organizationId + allowLegacyEnvFallback)", () => {
-  it("allowlist sigue siendo exactamente [\"DELIVER_EXTERNAL\"] — no se amplió", () => {
+  it('allowlist sigue siendo exactamente ["DELIVER_EXTERNAL"] — no se amplió', () => {
     expect(RUNTIME_DTE_WRITE_ALLOWLIST).toEqual(["DELIVER_EXTERNAL"]);
   });
 
@@ -92,7 +113,10 @@ describe("requireRuntimeDteWriteAccess — FASE VI-E7 (organizationId + allowLeg
     getEffectiveLocationIdMock.mockResolvedValue("loc-1");
     platformOrganizationFindUniqueMock.mockResolvedValue({ id: "org-1" });
 
-    const result = await requireRuntimeDteWriteAccess({ action: "DELIVER_EXTERNAL", confirmed: false });
+    const result = await requireRuntimeDteWriteAccess({
+      action: "DELIVER_EXTERNAL",
+      confirmed: false,
+    });
 
     expect(result.ok).toBe(true);
     if (result.ok) {
@@ -102,7 +126,7 @@ describe("requireRuntimeDteWriteAccess — FASE VI-E7 (organizationId + allowLeg
       expect(result.context.client).toEqual({ __marker: "GLOBAL_PRISMA" });
     }
     expect(platformOrganizationFindUniqueMock).toHaveBeenCalledWith({
-      where:  { tenant_id: "tenant-1" },
+      where: { tenant_id: "tenant-1" },
       select: { id: true },
     });
   });
@@ -113,7 +137,10 @@ describe("requireRuntimeDteWriteAccess — FASE VI-E7 (organizationId + allowLeg
     getEffectiveLocationIdMock.mockResolvedValue("loc-1");
     platformOrganizationFindUniqueMock.mockResolvedValue(null);
 
-    const result = await requireRuntimeDteWriteAccess({ action: "DELIVER_EXTERNAL", confirmed: false });
+    const result = await requireRuntimeDteWriteAccess({
+      action: "DELIVER_EXTERNAL",
+      confirmed: false,
+    });
 
     expect(result.ok).toBe(true);
     if (result.ok) {
@@ -122,18 +149,79 @@ describe("requireRuntimeDteWriteAccess — FASE VI-E7 (organizationId + allowLeg
     }
   });
 
+  it("RUNTIME_CLIENT directo usa su DB dedicada y nunca permite fallback legado", async () => {
+    getRuntimeSessionMock.mockResolvedValue(null);
+    requireAdminMock.mockResolvedValue({
+      id: "runtime-user",
+      tenant_id: "tenant-runtime",
+      location_id: null,
+      role: "super_admin",
+      auth_scope: "RUNTIME_CLIENT",
+      organization_id: "org-runtime",
+    });
+
+    const runtimeClientMarker = { __marker: "DIRECT_RUNTIME_DB" };
+    const disposeMock = vi.fn().mockResolvedValue(undefined);
+    requireOperationalContextMock.mockResolvedValue({
+      context: {
+        tenantId: "tenant-runtime",
+        locationId: null,
+        client: runtimeClientMarker,
+        effectiveUser: {
+          id: "runtime-user",
+          tenant_id: "tenant-runtime",
+          location_id: null,
+          role: "super_admin",
+          auth_scope: "RUNTIME_CLIENT",
+          organization_id: "org-runtime",
+        },
+        organizationId: "org-runtime",
+      },
+      dispose: disposeMock,
+    });
+    getEffectiveLocationIdMock.mockResolvedValue("loc-runtime");
+
+    const result = await requireRuntimeDteWriteAccess({
+      action: "DELIVER_EXTERNAL",
+      confirmed: false,
+    });
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.context.tenantId).toBe("tenant-runtime");
+      expect(result.context.locationId).toBe("loc-runtime");
+      expect(result.context.client).toBe(runtimeClientMarker);
+      expect(result.context.isRuntimeWrite).toBe(true);
+      expect(result.context.runtimeInfo).toBeNull();
+      expect(result.context.organizationId).toBe("org-runtime");
+      expect(result.context.allowLegacyEnvFallback).toBe(false);
+      await result.context.dispose();
+      expect(disposeMock).toHaveBeenCalledOnce();
+    }
+    expect(platformOrganizationFindUniqueMock).not.toHaveBeenCalled();
+  });
+
   it("modo runtime: requiere confirmed:true, organizationId = profile.organizationId (nunca null), allowLegacyEnvFallback SIEMPRE false", async () => {
     getRuntimeSessionMock.mockResolvedValue({ profileId: "profile-1" });
     requireSuperAdminMock.mockResolvedValue({ id: "u-super", role: "super_admin" });
     resolveRuntimeDatabaseProfileByIdMock.mockResolvedValue({
-      tenantId: "tenant-runtime", organizationId: "org-runtime", organizationName: "Cliente Runtime", label: "PROD",
+      tenantId: "tenant-runtime",
+      organizationId: "org-runtime",
+      organizationName: "Cliente Runtime",
+      label: "PROD",
     });
     const runtimeClientMarker = { __marker: "RUNTIME_CLIENT_DB" };
     const disconnectMock = vi.fn().mockResolvedValue(undefined);
-    createRuntimePrismaClientMock.mockReturnValue({ client: runtimeClientMarker, disconnect: disconnectMock });
+    createRuntimePrismaClientMock.mockReturnValue({
+      client: runtimeClientMarker,
+      disconnect: disconnectMock,
+    });
     resolveRuntimeFirstLocationIdMock.mockResolvedValue("loc-runtime");
 
-    const result = await requireRuntimeDteWriteAccess({ action: "DELIVER_EXTERNAL", confirmed: true });
+    const result = await requireRuntimeDteWriteAccess({
+      action: "DELIVER_EXTERNAL",
+      confirmed: true,
+    });
 
     expect(result.ok).toBe(true);
     if (result.ok) {
@@ -151,7 +239,10 @@ describe("requireRuntimeDteWriteAccess — FASE VI-E7 (organizationId + allowLeg
     getRuntimeSessionMock.mockResolvedValue({ profileId: "profile-1" });
     requireSuperAdminMock.mockResolvedValue({ id: "u-super", role: "super_admin" });
 
-    const result = await requireRuntimeDteWriteAccess({ action: "DELIVER_EXTERNAL", confirmed: false });
+    const result = await requireRuntimeDteWriteAccess({
+      action: "DELIVER_EXTERNAL",
+      confirmed: false,
+    });
 
     expect(result.ok).toBe(false);
     expect(resolveRuntimeDatabaseProfileByIdMock).not.toHaveBeenCalled();

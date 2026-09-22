@@ -10,14 +10,14 @@
 // tenant_id y location_id se inyectan desde sesión — nunca del input.
 // ─────────────────────────────────────────────────────────────────
 
-import { requireAdmin }            from "@/lib/permissions/guards";
-import { getEffectiveLocationId }  from "@/lib/location/active-location";
+import { requireAdmin } from "@/lib/permissions/guards";
+import { getEffectiveLocationId } from "@/lib/location/active-location";
 import {
   resolveEffectiveTenantContext,
   resolveRuntimeFirstLocationId,
 } from "@/modules/platform/runtime/effective-tenant-context";
 import { getCashWorkspaceStateInputSchema } from "../schemas/cash.schemas";
-import { getCashWorkspaceState }   from "../services/cash-read.service";
+import { getCashWorkspaceState } from "../services/cash-read.service";
 import type { CashWorkspaceState } from "../types/cash.types";
 import type { GetCashWorkspaceStateInput } from "../schemas/cash.schemas";
 import {
@@ -27,11 +27,11 @@ import {
 } from "@/modules/platform/runtime/commercial-enforcement";
 
 export type GetCashWorkspaceStateResult =
-  | { ok: true;  data: CashWorkspaceState }
+  | { ok: true; data: CashWorkspaceState }
   | { ok: false; error: string };
 
 export async function getCashWorkspaceStateAction(
-  input: GetCashWorkspaceStateInput = {},
+  input: GetCashWorkspaceStateInput = {}
 ): Promise<GetCashWorkspaceStateResult> {
   const sessionUser = await requireAdmin();
 
@@ -41,9 +41,10 @@ export async function getCashWorkspaceStateAction(
   try {
     const location_id = context.runtime
       ? await resolveRuntimeFirstLocationId(context)
-      : await getEffectiveLocationId(sessionUser);
+      : (context.locationId ??
+        (await getEffectiveLocationId(sessionUser, context.client, context.tenantId)));
 
-    if (!tenant_id)   return { ok: false, error: "La sesión no tiene un tenant activo." };
+    if (!tenant_id) return { ok: false, error: "La sesión no tiene un tenant activo." };
     if (!location_id) return { ok: false, error: "La sesión no tiene una location activa." };
 
     try {
@@ -63,7 +64,7 @@ export async function getCashWorkspaceStateAction(
       tenant_id,
       location_id,
       parsed.data.selected_cash_register_id,
-      client,
+      client
     );
     return { ok: true, data };
   } catch {

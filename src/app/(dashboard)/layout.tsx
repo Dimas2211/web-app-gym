@@ -17,14 +17,10 @@ import { MODULE_GROUPS } from "@/lib/navigation/dashboard-nav";
 import { resolveEffectiveDashboardContext } from "@/modules/platform/runtime/resolve-effective-dashboard-context";
 
 const ALL_NAV_MODULE_CODES = MODULE_GROUPS.flatMap((g) =>
-  g.items.map((i) => i.moduleCode).filter((c): c is string => Boolean(c)),
+  g.items.map((i) => i.moduleCode).filter((c): c is string => Boolean(c))
 );
 
-export default async function DashboardLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
   const session = await auth();
   if (!session?.user) redirect("/login");
 
@@ -44,19 +40,16 @@ export default async function DashboardLayout({
   // tenant del perfil runtime — NUNCA contra user.tenant_id directo.
   const { context: dashCtx, dispose } = await resolveEffectiveDashboardContext(
     user as SessionUser,
-    ALL_NAV_MODULE_CODES,
+    ALL_NAV_MODULE_CODES
   );
 
   try {
     // ── Contexto de location para usuarios globales ───────────────
     // Solo se ejecuta si el usuario tiene scopeType "global" (super_admin)
-    // Y NO hay sesión runtime activa. Aún no existe persistencia segura de
-    // una "location runtime" separada de la cookie normal — mostrar el
-    // selector durante runtime arriesgaría resolver/mostrar sucursales del
-    // tenant REAL del super_admin mientras se opera otro cliente. Se
-    // prefiere ocultar el switcher (seguridad antes que funcionalidad; ver
-    // docs de esta fase) — el banner de runtime ya informa qué
-    // organización está activa.
+    // Y NO hay Support Session activa. Una identidad RUNTIME_CLIENT sí debe
+    // poder elegir su location operativa: `dashCtx.client` y
+    // `dashCtx.tenantId` apuntan a su propia base dedicada, por lo que tanto
+    // la lista como la cookie se validan contra el tenant efectivo.
     const caps = getCapabilities(user.role as string);
     const isGlobalUser = caps.isGlobal;
 
@@ -65,10 +58,14 @@ export default async function DashboardLayout({
       activeLocationId: string | null;
     } | null = null;
 
-    if (isGlobalUser && !dashCtx.isRuntime && user.tenant_id) {
+    if (isGlobalUser && !dashCtx.isRuntime && dashCtx.tenantId) {
       const [locations, activeLocationId] = await Promise.all([
-        getLocationOptions(user.tenant_id),
-        getEffectiveLocationId(user as SessionUser & { role: UserRole }),
+        getLocationOptions(dashCtx.tenantId, dashCtx.client),
+        getEffectiveLocationId(
+          user as SessionUser & { role: UserRole },
+          dashCtx.client,
+          dashCtx.tenantId
+        ),
       ]);
       locationSwitcherData = { locations, activeLocationId };
     }
@@ -80,22 +77,24 @@ export default async function DashboardLayout({
 
     return (
       <SidebarProvider>
-        <div className="h-screen flex flex-col bg-zinc-50">
+        <div className="flex h-screen flex-col bg-zinc-50">
           {/* Banner de sesión runtime "Operar como cliente" (PASO 6A) */}
           <RuntimeSessionBanner />
 
           {/* Top bar compartida */}
-          <header className="bg-zinc-900 text-white px-4 sm:px-6 h-14 flex items-center justify-between gap-4 sticky top-0 z-30 shrink-0">
+          <header className="sticky top-0 z-30 flex h-14 shrink-0 items-center justify-between gap-4 bg-zinc-900 px-4 text-white sm:px-6">
             {/* Logo + sidebar toggle + nav */}
-            <div className="flex items-center gap-2 min-w-0">
+            <div className="flex min-w-0 items-center gap-2">
               <SidebarToggle />
-              <span className="font-black text-base tracking-widest uppercase shrink-0">{brandLabel}</span>
+              <span className="shrink-0 text-base font-black tracking-widest uppercase">
+                {brandLabel}
+              </span>
               <NavBar role={user.role} />
             </div>
 
-            {/* Centro: LocationSwitcher para usuarios globales (solo modo normal) */}
+            {/* Centro: LocationSwitcher para usuarios globales fuera de Support Session */}
             {locationSwitcherData && (
-              <div className="flex-1 flex justify-center">
+              <div className="flex flex-1 justify-center">
                 <LocationSwitcher
                   locations={locationSwitcherData.locations}
                   activeLocationId={locationSwitcherData.activeLocationId}
@@ -104,12 +103,12 @@ export default async function DashboardLayout({
             )}
 
             {/* Usuario + logout */}
-            <div className="flex items-center gap-2 shrink-0">
-              <div className="hidden sm:flex items-center gap-2">
-                <div className="w-7 h-7 rounded-full bg-zinc-700 flex items-center justify-center text-xs font-bold shrink-0">
+            <div className="flex shrink-0 items-center gap-2">
+              <div className="hidden items-center gap-2 sm:flex">
+                <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-zinc-700 text-xs font-bold">
                   {initials}
                 </div>
-                <span className="text-xs text-zinc-400 max-w-[140px] truncate">{user.name}</span>
+                <span className="max-w-[140px] truncate text-xs text-zinc-400">{user.name}</span>
               </div>
 
               <form
@@ -120,7 +119,7 @@ export default async function DashboardLayout({
               >
                 <button
                   type="submit"
-                  className="text-xs text-zinc-400 hover:text-white transition-colors px-2.5 py-1.5 rounded hover:bg-zinc-800 ml-1"
+                  className="ml-1 rounded px-2.5 py-1.5 text-xs text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-white"
                 >
                   Salir
                 </button>
@@ -129,7 +128,7 @@ export default async function DashboardLayout({
           </header>
 
           {/* Cuerpo: sidebar + contenido */}
-          <div className="flex flex-1 min-h-0">
+          <div className="flex min-h-0 flex-1">
             <DashboardSidebar
               role={user.role}
               enabledModuleCodes={[...dashCtx.enabledModuleCodes]}
@@ -140,8 +139,8 @@ export default async function DashboardLayout({
                 auth_scope: isAuthScope(user.auth_scope) ? user.auth_scope : undefined,
               })}
             />
-            <main className="flex-1 min-h-0 overflow-y-auto px-4 sm:px-6 py-8">
-              <div className="w-full max-w-[1800px] mx-auto">{children}</div>
+            <main className="min-h-0 flex-1 overflow-y-auto px-4 py-8 sm:px-6">
+              <div className="mx-auto w-full max-w-[1800px]">{children}</div>
             </main>
           </div>
         </div>

@@ -39,7 +39,8 @@ export default async function SalesPage() {
 
     const location_id = context.runtime
       ? await resolveRuntimeFirstLocationId(context)
-      : await getEffectiveLocationId(sessionUser);
+      : (context.locationId ??
+        (await getEffectiveLocationId(sessionUser, context.client, context.tenantId)));
 
     if (!tenant_id || !location_id) {
       return (
@@ -50,14 +51,17 @@ export default async function SalesPage() {
     }
 
     const [{ items, total }, cashRegisters] = await Promise.all([
-      listSales({
-        tenant_id,
-        location_id,
-        sort_field:     "sale_date",
-        sort_direction: "desc",
-        page:      1,
-        page_size: 100,
-      }, client),
+      listSales(
+        {
+          tenant_id,
+          location_id,
+          sort_field: "sale_date",
+          sort_direction: "desc",
+          page: 1,
+          page_size: 100,
+        },
+        client
+      ),
       listCashRegisters(tenant_id, location_id, false, client).catch(() => []),
     ]);
 

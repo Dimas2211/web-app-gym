@@ -11,53 +11,62 @@
 // tenant_id y location_id se inyectan desde sesión — nunca del input.
 // ─────────────────────────────────────────────────────────────────
 
-import { requireAdmin }           from "@/lib/permissions/guards";
+import { requireAdmin, type SessionUser } from "@/lib/permissions/guards";
+import type { UserRole } from "@prisma/client";
 import { getEffectiveLocationId } from "@/lib/location/active-location";
 import { getOpenCashSessionInputSchema } from "../schemas/cash.schemas";
-import { getOpenSessionForRegister }     from "../services/cash-read.service";
-import type { CashOpenSessionInfo }      from "../types/cash.types";
-import type { GetOpenCashSessionInput }  from "../schemas/cash.schemas";
+import { getOpenSessionForRegister } from "../services/cash-read.service";
+import type { CashOpenSessionInfo } from "../types/cash.types";
+import type { GetOpenCashSessionInput } from "../schemas/cash.schemas";
 import {
-  resolveCommercialEnforcementContext,
-  assertOrganizationModule,
-  CommercialEnforcementError,
-} from "@/modules/platform/runtime/commercial-enforcement";
+  requireOperationalContext,
+  OperationalContextError,
+} from "@/modules/platform/runtime/require-operational-context";
 
 export type GetOpenCashSessionResult =
-  | { ok: true;  data: CashOpenSessionInfo | null }
+  | { ok: true; data: CashOpenSessionInfo | null }
   | { ok: false; error: string };
 
 export async function getOpenCashSessionAction(
-  input: GetOpenCashSessionInput,
+  input: GetOpenCashSessionInput
 ): Promise<GetOpenCashSessionResult> {
   const sessionUser = await requireAdmin();
-  const tenant_id   = sessionUser.tenant_id;
-  const location_id = await getEffectiveLocationId(sessionUser);
 
-  if (!tenant_id)   return { ok: false, error: "La sesión no tiene un tenant activo." };
-  if (!location_id) return { ok: false, error: "La sesión no tiene una location activa." };
-
+  let handle;
   try {
-    const commercialCtx = await resolveCommercialEnforcementContext(tenant_id);
-    assertOrganizationModule(commercialCtx, "commerce.cash");
+    handle = await requireOperationalContext(sessionUser, { module: "commerce.cash" });
   } catch (err) {
-    if (err instanceof CommercialEnforcementError) return { ok: false, error: err.userMessage };
+    if (err instanceof OperationalContextError) return { ok: false, error: err.userMessage };
     throw err;
   }
-
-  const parsed = getOpenCashSessionInputSchema.safeParse(input);
-  if (!parsed.success) {
-    return { ok: false, error: "cash_register_id no es un UUID válido." };
-  }
+  const { context, dispose } = handle;
 
   try {
+    const location_id =
+      context.locationId ??
+      (await getEffectiveLocationId(
+        { ...context.effectiveUser, role: context.effectiveUser.role as UserRole } as SessionUser,
+        context.client,
+        context.tenantId
+      ));
+
+    if (!location_id) return { ok: false, error: "La sesión no tiene una location activa." };
+
+    const parsed = getOpenCashSessionInputSchema.safeParse(input);
+    if (!parsed.success) {
+      return { ok: false, error: "cash_register_id no es un UUID válido." };
+    }
+
     const data = await getOpenSessionForRegister(
       parsed.data.cash_register_id,
-      tenant_id,
+      context.tenantId,
       location_id,
+      context.client
     );
     return { ok: true, data };
   } catch {
     return { ok: false, error: "No se pudo cargar la sesión abierta." };
+  } finally {
+    await dispose();
   }
 }

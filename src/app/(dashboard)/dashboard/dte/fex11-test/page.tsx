@@ -14,13 +14,17 @@
 // o si NODE_ENV === "production".
 // ─────────────────────────────────────────────────────────────────
 
-import { requireAdmin }           from "@/lib/permissions/guards";
+import { requireAdmin } from "@/lib/permissions/guards";
 import { getEffectiveLocationId } from "@/lib/location/active-location";
-import { isFex11TestEnabled }     from "@/modules/commerce/dte/utils/fex11-feature-guard";
-import { getDteMhConfig }         from "@/modules/commerce/dte/config/dte-mh.config";
-import { getDteSignerConfig }     from "@/modules/commerce/dte/config/dte-signer.config";
+import { isFex11TestEnabled } from "@/modules/commerce/dte/utils/fex11-feature-guard";
+import { getDteMhConfig } from "@/modules/commerce/dte/config/dte-mh.config";
+import { getDteSignerConfig } from "@/modules/commerce/dte/config/dte-signer.config";
 import { getExternalDteMariaDbConfig } from "@/modules/commerce/dte/config/external-dte-mariadb.config";
 import { Fex11TestConsole } from "@/modules/commerce/dte/fex11-test/components/fex11-test-console";
+import {
+  resolveEffectiveTenantContext,
+  resolveRuntimeFirstLocationId,
+} from "@/modules/platform/runtime/effective-tenant-context";
 
 export const metadata = {
   title: "Consola de prueba FEX 11",
@@ -28,42 +32,54 @@ export const metadata = {
 
 export default async function Fex11TestConsolePage() {
   const sessionUser = await requireAdmin();
-  const tenantId    = sessionUser.tenant_id;
-  const locationId  = await getEffectiveLocationId(sessionUser);
+  const { context, dispose } = await resolveEffectiveTenantContext(sessionUser);
+  const tenantId = context.tenantId;
 
-  const flagEnabled   = isFex11TestEnabled();
-  const nodeEnv       = process.env.NODE_ENV ?? "unknown";
-  const environmentOk = nodeEnv !== "production";
-  const consoleEnabled = flagEnabled && environmentOk;
+  try {
+    const locationId = context.runtime
+      ? await resolveRuntimeFirstLocationId(context)
+      : (context.locationId ??
+        (await getEffectiveLocationId(sessionUser, context.client, context.tenantId)));
 
-  // Estado de configuración sin exponer secretos — solo presencia.
-  const mhConfig     = getDteMhConfig();
-  const signerConfig = getDteSignerConfig();
-  const mariaDbConfig = getExternalDteMariaDbConfig();
+    const flagEnabled = isFex11TestEnabled();
+    const nodeEnv = process.env.NODE_ENV ?? "unknown";
+    const environmentOk = nodeEnv !== "production";
+    const consoleEnabled = flagEnabled && environmentOk;
 
-  const signerConfigured = !!signerConfig.signerUrl && !!process.env["DTE_SIGNER_NIT"] && !!process.env["DTE_SIGNER_PASSWORD"];
-  const mhConfigured     = !!mhConfig.user && !!mhConfig.password;
-  const mariaDbConfigured =
-    mariaDbConfig.enabled &&
-    !!mariaDbConfig.host &&
-    !!mariaDbConfig.user &&
-    !!mariaDbConfig.password &&
-    !!mariaDbConfig.database &&
-    !!mariaDbConfig.table;
+    // Estado de configuración sin exponer secretos — solo presencia.
+    const mhConfig = getDteMhConfig();
+    const signerConfig = getDteSignerConfig();
+    const mariaDbConfig = getExternalDteMariaDbConfig();
 
-  return (
-    <div className="mx-auto max-w-4xl px-4 py-8">
-      <Fex11TestConsole
-        consoleEnabled={consoleEnabled}
-        flagEnabled={flagEnabled}
-        nodeEnv={nodeEnv}
-        environmentOk={environmentOk}
-        hasTenant={!!tenantId}
-        hasLocation={!!locationId}
-        signerConfigured={signerConfigured}
-        mhConfigured={mhConfigured}
-        mariaDbConfigured={mariaDbConfigured}
-      />
-    </div>
-  );
+    const signerConfigured =
+      !!signerConfig.signerUrl &&
+      !!process.env["DTE_SIGNER_NIT"] &&
+      !!process.env["DTE_SIGNER_PASSWORD"];
+    const mhConfigured = !!mhConfig.user && !!mhConfig.password;
+    const mariaDbConfigured =
+      mariaDbConfig.enabled &&
+      !!mariaDbConfig.host &&
+      !!mariaDbConfig.user &&
+      !!mariaDbConfig.password &&
+      !!mariaDbConfig.database &&
+      !!mariaDbConfig.table;
+
+    return (
+      <div className="mx-auto max-w-4xl px-4 py-8">
+        <Fex11TestConsole
+          consoleEnabled={consoleEnabled}
+          flagEnabled={flagEnabled}
+          nodeEnv={nodeEnv}
+          environmentOk={environmentOk}
+          hasTenant={!!tenantId}
+          hasLocation={!!locationId}
+          signerConfigured={signerConfigured}
+          mhConfigured={mhConfigured}
+          mariaDbConfigured={mariaDbConfigured}
+        />
+      </div>
+    );
+  } finally {
+    await dispose();
+  }
 }

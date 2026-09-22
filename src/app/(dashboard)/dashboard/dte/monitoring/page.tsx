@@ -20,7 +20,10 @@ import {
   resolveRuntimeFirstLocationId,
 } from "@/modules/platform/runtime/effective-tenant-context";
 import { requireOrganizationModule } from "@/modules/platform/runtime/commercial-enforcement";
-import { getDteMonitoringPanelData, isValidPeriodKey } from "@/modules/commerce/dte/queries/get-dte-monitoring-panel-data";
+import {
+  getDteMonitoringPanelData,
+  isValidPeriodKey,
+} from "@/modules/commerce/dte/queries/get-dte-monitoring-panel-data";
 import { DteMonitoringPanel } from "@/modules/commerce/dte/monitoring/components/dte-monitoring-panel";
 
 export const metadata = {
@@ -41,7 +44,7 @@ export default async function DteMonitoringPage({ searchParams }: PageProps) {
     if (!tenantId) {
       return (
         <div className="p-6">
-          <div className="bg-amber-50 border border-amber-200 text-amber-700 text-sm rounded-lg px-4 py-3">
+          <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
             La sesión no tiene un tenant activo.
           </div>
         </div>
@@ -52,12 +55,13 @@ export default async function DteMonitoringPage({ searchParams }: PageProps) {
 
     const locationId = context.runtime
       ? await resolveRuntimeFirstLocationId(context)
-      : await getEffectiveLocationId(sessionUser);
+      : (context.locationId ??
+        (await getEffectiveLocationId(sessionUser, context.client, context.tenantId)));
 
     if (!locationId) {
       return (
         <div className="p-6">
-          <div className="bg-amber-50 border border-amber-200 text-amber-700 text-sm rounded-lg px-4 py-3">
+          <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
             {context.runtime
               ? "El tenant runtime no tiene ninguna sucursal activa."
               : "Selecciona una sucursal activa para ver el monitoreo fiscal DTE."}
@@ -79,11 +83,12 @@ export default async function DteMonitoringPage({ searchParams }: PageProps) {
     });
 
     return (
-      <div className="p-6 space-y-5 max-w-6xl mx-auto">
+      <div className="mx-auto max-w-6xl space-y-5 p-6">
         <div>
           <h1 className="text-lg font-bold text-zinc-800">Monitoreo Fiscal DTE</h1>
-          <p className="text-sm text-zinc-500 mt-1">
-            Consumo mensual, reservas pendientes de reconciliación e historial de metering — solo lectura.
+          <p className="mt-1 text-sm text-zinc-500">
+            Consumo mensual, reservas pendientes de reconciliación e historial de metering — solo
+            lectura.
           </p>
         </div>
 
