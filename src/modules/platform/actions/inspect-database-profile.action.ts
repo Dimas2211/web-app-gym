@@ -143,15 +143,32 @@ export async function inspectDatabaseProfileAction(
   let recentDte:   DatabaseInspectionDteDocument[]       = [];
   let dteConfig:   DatabaseInspectionDteConfig | null    = null;
 
+  // Shared Runtime: si la organización ya tiene tenant_id vinculado, TODO
+  // dato ORGANIZATION_SCOPED (locations, users, products, customers,
+  // suppliers, sales, DTE, cash, categorías, tax rates) se filtra por ese
+  // tenant. Sin binding (tenantIdUsed = null) se preserva el comportamiento
+  // pre-binding: primer Gym físico, sin filtro (única DB dedicada esperada).
+  // Catálogos GLOBAL_REFERENCE (UnitOfMeasure, IdentificationType,
+  // EconomicActivity, Municipality, DteCatalogItem) nunca se filtran por
+  // tenant — son globales a la base física.
+  const tenantId = tenantIdUsed;
+
   try {
     await withRuntimePrismaForInspection(profileId, async (client) => {
 
       // ── Bloque 1: Core — tenant (gym) y branches ─────────────────
+      // tenant / summary.tenants = PHYSICAL_DB (cantidad física de gyms en
+      // la base); el resto de este bloque es ORGANIZATION_SCOPED.
       try {
-        const gym = await client.gym.findFirst({
-          select: { id: true, name: true, slug: true, status: true },
-          orderBy: { created_at: "asc" },
-        });
+        const gym = tenantId
+          ? await client.gym.findUnique({
+              where:  { id: tenantId },
+              select: { id: true, name: true, slug: true, status: true },
+            })
+          : await client.gym.findFirst({
+              select: { id: true, name: true, slug: true, status: true },
+              orderBy: { created_at: "asc" },
+            });
         if (gym) {
           tenant = {
             id:     gym.id,
@@ -166,7 +183,9 @@ export async function inspectDatabaseProfileAction(
       }
 
       try {
+        const locationWhere = tenantId ? { gym_id: tenantId } : {};
         const rawLocations = await client.branch.findMany({
+          where:   locationWhere,
           select:  { id: true, name: true, status: true },
           orderBy: { name: "asc" },
           take: 20,
@@ -176,17 +195,19 @@ export async function inspectDatabaseProfileAction(
           name:   b.name,
           status: b.status ?? null,
         }));
-        summary.locations = await client.branch.count();
+        summary.locations = await client.branch.count({ where: locationWhere });
       } catch (err) {
         warnings.push(`Core/locations: ${sanitizeDatabaseError(err)}`);
       }
 
       // ── Bloque 2: Usuarios admin ──────────────────────────────────
       try {
+        const userWhere = {
+          role: { in: ["super_admin", "branch_admin"] as never[] },
+          ...(tenantId ? { gym_id: tenantId } : {}),
+        };
         const rawUsers = await client.user.findMany({
-          where: {
-            role: { in: ["super_admin", "branch_admin"] as never[] },
-          },
+          where: userWhere,
           select: {
             id:         true,
             first_name: true,
@@ -203,34 +224,44 @@ export async function inspectDatabaseProfileAction(
           email: u.email,
           role:  String(u.role),
         }));
-        summary.users = await client.user.count();
+        summary.users = await client.user.count({
+          where: tenantId ? { gym_id: tenantId } : {},
+        });
       } catch (err) {
         warnings.push(`Core/users: ${sanitizeDatabaseError(err)}`);
       }
 
       // ── Bloque 3: Commerce — conteos ─────────────────────────────
       try {
-        summary.products  = await client.product.count();
+        summary.products = await client.product.count({
+          where: tenantId ? { tenant_id: tenantId } : {},
+        });
       } catch (err) {
         warnings.push(`Commerce/products: ${sanitizeDatabaseError(err)}`);
       }
 
       try {
-        summary.customers = await client.customer.count();
+        summary.customers = await client.customer.count({
+          where: tenantId ? { tenant_id: tenantId } : {},
+        });
       } catch (err) {
         warnings.push(`Commerce/customers: ${sanitizeDatabaseError(err)}`);
       }
 
       try {
-        summary.suppliers = await client.supplier.count();
+        summary.suppliers = await client.supplier.count({
+          where: tenantId ? { tenant_id: tenantId } : {},
+        });
       } catch (err) {
         warnings.push(`Commerce/suppliers: ${sanitizeDatabaseError(err)}`);
       }
 
       // ── Bloque 4: Ventas recientes ────────────────────────────────
       try {
-        summary.sales = await client.sale.count();
+        const saleWhere = tenantId ? { tenant_id: tenantId } : {};
+        summary.sales = await client.sale.count({ where: saleWhere });
         const rawSales = await client.sale.findMany({
+          where:  saleWhere,
           select: {
             id:           true,
             sale_code:    true,
@@ -254,8 +285,10 @@ export async function inspectDatabaseProfileAction(
 
       // ── Bloque 5: DTE ─────────────────────────────────────────────
       try {
-        summary.dteDocuments = await client.dteOutgoingDocument.count();
+        const dteWhere = tenantId ? { tenant_id: tenantId } : {};
+        summary.dteDocuments = await client.dteOutgoingDocument.count({ where: dteWhere });
         const rawDte = await client.dteOutgoingDocument.findMany({
+          where:  dteWhere,
           select: {
             id:            true,
             dte_type_code: true,
@@ -277,7 +310,10 @@ export async function inspectDatabaseProfileAction(
 
       try {
         const issuer = await client.dteIssuerConfig.findFirst({
-          where:  { is_active: true },
+          where: {
+            is_active: true,
+            ...(tenantId ? { tenant_id: tenantId } : {}),
+          },
           select: {
             nit:         true,
             name:        true,
@@ -300,24 +336,31 @@ export async function inspectDatabaseProfileAction(
 
       // ── Bloque 6: Cash ────────────────────────────────────────────
       try {
-        summary.cashRegisters = await client.cashRegister.count();
+        summary.cashRegisters = await client.cashRegister.count({
+          where: tenantId ? { tenant_id: tenantId } : {},
+        });
       } catch (err) {
         warnings.push(`Cash/registers: ${sanitizeDatabaseError(err)}`);
       }
 
       // ── Bloque 7: Catálogos ───────────────────────────────────────
+      // GLOBAL_REFERENCE — nunca se filtran por tenant.
       try {
         catalogSummary.unitsOfMeasure = await client.unitOfMeasure.count();
       } catch (err) {
         warnings.push(`Catalogs/UOM: ${sanitizeDatabaseError(err)}`);
       }
 
+      // ORGANIZATION_SCOPED
       try {
-        catalogSummary.productCategories = await client.productCategory.count();
+        catalogSummary.productCategories = await client.productCategory.count({
+          where: tenantId ? { tenant_id: tenantId } : {},
+        });
       } catch (err) {
         warnings.push(`Catalogs/categories: ${sanitizeDatabaseError(err)}`);
       }
 
+      // GLOBAL_REFERENCE — nunca se filtran por tenant.
       try {
         catalogSummary.identificationTypes = await client.identificationType.count();
       } catch (err) {
@@ -342,8 +385,11 @@ export async function inspectDatabaseProfileAction(
         warnings.push(`Catalogs/dte-catalog: ${sanitizeDatabaseError(err)}`);
       }
 
+      // ORGANIZATION_SCOPED
       try {
-        catalogSummary.taxRates = await client.taxRate.count();
+        catalogSummary.taxRates = await client.taxRate.count({
+          where: tenantId ? { tenant_id: tenantId } : {},
+        });
       } catch (err) {
         warnings.push(`Catalogs/tax-rates: ${sanitizeDatabaseError(err)}`);
       }

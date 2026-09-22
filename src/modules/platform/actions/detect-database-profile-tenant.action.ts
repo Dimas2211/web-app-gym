@@ -120,12 +120,23 @@ export async function detectDatabaseProfileTenantAction(
       status = "MULTIPLE_TENANTS_DETECTED";
     }
 
-    if (
-      base.currentOrganizationTenantId &&
-      recommendedTenantId &&
-      base.currentOrganizationTenantId === recommendedTenantId
-    ) {
-      status = "ALREADY_BOUND";
+    // Shared DB: si la organización ya tiene tenant_id vinculado, ese
+    // binding manda sobre la heurística anterior — incluso si la base
+    // física contiene múltiples tenants (Shared Runtime).
+    const boundTenantId = base.currentOrganizationTenantId;
+    if (boundTenantId) {
+      const boundTenantExists = detectedTenants.some((t) => t.id === boundTenantId);
+      if (boundTenantExists) {
+        status               = "ALREADY_BOUND";
+        recommendedTenantId  = boundTenantId;
+      } else {
+        // Fail closed: el tenant vinculado no existe en esta DB física.
+        // Nunca seleccionar automáticamente otro tenant en su lugar.
+        recommendedTenantId = null;
+        warnings.push(
+          `El tenant vinculado a esta organización (${boundTenantId}) no existe en esta base física. Revisión manual requerida — no se recomienda ningún tenant automáticamente.`,
+        );
+      }
     }
 
     return {
