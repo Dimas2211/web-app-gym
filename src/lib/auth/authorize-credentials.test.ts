@@ -351,6 +351,43 @@ describe("authorizeCredentials — rama RUNTIME_CLIENT", () => {
     );
   });
 
+  it("17. runtime hostname + usuario que solo existe como Platform User global (no en la runtime DB) → null (RUNTIME_USER_NOT_FOUND, nunca fallback al Prisma global)", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("PLATFORM_HOSTS", "getzolvi.com");
+    vi.stubEnv("RUNTIME_HOST_AUTH_ENABLED", "true");
+    resolveOrganizationByHostnameMock.mockResolvedValue({
+      id: "org-trustme",
+      name: "TrustMe",
+      tenant_id: "tenant-trustme",
+      status: "ACTIVE",
+    });
+    // El admin de plataforma existe en prisma global, pero authenticateRuntimeHostUser
+    // nunca consulta ese cliente — solo la runtime DB de la organización resuelta.
+    authenticateRuntimeUserMock.mockRejectedValue(new RuntimeAuthError("RUNTIME_USER_NOT_FOUND"));
+
+    const result = await authorizeCredentials(
+      { email: "admin@platform.test", password: PASSWORD },
+      fakeRequest("trustme.getzolvi.com"),
+    );
+
+    expect(result).toBeNull();
+    expect(prismaUserFindUniqueMock).not.toHaveBeenCalled();
+  });
+
+  it("18. platform hostname + intento de enviar organization_id/host de otro cliente → ignorado, sigue autenticando contra Prisma global (rama PLATFORM no consulta resolveOrganizationByHostname)", async () => {
+    vi.stubEnv("NODE_ENV", "test");
+    prismaUserFindUniqueMock.mockResolvedValue(PLATFORM_USER_ROW());
+
+    const result = await authorizeCredentials(
+      { email: "admin@platform.test", password: PASSWORD },
+      fakeRequest("localhost:3000"),
+    );
+
+    expect(result).toMatchObject({ auth_scope: "PLATFORM" });
+    expect(resolveOrganizationByHostnameMock).not.toHaveBeenCalled();
+    expect(authenticateRuntimeUserMock).not.toHaveBeenCalled();
+  });
+
   it("hostname no resuelto (sin Host) con runtime habilitado → null", async () => {
     vi.stubEnv("NODE_ENV", "production");
     vi.stubEnv("PLATFORM_HOSTS", "getzolvi.com");

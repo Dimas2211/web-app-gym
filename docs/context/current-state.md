@@ -1061,6 +1061,32 @@ Certificación de lo implementado en VI-E1..E7 (no re-audit desde cero). Ver
   cambios de schema/migraciones adicionales en E8 (el cambio de schema fue
   en E7).
 
+## Platform — FASE VI-F: Real Client Login (Dedicated Runtime) — Code-Ready (cerrada)
+
+Auditoría + cierre de gaps puntuales, no construcción desde cero. Ver
+`docs/modules/platform-phase-6f-real-client-login.md`. Resumen:
+
+- El pipeline `hostname → Organization → DatabaseProfile → runtime Prisma
+  client → runtime user auth (bcrypt) → tenant/location/rol LIVE` ya estaba
+  construido, testeado y fail-closed en su totalidad desde VI-B/VI-C/VI-D.
+  VI-F no encontró gaps estructurales.
+- Único cambio de código: 2 tests nuevos en `authorize-credentials.test.ts`
+  que certifican que un Platform User global no puede autenticar vía
+  hostname de cliente (nunca consulta Prisma global) y que las ramas
+  PLATFORM/RUNTIME_CLIENT son mutuamente excluyentes.
+- `PlatformOrganization.domain` ya es el mecanismo hostname→organización —
+  sin schema nuevo. Falta solo el dato real de TrustMe (Control Plane,
+  fuera de esta fase).
+- `app.getzolvi.com` se resuelve vía `PLATFORM_HOSTS` (config, no código).
+- `RUNTIME_HOST_AUTH_ENABLED` sigue en `false` en todo ambiente — cambio de
+  env pendiente de decisión explícita de cutover, no ejecutado aquí.
+- Validación: 882/882 tests PASS (880 previos + 2), `tsc --noEmit` limpio,
+  `npm run lint` sin errores nuevos, `npm run build` PASS, `git diff
+  --check` limpio. `SCHEMA_CHANGE = NO`, `MIGRATION_REQUIRED = NO`.
+- `FASE_VI_CODE_COMPLETE = YES`. `READY_FOR_TRUSTME_CUTOVER = YES` (código
+  listo; faltan únicamente operaciones explícitas de dato/env/dominio/
+  deploy — ver checklist en el doc de módulo).
+
 ## Próximos pasos
 - Platform Bloque fiscal: contador mensual de `fiscal.dte.monthly_issued` **implementado y certificado** (FASE IV-A a IV-D) — pendiente aún: decisión de política comercial para notas de crédito/débito frente al cupo DTE, activación real de límites finitos para alguna organización.
 - Base técnica de SignerProfile por tenant/emisor/ambiente implementada (resolveDteSignerConfigForIssuer, sin tabla nueva — reutiliza DteCredential). sign-dte-document.service.ts, transmit-dte-document.service.ts y el runner FSE14 TEST ya son issuer-aware con fallback a variables globales intacto. Pendiente: nivel intermedio tenant/organización, escritura runtime-aware de DteCredential para clientes runtime, registrar credenciales reales de TrustMe. Ver docs/modules/dte-signer-multitenant-block.md.
