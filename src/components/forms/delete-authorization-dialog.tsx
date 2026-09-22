@@ -1,7 +1,7 @@
 "use client";
 
 import { useActionState, useState } from "react";
-import { canDeleteDirectly } from "@/lib/permissions/guards";
+import { getCapabilities } from "@/core/permissions/role-capabilities";
 import type { UserRole } from "@prisma/client";
 import type { DeleteAuthActionState } from "@/lib/permissions/delete-authorization";
 
@@ -40,7 +40,7 @@ export function DeleteAuthorizationDialog({
   const [confirmText, setConfirmText] = useState("");
   const [state, formAction, isPending] = useActionState(action, undefined);
 
-  const isAdmin = canDeleteDirectly(userRole);
+  const isAdmin = getCapabilities(userRole).canManageStaff;
 
   function handleOpen() {
     setOpen(true);

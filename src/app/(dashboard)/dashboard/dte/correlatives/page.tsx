@@ -18,7 +18,7 @@
 // Solo super_admin — mismo nivel de acceso que el resto de F3-C24.
 // ─────────────────────────────────────────────────────────────────
 
-import { requireSuperAdmin } from "@/lib/permissions/guards";
+import { requireGlobalAdmin } from "@/lib/permissions/guards";
 import { getEffectiveLocationId } from "@/lib/location/active-location";
 import { getLocationById } from "@/core/modules/locations/queries";
 import {
@@ -34,7 +34,7 @@ export const metadata = {
 };
 
 export default async function DteCorrelativesPage() {
-  const sessionUser = await requireSuperAdmin();
+  const sessionUser = await requireGlobalAdmin();
 
   const { context, dispose } = await resolveEffectiveTenantContext(sessionUser);
   const { tenantId, client } = context;

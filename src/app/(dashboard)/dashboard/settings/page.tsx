@@ -1,10 +1,10 @@
 import Link from "next/link";
-import { requireSuperAdmin } from "@/lib/permissions/guards";
+import { requireGlobalAdmin } from "@/lib/permissions/guards";
 import { getGym, getSports, getGoals } from "@/modules/settings/queries";
 import { resolveEffectiveDashboardContext } from "@/modules/platform/runtime/resolve-effective-dashboard-context";
 
 export default async function SettingsPage() {
-  const user = await requireSuperAdmin();
+  const user = await requireGlobalAdmin();
 
   // PASO 6F: getGym es tenant-scoped (nombre/contacto del gimnasio del
   // tenant) Y GYM-only (contenido funcional, no solo dato). getSports/

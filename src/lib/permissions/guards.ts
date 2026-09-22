@@ -66,6 +66,16 @@ export async function requireAdmin(): Promise<SessionUser> {
 }
 
 /**
+ * Requiere rol global operativo dentro del tenant, independientemente
+ * de si la sesión es PLATFORM o RUNTIME_CLIENT.
+ * No concede acceso a Platform Admin.
+ */
+export async function requireGlobalAdmin(): Promise<SessionUser> {
+  const user = await getSessionOrRedirect();
+  if (!getCapabilities(user.role).isGlobal) redirect("/dashboard");
+  return user;
+}
+/**
  * Requiere Platform Admin: auth_scope === "PLATFORM" Y rol con isGlobal.
  *
  * FASE VI-B — CAMBIO CRÍTICO: antes de esta fase, esta función solo
