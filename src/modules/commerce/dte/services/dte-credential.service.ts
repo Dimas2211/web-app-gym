@@ -147,14 +147,21 @@ export type UpsertDteCredentialResult =
   | { ok: true }
   | { ok: false; error: string };
 
+// SHARED-PILOT-1B — el lookup del issuer YA no puede resolver por solo su
+// UUID: en runtime compartido (misma DB física, mismo PrismaClient para
+// varios tenants) findUnique({ id }) alcanzaría un issuer ajeno. tenant_id
+// + location_id son ahora obligatorios y forman parte del ownership check
+// antes de tocar cualquier DteCredential — ver docs de la microfase.
 export async function upsertDteCredential(
   issuer_config_id: string,
+  tenant_id:        string,
+  location_id:      string,
   user_id:          string,
   input:            UpsertDteCredentialInput,
   db:               PrismaClient = prisma,
 ): Promise<UpsertDteCredentialResult> {
-  const issuer = await db.dteIssuerConfig.findUnique({
-    where:  { id: issuer_config_id },
+  const issuer = await db.dteIssuerConfig.findFirst({
+    where:  { id: issuer_config_id, tenant_id, location_id },
     select: { id: true },
   });
   if (!issuer) {

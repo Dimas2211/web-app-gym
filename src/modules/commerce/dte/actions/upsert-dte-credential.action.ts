@@ -67,14 +67,21 @@ export async function upsertDteCredentialAction(
       return { error: "La configuración DTE indicada no pertenece a esta sucursal." };
     }
 
-    const result = await upsertDteCredential(issuer.id, context.effectiveUser.id, {
-      apiUser:                  parsed.data.apiUser,
-      apiPassword:               parsed.data.apiPassword,
-      signerUrl:                 parsed.data.signerUrl,
-      signerNit:                 parsed.data.signerNit,
-      signerPrivateKeyPassword:  parsed.data.signerPrivateKeyPassword,
-      signerApiKey:              parsed.data.signerApiKey,
-    }, context.client);
+    const result = await upsertDteCredential(
+      issuer.id,
+      context.tenantId,
+      context.locationId,
+      context.effectiveUser.id,
+      {
+        apiUser:                  parsed.data.apiUser,
+        apiPassword:               parsed.data.apiPassword,
+        signerUrl:                 parsed.data.signerUrl,
+        signerNit:                 parsed.data.signerNit,
+        signerPrivateKeyPassword:  parsed.data.signerPrivateKeyPassword,
+        signerApiKey:              parsed.data.signerApiKey,
+      },
+      context.client,
+    );
 
     if (!result.ok) {
       return { error: result.error };

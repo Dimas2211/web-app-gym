@@ -119,6 +119,8 @@ describe("upsertDteCredentialAction — FASE VI-E2B", () => {
     expect(result).toMatchObject({ success: true });
     expect(upsertDteCredentialSpy).toHaveBeenCalledWith(
       "issuer-1",
+      "tenant-1",
+      "loc-1",
       "u1",
       expect.objectContaining({ apiUser: "mh-user" }),
       runtimeDbMarker,

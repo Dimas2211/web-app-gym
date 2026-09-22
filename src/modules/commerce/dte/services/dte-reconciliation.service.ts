@@ -102,8 +102,13 @@ export async function reconcileDteWithMh(
 
   // ── 2. Idempotencia — estados terminales ya resueltos ──────────────
   if (dteDoc.dte_status in TERMINAL_STATUSES_WITH_EXPECTED_LEDGER) {
-    const reservation = await runtimeDb.dteFiscalMeteringReservation.findUnique({
-      where: { dte_document_id: dteDocumentId },
+    // SHARED-PILOT-1B — defense-in-depth: dte_document_id ya es @unique así
+    // que este lookup era funcionalmente seguro, pero en runtime compartido
+    // agregamos tenant_id explícito para que una fila inconsistente
+    // (reserva apuntando a un documento de otro tenant) nunca se confunda
+    // con la del tenant efectivo.
+    const reservation = await runtimeDb.dteFiscalMeteringReservation.findFirst({
+      where: { dte_document_id: dteDocumentId, tenant_id: tenantId },
       select: { status: true },
     });
     const expectedLedger = TERMINAL_STATUSES_WITH_EXPECTED_LEDGER[dteDoc.dte_status];
@@ -158,8 +163,8 @@ export async function reconcileDteWithMh(
     return { status: "NO_OP", reason: "NOT_APPLICABLE", dteStatus: dteDoc.dte_status };
   }
 
-  const reservation = await runtimeDb.dteFiscalMeteringReservation.findUnique({
-    where: { dte_document_id: dteDocumentId },
+  const reservation = await runtimeDb.dteFiscalMeteringReservation.findFirst({
+    where: { dte_document_id: dteDocumentId, tenant_id: tenantId },
     select: { status: true },
   });
 
@@ -194,8 +199,12 @@ export async function reconcileDteWithMh(
     return { status: "BUSINESS_ERROR", error: "El documento no tiene issuer_config_id — no se puede resolver el NIT del emisor." };
   }
 
-  const issuerConfig = await runtimeDb.dteIssuerConfig.findUnique({
-    where: { id: dteDoc.issuer_config_id },
+  // SHARED-PILOT-1B — defense-in-depth: issuer_config_id viene de un
+  // DteOutgoingDocument ya validado tenant/location arriba (paso 1), pero
+  // en runtime compartido igual exigimos tenant_id + location_id aquí para
+  // que este segundo lookup nunca resuelva un issuer ajeno por sí solo.
+  const issuerConfig = await runtimeDb.dteIssuerConfig.findFirst({
+    where: { id: dteDoc.issuer_config_id, tenant_id: tenantId, location_id: locationId },
     select: { nit: true },
   });
   const nitEmisor = normalizeNitForDte(issuerConfig?.nit ?? null);
@@ -257,9 +266,11 @@ export async function reconcileDteWithMh(
     await runtimeDb.$transaction(async (tx) => {
       // Re-leer DTE dentro de la transacción — nunca pisar un estado que
       // cambió concurrentemente mientras se hacía el HTTP (ej. otro
-      // proceso ya transmitió/reconcilió el mismo documento).
-      const freshDoc = await tx.dteOutgoingDocument.findUnique({
-        where: { id: dteDocumentId },
+      // proceso ya transmitió/reconcilió el mismo documento). SHARED-PILOT-1B
+      // — defense-in-depth: tenant_id + location_id explícitos también aquí,
+      // aunque el id ya viene del documento validado en el paso 1.
+      const freshDoc = await tx.dteOutgoingDocument.findFirst({
+        where: { id: dteDocumentId, tenant_id: tenantId, location_id: locationId },
         select: { dte_status: true, sent_at: true },
       });
       if (!freshDoc || freshDoc.dte_status !== "SIGNED") {

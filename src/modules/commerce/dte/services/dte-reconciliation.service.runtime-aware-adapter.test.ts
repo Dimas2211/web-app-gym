@@ -61,9 +61,11 @@ function minimalRuntimeDb(docStatus: "SIGNED" = "SIGNED") {
     },
     dteFiscalMeteringReservation: {
       findUnique: vi.fn(async () => null),
+      findFirst: vi.fn(async () => null),
     },
     dteIssuerConfig: {
       findUnique: vi.fn(async () => ({ id: "issuer-1", nit: "0614-000000-000-0" })),
+      findFirst: vi.fn(async () => ({ id: "issuer-1", nit: "0614-000000-000-0" })),
     },
     dteTransmissionLog: {
       count: vi.fn(async () => 0),

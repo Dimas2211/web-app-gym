@@ -82,8 +82,8 @@ function createFakeDb(opts: { doc: DocRow; reservation?: ResRow | null; issuerNi
   const reservations = new Map<string, ResRow>(
     opts.reservation ? [[opts.reservation.dte_document_id, { ...opts.reservation }]] : [],
   );
-  const issuerConfigs = new Map<string, { id: string; nit: string | null }>([
-    ["issuer-1", { id: "issuer-1", nit: opts.issuerNit === undefined ? "0614-000000-000-0" : opts.issuerNit }],
+  const issuerConfigs = new Map<string, { id: string; tenant_id: string; location_id: string; nit: string | null }>([
+    ["issuer-1", { id: "issuer-1", tenant_id: TENANT_ID, location_id: LOCATION_ID, nit: opts.issuerNit === undefined ? "0614-000000-000-0" : opts.issuerNit }],
   ]);
   let logs: LogRow[] = (opts.sendLogs ?? []).map((l) => ({ ...l }));
   let logIdSeq = 0;
@@ -97,10 +97,12 @@ function createFakeDb(opts: { doc: DocRow; reservation?: ResRow | null; issuerNi
     };
     dteFiscalMeteringReservation: {
       findUnique: (args: { where: { dte_document_id: string } }) => Promise<ResRow | null>;
+      findFirst: (args: { where: { dte_document_id: string; tenant_id: string } }) => Promise<ResRow | null>;
       updateMany: (args: { where: { dte_document_id: string; status: string }; data: Partial<ResRow> }) => Promise<{ count: number }>;
     };
     dteIssuerConfig: {
       findUnique: (args: { where: { id: string } }) => Promise<{ id: string; nit: string | null } | null>;
+      findFirst: (args: { where: { id: string; tenant_id: string; location_id: string } }) => Promise<{ id: string; nit: string | null } | null>;
     };
     dteTransmissionLog: {
       count: (args: { where: { dte_document_id: string; operation_type: string } }) => Promise<number>;
@@ -134,6 +136,11 @@ function createFakeDb(opts: { doc: DocRow; reservation?: ResRow | null; issuerNi
         const row = reservations.get(where.dte_document_id);
         return row ? { ...row } : null;
       },
+      findFirst: async ({ where }: { where: { dte_document_id: string; tenant_id: string } }) => {
+        const row = reservations.get(where.dte_document_id);
+        if (!row || row.tenant_id !== where.tenant_id) return null;
+        return { ...row };
+      },
       updateMany: async ({ where, data }: { where: { dte_document_id: string; status: string }; data: Partial<ResRow> }) => {
         const existing = reservations.get(where.dte_document_id);
         if (!existing || existing.status !== where.status) return { count: 0 };
@@ -145,6 +152,11 @@ function createFakeDb(opts: { doc: DocRow; reservation?: ResRow | null; issuerNi
       findUnique: async ({ where }: { where: { id: string } }) => {
         const row = issuerConfigs.get(where.id);
         return row ? { ...row } : null;
+      },
+      findFirst: async ({ where }: { where: { id: string; tenant_id: string; location_id: string } }) => {
+        const row = issuerConfigs.get(where.id);
+        if (!row || row.tenant_id !== where.tenant_id || row.location_id !== where.location_id) return null;
+        return { ...row };
       },
     },
     dteTransmissionLog: {
@@ -178,7 +190,7 @@ function createFakeDb(opts: { doc: DocRow; reservation?: ResRow | null; issuerNi
     },
   };
 
-  return { db: api as never, docs, reservations, logs: () => logs };
+  return { db: api as never, docs, reservations, issuerConfigs, logs: () => logs };
 }
 
 function pendingReservation(overrides: Partial<ResRow> = {}): ResRow {
@@ -500,6 +512,43 @@ describe("reconcileDteWithMh — cross-tenant/cross-location (VI-E6A)", () => {
       locationId: LOCATION_ID, // pide con loc-1, el doc real es de loc-B
       runtimeDb: db,
       queryAdapter: adapter,
+    });
+    expect(result.status).toBe("BUSINESS_ERROR");
+    expect((adapter as { query: ReturnType<typeof vi.fn> }).query).not.toHaveBeenCalled();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────
+// SHARED-PILOT-1B — defense-in-depth same-DB: el documento raíz SÍ
+// pertenece al tenant efectivo (pasa el lookup del paso 1), pero una fila
+// interna asociada (reserva de metering o issuer config) pertenece a OTRO
+// tenant — inconsistencia interna que jamás debería existir en la práctica,
+// pero que en runtime compartido (mismo PrismaClient para varios tenants)
+// debe fallar cerrado en el SEGUNDO lookup, no solo confiar en el primero.
+// ─────────────────────────────────────────────────────────────────
+
+describe("reconcileDteWithMh — SHARED-PILOT-1B defense-in-depth (fila interna de otro tenant)", () => {
+  it("reserva de metering pertenece a otro tenant (dte_document_id coincide mal por inconsistencia) -> tratada como sin reserva, INCONSISTENT_LOCAL_STATE, nunca llama MH", async () => {
+    const { db } = createFakeDb({
+      doc: baseDoc(), // tenant_id=TENANT_ID, location_id=LOCATION_ID, SIGNED
+      reservation: pendingReservation({ tenant_id: "tenant-OTHER" }), // fila con mismo dte_document_id pero tenant distinto
+    });
+    const adapter = fakeAdapter(PROCESSED_ACCEPTED);
+    const result = await reconcileDteWithMh({
+      dteDocumentId: "doc-1", tenantId: TENANT_ID, locationId: LOCATION_ID, runtimeDb: db, queryAdapter: adapter,
+    });
+    expect(result.status).toBe("INCONSISTENT_LOCAL_STATE");
+    expect((adapter as { query: ReturnType<typeof vi.fn> }).query).not.toHaveBeenCalled();
+  });
+
+  it("issuer_config_id del documento apunta a un DteIssuerConfig de otro tenant -> BUSINESS_ERROR, nunca llama MH, nunca resuelve credenciales", async () => {
+    const { db, issuerConfigs } = createFakeDb({ doc: baseDoc(), reservation: pendingReservation() });
+    // Inconsistencia interna: el issuer real vive bajo otro tenant/location
+    // que el documento que lo referencia.
+    issuerConfigs.set("issuer-1", { id: "issuer-1", tenant_id: "tenant-OTHER", location_id: "loc-OTHER", nit: "0614-000000-000-0" });
+    const adapter = fakeAdapter(PROCESSED_ACCEPTED);
+    const result = await reconcileDteWithMh({
+      dteDocumentId: "doc-1", tenantId: TENANT_ID, locationId: LOCATION_ID, runtimeDb: db, queryAdapter: adapter,
     });
     expect(result.status).toBe("BUSINESS_ERROR");
     expect((adapter as { query: ReturnType<typeof vi.fn> }).query).not.toHaveBeenCalled();
