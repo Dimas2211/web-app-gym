@@ -51,6 +51,17 @@ export async function updatePlatformOrganizationAction(
   });
   if (!exists) return { error: "Organización no encontrada." };
 
+  // Unicidad del domain (Gap F) — excluye la propia organización.
+  if (data.domain) {
+    const existingDomain = await prisma.platformOrganization.findFirst({
+      where:  { domain: data.domain, NOT: { id } },
+      select: { id: true },
+    });
+    if (existingDomain) {
+      return { errors: { domain: ["Ya existe otra organización con este dominio."] } };
+    }
+  }
+
   await prisma.platformOrganization.update({
     where: { id },
     data:  {

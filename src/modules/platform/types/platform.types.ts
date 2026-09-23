@@ -177,6 +177,8 @@ export interface PlatformOrganizationDetail extends PlatformOrganizationListItem
   suspended_at:         Date | null;
   suspension_reason:    string | null;
   updated_at:           Date;
+  // SHARED-PILOT-4A — null = Dedicated Runtime (o aún sin runtime asignado)
+  shared_runtime_target: { id: string; label: string } | null;
 }
 
 // ── PlatformModule ────────────────────────────────────────────────

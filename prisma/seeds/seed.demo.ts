@@ -245,7 +245,7 @@ export async function seedDemo(prisma: PrismaClient): Promise<void> {
 
   for (const userData of usersDemo) {
     await prisma.user.upsert({
-      where: { email: userData.email },
+      where: { tenant_id_email: { tenant_id: runtimeTenant.id, email: userData.email } },
       update: {},
       create: {
         tenant_id: runtimeTenant.id,
@@ -284,7 +284,7 @@ export async function seedDemo(prisma: PrismaClient): Promise<void> {
   // 5. PERFIL DE ENTRENADOR (vinculado al usuario trainer)
   // ----------------------------------------------------------
   const trainerUser = await prisma.user.findUnique({
-    where: { email: "trainer@sucursal1.demo" },
+    where: { tenant_id_email: { tenant_id: runtimeTenant.id, email: "trainer@sucursal1.demo" } },
   });
   let trainerProfile = null;
   if (trainerUser) {
@@ -314,7 +314,7 @@ export async function seedDemo(prisma: PrismaClient): Promise<void> {
   // 6. REGISTRO CLIENT vinculado al usuario client (user_id)
   // ----------------------------------------------------------
   const clientUser = await prisma.user.findUnique({
-    where: { email: "cliente@powergym.demo" },
+    where: { tenant_id_email: { tenant_id: runtimeTenant.id, email: "cliente@powergym.demo" } },
   });
   let clientRecord = null;
   if (clientUser) {
@@ -436,7 +436,7 @@ export async function seedDemo(prisma: PrismaClient): Promise<void> {
       where: { name: "Hipertrofia muscular" },
     });
     const adminUser = await prisma.user.findUnique({
-      where: { email: "admin@sucursal1.demo" },
+      where: { tenant_id_email: { tenant_id: runtimeTenant.id, email: "admin@sucursal1.demo" } },
     });
     planTemplate = await prisma.weeklyPlanTemplate.create({
       data: {
@@ -671,7 +671,7 @@ export async function seedDemo(prisma: PrismaClient): Promise<void> {
   // 14. CLIENTE PORTAL EXTRA: Sofía Ruiz (natación)
   // ----------------------------------------------------------
   const natacionUser = await prisma.user.upsert({
-    where: { email: "cliente_natacion@powergym.demo" },
+    where: { tenant_id_email: { tenant_id: runtimeTenant.id, email: "cliente_natacion@powergym.demo" } },
     update: {},
     create: {
       tenant_id: runtimeTenant.id,
@@ -801,7 +801,7 @@ export async function seedDemo(prisma: PrismaClient): Promise<void> {
   // 16. PLANTILLAS DE PLAN SEMANAL ADICIONALES
   // ----------------------------------------------------------
   const adminUser = await prisma.user.findUnique({
-    where: { email: "admin@sucursal1.demo" },
+    where: { tenant_id_email: { tenant_id: runtimeTenant.id, email: "admin@sucursal1.demo" } },
   });
 
   const newTemplates = [

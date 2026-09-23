@@ -4,8 +4,9 @@
 // FASE VI-D4 — ETAPA K/U/W/O. Certifica:
 //   - aislamiento por tenant (findFirst con gym_id, nunca findUnique(id)
 //     seguido de mutación sin validar pertenencia);
-//   - unicidad de email evaluada SOLO contra `db` (misma email puede
-//     existir independientemente en runtime A y runtime B);
+//   - SHARED-PILOT-4A / Gap G: unicidad de email evaluada por
+//     (tenant_id, email) — el mismo email puede existir en tenant A y
+//     tenant B, incluso dentro de la MISMA base física (Shared Runtime);
 //   - password siempre hasheado con bcrypt, nunca texto plano;
 //   - CommercialEnforcementError (capacidad) se propaga como
 //     { success:false, error } sin romper el flujo.
@@ -26,13 +27,12 @@ const FAKE_CTX = {
   effectiveEntitlements: new Map(),
 } as never;
 
-describe("createCoreUser — unicidad de email SOLO en `db`, password hasheado", () => {
-  it("9. email ya existe en runtime B -> irrelevante para runtime A (findUnique corre SOLO contra `db`)", async () => {
-    // db de runtime A: el email NO existe ahí (aunque exista en B, que
-    // nunca se consulta — no hay lookup global).
+describe("createCoreUser — unicidad de email por (tenant_id, email), password hasheado", () => {
+  it("9. email ya existe en tenant B -> irrelevante para tenant A, incluso en la MISMA base (Shared Runtime)", async () => {
+    const findUnique = vi.fn().mockResolvedValue(null);
     const createMock = vi.fn().mockResolvedValue({ id: "new-user-A" });
     const fakeDbA = {
-      user: { findUnique: vi.fn().mockResolvedValue(null) },
+      user: { findUnique },
       $transaction: vi.fn(async (cb: (tx: unknown) => unknown) => cb({ user: { create: createMock } })),
     } as never;
 
@@ -45,6 +45,11 @@ describe("createCoreUser — unicidad de email SOLO en `db`, password hasheado",
 
     expect(result.success).toBe(true);
     expect(createMock).toHaveBeenCalledTimes(1);
+    // La query de unicidad debe estar scoped a tenant_id — nunca email solo.
+    expect(findUnique).toHaveBeenCalledWith({
+      where: { tenant_id_email: { tenant_id: "tenant-A", email: "same@example.com" } },
+      select: { id: true },
+    });
   });
 
   it("password se hashea con bcrypt — nunca se persiste texto plano", async () => {

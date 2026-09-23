@@ -9,9 +9,12 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import bcrypt from "bcryptjs";
 
-const prismaUserFindUniqueMock = vi.fn();
+// SHARED-PILOT-4A / Gap G — authenticatePlatformUser ahora usa
+// findMany({ take: 2 }) + fail-closed en ambigüedad, no findUnique(email)
+// (email dejó de ser único global — ver authorize-credentials.ts).
+const prismaUserFindManyMock = vi.fn();
 vi.mock("@/lib/db/prisma", () => ({
-  prisma: { user: { findUnique: (...args: unknown[]) => prismaUserFindUniqueMock(...args) } },
+  prisma: { user: { findMany: (...args: unknown[]) => prismaUserFindManyMock(...args) } },
 }));
 
 const resolveOrganizationByHostnameMock = vi.fn();
@@ -74,7 +77,7 @@ afterEach(() => {
 describe("authorizeCredentials — rama PLATFORM", () => {
   it("1. platform hostname + usuario global válido → PLATFORM", async () => {
     vi.stubEnv("NODE_ENV", "test"); // localhost = platform por defecto
-    prismaUserFindUniqueMock.mockResolvedValue(PLATFORM_USER_ROW());
+    prismaUserFindManyMock.mockResolvedValue([PLATFORM_USER_ROW()]);
 
     const result = await authorizeCredentials(
       { email: "admin@platform.test", password: PASSWORD },
@@ -88,7 +91,7 @@ describe("authorizeCredentials — rama PLATFORM", () => {
 
   it("2. platform hostname + password incorrecta → null", async () => {
     vi.stubEnv("NODE_ENV", "test");
-    prismaUserFindUniqueMock.mockResolvedValue(PLATFORM_USER_ROW());
+    prismaUserFindManyMock.mockResolvedValue([PLATFORM_USER_ROW()]);
 
     const result = await authorizeCredentials(
       { email: "admin@platform.test", password: "wrong" },
@@ -100,7 +103,26 @@ describe("authorizeCredentials — rama PLATFORM", () => {
 
   it("usuario global inactivo → null", async () => {
     vi.stubEnv("NODE_ENV", "test");
-    prismaUserFindUniqueMock.mockResolvedValue({ ...PLATFORM_USER_ROW(), status: "inactive" });
+    prismaUserFindManyMock.mockResolvedValue([{ ...PLATFORM_USER_ROW(), status: "inactive" }]);
+
+    const result = await authorizeCredentials(
+      { email: "admin@platform.test", password: PASSWORD },
+      fakeRequest("localhost:3000"),
+    );
+
+    expect(result).toBeNull();
+  });
+
+  it("SHARED-PILOT-4A / Gap G: email matchea 2+ filas (ambiguo) → null, fail closed, nunca autentica contra 'la primera'", async () => {
+    vi.stubEnv("NODE_ENV", "test");
+    // Escenario: una base mal configurada donde este email existe en más
+    // de una fila (p.ej. Runtime Target apuntando a la misma conexión
+    // que Control Plane). authenticatePlatformUser debe rechazar, no
+    // elegir arbitrariamente una de las dos.
+    prismaUserFindManyMock.mockResolvedValue([
+      PLATFORM_USER_ROW(),
+      { ...PLATFORM_USER_ROW(), id: "other-tenant-user", tenant_id: "tenant-other" },
+    ]);
 
     const result = await authorizeCredentials(
       { email: "admin@platform.test", password: PASSWORD },
@@ -232,7 +254,7 @@ describe("authorizeCredentials — rama RUNTIME_CLIENT", () => {
     );
 
     expect(result).toBeNull();
-    expect(prismaUserFindUniqueMock).not.toHaveBeenCalled();
+    expect(prismaUserFindManyMock).not.toHaveBeenCalled();
   });
 
   it("11. base runtime inalcanzable → null (nunca fallback global)", async () => {
@@ -371,12 +393,12 @@ describe("authorizeCredentials — rama RUNTIME_CLIENT", () => {
     );
 
     expect(result).toBeNull();
-    expect(prismaUserFindUniqueMock).not.toHaveBeenCalled();
+    expect(prismaUserFindManyMock).not.toHaveBeenCalled();
   });
 
   it("18. platform hostname + intento de enviar organization_id/host de otro cliente → ignorado, sigue autenticando contra Prisma global (rama PLATFORM no consulta resolveOrganizationByHostname)", async () => {
     vi.stubEnv("NODE_ENV", "test");
-    prismaUserFindUniqueMock.mockResolvedValue(PLATFORM_USER_ROW());
+    prismaUserFindManyMock.mockResolvedValue([PLATFORM_USER_ROW()]);
 
     const result = await authorizeCredentials(
       { email: "admin@platform.test", password: PASSWORD },
@@ -407,7 +429,7 @@ describe("authorizeCredentials — entrada inválida", () => {
   it("credenciales con forma inválida (sin email/password) → null sin tocar ninguna DB", async () => {
     const result = await authorizeCredentials({}, fakeRequest("localhost:3000"));
     expect(result).toBeNull();
-    expect(prismaUserFindUniqueMock).not.toHaveBeenCalled();
+    expect(prismaUserFindManyMock).not.toHaveBeenCalled();
     expect(resolveOrganizationByHostnameMock).not.toHaveBeenCalled();
   });
 });

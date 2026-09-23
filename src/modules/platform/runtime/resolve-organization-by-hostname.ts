@@ -9,23 +9,26 @@
 // Control Plane, no runtime: usa controlPlanePrisma (mismo Prisma
 // singleton que Platform Admin), nunca abre una base cliente aquí.
 //
-// PlatformOrganization.domain NO tiene unique constraint en el schema
-// actual (ver prisma/schema.prisma). Por tanto:
-// - NUNCA usar findUnique por domain.
+// SHARED-PILOT-4A / Gap F — PlatformOrganization.domain SÍ tiene ahora
+// un unique constraint en BD (migración add_organization_domain_unique;
+// preflight local confirmó 0 duplicados antes de aplicarla). Aun así
+// se mantiene deliberadamente el patrón findMany + take:2 en vez de
+// findUnique, como defensa en profundidad — no depender únicamente de
+// la constraint de BD para la decisión de autenticación:
 // - Usar findMany + take:2 para poder distinguir 0 / 1 / 2+ resultados.
-// - 2+ resultados (dominio duplicado) es FAIL CLOSED — nunca se elige
-//   "el primero". Esto es una garantía de seguridad, no un detalle de
-//   implementación: un dominio ambiguo no debe poder autenticar contra
-//   una organización arbitraria.
+// - 2+ resultados (dominio duplicado, ej. por un estado legado previo a
+//   la migración, o un bypass de la capa de aplicación) es FAIL CLOSED
+//   — nunca se elige "el primero". Esto es una garantía de seguridad,
+//   no un detalle de implementación: un dominio ambiguo no debe poder
+//   autenticar contra una organización arbitraria.
 //
-// GAP DE VALIDACIÓN DOCUMENTADO (no corregido en VI-C, ver ETAPA T):
-// hoy nada impide que `domain` se guarde con protocolo, path, mayúsculas
-// o puerto (ej. "https://trustme.getzolvi.com/"). La comparación aquí
-// se hace contra el hostname NORMALIZADO de la request, con
-// `mode: "insensitive"` para tolerar diferencias de mayúsculas en el
-// dato ya almacenado — pero un `domain` guardado con protocolo/path NO
-// hará match nunca (fail-safe: mejor no encontrar organización que
-// encontrar la incorrecta). No se modifican registros existentes.
+// GAP DE VALIDACIÓN LEGADO (registros guardados ANTES de Gap F, no
+// corregidos retroactivamente): la constraint de BD y
+// organizationDomainSchema (Zod) garantizan formato normalizado solo
+// para altas/ediciones nuevas. Un `domain` legado con protocolo/path/
+// mayúsculas (si existiera) seguiría sin hacer match nunca contra el
+// hostname normalizado de la request (fail-safe: mejor no encontrar
+// organización que encontrar la incorrecta).
 // ─────────────────────────────────────────────────────────────────
 
 if (typeof window !== "undefined") {

@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Sistema GYM",
-  description: "Plataforma de gestión multi-sucursal para gimnasios",
+  title: "Zolvi",
+  description: "Plataforma de gestión multiindustria",
 };
 
 export default function RootLayout({

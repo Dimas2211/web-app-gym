@@ -243,8 +243,9 @@ export async function enableClientPortalAction(
       return { errors: parsed.error.flatten().fieldErrors };
     }
 
+    // Gap G — unicidad de email por tenant, no global (Shared Runtime).
     const existingUser = await context.client.user.findUnique({
-      where: { email: parsed.data.portal_email },
+      where: { tenant_id_email: { tenant_id: context.tenantId, email: parsed.data.portal_email } },
     });
     if (existingUser) {
       return { errors: { portal_email: ["Este correo ya está en uso por otra cuenta."] } };

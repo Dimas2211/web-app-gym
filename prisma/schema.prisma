@@ -89,7 +89,7 @@ model User {
   tenant_id                         String
   branch_id                         String?
   location_id                       String?
-  email                             String                   @unique
+  email                             String
   password_hash                     String
   first_name                        String
   last_name                         String
@@ -144,6 +144,11 @@ model User {
   cash_sessions_closed              CashSession[]            @relation("CashSessionClosedBy")
   cash_movements_performed          CashMovement[]           @relation("CashMovementPerformedBy")
 
+  // SHARED-PILOT-4A / Gap G — identidad runtime es tenant_id + email, no
+  // email global. Necesario para que un Shared Runtime pueda alojar
+  // varios RuntimeTenant en la misma tabla `users` sin que el email de
+  // un admin de un cliente bloquee el mismo email en otro cliente.
+  @@unique([tenant_id, email])
   @@unique([tenant_id, operational_code])
   @@index([gym_id])
   @@index([tenant_id])
@@ -2663,6 +2668,15 @@ model PlatformOrganization {
   // El ERP opera independiente; este campo es solo para administración Platform.
   tenant_id String? @unique
 
+  // ── Shared Runtime (SHARED-PILOT-4A) ──────────────────────────────
+  // Si está poblado, esta organización opera sobre una base física
+  // COMPARTIDA con otras organizaciones (PlatformSharedRuntimeTarget),
+  // en vez de tener su propio PlatformDatabaseProfile dedicado 1:1.
+  // El aislamiento de datos dentro de esa base física lo garantiza
+  // tenant_id (RuntimeTenant), nunca la conexión en sí. Null = Dedicated
+  // Runtime (comportamiento histórico, sin cambios).
+  shared_runtime_target_id String?
+
   // Vertical e industria
   vertical_id String?
 
@@ -2684,7 +2698,12 @@ model PlatformOrganization {
   timezone     String? // ej: "America/El_Salvador"
 
   // Presencia web
-  domain   String?
+  // SHARED-PILOT-4A / Gap F — unique en BD (múltiples NULL permitidos en
+  // Postgres). La normalización (lowercase/trim/sin protocolo-path-puerto)
+  // vive en organizationDomainSchema (Zod), única fuente — no duplicar el
+  // regex. Preflight local ejecutado antes de esta migración: 0 dominios
+  // duplicados/inválidos en datos existentes.
+  domain   String? @unique
   logo_url String?
 
   // Despliegue e instancia
@@ -2703,6 +2722,7 @@ model PlatformOrganization {
   // Relaciones
   vertical              PlatformVertical?                         @relation(fields: [vertical_id], references: [id])
   plan                  PlatformPlan?                             @relation(fields: [plan_id], references: [id])
+  shared_runtime_target PlatformSharedRuntimeTarget?               @relation(fields: [shared_runtime_target_id], references: [id])
   modules               PlatformOrganizationModule[]
   branding              PlatformBranding?
   deployments           PlatformDeploymentLog[]
@@ -2719,7 +2739,54 @@ model PlatformOrganization {
   @@index([provisioning_status])
   @@index([vertical_id])
   @@index([plan_id])
+  @@index([shared_runtime_target_id])
   @@map("platform_organizations")
+}
+
+// ── PlatformSharedRuntimeTarget — SHARED-PILOT-4A ─────────────────
+// Una base física runtime que puede alojar MÚLTIPLES
+// PlatformOrganization al mismo tiempo (cada una con su propio
+// RuntimeTenant dentro de esa base, aislado por tenant_id). Existe
+// para que el operador pueda seleccionar "Zolvi Shared 01" desde UI
+// en vez de volver a escribir host/password por cada cliente nuevo.
+//
+// Dedicated Runtime (PlatformDatabaseProfile, 1 perfil = 1 org) sigue
+// funcionando exactamente igual y sin cambios — este modelo es
+// exclusivamente el camino SHARED.
+model PlatformSharedRuntimeTarget {
+  id    String @id @default(uuid())
+  label String @unique // ej: "Zolvi Shared 01"
+
+  environment PlatformDatabaseProfileEnvironment @default(LOCAL)
+  provider    PlatformDatabaseProvider           @default(POSTGRESQL)
+
+  // Componentes de conexión — mismo tratamiento que PlatformDatabaseProfile:
+  // sin password en texto plano, cifrado AES-256-GCM.
+  db_host            String
+  db_port            Int?
+  db_name            String
+  db_user            String
+  encrypted_password String
+
+  ssl_mode           PlatformDatabaseSslMode @default(PREFER)
+  connection_options Json?
+
+  last_tested_at    DateTime?
+  last_test_status  PlatformDatabaseConnectionTestStatus @default(UNTESTED)
+  last_test_message String?
+
+  is_active Boolean @default(true)
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+  created_by String?
+  updated_by String?
+
+  organizations PlatformOrganization[]
+
+  @@index([is_active])
+  @@index([environment])
+  @@map("platform_shared_runtime_targets")
 }
 
 // ── PlatformModule — catálogo global de módulos disponibles ───────

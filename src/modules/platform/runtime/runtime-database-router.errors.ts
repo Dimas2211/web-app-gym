@@ -16,7 +16,9 @@ export type RuntimeDatabaseRouterErrorCode =
   | "PROFILE_NOT_FOUND"
   | "PROFILE_INACTIVE"
   | "PROFILE_CONNECTION_INVALID"
-  | "RUNTIME_DATABASE_UNREACHABLE";
+  | "RUNTIME_DATABASE_UNREACHABLE"
+  | "SHARED_RUNTIME_TARGET_NOT_FOUND"
+  | "SHARED_RUNTIME_TARGET_INACTIVE";
 
 export class RuntimeDatabaseRouterError extends Error {
   readonly code: RuntimeDatabaseRouterErrorCode;
@@ -86,5 +88,25 @@ export class RuntimeDatabaseUnreachableError extends RuntimeDatabaseRouterError 
       `No se pudo conectar a la base runtime del perfil ${profileId}: ${reason}`,
     );
     this.name = "RuntimeDatabaseUnreachableError";
+  }
+}
+
+export class SharedRuntimeTargetNotFoundError extends RuntimeDatabaseRouterError {
+  constructor(targetId: string) {
+    super(
+      "SHARED_RUNTIME_TARGET_NOT_FOUND",
+      `Shared Runtime Target no encontrado: ${targetId}.`,
+    );
+    this.name = "SharedRuntimeTargetNotFoundError";
+  }
+}
+
+export class SharedRuntimeTargetInactiveError extends RuntimeDatabaseRouterError {
+  constructor(targetId: string) {
+    super(
+      "SHARED_RUNTIME_TARGET_INACTIVE",
+      `El Shared Runtime Target ${targetId} está inactivo.`,
+    );
+    this.name = "SharedRuntimeTargetInactiveError";
   }
 }

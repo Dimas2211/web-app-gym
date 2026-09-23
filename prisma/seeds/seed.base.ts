@@ -102,7 +102,7 @@ export async function seedBase(prisma: PrismaClient): Promise<BaseContext> {
   // ----------------------------------------------------------
   const passwordHash = await bcrypt.hash(adminPassword, 10);
   const adminUser = await prisma.user.upsert({
-    where: { email: adminEmail },
+    where: { tenant_id_email: { tenant_id: runtimeTenant.id, email: adminEmail } },
     update: {},
     create: {
       tenant_id: runtimeTenant.id,

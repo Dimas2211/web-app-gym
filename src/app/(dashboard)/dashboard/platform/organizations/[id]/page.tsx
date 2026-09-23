@@ -16,6 +16,8 @@ import { getPlatformBrandingQuery }         from "@/modules/platform/queries/get
 import { listDeploymentLogsQuery }          from "@/modules/platform/queries/list-deployment-logs";
 import { getDteCorrelativeAlignmentPanelDataQuery } from "@/modules/platform/queries/get-dte-correlative-alignment-panel-data";
 import { getEffectiveOrganizationEntitlements, getEffectiveOrganizationModules } from "@/modules/platform/lib/entitlements-resolver";
+import { listSharedRuntimeTargets } from "@/modules/platform/queries/list-shared-runtime-targets";
+import { listDatabaseProfiles } from "@/modules/platform/queries/list-database-profiles";
 
 import { PlatformOrganizationDetail }         from "@/modules/platform/components/platform-organization-detail";
 import { PlatformOrganizationModulesPanel }   from "@/modules/platform/components/platform-organization-modules-panel";
@@ -26,6 +28,7 @@ import { PlatformDeploymentSummary }          from "@/modules/platform/component
 import { PlatformBrandingPanel }              from "@/modules/platform/components/platform-branding-panel";
 import { PlatformDeploymentLogsPanel }        from "@/modules/platform/components/platform-deployment-logs-panel";
 import { PlatformDteCorrelativePanel }        from "@/modules/platform/components/platform-dte-correlative-panel";
+import { PlatformRuntimeProvisioningPanel }   from "@/modules/platform/components/platform-runtime-provisioning-panel";
 
 interface Props {
   params: Promise<{ id: string }>;
@@ -44,7 +47,7 @@ export default async function PlatformOrganizationDetailPage({ params }: Props) 
 
   const { id } = await params;
 
-  const [org, orgModules, verticals, allPlans, branding, logs, dteCorrelatives, effectiveEntitlements, effectiveModules] = await Promise.all([
+  const [org, orgModules, verticals, allPlans, branding, logs, dteCorrelatives, effectiveEntitlements, effectiveModules, activeSharedTargets, orgDatabaseProfiles] = await Promise.all([
     getPlatformOrganizationByIdQuery(id),
     listOrganizationModulesQuery(id),
     listPlatformVerticalsQuery(false),
@@ -54,6 +57,8 @@ export default async function PlatformOrganizationDetailPage({ params }: Props) 
     getDteCorrelativeAlignmentPanelDataQuery(id),
     getEffectiveOrganizationEntitlements(id),
     getEffectiveOrganizationModules(id),
+    listSharedRuntimeTargets({ is_active: true }),
+    listDatabaseProfiles({ organization_id: id, is_active: true }),
   ]);
 
   if (!org) notFound();
@@ -74,6 +79,15 @@ export default async function PlatformOrganizationDetailPage({ params }: Props) 
 
       {/* Header, info general y edición completa */}
       <PlatformOrganizationDetail org={org} verticals={verticals} plans={plans} />
+
+      {/* SHARED-PILOT-4A — Runtime (Shared/Dedicated) + provisioning manual */}
+      <PlatformRuntimeProvisioningPanel
+        organizationId={org.id}
+        organizationTenantId={org.tenant_id}
+        sharedRuntimeTarget={org.shared_runtime_target}
+        hasActiveDedicatedProfile={orgDatabaseProfiles.length > 0}
+        activeSharedTargets={activeSharedTargets}
+      />
 
       {/* Gestión de licencia */}
       <PlatformLicensePanel org={org} />

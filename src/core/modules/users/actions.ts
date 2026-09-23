@@ -33,10 +33,15 @@ import {
 
 // FASE VI-D4 — ETAPA D/K/S: `db` opcional, default Prisma global SOLO para
 // compatibilidad de callers no migrados. Todo entry point runtime-aware
-// (server actions de users) SIEMPRE pasa `context.client` explícito. La
-// unicidad de email se evalúa SOLO contra `db` — nunca el User global si
-// `db` es un runtime client (cada base de cliente es su propio universo
-// de unicidad; el mismo email puede existir en runtime A y runtime B).
+// (server actions de users) SIEMPRE pasa `context.client` explícito.
+//
+// SHARED-PILOT-4A / Gap G: la unicidad de email es por TENANT
+// (tenant_id, email — @@unique en schema.prisma), no por conexión de
+// base física. En Dedicated Runtime cada `db` es una base con un solo
+// tenant, así que antes daba lo mismo; en Shared Runtime una misma
+// `db` puede alojar varios RuntimeTenant, y el mismo email SÍ puede
+// repetirse entre ellos — por eso todo chequeo de unicidad de abajo
+// filtra explícitamente por `tenantId`, nunca solo por `db`.
 
 // ─── Contratos de retorno ──────────────────────────────────────────────────────
 
@@ -93,7 +98,7 @@ export async function createCoreUser(
   db: PrismaClient = prisma,
 ): Promise<UserActionResult> {
   const existing = await db.user.findUnique({
-    where: { email: input.email },
+    where: { tenant_id_email: { tenant_id: tenantId, email: input.email } },
     select: { id: true },
   });
   if (existing) {
@@ -164,12 +169,12 @@ export async function updateCoreUser(
     return { success: false, error: "Usuario no encontrado." };
   }
 
-  // Email único — evaluado SOLO en `db` (la base efectiva). Deliberadamente
-  // sin filtro de tenant: dentro de una misma base, el email es único a
-  // nivel de columna (@unique) para toda la base, tenant o no.
+  // Email único por tenant (Gap G) — filtra por tenantId explícitamente,
+  // nunca solo por `db`: en Shared Runtime otra organización en la
+  // misma base física puede legítimamente usar este mismo email.
   if (parsed.data.email) {
     const duplicate = await db.user.findFirst({
-      where: { email: parsed.data.email, id: { not: userId } },
+      where: { tenant_id: tenantId, email: parsed.data.email, id: { not: userId } },
       select: { id: true },
     });
     if (duplicate) {

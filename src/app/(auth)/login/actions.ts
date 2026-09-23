@@ -13,8 +13,15 @@ export async function loginAction(
   const email = (formData.get("email") ?? "") as string;
 
   // Determinar destino de redirección según rol antes del signIn.
-  // Solo se lee el rol (no la contraseña): la validación real ocurre en authorize().
-  const userPreview = await prisma.user.findUnique({
+  // Solo se lee el rol (no la contraseña): la validación real ocurre en
+  // authorize() (authorize-credentials.ts), que sí resuelve tenant por
+  // hostname. Este lookup es una preview NO autoritativa — desde Gap G
+  // (SHARED-PILOT-4A) email ya no es único global, así que puede haber
+  // varios Users con este email en tenants distintos; findFirst es
+  // seguro aquí porque el middleware (auth.config.ts authorized())
+  // re-valida el rol real de la sesión ya autenticada y corrige la
+  // ruta si esta preview eligió mal.
+  const userPreview = await prisma.user.findFirst({
     where: { email },
     select: { role: true },
   });

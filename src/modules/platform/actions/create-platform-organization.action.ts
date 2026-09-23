@@ -55,6 +55,18 @@ export async function createPlatformOrganizationAction(
     return { errors: { code: ["Ya existe una organización con este código."] } };
   }
 
+  // Unicidad del domain (Gap F) — domain ya normalizado por
+  // organizationDomainSchema (lowercase/trim/hostname puro).
+  if (data.domain) {
+    const existingDomain = await prisma.platformOrganization.findUnique({
+      where:  { domain: data.domain },
+      select: { id: true },
+    });
+    if (existingDomain) {
+      return { errors: { domain: ["Ya existe una organización con este dominio."] } };
+    }
+  }
+
   await prisma.$transaction(async (tx) => {
     const org = await tx.platformOrganization.create({
       data: {

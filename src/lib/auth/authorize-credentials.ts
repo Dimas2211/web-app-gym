@@ -52,7 +52,19 @@ export async function authenticatePlatformUser(
   email: string,
   password: string,
 ): Promise<AuthorizedCredentialsUser | null> {
-  const user = await prisma.user.findUnique({ where: { email } });
+  // SHARED-PILOT-4A / Gap G — email ya no es @unique global en el
+  // schema (ahora @@unique([tenant_id, email])). La rama PLATFORM no
+  // tiene noción de tenant en este punto (nunca la tuvo) y, por
+  // diseño, el Control Plane (DATABASE_URL) nunca debe compartir base
+  // física con ningún Runtime cliente — ver control-plane-prisma.ts.
+  // Aun así se aplica el mismo patrón fail-closed que
+  // resolveOrganizationByHostname: si el email matchea más de una
+  // fila (p.ej. por una base mal configurada que reutilice esta misma
+  // conexión como Runtime Target), se deniega en vez de autenticar
+  // arbitrariamente contra la primera — nunca elegir "el primero".
+  const candidates = await prisma.user.findMany({ where: { email }, take: 2 });
+  if (candidates.length !== 1) return null;
+  const user = candidates[0];
 
   if (!user || user.status !== "active") return null;
 

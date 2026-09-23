@@ -20,6 +20,7 @@ function baseOrg(overrides: Partial<PlatformOrganizationDetail> = {}): PlatformO
     nit: null, domain: null, logo_url: null, trial_ends_at: null, license_expires_at: null,
     deployment_url: null, instance_identifier: null, suspended_at: null, suspension_reason: null,
     updated_at: new Date(),
+    shared_runtime_target: null,
     ...overrides,
   };
 }

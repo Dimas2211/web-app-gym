@@ -46,6 +46,8 @@ import {
   ProfileInactiveError,
   ProfileConnectionInvalidError,
   RuntimeDatabaseUnreachableError,
+  SharedRuntimeTargetNotFoundError,
+  SharedRuntimeTargetInactiveError,
 } from "./runtime-database-router.errors";
 import type {
   RuntimeDatabaseProfile,
@@ -110,27 +112,84 @@ function toRuntimeProfile(
   };
 }
 
+const SHARED_TARGET_SELECT = {
+  id:                 true,
+  label:              true,
+  environment:        true,
+  provider:           true,
+  db_host:            true,
+  db_port:            true,
+  db_name:            true,
+  db_user:            true,
+  encrypted_password: true,
+  ssl_mode:           true,
+  is_active:          true,
+  updated_at:         true,
+} as const;
+
+/**
+ * Resuelve el RuntimeDatabaseProfile de una organización cuyo
+ * shared_runtime_target_id ya está poblado. Reutiliza toRuntimeProfile
+ * (mismo shape) — la única diferencia con Dedicated es la tabla de
+ * origen de las credenciales (PlatformSharedRuntimeTarget en vez de
+ * PlatformDatabaseProfile, N organizaciones : 1 target).
+ */
+async function resolveSharedRuntimeProfile(
+  sharedRuntimeTargetId: string,
+  organizationId: string,
+  organizationName: string,
+  tenantId: string,
+): Promise<RuntimeDatabaseProfile> {
+  const target = await controlPlanePrisma.platformSharedRuntimeTarget.findUnique({
+    where:  { id: sharedRuntimeTargetId },
+    select: SHARED_TARGET_SELECT,
+  });
+
+  if (!target) throw new SharedRuntimeTargetNotFoundError(sharedRuntimeTargetId);
+  if (!target.is_active) throw new SharedRuntimeTargetInactiveError(sharedRuntimeTargetId);
+
+  return toRuntimeProfile(target, organizationId, organizationName, tenantId);
+}
+
 async function fetchOrganizationWithTenant(organizationId: string) {
   const organization = await controlPlanePrisma.platformOrganization.findUnique({
     where:  { id: organizationId },
-    select: { id: true, name: true, tenant_id: true },
+    select: { id: true, name: true, tenant_id: true, shared_runtime_target_id: true },
   });
 
   if (!organization) throw new OrganizationNotFoundError(organizationId);
   if (!organization.tenant_id) throw new OrganizationWithoutTenantError(organizationId);
 
-  return organization as { id: string; name: string; tenant_id: string };
+  return organization as {
+    id: string; name: string; tenant_id: string; shared_runtime_target_id: string | null;
+  };
 }
 
 /**
  * Resuelve el perfil runtime activo de una organización (control plane).
  * No abre conexión a la base cliente — solo lee metadata + credenciales
  * cifradas del control plane.
+ *
+ * Shared Runtime: si organization.shared_runtime_target_id está
+ * poblado, las credenciales vienen de PlatformSharedRuntimeTarget (N
+ * organizaciones pueden compartir el mismo target); si no, del camino
+ * Dedicated histórico (PlatformDatabaseProfile, 1:1). Ambos convergen
+ * en el mismo RuntimeDatabaseProfile/withRuntimePrisma — ningún caller
+ * necesita saber cuál de los dos se usó.
  */
 export async function resolveRuntimeDatabaseProfileForOrganization(
   organizationId: string,
 ): Promise<RuntimeDatabaseProfile> {
   const organization = await fetchOrganizationWithTenant(organizationId);
+
+  if (organization.shared_runtime_target_id) {
+    return resolveSharedRuntimeProfile(
+      organization.shared_runtime_target_id,
+      organization.id,
+      organization.name,
+      organization.tenant_id,
+    );
+  }
 
   const candidates = await controlPlanePrisma.platformDatabaseProfile.findMany({
     where:  { organization_id: organizationId, is_active: true },
@@ -191,6 +250,90 @@ export async function resolveRuntimeDatabaseProfileById(
     row.organization.name,
     row.organization.tenant_id,
   );
+}
+
+/**
+ * Resuelve el perfil runtime activo de una organización para PROVISIONING.
+ *
+ * A diferencia de resolveRuntimeDatabaseProfileForOrganization, NO exige
+ * que organization.tenant_id ya exista — en el flujo de provisioning el
+ * RuntimeTenant todavía no se ha creado (es precisamente lo que este
+ * flujo va a crear). El profile se resuelve exclusivamente por
+ * organization_id (server-side), nunca por un profileId enviado desde
+ * el navegador, para que el caller no pueda apuntar el provisioning a
+ * la base de otra organización.
+ *
+ * Uso exclusivo de provisionSharedRuntimeOrganizationAction. Para
+ * cualquier operación runtime normal (ya con tenant vinculado), usar
+ * resolveRuntimeDatabaseProfileForOrganization / withOrganizationRuntimePrisma.
+ */
+async function resolveRuntimeDatabaseProfileForProvisioning(
+  organizationId: string,
+): Promise<{ profileId: string; databaseUrl: string }> {
+  const organization = await controlPlanePrisma.platformOrganization.findUnique({
+    where:  { id: organizationId },
+    select: { id: true, shared_runtime_target_id: true },
+  });
+  if (!organization) throw new OrganizationNotFoundError(organizationId);
+
+  if (organization.shared_runtime_target_id) {
+    const target = await controlPlanePrisma.platformSharedRuntimeTarget.findUnique({
+      where:  { id: organization.shared_runtime_target_id },
+      select: SHARED_TARGET_SELECT,
+    });
+    if (!target) throw new SharedRuntimeTargetNotFoundError(organization.shared_runtime_target_id);
+    if (!target.is_active) throw new SharedRuntimeTargetInactiveError(target.id);
+
+    let databaseUrl: string;
+    try {
+      assertEncryptionAvailable();
+      databaseUrl = buildDatabaseUrlFromProfile(target);
+    } catch (err) {
+      throw new ProfileConnectionInvalidError(target.id, sanitizeDatabaseError(err));
+    }
+    return { profileId: target.id, databaseUrl };
+  }
+
+  const candidates = await controlPlanePrisma.platformDatabaseProfile.findMany({
+    where:  { organization_id: organizationId, is_active: true },
+    select: PROFILE_SELECT,
+  });
+  if (candidates.length === 0) throw new ActiveProfileNotFoundError(organizationId);
+
+  const [chosen] = [...candidates].sort(
+    (a, b) =>
+      (ENVIRONMENT_PRIORITY[a.environment] ?? 99) -
+      (ENVIRONMENT_PRIORITY[b.environment] ?? 99),
+  );
+
+  let databaseUrl: string;
+  try {
+    assertEncryptionAvailable();
+    databaseUrl = buildDatabaseUrlFromProfile(chosen);
+  } catch (err) {
+    throw new ProfileConnectionInvalidError(chosen.id, sanitizeDatabaseError(err));
+  }
+
+  return { profileId: chosen.id, databaseUrl };
+}
+
+/**
+ * Ejecuta `callback` con un PrismaClient runtime resuelto por
+ * organizationId, para uso EXCLUSIVO del flujo de provisioning (antes
+ * de que exista tenant_id). Garantiza `$disconnect()` en `finally` y
+ * converge en el mismo mecanismo de conexión que withRuntimePrisma
+ * (withTemporaryPrismaClient + buildDatabaseUrlFromProfile).
+ */
+export async function withRuntimePrismaForProvisioning<T>(
+  organizationId: string,
+  callback: (client: PrismaClient, profileId: string) => Promise<T>,
+): Promise<T> {
+  const { profileId, databaseUrl } = await resolveRuntimeDatabaseProfileForProvisioning(organizationId);
+  try {
+    return await withTemporaryPrismaClient(databaseUrl, (client) => callback(client, profileId));
+  } catch (err) {
+    throw new RuntimeDatabaseUnreachableError(profileId, sanitizeDatabaseError(err));
+  }
 }
 
 async function resolveTarget(target: RuntimeTarget): Promise<RuntimeDatabaseProfile> {
@@ -334,5 +477,7 @@ export {
   ProfileNotFoundError,
   ProfileInactiveError,
   ProfileConnectionInvalidError,
+  SharedRuntimeTargetNotFoundError,
+  SharedRuntimeTargetInactiveError,
   RuntimeDatabaseUnreachableError,
 } from "./runtime-database-router.errors";

@@ -340,7 +340,11 @@ async function stepInspect(client: PrismaClient) {
     );
   }
   if (ADMIN_EMAIL) {
-    const existingUser = await client.user.findUnique({
+    // Gap G — email ya no es único global; este INSPECT es puramente
+    // informativo (no crea/muta nada), así que findFirst es aceptable
+    // aquí — a diferencia del flujo real de creación/auth más abajo,
+    // que SÍ debe ir scoped por tenant_id.
+    const existingUser = await client.user.findFirst({
       where: { email: ADMIN_EMAIL },
       select: { id: true, gym_id: true, role: true, status: true },
     });
@@ -480,28 +484,24 @@ async function buildSeedPlan(
     items.push({ entity: "GymSettings", action: "CREATE", detail: "Se creará GymSettings con valores por defecto." });
   }
 
-  // 4. Admin User — email es @unique GLOBAL (no solo por tenant)
-  const existingUser = await client.user.findUnique({
-    where: { email: inputs.adminEmail },
-    select: { id: true, gym_id: true, role: true, status: true },
-  });
+  // 4. Admin User — SHARED-PILOT-4A / Gap G: email es único por tenant
+  // (tenant_id + email), no global. Si el tenant todavía no existe
+  // (tenantId null), no puede haber ningún User existente en él —
+  // se omite la consulta y se planea CREATE directamente. El mismo
+  // email en OTRO tenant ya no es un conflicto.
+  const existingUser = tenantId
+    ? await client.user.findUnique({
+        where:  { tenant_id_email: { tenant_id: tenantId, email: inputs.adminEmail } },
+        select: { id: true, gym_id: true, role: true, status: true },
+      })
+    : null;
 
   if (existingUser) {
-    if (tenantId && existingUser.gym_id === tenantId) {
-      items.push({
-        entity: "User",
-        action: "SKIP",
-        detail: `Ya existe el admin "${inputs.adminEmail}" en este tenant (role=${existingUser.role}, status=${existingUser.status}).`,
-      });
-    } else {
-      items.push({
-        entity: "User",
-        action: "ERROR",
-        detail: `El email "${inputs.adminEmail}" ya existe pero pertenece a otro tenant (gym_id=${existingUser.gym_id}). ` +
-          "email es único globalmente — no se puede reutilizar entre tenants distintos.",
-      });
-      hasErrors = true;
-    }
+    items.push({
+      entity: "User",
+      action: "SKIP",
+      detail: `Ya existe el admin "${inputs.adminEmail}" en este tenant (role=${existingUser.role}, status=${existingUser.status}).`,
+    });
   } else {
     items.push({
       entity: "User",
@@ -625,18 +625,15 @@ async function executeSeed(
       await tx.gymSettings.create({ data: { gym_id: tenantId, tenant_id: tenantId } });
     }
 
-    // 4. Admin User — idempotente por email (@unique global)
+    // 4. Admin User — SHARED-PILOT-4A / Gap G: idempotente por
+    // tenant_id + email (ya no por email global). El mismo email en
+    // otro tenant no es un conflicto — no requiere validación aquí.
     let adminUserId: string | null = null;
     const existingUser = await tx.user.findUnique({
-      where: { email: inputs.adminEmail },
+      where:  { tenant_id_email: { tenant_id: tenantId, email: inputs.adminEmail } },
       select: { id: true, gym_id: true },
     });
     if (existingUser) {
-      if (existingUser.gym_id !== tenantId) {
-        throw new RunnerInputError(
-          `El email "${inputs.adminEmail}" ya existe y pertenece a otro tenant. Abortando transacción.`,
-        );
-      }
       // ya existe en este tenant — SKIP, no se modifica.
     } else {
       const passwordHash = await bcrypt.hash(adminPassword!, 10);

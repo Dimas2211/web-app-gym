@@ -20,6 +20,16 @@
 // `organization.tenantId` (Control Plane). Un desalineamiento aquí es
 // TENANT_MISMATCH, no una coincidencia válida.
 //
+// SHARED-PILOT-4A / Gap G: desde que User.email dejó de ser @unique
+// global (ahora @@unique([tenant_id, email])), una base Shared Runtime
+// puede contener varios RuntimeTenant con Users que reutilizan el
+// mismo email. La búsqueda usa el compound key tenant_id_email
+// directamente — el tenant match ya no es un chequeo posterior sobre
+// un resultado potencialmente ajeno, es parte de la propia query. El
+// chequeo explícito de abajo se conserva como assertion defensiva
+// (nunca debería fallar si el compound key funcionó), no como la
+// única barrera.
+//
 // CUIDADO DE PROPAGACIÓN DE ERRORES:
 // withRuntimePrisma() envuelve CUALQUIER excepción que escape del
 // callback como RuntimeDatabaseUnreachableError (ver
@@ -80,7 +90,9 @@ type RuntimeAuthOutcome =
 /** Forma mínima de client runtime necesaria — evita acoplar el test a PrismaClient completo. */
 export interface RuntimeUserQueryClient {
   user: {
-    findUnique: (args: { where: { email: string } }) => Promise<{
+    findUnique: (args: {
+      where: { tenant_id_email: { tenant_id: string; email: string } };
+    }) => Promise<{
       id: string;
       email: string;
       first_name: string;
@@ -100,7 +112,9 @@ async function runAuthAgainstRuntimeClient(
   email: string,
   password: string,
 ): Promise<RuntimeAuthOutcome> {
-  const user = await client.user.findUnique({ where: { email } });
+  const user = await client.user.findUnique({
+    where: { tenant_id_email: { tenant_id: organization.tenantId, email } },
+  });
   if (!user) return { ok: false, code: "RUNTIME_USER_NOT_FOUND" };
   if (user.status !== "active") return { ok: false, code: "RUNTIME_USER_INACTIVE" };
 

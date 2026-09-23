@@ -26,10 +26,10 @@ export default function LoginPage() {
         {/* Header de la tarjeta */}
         <div className="bg-zinc-900 rounded-t-2xl px-8 py-7 text-center">
           <div className="text-white text-2xl font-black tracking-widest uppercase">
-            GYM
+            Zolvi
           </div>
           <p className="text-zinc-400 text-xs mt-1 tracking-wide uppercase">
-            Sistema de gestión
+            Plataforma de gestión
           </p>
         </div>
 
@@ -90,7 +90,7 @@ export default function LoginPage() {
         </div>
 
         <p className="text-center text-xs text-zinc-400 mt-4">
-          Sistema GYM · Gestión multi-sucursal
+          Zolvi · Plataforma multiindustria
         </p>
       </div>
     </div>

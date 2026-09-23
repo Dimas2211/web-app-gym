@@ -67,6 +67,7 @@ export async function validateProvisioningAction(
       updated_at:          true,
       vertical: { select: { id: true, code: true, name: true } },
       plan:     { select: { id: true, code: true, name: true } },
+      shared_runtime_target: { select: { id: true, label: true } },
       branding: true,
       modules: {
         where: { is_active: true },
@@ -112,6 +113,7 @@ export async function validateProvisioningAction(
     plan:                row.plan,
     created_at:          row.created_at,
     updated_at:          row.updated_at,
+    shared_runtime_target: row.shared_runtime_target,
   };
 
   const branding: PlatformBrandingData | null = row.branding

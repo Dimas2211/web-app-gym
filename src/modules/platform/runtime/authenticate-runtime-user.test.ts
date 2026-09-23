@@ -173,4 +173,15 @@ describe("authenticateRuntimeUser", () => {
     });
     expect(resultB.tenantId).toBe("tenant-b");
   });
+
+  it("SHARED-PILOT-4A / Gap G: la query usa el compound key tenant_id_email, no email global", async () => {
+    const client = fakeClient(fakeRuntimeUser());
+    withOrganizationRuntimePrismaMock.mockImplementation((_orgId, cb) => cb(client));
+
+    await authenticateRuntimeUser({ organization: ORG, email: "same@example.com", password: SYNTHETIC_PASSWORD });
+
+    expect(client.user.findUnique).toHaveBeenCalledWith({
+      where: { tenant_id_email: { tenant_id: ORG.tenantId, email: "same@example.com" } },
+    });
+  });
 });

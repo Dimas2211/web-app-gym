@@ -50,6 +50,7 @@ export async function getProvisioningPackageQuery(
       updated_at:          true,
       vertical: { select: { id: true, code: true, name: true } },
       plan:     { select: { id: true, code: true, name: true } },
+      shared_runtime_target: { select: { id: true, label: true } },
       branding: {
         select: {
           id:              true,
@@ -107,6 +108,7 @@ export async function getProvisioningPackageQuery(
     plan:                row.plan,
     created_at:          row.created_at,
     updated_at:          row.updated_at,
+    shared_runtime_target: row.shared_runtime_target,
   };
 
   // Branding compatible
