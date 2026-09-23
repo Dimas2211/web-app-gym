@@ -84,6 +84,10 @@ export async function createTrainerAction(
 
     const { user_id, ...rest } = parsed.data;
 
+    if (!context.gymId) {
+      return { error: "El módulo GYM no está configurado para esta organización." };
+    }
+
     // Validar que el user_id elegido pertenezca al mismo tenant y tenga rol trainer
     if (user_id) {
       const linkedUser = await context.client.user.findFirst({
@@ -106,7 +110,7 @@ export async function createTrainerAction(
 
     await context.client.trainer.create({
       data: {
-        gym_id: context.tenantId,
+        gym_id: context.gymId,
         tenant_id: context.tenantId,
         ...rest,
         user_id: user_id ?? null,

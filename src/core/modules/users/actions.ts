@@ -12,9 +12,10 @@
  *   - llamar redirect() / revalidatePath() tras el resultado
  *   - aplicar restricciones de roles específicas de la industria
  *
- * Fuente de datos: tabla `users` (campo `gym_id` mapea a tenantId en este período).
+ * Fuente de datos: tabla `users`.
  * Relación de campos en Prisma actual:
- *   User.gym_id    ←→  tenantId (parámetro)
+ *   User.tenant_id ←→  tenantId (parámetro) — columna de ownership autoritativa
+ *   User.gym_id    ←→  vínculo opcional con la extensión GYM (ver resolveOptionalGymForTenant)
  *   User.branch_id ←→  input.location_id
  */
 
@@ -64,6 +65,12 @@ export type CreateCoreUserInput = {
   password: string;
   operational_code?: string | null;
   qr_token?: string | null;
+  /**
+   * Vínculo opcional con la extensión GYM del tenant (resuelto por el
+   * caller vía resolveOptionalGymForTenant). null para tenants
+   * Commerce-only — el core nunca asume ni crea un Gym.
+   */
+  gym_id?: string | null;
 };
 
 // ─── Crear usuario ─────────────────────────────────────────────────────────────
@@ -105,7 +112,8 @@ export async function createCoreUser(
       (tx) =>
         tx.user.create({
           data: {
-            gym_id: tenantId,
+            tenant_id: tenantId,
+            gym_id: input.gym_id ?? null,
             branch_id: input.location_id ?? null,
             email: input.email,
             password_hash,
@@ -149,7 +157,7 @@ export async function updateCoreUser(
   // ETAPA W — ownership por tenant SIEMPRE en el WHERE, nunca findUnique(id)
   // seguido de mutación sin validar pertenencia (UUID único no es autorización).
   const target = await db.user.findFirst({
-    where: { id: userId, gym_id: tenantId },
+    where: { id: userId, tenant_id: tenantId },
     select: { id: true, role: true, email: true },
   });
   if (!target) {
@@ -208,7 +216,7 @@ export async function toggleCoreUserStatus(
   }
 
   const user = await db.user.findFirst({
-    where: { id: userId, gym_id: tenantId },
+    where: { id: userId, tenant_id: tenantId },
     select: { id: true, status: true },
   });
   if (!user) {

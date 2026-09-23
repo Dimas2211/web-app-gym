@@ -38,23 +38,24 @@ export async function runTenantFiscalConfigDryRun(
 ): Promise<TenantFiscalConfigDryRunResult> {
   const { tenantId } = input;
 
-  // 1. Verificar que el tenant (Gym) existe
-  const gym = await prismaClient.gym.findUnique({
+  // 1. Verificar que el tenant (RuntimeTenant) existe — TenantFiscalConfig
+  // es commerce/DTE-neutral, no depende de que el tenant tenga Gym.
+  const tenant = await prismaClient.runtimeTenant.findUnique({
     where:  { id: tenantId },
     select: { id: true, name: true, status: true },
   });
 
-  if (!gym) {
+  if (!tenant) {
     return {
       tenantFound:          false,
       existingConfigFound:  false,
       wouldCreate:          false,
       wouldUpdate:          false,
       recommendedDefaults:  { is_retention_agent: false, retention_threshold_amount: null },
-      warnings:             [`No se encontró un Gym con ID '${tenantId}'.`],
+      warnings:             [`No se encontró un RuntimeTenant con ID '${tenantId}'.`],
       manualReviewRequired: true,
-      manualReviewReason:   `No existe un tenant (Gym) con ID '${tenantId}'. ` +
-                            `Verificar que PlatformOrganization.tenant_id coincida con un Gym.id existente en la base objetivo.`,
+      manualReviewReason:   `No existe un tenant con ID '${tenantId}'. ` +
+                            `Verificar que PlatformOrganization.tenant_id coincida con un RuntimeTenant.id existente en la base objetivo.`,
     };
   }
 
@@ -67,7 +68,7 @@ export async function runTenantFiscalConfigDryRun(
   if (existing) {
     return {
       tenantFound:          true,
-      tenantName:           gym.name,
+      tenantName:           tenant.name,
       existingConfigFound:  true,
       existingConfigId:     existing.id,
       wouldCreate:          false,
@@ -80,7 +81,7 @@ export async function runTenantFiscalConfigDryRun(
 
   return {
     tenantFound:          true,
-    tenantName:           gym.name,
+    tenantName:           tenant.name,
     existingConfigFound:  false,
     wouldCreate:          true,
     wouldUpdate:          false,

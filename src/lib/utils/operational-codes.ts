@@ -14,8 +14,23 @@ function formatCode(prefix: string, num: number, digits: number): string {
   return `${prefix}${String(num).padStart(digits, "0")}`;
 }
 
+/**
+ * Resuelve el id de la extensión Gym del tenant, o null si es Commerce-only.
+ * SHARED-PILOT-3C: Client.gym_id debe resolverse desde Gym.tenant_id,
+ * nunca asumir gym.id === tenantId.
+ */
+async function resolveGymId(tenantId: string, db: PrismaClient): Promise<string | null> {
+  const gym = await db.gym.findUnique({ where: { tenant_id: tenantId }, select: { id: true } });
+  return gym?.id ?? null;
+}
+
 async function getSettings(tenantId: string, db: PrismaClient = prisma) {
-  const s = await db.gymSettings.findUnique({ where: { gym_id: tenantId } });
+  // GymSettings es 1:1 con Gym (extensión vertical opcional) — se
+  // resuelve por Gym.tenant_id, nunca asumiendo gym.id === tenantId.
+  // Un tenant Commerce-only sin Gym simplemente no tiene GymSettings —
+  // se usan los defaults de abajo.
+  const gym = await db.gym.findUnique({ where: { tenant_id: tenantId }, select: { id: true } });
+  const s = gym ? await db.gymSettings.findUnique({ where: { gym_id: gym.id } }) : null;
   return {
     staff: {
       prefix: s?.staff_code_prefix ?? STAFF_DEFAULTS.prefix,
@@ -39,7 +54,7 @@ export async function suggestNextStaffCode(tenantId: string, db: PrismaClient = 
   const { prefix, digits, start } = staff;
 
   const users = await db.user.findMany({
-    where: { gym_id: tenantId, operational_code: { startsWith: prefix } },
+    where: { tenant_id: tenantId, operational_code: { startsWith: prefix } },
     select: { operational_code: true },
   });
 
@@ -60,10 +75,13 @@ export async function suggestNextClientCode(tenantId: string, db: PrismaClient =
   const { client } = await getSettings(tenantId, db);
   const { prefix, digits, start } = client;
 
-  const clients = await db.client.findMany({
-    where: { gym_id: tenantId, operational_code: { startsWith: prefix } },
-    select: { operational_code: true },
-  });
+  const gymId = await resolveGymId(tenantId, db);
+  const clients = gymId
+    ? await db.client.findMany({
+        where: { gym_id: gymId, operational_code: { startsWith: prefix } },
+        select: { operational_code: true },
+      })
+    : [];
 
   let maxNum = start - 1;
   for (const c of clients) {
@@ -92,7 +110,7 @@ export async function isStaffCodeAvailable(
 ): Promise<boolean> {
   const existing = await db.user.findFirst({
     where: {
-      gym_id: tenantId,
+      tenant_id: tenantId,
       operational_code: code,
       ...(excludeUserId ? { id: { not: excludeUserId } } : {}),
     },
@@ -110,9 +128,12 @@ export async function isClientCodeAvailable(
   excludeClientId?: string,
   db: PrismaClient = prisma
 ): Promise<boolean> {
+  const gymId = await resolveGymId(tenantId, db);
+  if (!gymId) return true; // Commerce-only tenant — sin Gym, sin clientes GYM
+
   const existing = await db.client.findFirst({
     where: {
-      gym_id: tenantId,
+      gym_id: gymId,
       operational_code: code,
       ...(excludeClientId ? { id: { not: excludeClientId } } : {}),
     },

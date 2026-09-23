@@ -92,13 +92,17 @@ export async function createClientAction(
 
     const { branch_id, birth_date, gender, ...rest } = parsed.data;
 
+    if (!context.gymId) {
+      return { error: "El módulo GYM no está configurado para esta organización." };
+    }
+
     // Generar código operativo y token QR para el nuevo cliente
     const operational_code = await suggestNextClientCode(context.tenantId, context.client);
     const qr_token = generateQrToken();
 
     await context.client.client.create({
       data: {
-        gym_id: context.tenantId,
+        gym_id: context.gymId,
         tenant_id: context.tenantId,
         branch_id,
         ...rest,
@@ -251,6 +255,7 @@ export async function enableClientPortalAction(
     await context.client.$transaction(async (tx) => {
       const newUser = await tx.user.create({
         data: {
+          tenant_id: context.tenantId,
           gym_id: client.gym_id,
           branch_id: client.branch_id,
           email: parsed.data.portal_email,

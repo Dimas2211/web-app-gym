@@ -31,7 +31,7 @@ export type AdminDeleteAuthResult =
  * Condiciones que debe cumplir el admin:
  * - Debe ser super_admin o branch_admin
  * - Debe estar activo
- * - Debe pertenecer al mismo gym que el usuario que solicita la autorización
+ * - Debe pertenecer al mismo tenant que el usuario que solicita la autorización
  *
  * Se aplica timing-safe compare: si el usuario no existe, igualmente se corre
  * bcrypt.compare contra un hash dummy para evitar ataques de temporización.
@@ -48,7 +48,7 @@ export async function verifyAdminDeleteCredentials(
   const admin = await db.user.findFirst({
     where: {
       email: credentials.email.toLowerCase().trim(),
-      gym_id: tenantId,
+      tenant_id: tenantId,
       role: { in: ["super_admin", "branch_admin"] },
       status: "active",
     },

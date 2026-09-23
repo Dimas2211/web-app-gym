@@ -31,7 +31,7 @@ let SYNTHETIC_HASH: string;
 
 function fakeRuntimeUser(overrides: Partial<{
   status: string;
-  gym_id: string;
+  tenant_id: string;
   password_hash: string;
 }> = {}) {
   return {
@@ -42,7 +42,7 @@ function fakeRuntimeUser(overrides: Partial<{
     role: "branch_admin",
     status: "active",
     password_hash: SYNTHETIC_HASH,
-    gym_id: "tenant-a",
+    tenant_id: "tenant-a",
     branch_id: "branch-1",
     ...overrides,
   };
@@ -106,7 +106,7 @@ describe("authenticateRuntimeUser", () => {
   });
 
   it("tenant del usuario runtime no coincide con organization.tenantId → RUNTIME_TENANT_MISMATCH", async () => {
-    const client = fakeClient(fakeRuntimeUser({ gym_id: "tenant-OTHER" }));
+    const client = fakeClient(fakeRuntimeUser({ tenant_id: "tenant-OTHER" }));
     withOrganizationRuntimePrismaMock.mockImplementation((_orgId, cb) => cb(client));
 
     await expect(
@@ -142,8 +142,8 @@ describe("authenticateRuntimeUser", () => {
   });
 
   it("same-email isolation: mismo email en dos organizaciones distintas se busca solo en la base de la organización objetivo", async () => {
-    const clientA = fakeClient(fakeRuntimeUser({ gym_id: "tenant-a" }));
-    const clientB = fakeClient(fakeRuntimeUser({ gym_id: "tenant-b", password_hash: await bcrypt.hash("password-b", 4) }));
+    const clientA = fakeClient(fakeRuntimeUser({ tenant_id: "tenant-a" }));
+    const clientB = fakeClient(fakeRuntimeUser({ tenant_id: "tenant-b", password_hash: await bcrypt.hash("password-b", 4) }));
 
     withOrganizationRuntimePrismaMock.mockImplementation((orgId: string, cb: (c: RuntimeUserQueryClient) => unknown) =>
       cb(orgId === "org-a" ? clientA : clientB),

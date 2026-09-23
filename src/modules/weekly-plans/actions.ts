@@ -129,9 +129,13 @@ export async function createTemplateAction(
     const parsed = createTemplateSchema.safeParse(raw);
     if (!parsed.success) return { errors: parsed.error.flatten().fieldErrors };
 
+    if (!context.gymId) {
+      return { error: "El módulo GYM no está configurado para esta organización." };
+    }
+
     await context.client.weeklyPlanTemplate.create({
       data: {
-        gym_id: context.tenantId,
+        gym_id: context.gymId,
         tenant_id: context.tenantId,
         created_by: context.effectiveUser.id,
         status: "active",
@@ -444,10 +448,14 @@ export async function createClientPlanAction(
       };
     }
 
+    if (!context.gymId) {
+      return { error: "El módulo GYM no está configurado para esta organización." };
+    }
+
     // Crear el plan
     const newPlan = await context.client.clientWeeklyPlan.create({
       data: {
-        gym_id: context.tenantId,
+        gym_id: context.gymId,
         tenant_id: context.tenantId,
         branch_id,
         client_id,
@@ -853,6 +861,10 @@ export async function assignTemplateSegmentedAction(
     const parsed = assignSegmentedSchema.safeParse(raw);
     if (!parsed.success) return { errors: parsed.error.flatten().fieldErrors };
 
+    if (!context.gymId) {
+      return { error: "El módulo GYM no está configurado para esta organización." };
+    }
+
     const {
       template_id,
       branch_id,
@@ -950,7 +962,7 @@ export async function assignTemplateSegmentedAction(
 
       const newPlan = await context.client.clientWeeklyPlan.create({
         data: {
-          gym_id: context.tenantId,
+          gym_id: context.gymId,
           tenant_id: context.tenantId,
           branch_id: planBranchId,
           client_id: client.id,

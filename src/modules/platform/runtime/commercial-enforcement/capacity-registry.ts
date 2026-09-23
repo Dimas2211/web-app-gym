@@ -38,10 +38,10 @@ export interface CapacityUsageProvider {
 
 export const CAPACITY_REGISTRY: Record<string, CapacityUsageProvider> = {
   "core.users.max": {
-    countUsage: (tenantId, db) => db.user.count({ where: { gym_id: tenantId, status: "active" } }),
+    countUsage: (tenantId, db) => db.user.count({ where: { tenant_id: tenantId, status: "active" } }),
   },
   "core.locations.max": {
-    countUsage: (tenantId, db) => db.branch.count({ where: { gym_id: tenantId, status: "active" } }),
+    countUsage: (tenantId, db) => db.branch.count({ where: { tenant_id: tenantId, status: "active" } }),
   },
   "commerce.products.max": {
     countUsage: (tenantId, db) =>

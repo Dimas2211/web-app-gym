@@ -106,7 +106,7 @@ describe("requireRuntimeOrganizationContext — fail closed", () => {
     });
   });
 
-  function fakeRuntimeUser(row: { status: string; gym_id: string; role?: string } | null) {
+  function fakeRuntimeUser(row: { status: string; tenant_id: string; role?: string } | null) {
     return { user: { findUnique: vi.fn().mockResolvedValue(row) } };
   }
 
@@ -119,7 +119,7 @@ describe("requireRuntimeOrganizationContext — fail closed", () => {
     const client = fakeControlPlane(ORG_OK);
     resolveRuntimeDatabaseProfileForOrganizationMock.mockResolvedValue({ id: "profile-1" });
     const disconnect = vi.fn().mockResolvedValue(undefined);
-    const runtimeUser = fakeRuntimeUser({ status: "active", gym_id: "tenant-1", role: "reception" });
+    const runtimeUser = fakeRuntimeUser({ status: "active", tenant_id: "tenant-1", role: "reception" });
     const runtimeBranch = fakeRuntimeBranch();
     createRuntimePrismaClientMock.mockReturnValue({
       client: { fake: "runtime-prisma", ...runtimeUser, ...runtimeBranch },
@@ -135,10 +135,10 @@ describe("requireRuntimeOrganizationContext — fail closed", () => {
     expect(handle.context.role).toBe("reception");
     expect(runtimeUser.user.findUnique).toHaveBeenCalledWith({
       where: { id: "u1" },
-      select: { status: true, gym_id: true, role: true },
+      select: { status: true, tenant_id: true, role: true },
     });
     expect(runtimeBranch.branch.findFirst).toHaveBeenCalledWith({
-      where: { id: "branch-1", gym_id: "tenant-1", status: "active" },
+      where: { id: "branch-1", tenant_id: "tenant-1", status: "active" },
       select: { id: true },
     });
 
@@ -153,7 +153,7 @@ describe("requireRuntimeOrganizationContext — fail closed", () => {
     createRuntimePrismaClientMock.mockReturnValue({
       client: {
         fake: "runtime-prisma",
-        ...fakeRuntimeUser({ status: "active", gym_id: "tenant-1", role: "branch_admin" }),
+        ...fakeRuntimeUser({ status: "active", tenant_id: "tenant-1", role: "branch_admin" }),
         ...fakeRuntimeBranch(),
       },
       disconnect,
@@ -172,7 +172,7 @@ describe("requireRuntimeOrganizationContext — fail closed", () => {
       createRuntimePrismaClientMock.mockReturnValue({
         client: {
           fake: "runtime-prisma",
-          ...fakeRuntimeUser({ status: "active", gym_id: "tenant-1", role: "super_admin" }),
+          ...fakeRuntimeUser({ status: "active", tenant_id: "tenant-1", role: "super_admin" }),
           ...runtimeBranch,
         },
         disconnect,
@@ -190,7 +190,7 @@ describe("requireRuntimeOrganizationContext — fail closed", () => {
       createRuntimePrismaClientMock.mockReturnValue({
         client: {
           fake: "runtime-prisma",
-          ...fakeRuntimeUser({ status: "active", gym_id: "tenant-1", role: "branch_admin" }),
+          ...fakeRuntimeUser({ status: "active", tenant_id: "tenant-1", role: "branch_admin" }),
           ...fakeRuntimeBranch(null), // no existe / inactiva / otro tenant — mismo resultado desde el findFirst
         },
         disconnect,
@@ -209,7 +209,7 @@ describe("requireRuntimeOrganizationContext — fail closed", () => {
       createRuntimePrismaClientMock.mockReturnValue({
         client: {
           fake: "runtime-prisma",
-          ...fakeRuntimeUser({ status: "active", gym_id: "tenant-1", role: "branch_admin" }),
+          ...fakeRuntimeUser({ status: "active", tenant_id: "tenant-1", role: "branch_admin" }),
           ...fakeRuntimeBranch({ id: "branch-1" }),
         },
         disconnect,
@@ -248,7 +248,7 @@ describe("requireRuntimeOrganizationContext — fail closed", () => {
       resolveRuntimeDatabaseProfileForOrganizationMock.mockResolvedValue({ id: "profile-1" });
       const disconnect = vi.fn().mockResolvedValue(undefined);
       createRuntimePrismaClientMock.mockReturnValue({
-        client: { fake: "runtime-prisma", ...fakeRuntimeUser({ status: "inactive", gym_id: "tenant-1" }) },
+        client: { fake: "runtime-prisma", ...fakeRuntimeUser({ status: "inactive", tenant_id: "tenant-1" }) },
         disconnect,
       });
 
@@ -258,12 +258,12 @@ describe("requireRuntimeOrganizationContext — fail closed", () => {
       expect(disconnect).toHaveBeenCalledTimes(1);
     });
 
-    it("usuario runtime con gym_id de otro tenant → RUNTIME_USER_TENANT_MISMATCH, y desconecta", async () => {
+    it("usuario runtime con tenant_id de otro tenant → RUNTIME_USER_TENANT_MISMATCH, y desconecta", async () => {
       const client = fakeControlPlane(ORG_OK);
       resolveRuntimeDatabaseProfileForOrganizationMock.mockResolvedValue({ id: "profile-1" });
       const disconnect = vi.fn().mockResolvedValue(undefined);
       createRuntimePrismaClientMock.mockReturnValue({
-        client: { fake: "runtime-prisma", ...fakeRuntimeUser({ status: "active", gym_id: "tenant-OTHER" }) },
+        client: { fake: "runtime-prisma", ...fakeRuntimeUser({ status: "active", tenant_id: "tenant-OTHER" }) },
         disconnect,
       });
 

@@ -92,6 +92,7 @@ function fakeHandle(overrides: Partial<{ role: string; locationId: string | null
       tenantId: "tenant-1",
       client: overrides.client ?? {
         user: { findFirst: vi.fn().mockResolvedValue({ id: "target-1", role: "reception", branch_id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc", trainer_profile: null }) },
+        gym: { findUnique: vi.fn().mockResolvedValue(null) },
       },
       commercialContext: { organizationId: null },
     },

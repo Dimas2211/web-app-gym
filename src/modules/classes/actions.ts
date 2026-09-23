@@ -62,8 +62,12 @@ export async function createClassTypeAction(
     const parsed = createClassTypeSchema.safeParse(raw);
     if (!parsed.success) return { errors: parsed.error.flatten().fieldErrors };
 
+    if (!context.gymId) {
+      return { error: "El módulo GYM no está configurado para esta organización." };
+    }
+
     await context.client.classType.create({
-      data: { gym_id: context.tenantId, tenant_id: context.tenantId, ...parsed.data, status: "active" },
+      data: { gym_id: context.gymId, tenant_id: context.tenantId, ...parsed.data, status: "active" },
     });
   } finally {
     await dispose();
@@ -275,9 +279,13 @@ export async function createScheduledClassAction(
       };
     }
 
+    if (!context.gymId) {
+      return { error: "El módulo GYM no está configurado para esta organización." };
+    }
+
     await context.client.scheduledClass.create({
       data: {
-        gym_id: context.tenantId,
+        gym_id: context.gymId,
         tenant_id: context.tenantId,
         branch_id,
         class_type_id,

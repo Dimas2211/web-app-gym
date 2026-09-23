@@ -12,6 +12,7 @@ const {
   resolveEffectiveTenantContextMock,
   resolveCommercialEnforcementContextMock,
   assertOrganizationModuleMock,
+  resolveOptionalGymForTenantMock,
   FakeCommercialEnforcementError,
 } = vi.hoisted(() => {
   class FakeCommercialEnforcementError extends Error {
@@ -27,6 +28,7 @@ const {
     resolveEffectiveTenantContextMock: vi.fn(),
     resolveCommercialEnforcementContextMock: vi.fn(),
     assertOrganizationModuleMock: vi.fn(),
+    resolveOptionalGymForTenantMock: vi.fn(),
     FakeCommercialEnforcementError,
   };
 });
@@ -39,6 +41,10 @@ vi.mock("./commercial-enforcement", () => ({
   resolveCommercialEnforcementContext: resolveCommercialEnforcementContextMock,
   assertOrganizationModule: assertOrganizationModuleMock,
   CommercialEnforcementError: FakeCommercialEnforcementError,
+}));
+
+vi.mock("@/modules/platform/lib/provisioning/resolve-optional-gym-for-tenant", () => ({
+  resolveOptionalGymForTenant: resolveOptionalGymForTenantMock,
 }));
 
 vi.mock("@/lib/db/prisma", () => ({
@@ -99,6 +105,8 @@ beforeEach(() => {
   resolveEffectiveTenantContextMock.mockReset();
   resolveCommercialEnforcementContextMock.mockReset();
   assertOrganizationModuleMock.mockReset();
+  resolveOptionalGymForTenantMock.mockReset();
+  resolveOptionalGymForTenantMock.mockResolvedValue(null);
 });
 
 describe("requireOperationalContext", () => {
@@ -231,6 +239,29 @@ describe("requireOperationalContext", () => {
     expect(context.organizationId).toBe("org-trustme");
     expect(context.commercialContext).toBeNull();
     expect(resolveCommercialEnforcementContextMock).not.toHaveBeenCalled();
+  });
+
+  it("SHARED-PILOT-3C: gymId se resuelve vía Gym.tenant_id, distinto de tenantId — nunca gym.id === tenantId", async () => {
+    const { handle } = fakeEffective({ tenantId: "tenant-A" });
+    resolveEffectiveTenantContextMock.mockResolvedValue(handle);
+    resolveOptionalGymForTenantMock.mockResolvedValue("gym-X");
+
+    const { context } = await requireOperationalContext(PLATFORM_USER);
+
+    expect(context.tenantId).toBe("tenant-A");
+    expect(context.gymId).toBe("gym-X");
+    expect(context.gymId).not.toBe(context.tenantId);
+    expect(resolveOptionalGymForTenantMock).toHaveBeenCalledWith(expect.anything(), "tenant-A");
+  });
+
+  it("SHARED-PILOT-3C: tenant Commerce-only sin Gym -> gymId null, no lanza", async () => {
+    const { handle } = fakeEffective();
+    resolveEffectiveTenantContextMock.mockResolvedValue(handle);
+    resolveOptionalGymForTenantMock.mockResolvedValue(null);
+
+    const { context } = await requireOperationalContext(PLATFORM_USER);
+
+    expect(context.gymId).toBeNull();
   });
 
   it("errores son instancia de OperationalContextError", async () => {

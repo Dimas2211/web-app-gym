@@ -13,7 +13,7 @@
 
 import type { PrismaClient } from "@prisma/client";
 import { prisma } from "@/lib/db/prisma";
-import { PLATFORM_MODULE_CODES } from "../constants/platform-modules.constants";
+import { PLATFORM_MODULE_CODES, GYM_VERTICAL_MODULES } from "../constants/platform-modules.constants";
 import type {
   DatabasePreflightInput,
   DatabasePreflightResult,
@@ -488,41 +488,51 @@ async function runTenantChecks(
 ): Promise<PreflightCheckItem[]> {
   const checks: PreflightCheckItem[] = [];
 
-  // Cargar datos de tenant en paralelo
-  let gym:                 { id: string; name: string; status: string } | null = null;
+  // Cargar datos de tenant en paralelo.
+  // SHARED-PILOT-3: la existencia del tenant se valida contra RuntimeTenant
+  // (raíz neutral), no contra Gym. Gym es una extensión vertical opcional —
+  // se valida aparte, solo si el vertical GYM está activo para el tenant
+  // (ver check GYM_EXTENSION_PRESENT más abajo).
+  let runtimeTenant:        { id: string; name: string; status: string } | null = null;
   let branchCount          = 0;
   let adminUserCount       = 0;
   let taxRateCount         = 0;
   let productCategoryCount = 0;
   let tenantFiscalConfig:  { tenant_id: string } | null = null;
   let cashRegisterCount    = 0;
+  let gymExtension:         { id: string; status: string } | null = null;
 
   try {
     ([
-      gym,
+      runtimeTenant,
       branchCount,
       adminUserCount,
       taxRateCount,
       productCategoryCount,
       tenantFiscalConfig,
       cashRegisterCount,
+      gymExtension,
     ] = await Promise.all([
-      db.gym.findUnique({
+      db.runtimeTenant.findUnique({
         where:  { id: tenantId },
         select: { id: true, name: true, status: true },
       }),
-      db.branch.count({ where: { gym_id: tenantId, status: "active" } }),
+      db.branch.count({ where: { tenant_id: tenantId, status: "active" } }),
       db.user.count({
         where: {
-          gym_id: tenantId,
-          role:   { in: ["super_admin", "branch_admin"] },
-          status: "active",
+          tenant_id: tenantId,
+          role:      { in: ["super_admin", "branch_admin"] },
+          status:    "active",
         },
       }),
       db.taxRate.count({ where: { tenant_id: tenantId, status: "active" } }),
       db.productCategory.count({ where: { tenant_id: tenantId, status: "active" } }),
       db.tenantFiscalConfig.findUnique({ where: { tenant_id: tenantId } }),
       db.cashRegister.count({ where: { tenant_id: tenantId, is_active: true } }),
+      db.gym.findUnique({
+        where:  { tenant_id: tenantId },
+        select: { id: true, status: true },
+      }),
     ]));
   } catch (err) {
     checks.push(fail(
@@ -531,39 +541,62 @@ async function runTenantChecks(
       "BLOCKER",
       "TENANT",
       extractSafeCheckError(err),
-      "Verificar que el schema de la base objetivo incluya las tablas Gym, Branch, User, TaxRate, ProductCategory, TenantFiscalConfig y CashRegister.",
+      "Verificar que el schema de la base objetivo incluya las tablas RuntimeTenant, Branch, User, TaxRate, ProductCategory, TenantFiscalConfig y CashRegister.",
     ));
     return checks;
   }
 
-  // 1. Tenant / Gym existe
-  if (!gym) {
+  // 1. Tenant (RuntimeTenant) existe — PHYSICAL_DB/TENANT_SCOPED, neutral,
+  // no requiere Gym.
+  if (!runtimeTenant) {
     checks.push(
       fail(
         "TENANT_EXISTS",
-        "Tenant / Gym existe",
+        "Tenant existe",
         "BLOCKER",
         "TENANT",
-        `No se encontró un Gym con ID '${tenantId}'. El tenant_id puede no corresponder a un gym.`,
-        "Verificar que PlatformOrganization.tenant_id coincide con Gym.id.",
+        `No se encontró un RuntimeTenant con ID '${tenantId}'.`,
+        "Verificar que PlatformOrganization.tenant_id coincide con RuntimeTenant.id.",
       ),
     );
-    // Sin gym válido, los demás checks de tenant no tienen sentido
+    // Sin tenant válido, los demás checks de tenant no tienen sentido
     return checks;
   }
 
   checks.push(
-    gym.status === "active"
-      ? pass("TENANT_EXISTS", "Tenant / Gym existe", "BLOCKER", "TENANT")
+    runtimeTenant.status === "active"
+      ? pass("TENANT_EXISTS", "Tenant existe", "BLOCKER", "TENANT")
       : fail(
           "TENANT_EXISTS",
-          "Tenant / Gym existe",
+          "Tenant existe",
           "BLOCKER",
           "TENANT",
-          `Gym '${gym.name}' existe pero su estado es '${gym.status}'.`,
-          "Activar el gym en la base de datos.",
+          `Tenant '${runtimeTenant.name}' existe pero su estado es '${runtimeTenant.status}'.`,
+          "Activar el tenant en la base de datos.",
         ),
   );
+
+  // 1b. GYM_EXTENSION_PRESENT — solo informativo cuando el vertical GYM está
+  // activo para este tenant; un tenant Commerce-only no necesita Gym.
+  const gymActive = activeModuleCodes.some((code) =>
+    (GYM_VERTICAL_MODULES as string[]).includes(code),
+  );
+  if (gymActive) {
+    checks.push(
+      gymExtension && gymExtension.status === "active"
+        ? pass("GYM_EXTENSION_PRESENT", "Extensión Gym presente y activa", "BLOCKER", "MODULE")
+        : fail(
+            "GYM_EXTENSION_PRESENT",
+            "Extensión Gym presente y activa",
+            "BLOCKER",
+            "MODULE",
+            gymExtension
+              ? `La extensión Gym existe pero su estado es '${gymExtension.status}'.`
+              : "El vertical GYM está activo pero no existe una extensión Gym vinculada a este tenant.",
+            "Crear/activar el registro Gym para este tenant (Gym.tenant_id).",
+          ),
+    );
+  }
 
   // 2. Location / Branch activa
   checks.push(

@@ -29,7 +29,7 @@ export default async function NewWeeklyPlanTemplatePage() {
       getSportOptions(context.client),
       getGoalOptions(context.client),
       (context.client ?? prisma).branch.findMany({
-        where: { gym_id: effectiveUser.tenant_id, status: "active" },
+        where: { tenant_id: effectiveUser.tenant_id, status: "active" },
         select: { id: true, name: true },
         orderBy: { name: "asc" },
       }),

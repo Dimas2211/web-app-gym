@@ -16,7 +16,7 @@ import type { CoreUser, UserSummary } from "./types";
 /**
  * Convierte un registro User al contrato CoreUser.
  *
- * Campos incluidos: id, gym_id→tenant_id, branch_id→location_id,
+ * Campos incluidos: id, tenant_id, branch_id→location_id,
  *   email, first_name, last_name, role (string), status, avatar_url, timestamps.
  *
  * Campos excluidos deliberadamente:
@@ -31,7 +31,7 @@ import type { CoreUser, UserSummary } from "./types";
  */
 function userToCoreUser(user: {
   id: string;
-  gym_id: string;
+  tenant_id: string;
   branch_id: string | null;
   email: string;
   first_name: string;
@@ -51,7 +51,7 @@ function userToCoreUser(user: {
 
   return {
     id: user.id,
-    tenant_id: user.gym_id,
+    tenant_id: user.tenant_id,
     location_id: user.branch_id,
     email: user.email,
     first_name: user.first_name,
@@ -67,7 +67,7 @@ function userToCoreUser(user: {
 /** Campos User necesarios para el mapeo — excluye datos sensibles y GYM-específicos. */
 const CORE_USER_SELECT = {
   id: true,
-  gym_id: true,
+  tenant_id: true,
   branch_id: true,
   email: true,
   first_name: true,
@@ -84,11 +84,16 @@ const CORE_USER_SELECT = {
 // ─── Queries públicas ──────────────────────────────────────────────────────────
 
 /**
- * Retorna un usuario core por su ID o null si no existe o está eliminado.
+ * Retorna un usuario core por su ID, tenant-scoped, o null si no existe,
+ * está eliminado, o pertenece a otro tenant.
+ *
+ * SHARED-PILOT-3C: antes filtraba solo por `id` (sin tenant_id), exponiendo
+ * usuarios de tenants ajenos a cualquier caller que conociera el UUID.
+ * Ahora exige tenant_id — fail closed.
  */
-export async function getCoreUserById(id: string): Promise<CoreUser | null> {
+export async function getCoreUserById(id: string, tenantId: string): Promise<CoreUser | null> {
   const user = await prisma.user.findFirst({
-    where: { id, status: { not: "deleted" } },
+    where: { id, tenant_id: tenantId, status: { not: "deleted" } },
     select: CORE_USER_SELECT,
   });
   return user ? userToCoreUser(user) : null;
@@ -102,7 +107,7 @@ export async function getCoreUserById(id: string): Promise<CoreUser | null> {
 export async function getCoreUsersByTenantId(tenantId: string): Promise<CoreUser[]> {
   const users = await prisma.user.findMany({
     where: {
-      gym_id: tenantId,
+      tenant_id: tenantId,
       status: { not: "deleted" },
       role: { not: "client" },
     },
@@ -122,7 +127,7 @@ export async function getCoreUsersByLocationId(
 ): Promise<CoreUser[]> {
   const users = await prisma.user.findMany({
     where: {
-      gym_id: tenantId,
+      tenant_id: tenantId,
       branch_id: locationId,
       status: { not: "deleted" },
       role: { not: "client" },
@@ -136,8 +141,8 @@ export async function getCoreUsersByLocationId(
 /**
  * Verifica si un usuario existe y está activo.
  */
-export async function isCoreUserActive(id: string): Promise<boolean> {
-  const user = await getCoreUserById(id);
+export async function isCoreUserActive(id: string, tenantId: string): Promise<boolean> {
+  const user = await getCoreUserById(id, tenantId);
   return user?.status === "active";
 }
 
@@ -148,7 +153,7 @@ export async function isCoreUserActive(id: string): Promise<boolean> {
 export async function getCoreUserSummaries(tenantId: string): Promise<UserSummary[]> {
   const users = await prisma.user.findMany({
     where: {
-      gym_id: tenantId,
+      tenant_id: tenantId,
       status: { not: "deleted" },
       role: { not: "client" },
     },

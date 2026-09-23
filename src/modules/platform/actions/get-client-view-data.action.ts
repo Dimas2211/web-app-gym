@@ -147,6 +147,23 @@ export async function getClientViewDataAction(
   const host             = profile.db_host;
   const dbName           = profile.db_name;
   const environment      = String(profile.environment);
+  const tenantId         = profile.organization.tenant_id;
+
+  // SHARED-PILOT-3 — FAIL CLOSED: "Entrar como cliente" leía Gym/Branch/
+  // User/productos/ventas/DTE/caja sin ningún filtro de tenant, exponiendo
+  // datos de otros tenants en una DB compartida (Shared Runtime). Ahora
+  // requiere tenant_id vinculado, igual que Support Session e Inspector.
+  if (!tenantId) {
+    return {
+      ...empty,
+      profileLabel,
+      organizationName,
+      host,
+      dbName,
+      environment,
+      error: "TENANT_BINDING_REQUIRED: esta organización no tiene un tenant vinculado. Usa \"Detectar tenant\" desde Perfiles de BD antes de entrar como cliente.",
+    };
+  }
 
   const warnings: string[] = [];
 
@@ -175,21 +192,21 @@ export async function getClientViewDataAction(
   try {
     await withRuntimePrismaForInspection(profileId, async (client) => {
 
-      // ── Bloque 1: Core — tenant (gym) ─────────────────────────────
+      // ── Bloque 1: Core — tenant (RuntimeTenant) ───────────────────
       try {
-        const gym = await client.gym.findFirst({
-          select:  { id: true, name: true, slug: true, status: true },
-          orderBy: { created_at: "asc" },
+        const rt = await client.runtimeTenant.findUnique({
+          where:  { id: tenantId },
+          select: { id: true, name: true, slug: true, status: true },
         });
-        if (gym) {
+        if (rt) {
           tenant = {
-            id:     gym.id,
-            name:   gym.name,
-            slug:   gym.slug ?? null,
-            status: gym.status ?? null,
+            id:     rt.id,
+            name:   rt.name,
+            slug:   rt.slug ?? null,
+            status: rt.status ?? null,
           };
         }
-        summary.tenants = await client.gym.count();
+        summary.tenants = await client.runtimeTenant.count();
       } catch (err) {
         warnings.push(`Core/tenant: ${sanitizeDatabaseError(err)}`);
       }
@@ -197,6 +214,7 @@ export async function getClientViewDataAction(
       // ── Bloque 2: Core — locations (branches) ────────────────────
       try {
         const rawLocs = await client.branch.findMany({
+          where:   { tenant_id: tenantId },
           select:  { id: true, name: true, status: true },
           orderBy: { name: "asc" },
           take:    20,
@@ -206,22 +224,23 @@ export async function getClientViewDataAction(
           name:   b.name,
           status: b.status ?? null,
         }));
-        summary.locations = await client.branch.count();
+        summary.locations = await client.branch.count({ where: { tenant_id: tenantId } });
       } catch (err) {
         warnings.push(`Core/locations: ${sanitizeDatabaseError(err)}`);
       }
 
       // ── Bloque 3: Core — usuarios (solo conteo) ───────────────────
       try {
-        summary.users = await client.user.count();
+        summary.users = await client.user.count({ where: { tenant_id: tenantId } });
       } catch (err) {
         warnings.push(`Core/users: ${sanitizeDatabaseError(err)}`);
       }
 
       // ── Bloque 4: Commerce — productos ────────────────────────────
       try {
-        summary.products = await client.product.count();
+        summary.products = await client.product.count({ where: { tenant_id: tenantId } });
         const rawProducts = await client.product.findMany({
+          where: { tenant_id: tenantId },
           select: {
             id:           true,
             product_code: true,
@@ -249,8 +268,9 @@ export async function getClientViewDataAction(
 
       // ── Bloque 5: Commerce — clientes ─────────────────────────────
       try {
-        summary.customers = await client.customer.count();
+        summary.customers = await client.customer.count({ where: { tenant_id: tenantId } });
         const rawCustomers = await client.customer.findMany({
+          where: { tenant_id: tenantId },
           select: {
             id:            true,
             customer_code: true,
@@ -278,8 +298,9 @@ export async function getClientViewDataAction(
 
       // ── Bloque 6: Commerce — proveedores ──────────────────────────
       try {
-        summary.suppliers = await client.supplier.count();
+        summary.suppliers = await client.supplier.count({ where: { tenant_id: tenantId } });
         const rawSuppliers = await client.supplier.findMany({
+          where: { tenant_id: tenantId },
           select: {
             id:         true,
             name:       true,
@@ -305,8 +326,9 @@ export async function getClientViewDataAction(
 
       // ── Bloque 7: Commerce — ventas ───────────────────────────────
       try {
-        summary.sales = await client.sale.count();
+        summary.sales = await client.sale.count({ where: { tenant_id: tenantId } });
         const rawSales = await client.sale.findMany({
+          where: { tenant_id: tenantId },
           select: {
             id:           true,
             sale_code:    true,
@@ -330,8 +352,9 @@ export async function getClientViewDataAction(
 
       // ── Bloque 8: DTE — documentos ────────────────────────────────
       try {
-        summary.dteDocuments = await client.dteOutgoingDocument.count();
+        summary.dteDocuments = await client.dteOutgoingDocument.count({ where: { tenant_id: tenantId } });
         const rawDte = await client.dteOutgoingDocument.findMany({
+          where: { tenant_id: tenantId },
           select: {
             id:            true,
             dte_type_code: true,
@@ -354,7 +377,7 @@ export async function getClientViewDataAction(
       // ── Bloque 9: DTE — configuración del emisor ──────────────────
       try {
         const issuer = await client.dteIssuerConfig.findFirst({
-          where:   { is_active: true },
+          where:   { is_active: true, tenant_id: tenantId },
           select: {
             nit:         true,
             name:        true,
@@ -377,8 +400,9 @@ export async function getClientViewDataAction(
 
       // ── Bloque 10: Cash — cajas registradoras ─────────────────────
       try {
-        summary.cashRegisters = await client.cashRegister.count();
+        summary.cashRegisters = await client.cashRegister.count({ where: { tenant_id: tenantId } });
         const rawRegisters = await client.cashRegister.findMany({
+          where: { tenant_id: tenantId },
           select: {
             id:         true,
             code:       true,
@@ -408,7 +432,7 @@ export async function getClientViewDataAction(
       }
 
       try {
-        catalogSummary.productCategories = await client.productCategory.count();
+        catalogSummary.productCategories = await client.productCategory.count({ where: { tenant_id: tenantId } });
       } catch (err) {
         warnings.push(`Catalogs/categories: ${sanitizeDatabaseError(err)}`);
       }
@@ -438,7 +462,7 @@ export async function getClientViewDataAction(
       }
 
       try {
-        catalogSummary.taxRates = await client.taxRate.count();
+        catalogSummary.taxRates = await client.taxRate.count({ where: { tenant_id: tenantId } });
       } catch (err) {
         warnings.push(`Catalogs/tax-rates: ${sanitizeDatabaseError(err)}`);
       }

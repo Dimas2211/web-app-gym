@@ -34,11 +34,11 @@ async function resolveCashSeedLocations(
 ): Promise<CashSeedLocation[]> {
   const rows = await prisma.branch.findMany({
     where: { status: "active" },
-    select: { id: true, gym_id: true, name: true },
+    select: { id: true, tenant_id: true, name: true },
   });
 
   return rows.map((row) => ({
-    tenant_id: row.gym_id,
+    tenant_id: row.tenant_id,
     location_id: row.id,
     location_name: row.name,
   }));

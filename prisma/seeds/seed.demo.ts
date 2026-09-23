@@ -91,12 +91,30 @@ export async function seedDemo(prisma: PrismaClient): Promise<void> {
   const passwordHash = await bcrypt.hash(DEMO_PASSWORD, 10);
 
   // ----------------------------------------------------------
+  // 0. RUNTIME TENANT — raíz neutral de identidad (SHARED-PILOT-3B).
+  //    Se crea con el mismo id que el Gym demo (igual que el resto de
+  //    tenants preexistentes, ver migración 20260923000000) para que
+  //    todos los `tenant_id: gym.id` de este seed sigan siendo válidos.
+  // ----------------------------------------------------------
+  const runtimeTenant = await prisma.runtimeTenant.upsert({
+    where: { slug: "power-gym-demo" },
+    update: {},
+    create: {
+      name: "Power Gym",
+      slug: "power-gym-demo",
+      status: "active",
+    },
+  });
+
+  // ----------------------------------------------------------
   // 1. GYM DEMO
   // ----------------------------------------------------------
   const gym = await prisma.gym.upsert({
     where: { slug: "power-gym-demo" },
     update: {},
     create: {
+      id: runtimeTenant.id,
+      tenant_id: runtimeTenant.id,
       name: "Power Gym",
       slug: "power-gym-demo",
       status: "active",
@@ -165,6 +183,7 @@ export async function seedDemo(prisma: PrismaClient): Promise<void> {
   if (!branch) {
     branch = await prisma.branch.create({
       data: {
+        tenant_id: runtimeTenant.id,
         gym_id: gym.id,
         name: "Sucursal Central",
         address: "Av. Principal 123, Centro",
@@ -229,6 +248,7 @@ export async function seedDemo(prisma: PrismaClient): Promise<void> {
       where: { email: userData.email },
       update: {},
       create: {
+        tenant_id: runtimeTenant.id,
         gym_id: gym.id,
         branch_id: userData.branch_id,
         email: userData.email,
@@ -654,6 +674,7 @@ export async function seedDemo(prisma: PrismaClient): Promise<void> {
     where: { email: "cliente_natacion@powergym.demo" },
     update: {},
     create: {
+      tenant_id: runtimeTenant.id,
       gym_id: gym.id,
       branch_id: branch.id,
       email: "cliente_natacion@powergym.demo",

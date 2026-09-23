@@ -10,8 +10,9 @@
  *
  * Fuente de datos: tabla `branches` (alias Location en el sistema actual).
  * Relación de campos:
- *   Branch.gym_id  ←→  tenantId (parámetro)
- *   Branch.id      ←→  locationId (parámetro)
+ *   Branch.tenant_id ←→  tenantId (parámetro) — columna de ownership autoritativa
+ *   Branch.gym_id    ←→  vínculo opcional con la extensión GYM (ver resolveOptionalGymForTenant)
+ *   Branch.id        ←→  locationId (parámetro)
  */
 
 import { prisma } from "@/lib/db/prisma";
@@ -52,6 +53,7 @@ export async function createLocation(
   input: unknown,
   ctx: CommercialEnforcementContext,
   db: PrismaClient = prisma,
+  gymId: string | null = null,
 ): Promise<LocationActionResult> {
   const parsed = updateLocationSchema.safeParse(input);
   if (!parsed.success) {
@@ -76,7 +78,8 @@ export async function createLocation(
             name: parsed.data.name!,
             address: parsed.data.address ?? null,
             phone: parsed.data.phone ?? null,
-            gym_id: tenantId,
+            tenant_id: tenantId,
+            gym_id: gymId,
             status: "active",
           },
           select: { id: true },
@@ -109,7 +112,7 @@ export async function updateLocation(
   }
 
   const existing = await db.branch.findFirst({
-    where: { id: locationId, gym_id: tenantId },
+    where: { id: locationId, tenant_id: tenantId },
     select: { id: true },
   });
 
@@ -147,7 +150,7 @@ export async function toggleLocationStatus(
   db: PrismaClient = prisma,
 ): Promise<LocationActionResult> {
   const location = await db.branch.findFirst({
-    where: { id: locationId, gym_id: tenantId },
+    where: { id: locationId, tenant_id: tenantId },
     select: { id: true, status: true },
   });
 

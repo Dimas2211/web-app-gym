@@ -192,19 +192,26 @@ export async function getSupportSessionDataAction(
     dteEnvironment: null,
   };
 
+  // SHARED-PILOT-3 — FAIL CLOSED: aunque MISSING_TENANT ya exige que la
+  // organización tenga tenant_id vinculado, este bloque nunca lo usaba para
+  // filtrar — leía Gym/Branch/User/ventas/DTE/caja sin filtro, exponiendo
+  // datos de otros tenants en una DB compartida (Shared Runtime). Ahora
+  // toda query ORGANIZATION_SCOPED filtra explícitamente por tenantId.
+  const tenantId = profile.organization.tenant_id;
+
   try {
     await withRuntimePrisma({ profileId }, async (client) => {
 
-      // ── Bloque 1: Core — tenant (gym) ────────────────────────────
+      // ── Bloque 1: Core — tenant (RuntimeTenant) ──────────────────
       try {
-        const gym = await client.gym.findFirst({
-          select:  { id: true, name: true, slug: true, status: true },
-          orderBy: { created_at: "asc" },
+        const rt = await client.runtimeTenant.findUnique({
+          where:  { id: tenantId },
+          select: { id: true, name: true, slug: true, status: true },
         });
-        if (gym) {
-          tenant = { id: gym.id, name: gym.name, slug: gym.slug ?? null, status: gym.status ?? null };
+        if (rt) {
+          tenant = { id: rt.id, name: rt.name, slug: rt.slug ?? null, status: rt.status ?? null };
         }
-        summary.tenants = await client.gym.count();
+        summary.tenants = await client.runtimeTenant.count();
       } catch (err) {
         warnings.push(`Core/tenant: ${sanitizeDatabaseError(err)}`);
       }
@@ -212,12 +219,13 @@ export async function getSupportSessionDataAction(
       // ── Bloque 2: Core — locations (branches) ────────────────────
       try {
         const rawLocs = await client.branch.findMany({
+          where:   { tenant_id: tenantId },
           select:  { id: true, name: true, status: true },
           orderBy: { name: "asc" },
           take:    20,
         });
         locations = rawLocs.map((b) => ({ id: b.id, name: b.name, status: b.status ?? null }));
-        summary.locations = await client.branch.count();
+        summary.locations = await client.branch.count({ where: { tenant_id: tenantId } });
       } catch (err) {
         warnings.push(`Core/locations: ${sanitizeDatabaseError(err)}`);
       }
@@ -226,7 +234,7 @@ export async function getSupportSessionDataAction(
 
       // ── Bloque 3: Core — usuarios (solo conteo) ───────────────────
       try {
-        summary.users = await client.user.count();
+        summary.users = await client.user.count({ where: { tenant_id: tenantId } });
       } catch (err) {
         warnings.push(`Core/users: ${sanitizeDatabaseError(err)}`);
       }
@@ -340,8 +348,9 @@ export async function getSupportSessionDataAction(
 
       // ── Bloque 8: Commerce — ventas ────────────────────────────────
       try {
-        summary.sales = await client.sale.count();
+        summary.sales = await client.sale.count({ where: { tenant_id: tenantId } });
         const rawSales = await client.sale.findMany({
+          where: { tenant_id: tenantId },
           select: {
             id: true, sale_code: true, sale_date: true, status: true,
             payment_status: true, total_amount: true,
@@ -365,8 +374,9 @@ export async function getSupportSessionDataAction(
 
       // ── Bloque 9: DTE — documentos ──────────────────────────────────
       try {
-        summary.dteDocuments = await client.dteOutgoingDocument.count();
+        summary.dteDocuments = await client.dteOutgoingDocument.count({ where: { tenant_id: tenantId } });
         const rawDte = await client.dteOutgoingDocument.findMany({
+          where: { tenant_id: tenantId },
           select: {
             id: true, dte_type_code: true, dte_status: true,
             generation_code: true, control_number: true, reception_stamp: true,
@@ -392,7 +402,7 @@ export async function getSupportSessionDataAction(
       // ── Bloque 10: DTE — configuración del emisor ───────────────────
       try {
         const activeIssuer = await client.dteIssuerConfig.findFirst({
-          where:   { is_active: true },
+          where:   { is_active: true, tenant_id: tenantId },
           select:  { nit: true, name: true, is_active: true, environment: true },
           orderBy: { created_at: "asc" },
         });
@@ -410,7 +420,8 @@ export async function getSupportSessionDataAction(
 
       // ── Bloque 11: Fiscal — configuración de retención del tenant ───
       try {
-        const tfc = await client.tenantFiscalConfig.findFirst({
+        const tfc = await client.tenantFiscalConfig.findUnique({
+          where:  { tenant_id: tenantId },
           select: { is_retention_agent: true, retention_threshold_amount: true },
         });
         fiscalConfig = {
@@ -426,8 +437,9 @@ export async function getSupportSessionDataAction(
 
       // ── Bloque 12: Cash — sesiones de caja recientes ────────────────
       try {
-        summary.cashRegisters = await client.cashRegister.count();
+        summary.cashRegisters = await client.cashRegister.count({ where: { tenant_id: tenantId } });
         const rawSessions = await client.cashSession.findMany({
+          where: { tenant_id: tenantId },
           select: {
             id: true, location_id: true, status: true,
             opened_at: true, closed_at: true,
@@ -453,12 +465,12 @@ export async function getSupportSessionDataAction(
 
       // ── Bloque 13: Catálogos (solo conteo) ───────────────────────────
       try { catalogSummary.unitsOfMeasure      = await client.unitOfMeasure.count();      } catch (err) { warnings.push(`Catalogs/UOM: ${sanitizeDatabaseError(err)}`); }
-      try { catalogSummary.productCategories   = await client.productCategory.count();    } catch (err) { warnings.push(`Catalogs/categories: ${sanitizeDatabaseError(err)}`); }
+      try { catalogSummary.productCategories   = await client.productCategory.count({ where: { tenant_id: tenantId } }); } catch (err) { warnings.push(`Catalogs/categories: ${sanitizeDatabaseError(err)}`); }
       try { catalogSummary.identificationTypes = await client.identificationType.count(); } catch (err) { warnings.push(`Catalogs/id-types: ${sanitizeDatabaseError(err)}`); }
       try { catalogSummary.economicActivities  = await client.economicActivity.count();   } catch (err) { warnings.push(`Catalogs/activities: ${sanitizeDatabaseError(err)}`); }
       try { catalogSummary.municipalities      = await client.municipality.count();       } catch (err) { warnings.push(`Catalogs/municipalities: ${sanitizeDatabaseError(err)}`); }
       try { catalogSummary.dteCatalogItems     = await client.dteCatalogItem.count();     } catch (err) { warnings.push(`Catalogs/dte-catalog: ${sanitizeDatabaseError(err)}`); }
-      try { catalogSummary.taxRates            = await client.taxRate.count();            } catch (err) { warnings.push(`Catalogs/tax-rates: ${sanitizeDatabaseError(err)}`); }
+      try { catalogSummary.taxRates            = await client.taxRate.count({ where: { tenant_id: tenantId } }); } catch (err) { warnings.push(`Catalogs/tax-rates: ${sanitizeDatabaseError(err)}`); }
 
     }); // withRuntimePrisma — garantiza $disconnect()
 

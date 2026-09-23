@@ -45,7 +45,7 @@ export default async function NewSalePage({
       listDteCatalogItems({ catalog_code: "CAT-016" }, context.client),
       listDteCatalogItems({ catalog_code: "CAT-017" }, context.client),
       listDteCatalogItems({ catalog_code: "CAT-018" }, context.client),
-      getLocationById(location_id, context.client),
+      getLocationById(location_id, tenant_id, context.client),
     ]);
 
     // Si viene sale_id, cargar el borrador existente (solo si es DRAFT y pertenece al tenant/location)

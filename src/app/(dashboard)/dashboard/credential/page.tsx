@@ -35,6 +35,9 @@ export default async function MyCredentialPage() {
   });
 
   if (!user) redirect("/login");
+  // La credencial física es un concepto GYM-only — un tenant Commerce-only
+  // (sin extensión Gym) no tiene nada que mostrar aquí.
+  if (!user.gym) redirect("/dashboard");
 
   return (
     <div className="space-y-6">

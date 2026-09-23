@@ -18,9 +18,9 @@ import type { Location, LocationOption } from "./types";
  * Convierte un registro Branch al contrato Location.
  *
  * Mapeo de campos:
- *   Branch.id      → Location.id
- *   Branch.gym_id  → Location.tenant_id
- *   Branch.name    → Location.name
+ *   Branch.id        → Location.id
+ *   Branch.tenant_id → Location.tenant_id
+ *   Branch.name      → Location.name
  *   Branch.address → Location.address
  *   Branch.phone   → Location.phone
  *   Branch.status  → Location.status  (ver nota de normalización)
@@ -33,7 +33,7 @@ import type { Location, LocationOption } from "./types";
  */
 function branchToLocation(branch: {
   id: string;
-  gym_id: string;
+  tenant_id: string;
   name: string;
   address: string | null;
   phone: string | null;
@@ -43,7 +43,7 @@ function branchToLocation(branch: {
 }): Location {
   return {
     id: branch.id,
-    tenant_id: branch.gym_id,
+    tenant_id: branch.tenant_id,
     name: branch.name,
     address: branch.address,
     phone: branch.phone,
@@ -56,7 +56,7 @@ function branchToLocation(branch: {
 /** Campos Branch necesarios para el mapeo — evita over-fetching. */
 const LOCATION_SELECT = {
   id: true,
-  gym_id: true,
+  tenant_id: true,
   name: true,
   address: true,
   phone: true,
@@ -68,11 +68,20 @@ const LOCATION_SELECT = {
 // ─── Queries públicas ──────────────────────────────────────────────────────────
 
 /**
- * Retorna una ubicación por su ID o null si no existe.
+ * Retorna una ubicación por su ID, tenant-scoped, o null si no existe
+ * o pertenece a otro tenant.
+ *
+ * SHARED-PILOT-3C: antes hacía findUnique solo por `id`, exponiendo
+ * locations de tenants ajenos a cualquier caller que conociera el UUID
+ * (cookies, params). Ahora exige tenant_id — fail closed.
  */
-export async function getLocationById(id: string, db: PrismaClient = prisma): Promise<Location | null> {
-  const branch = await db.branch.findUnique({
-    where: { id },
+export async function getLocationById(
+  id: string,
+  tenantId: string,
+  db: PrismaClient = prisma
+): Promise<Location | null> {
+  const branch = await db.branch.findFirst({
+    where: { id, tenant_id: tenantId },
     select: LOCATION_SELECT,
   });
   return branch ? branchToLocation(branch) : null;
@@ -84,7 +93,7 @@ export async function getLocationById(id: string, db: PrismaClient = prisma): Pr
  */
 export async function getLocationsByTenantId(tenantId: string, db: PrismaClient = prisma): Promise<Location[]> {
   const branches = await db.branch.findMany({
-    where: { gym_id: tenantId },
+    where: { tenant_id: tenantId },
     select: LOCATION_SELECT,
     orderBy: { name: "asc" },
   });
@@ -97,7 +106,7 @@ export async function getLocationsByTenantId(tenantId: string, db: PrismaClient 
  */
 export async function getLocationOptions(tenantId: string, db: PrismaClient = prisma): Promise<LocationOption[]> {
   const branches = await db.branch.findMany({
-    where: { gym_id: tenantId, status: "active" },
+    where: { tenant_id: tenantId, status: "active" },
     select: { id: true, name: true },
     orderBy: { name: "asc" },
   });
@@ -108,7 +117,11 @@ export async function getLocationOptions(tenantId: string, db: PrismaClient = pr
  * Verifica si una ubicación existe y está activa.
  * Útil como guard de validación en acciones de módulos nuevos.
  */
-export async function isLocationActive(id: string, db: PrismaClient = prisma): Promise<boolean> {
-  const location = await getLocationById(id, db);
+export async function isLocationActive(
+  id: string,
+  tenantId: string,
+  db: PrismaClient = prisma
+): Promise<boolean> {
+  const location = await getLocationById(id, tenantId, db);
   return location?.status === "active";
 }

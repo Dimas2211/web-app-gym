@@ -81,7 +81,7 @@ export async function getDteApiContext(req: NextRequest): Promise<DteApiContext>
     const activeLocationId = fromReq ?? fromNextHdrs ?? fromRawHeader;
 
     if (activeLocationId) {
-      const location = await getLocationById(activeLocationId);
+      const location = await getLocationById(activeLocationId, tenant_id);
       if (location && location.tenant_id === tenant_id) {
         baseLocationId = location.id;
       }

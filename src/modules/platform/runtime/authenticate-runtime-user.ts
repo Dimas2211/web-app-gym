@@ -13,11 +13,12 @@
 // activo de `organization.id`. El mismo email en dos organizaciones
 // distintas vive en dos bases físicas distintas — nunca se cruzan.
 //
-// GARANTÍA CRÍTICA (Tenant match, ETAPA I):
+// GARANTÍA CRÍTICA (Tenant match, ETAPA I / SHARED-PILOT-3B):
 // no basta con que el usuario exista en la base "correcta" — se exige
-// además que `user.gym_id` (identificador de tenant dentro de esa
-// base) coincida con `organization.tenantId` (Control Plane). Un
-// desalineamiento aquí es TENANT_MISMATCH, no una coincidencia válida.
+// además que `user.tenant_id` (columna de ownership autoritativa,
+// NUNCA gym_id — Gym es una extensión vertical opcional) coincida con
+// `organization.tenantId` (Control Plane). Un desalineamiento aquí es
+// TENANT_MISMATCH, no una coincidencia válida.
 //
 // CUIDADO DE PROPAGACIÓN DE ERRORES:
 // withRuntimePrisma() envuelve CUALQUIER excepción que escape del
@@ -87,7 +88,7 @@ export interface RuntimeUserQueryClient {
       role: string;
       status: string;
       password_hash: string;
-      gym_id: string;
+      tenant_id: string;
       branch_id: string | null;
     } | null>;
   };
@@ -108,7 +109,7 @@ async function runAuthAgainstRuntimeClient(
 
   // CRÍTICO: no basta con estar en la base correcta — el tenant interno
   // del usuario runtime debe coincidir con el tenant_id de Control Plane.
-  if (user.gym_id !== organization.tenantId) {
+  if (user.tenant_id !== organization.tenantId) {
     return { ok: false, code: "RUNTIME_TENANT_MISMATCH" };
   }
 
@@ -119,7 +120,7 @@ async function runAuthAgainstRuntimeClient(
       email: user.email,
       name: `${user.first_name} ${user.last_name}`,
       role: user.role,
-      tenantId: user.gym_id,
+      tenantId: user.tenant_id,
       locationId: user.branch_id,
     },
   };

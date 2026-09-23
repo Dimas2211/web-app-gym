@@ -93,9 +93,13 @@ export async function createPlanAction(
       return { error: "Solo puedes crear planes para tu propia sucursal." };
     }
 
+    if (!context.gymId) {
+      return { error: "El módulo GYM no está configurado para esta organización." };
+    }
+
     await context.client.membershipPlan.create({
       data: {
-        gym_id: context.tenantId,
+        gym_id: context.gymId,
         tenant_id: context.tenantId,
         branch_id: parsed.data.branch_id ?? null,
         code: parsed.data.code ?? null,
@@ -289,9 +293,13 @@ export async function createClientMembershipAction(
     }
     const end_date = addDays(parsed.data.start_date, plan.duration_days);
 
+    if (!context.gymId) {
+      return { errors: { membership_plan_id: ["El módulo GYM no está configurado para esta organización."] } };
+    }
+
     await context.client.clientMembership.create({
       data: {
-        gym_id: context.tenantId,
+        gym_id: context.gymId,
         tenant_id: context.tenantId,
         branch_id: parsed.data.branch_id,
         client_id: parsed.data.client_id,

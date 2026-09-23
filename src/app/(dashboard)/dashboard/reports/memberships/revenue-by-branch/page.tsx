@@ -27,7 +27,7 @@ export default async function RevenueByBranchPage() {
     const branches =
       user.role === "super_admin"
         ? await db.branch.findMany({
-            where: { gym_id: context.tenantId, status: "active" },
+            where: { tenant_id: context.tenantId, status: "active" },
             select: { id: true, name: true },
             orderBy: { name: "asc" },
           })

@@ -12,10 +12,13 @@ import type { SessionUser } from "@/lib/permissions/guards";
  * como cliente") el caller pasa `context.client` junto con un `user`
  * cuyo tenant_id ya es el tenant EFECTIVO — evita mostrar el nombre del
  * gimnasio real del super_admin en credenciales de otro tenant.
+ *
+ * SHARED-PILOT-3C: resuelve por Gym.tenant_id — nunca asumir
+ * gym.id === tenantId (dato migrado, no invariante estructural).
  */
 export async function getGym(user: SessionUser, client: PrismaClient = prisma) {
   if (!user.tenant_id) return null;
-  return client.gym.findUnique({ where: { id: user.tenant_id } });
+  return client.gym.findUnique({ where: { tenant_id: user.tenant_id } });
 }
 
 // ──────────────────────────────────────────────
@@ -26,12 +29,17 @@ export async function getGym(user: SessionUser, client: PrismaClient = prisma) {
  * Devuelve la configuración del gym o los valores por defecto si no existe.
  * `client` opcional: en modo runtime ("Operar como cliente") el caller pasa
  * `context.client` junto con el tenantId EFECTIVO.
+ *
+ * SHARED-PILOT-3C: GymSettings es 1:1 con Gym — se resuelve el gym real
+ * vía Gym.tenant_id antes de leer GymSettings.gym_id, nunca asumiendo
+ * gym.id === tenantId. Un tenant sin Gym (Commerce-only) devuelve defaults.
  */
 export async function getGymSettings(tenantId: string, client: PrismaClient = prisma) {
-  const s = await client.gymSettings.findUnique({ where: { gym_id: tenantId } });
+  const gym = await client.gym.findUnique({ where: { tenant_id: tenantId }, select: { id: true } });
+  const s = gym ? await client.gymSettings.findUnique({ where: { gym_id: gym.id } }) : null;
   return {
     id: s?.id ?? null,
-    gym_id: tenantId,
+    gym_id: gym?.id ?? null,
     staff_code_prefix: s?.staff_code_prefix ?? "A",
     staff_code_digits: s?.staff_code_digits ?? 4,
     staff_code_start: s?.staff_code_start ?? 1010,

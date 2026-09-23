@@ -25,6 +25,7 @@ import {
   OperationalContextError,
 } from "@/modules/platform/runtime/require-operational-context";
 import { CommercialEnforcementError } from "@/modules/platform/runtime/commercial-enforcement";
+import { resolveOptionalGymForTenant } from "@/modules/platform/lib/provisioning/resolve-optional-gym-for-tenant";
 
 export type UserActionState =
   | { errors?: Record<string, string[]>; error?: string }
@@ -98,6 +99,7 @@ export async function createUserAction(
     // DB EFECTIVA (runtime propia para RUNTIME_CLIENT).
     const operational_code = await suggestNextStaffCode(context.tenantId, context.client);
     const qr_token = generateQrToken();
+    const gymId = await resolveOptionalGymForTenant(context.client, context.tenantId);
 
     const result = await createCoreUser(
       context.tenantId,
@@ -110,6 +112,7 @@ export async function createUserAction(
         password: parsed.data.password,
         operational_code,
         qr_token,
+        gym_id: gymId,
       },
       context.commercialContext!,
       context.client,
@@ -118,11 +121,12 @@ export async function createUserAction(
     if (!result.success) return result;
 
     // Efecto secundario GYM: crear perfil Trainer si corresponde — SIEMPRE
-    // contra context.client, nunca Prisma global.
-    if (parsed.data.role === "trainer" && parsed.data.branch_id) {
+    // contra context.client, nunca Prisma global. Solo tiene sentido si el
+    // tenant tiene una extensión Gym (Trainer es un modelo GYM-only).
+    if (parsed.data.role === "trainer" && parsed.data.branch_id && gymId) {
       await context.client.trainer.create({
         data: {
-          gym_id: context.tenantId,
+          gym_id: gymId,
           tenant_id: context.tenantId,
           branch_id: parsed.data.branch_id,
           first_name: parsed.data.first_name,
@@ -169,7 +173,7 @@ export async function updateUserAction(
     // ETAPA W — ownership por tenant SIEMPRE en el WHERE (nunca findUnique(id)
     // seguido de mutación sin validar pertenencia).
     const target = await context.client.user.findFirst({
-      where: { id, gym_id: context.tenantId },
+      where: { id, tenant_id: context.tenantId },
       include: { trainer_profile: { select: { id: true } } },
     });
     if (!target) return { error: "Usuario no encontrado." };
@@ -235,18 +239,25 @@ export async function updateUserAction(
           },
         });
       } else if (gymParsed.data.branch_id) {
-        // Primera vez que este usuario tiene rol trainer — crear perfil
-        await context.client.trainer.create({
-          data: {
-            gym_id: target.gym_id,
-            tenant_id: target.tenant_id ?? undefined,
-            branch_id: gymParsed.data.branch_id,
-            first_name: gymParsed.data.first_name,
-            last_name: gymParsed.data.last_name,
-            user_id: id,
-            status: "active",
-          },
-        });
+        // Primera vez que este usuario tiene rol trainer — crear perfil.
+        // Resuelto vía helper (Gym.tenant_id), nunca desde el gym_id
+        // heredado del propio User — un tenant Commerce-only no debería
+        // poder llegar aquí, pero si ocurriera, gymId sería null y no
+        // se crea un Trainer huérfano.
+        const gymId = await resolveOptionalGymForTenant(context.client, context.tenantId);
+        if (gymId) {
+          await context.client.trainer.create({
+            data: {
+              gym_id: gymId,
+              tenant_id: target.tenant_id,
+              branch_id: gymParsed.data.branch_id,
+              first_name: gymParsed.data.first_name,
+              last_name: gymParsed.data.last_name,
+              user_id: id,
+              status: "active",
+            },
+          });
+        }
       }
       revalidatePath("/dashboard/trainers");
     } else if (previousRole === "trainer" && newRole !== "trainer") {
@@ -364,7 +375,7 @@ export async function toggleUserStatusAction(formData: FormData): Promise<void> 
 
     // Verificación de permisos GYM (requiere leer el target) — ETAPA W:
     // ownership por tenant en el WHERE, no findUnique(id) sin scope.
-    const target = await context.client.user.findFirst({ where: { id, gym_id: context.tenantId } });
+    const target = await context.client.user.findFirst({ where: { id, tenant_id: context.tenantId } });
     if (!target) return;
     if (!canManageUser(gymUser, target)) return;
 

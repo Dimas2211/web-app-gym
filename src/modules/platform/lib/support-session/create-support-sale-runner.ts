@@ -90,7 +90,7 @@ async function validateSupportSale(
 
   // 1. Sucursal existe, activa y pertenece al tenant
   const branch = await client.branch.findFirst({
-    where:  { id: input.location_id, gym_id: tenantId, status: "active" },
+    where:  { id: input.location_id, tenant_id: tenantId, status: "active" },
     select: { id: true },
   });
   if (!branch) {

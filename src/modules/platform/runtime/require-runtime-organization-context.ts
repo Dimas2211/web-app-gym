@@ -31,9 +31,10 @@
 //
 // FASE VI-D — ETAPA T: implementado. Tras abrir el PrismaClient runtime
 // se revalida en vivo `runtimeDb.user.findUnique(id)`: debe existir,
-// status debe ser "active", y su gym_id (columna física de tenant_id en
-// el modelo User) debe coincidir con el tenant efectivo ya validado
-// contra Control Plane. Cualquier fallo aquí es FAIL CLOSED igual que
+// status debe ser "active", y su tenant_id (columna de ownership
+// autoritativa — SHARED-PILOT-3B, nunca gym_id) debe coincidir con el
+// tenant efectivo ya validado contra Control Plane. Cualquier fallo
+// aquí es FAIL CLOSED igual que
 // el resto de este contrato — nunca se ignora un usuario desactivado o
 // con tenant desalineado solo porque el JWT todavía lo permite (JWT
 // vive hasta 8h). El PrismaClient runtime se desconecta antes de
@@ -208,7 +209,7 @@ export async function requireRuntimeOrganizationContext(
   try {
     const liveUser = await runtimeDb.user.findUnique({
       where: { id: user.id },
-      select: { status: true, gym_id: true, role: true },
+      select: { status: true, tenant_id: true, role: true },
     });
 
     if (!liveUser) {
@@ -223,7 +224,7 @@ export async function requireRuntimeOrganizationContext(
         `Usuario ${user.id} no está activo (status=${liveUser.status}) en la base runtime.`,
       );
     }
-    if (liveUser.gym_id !== organization.tenant_id) {
+    if (liveUser.tenant_id !== organization.tenant_id) {
       throw new RuntimeIdentityError(
         "RUNTIME_USER_TENANT_MISMATCH",
         `Usuario ${user.id} pertenece a un tenant runtime distinto del efectivo.`,
@@ -241,7 +242,7 @@ export async function requireRuntimeOrganizationContext(
     // eliminarse o reasignarse a otro tenant desde entonces.
     if (user.location_id) {
       const branch = await runtimeDb.branch.findFirst({
-        where: { id: user.location_id, gym_id: organization.tenant_id, status: "active" },
+        where: { id: user.location_id, tenant_id: organization.tenant_id, status: "active" },
         select: { id: true },
       });
       if (!branch) {

@@ -1,16 +1,18 @@
 /**
  * Contratos del dominio Tenant.
  *
- * Tenant es la raíz de multi-tenancy de la plataforma.
- * En el sistema GYM actual, Tenant equivale a Gym (tabla `gyms`).
+ * Tenant es la raíz de multi-tenancy de la plataforma, respaldada por
+ * el modelo Prisma RuntimeTenant (tabla `runtime_tenants`). Gym es una
+ * extensión vertical opcional de un RuntimeTenant, no su raíz.
  *
  * Relación con el sistema actual:
- *   Tenant.id   ←→  Gym.id   (columna gym_id en tablas operativas)
- *   Tenant.slug ←→  Gym.slug
+ *   Tenant.id       ←→  RuntimeTenant.id
+ *   Tenant.slug     ←→  RuntimeTenant.slug
+ *   Tenant.logo_url ←→  RuntimeTenant.gym?.logo_url (null si no hay vertical Gym)
  *
- * queries.ts y schemas.ts están implementados sobre la tabla `gyms`.
- * actions.ts queda pendiente hasta la Fase 4 del roadmap (creación
- * de tabla `tenants` en Prisma como entidad propia).
+ * queries.ts y schemas.ts están implementados sobre `runtime_tenants`.
+ * actions.ts queda pendiente hasta que se necesiten mutaciones de tenant
+ * fuera del flujo de provisioning actual.
  */
 
 // ─── Tipo base del tenant ──────────────────────────────────────────────────────

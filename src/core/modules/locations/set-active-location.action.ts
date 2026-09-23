@@ -80,7 +80,7 @@ export async function setActiveLocationAction(
     // 3. Validar que la location exista y pertenezca al tenant EFECTIVO,
     //    contra la DB EFECTIVA (runtime propia para RUNTIME_CLIENT) —
     //    nunca Prisma global.
-    const location = await getLocationById(locationId, context.client);
+    const location = await getLocationById(locationId, context.tenantId, context.client);
 
     if (!location) {
       return { ok: false, error: "Location no encontrada." };

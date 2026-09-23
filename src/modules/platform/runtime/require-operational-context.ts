@@ -57,6 +57,7 @@ import {
   CommercialEnforcementError,
   type CommercialEnforcementContext,
 } from "./commercial-enforcement";
+import { resolveOptionalGymForTenant } from "@/modules/platform/lib/provisioning/resolve-optional-gym-for-tenant";
 
 // ── Identidad operacional efectiva ─────────────────────────────────
 
@@ -83,6 +84,13 @@ export interface OperationalContext {
   effectiveUser: EffectiveOperationalUser;
   organizationId: string | null;
   tenantId: string;
+  /**
+   * Id de la extensión Gym del tenant, o null si es Commerce-only.
+   * SHARED-PILOT-3C: resuelto vía Gym.tenant_id — nunca asumir
+   * gym.id === tenantId. Los módulos GYM-only deben escribir/filtrar
+   * `gym_id` usando este campo, no `tenantId`.
+   */
+  gymId: string | null;
   locationId: string | null;
   client: PrismaClient;
   readOnly: boolean;
@@ -192,6 +200,8 @@ export async function requireOperationalContext(
       organization_id: sessionUser.organization_id,
     };
 
+    const gymId = await resolveOptionalGymForTenant(context.client ?? prisma, context.tenantId);
+
     return {
       context: {
         runtimeMode: context.runtimeMode,
@@ -199,6 +209,7 @@ export async function requireOperationalContext(
         effectiveUser,
         organizationId,
         tenantId: context.tenantId,
+        gymId,
         locationId: context.locationId,
         client: context.client ?? prisma,
         readOnly: context.readOnly,

@@ -94,11 +94,54 @@ describe("createCoreUser — unicidad de email SOLO en `db`, password hasheado",
   });
 });
 
-describe("updateCoreUser / toggleCoreUserStatus — aislamiento cross-tenant", () => {
-  it("2. userId pertenece a OTRO tenant -> updateCoreUser denegado (findFirst con gym_id no lo encuentra)", async () => {
-    const updateSpy = vi.fn();
+describe("createCoreUser — Commerce-only vs GYM", () => {
+  it("tenant Commerce-only (sin gym_id) -> crea User con gym_id null, tenant_id requerido", async () => {
+    const createMock = vi.fn().mockResolvedValue({ id: "new-user-commerce" });
     const fakeDb = {
-      user: { findFirst: vi.fn().mockResolvedValue(null), update: updateSpy },
+      user: { findUnique: vi.fn().mockResolvedValue(null) },
+      $transaction: vi.fn(async (cb: (tx: unknown) => unknown) => cb({ user: { create: createMock } })),
+    } as never;
+
+    const result = await createCoreUser(
+      "tenant-commerce",
+      { email: "admin@commerce.example", first_name: "A", last_name: "User", role: "super_admin", password: "synthetic-pass-123" },
+      FAKE_CTX,
+      fakeDb,
+    );
+
+    expect(result.success).toBe(true);
+    const data = createMock.mock.calls[0][0].data;
+    expect(data.tenant_id).toBe("tenant-commerce");
+    expect(data.gym_id).toBeNull();
+  });
+
+  it("tenant GYM (gym_id resuelto por el caller vía resolveOptionalGymForTenant) -> crea User con gym_id poblado", async () => {
+    const createMock = vi.fn().mockResolvedValue({ id: "new-user-gym" });
+    const fakeDb = {
+      user: { findUnique: vi.fn().mockResolvedValue(null) },
+      $transaction: vi.fn(async (cb: (tx: unknown) => unknown) => cb({ user: { create: createMock } })),
+    } as never;
+
+    const result = await createCoreUser(
+      "tenant-gym",
+      { email: "admin@gym.example", first_name: "A", last_name: "User", role: "super_admin", password: "synthetic-pass-123", gym_id: "gym-1" },
+      FAKE_CTX,
+      fakeDb,
+    );
+
+    expect(result.success).toBe(true);
+    const data = createMock.mock.calls[0][0].data;
+    expect(data.tenant_id).toBe("tenant-gym");
+    expect(data.gym_id).toBe("gym-1");
+  });
+});
+
+describe("updateCoreUser / toggleCoreUserStatus — aislamiento cross-tenant", () => {
+  it("2. userId pertenece a OTRO tenant -> updateCoreUser denegado (findFirst con tenant_id no lo encuentra)", async () => {
+    const updateSpy = vi.fn();
+    const findFirst = vi.fn().mockResolvedValue(null);
+    const fakeDb = {
+      user: { findFirst, update: updateSpy },
     } as never;
 
     const result = await updateCoreUser(
@@ -110,6 +153,10 @@ describe("updateCoreUser / toggleCoreUserStatus — aislamiento cross-tenant", (
 
     expect(result.success).toBe(false);
     expect(updateSpy).not.toHaveBeenCalled();
+    expect(findFirst).toHaveBeenCalledWith({
+      where: { id: "user-of-tenant-B", tenant_id: "tenant-A" },
+      select: { id: true, role: true, email: true },
+    });
   });
 
   it("2. userId pertenece a OTRO tenant -> toggleCoreUserStatus denegado, nunca cambia status", async () => {

@@ -5,6 +5,7 @@ import { ReportPageHeader } from "@/components/reports/ReportPageHeader";
 import { ClassesTaughtReport } from "./ClassesTaughtReport";
 import { resolveEffectiveTenantContext } from "@/modules/platform/runtime/effective-tenant-context";
 import { requireEffectiveVertical } from "@/modules/platform/runtime/effective-vertical";
+import { resolveOptionalGymForTenant } from "@/modules/platform/lib/provisioning/resolve-optional-gym-for-tenant";
 
 const ALLOWED_ROLES = ["super_admin", "branch_admin", "reception"];
 
@@ -23,16 +24,19 @@ export default async function ClassesTaughtPage() {
     // PASO 6F: reporte GYM — requiere la vertical efectiva GYM.
     await requireEffectiveVertical(context.tenantId, "GYM");
 
-    const [branches, trainers] =
-      user.role === "super_admin"
+    const gymId = await resolveOptionalGymForTenant(db, effectiveTenantId);
+
+    const [branches, trainers] = !gymId
+      ? [[], []]
+      : user.role === "super_admin"
         ? await Promise.all([
             db.branch.findMany({
-              where: { gym_id: effectiveTenantId, status: "active" },
+              where: { tenant_id: effectiveTenantId, status: "active" },
               select: { id: true, name: true },
               orderBy: { name: "asc" },
             }),
             db.trainer.findMany({
-              where: { gym_id: effectiveTenantId, status: "active" },
+              where: { gym_id: gymId, status: "active" },
               select: { id: true, first_name: true, last_name: true },
               orderBy: { last_name: "asc" },
             }),
@@ -40,7 +44,7 @@ export default async function ClassesTaughtPage() {
         : await Promise.all([
             Promise.resolve([]),
             db.trainer.findMany({
-              where: { gym_id: effectiveTenantId, branch_id: user.location_id ?? "", status: "active" },
+              where: { gym_id: gymId, branch_id: user.location_id ?? "", status: "active" },
               select: { id: true, first_name: true, last_name: true },
               orderBy: { last_name: "asc" },
             }),

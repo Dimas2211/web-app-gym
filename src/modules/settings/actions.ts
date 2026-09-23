@@ -52,16 +52,20 @@ export async function updateGymAction(
       return { errors: parsed.error.flatten().fieldErrors };
     }
 
+    if (!context.gymId) {
+      return { error: "El módulo GYM no está configurado para esta organización." };
+    }
+
     // Verificar slug único (excluyendo el gym actual)
     const slugConflict = await context.client.gym.findFirst({
-      where: { slug: parsed.data.slug, NOT: { id: context.tenantId } },
+      where: { slug: parsed.data.slug, NOT: { id: context.gymId } },
     });
     if (slugConflict) {
       return { errors: { slug: ["Este slug ya está en uso por otro gimnasio."] } };
     }
 
     await context.client.gym.update({
-      where: { id: context.tenantId },
+      where: { id: context.gymId },
       data: parsed.data,
     });
   } finally {
@@ -364,9 +368,13 @@ export async function updateGymSettingsAction(
       return { errors: parsed.error.flatten().fieldErrors };
     }
 
+    if (!context.gymId) {
+      return { error: "El módulo GYM no está configurado para esta organización." };
+    }
+
     await context.client.gymSettings.upsert({
-      where: { gym_id: context.tenantId },
-      create: { gym_id: context.tenantId, ...parsed.data },
+      where: { gym_id: context.gymId },
+      create: { gym_id: context.gymId, ...parsed.data },
       update: parsed.data,
     });
   } finally {

@@ -61,7 +61,7 @@ export default async function DteCorrelativesPage() {
     ]);
 
     const activeLocation = effectiveLocationId
-      ? await getLocationById(effectiveLocationId, client)
+      ? await getLocationById(effectiveLocationId, tenantId, client)
       : null;
 
     return (

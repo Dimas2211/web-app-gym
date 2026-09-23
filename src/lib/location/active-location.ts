@@ -92,7 +92,7 @@ export async function getEffectiveLocationId(
   // EFECTIVO — contra `db` (runtime propio si aplica), nunca Prisma
   // global desde un caller runtime-aware. Previene que cookies antiguas
   // o de otro tenant filtren datos cruzados.
-  const location = await getLocationById(cookieValue, db);
+  const location = await getLocationById(cookieValue, effectiveTenantId, db);
 
   if (!location || location.tenant_id !== effectiveTenantId) {
     return null; // Cookie obsoleta o de tenant distinto — ignorar

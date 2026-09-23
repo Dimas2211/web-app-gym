@@ -8,8 +8,27 @@ datasource db {
   directUrl = env("DIRECT_URL")
 }
 
+// Raíz neutral de identidad runtime (multiindustria). Gym es una extensión
+// vertical opcional de un RuntimeTenant, no la raíz del tenant.
+// Para tenants existentes, runtime_tenants.id = gyms.id (mismo UUID, ver
+// migración 20260923000000_add_runtime_tenant).
+model RuntimeTenant {
+  id         String   @id @default(uuid())
+  name       String
+  slug       String   @unique
+  status     Status   @default(active)
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+  gym        Gym?
+  branches   Branch[]
+  users      User[]
+
+  @@map("runtime_tenants")
+}
+
 model Gym {
   id                    String                @id @default(uuid())
+  tenant_id             String?               @unique
   name                  String
   slug                  String                @unique
   logo_url              String?
@@ -20,6 +39,7 @@ model Gym {
   status                Status                @default(active)
   created_at            DateTime              @default(now())
   updated_at            DateTime              @updatedAt
+  runtime_tenant        RuntimeTenant?        @relation(fields: [tenant_id], references: [id])
   branches              Branch[]
   class_types           ClassType[]
   client_memberships    ClientMembership[]
@@ -38,15 +58,16 @@ model Gym {
 
 model Branch {
   id                    String                @id @default(uuid())
-  gym_id                String
-  tenant_id             String?
+  gym_id                String?
+  tenant_id             String
   name                  String
   address               String?
   phone                 String?
   status                Status                @default(active)
   created_at            DateTime              @default(now())
   updated_at            DateTime              @updatedAt
-  gym                   Gym                   @relation(fields: [gym_id], references: [id])
+  gym                   Gym?                  @relation(fields: [gym_id], references: [id])
+  runtime_tenant        RuntimeTenant         @relation(fields: [tenant_id], references: [id])
   client_memberships    ClientMembership[]
   client_weekly_plans   ClientWeeklyPlan[]
   clients               Client[]
@@ -58,13 +79,14 @@ model Branch {
   weekly_plan_templates WeeklyPlanTemplate[]
 
   @@index([gym_id])
+  @@index([tenant_id])
   @@map("branches")
 }
 
 model User {
   id                                String                   @id @default(uuid())
-  gym_id                            String
-  tenant_id                         String?
+  gym_id                            String?
+  tenant_id                         String
   branch_id                         String?
   location_id                       String?
   email                             String                   @unique
@@ -84,7 +106,8 @@ model User {
   created_classes                   ScheduledClass[]         @relation("ClassCreator")
   trainer_profile                   Trainer?                 @relation("TrainerUserLink")
   branch                            Branch?                  @relation(fields: [branch_id], references: [id])
-  gym                               Gym                      @relation(fields: [gym_id], references: [id])
+  gym                               Gym?                     @relation(fields: [gym_id], references: [id])
+  runtime_tenant                    RuntimeTenant            @relation(fields: [tenant_id], references: [id])
   created_weekly_plan_templates     WeeklyPlanTemplate[]     @relation("TemplateCreator")
   products_created                  Product[]                @relation("ProductCreatedBy")
   products_updated                  Product[]                @relation("ProductUpdatedBy")
@@ -121,8 +144,9 @@ model User {
   cash_sessions_closed              CashSession[]            @relation("CashSessionClosedBy")
   cash_movements_performed          CashMovement[]           @relation("CashMovementPerformedBy")
 
-  @@unique([gym_id, operational_code])
+  @@unique([tenant_id, operational_code])
   @@index([gym_id])
+  @@index([tenant_id])
   @@index([branch_id])
   @@index([email])
   @@map("users")

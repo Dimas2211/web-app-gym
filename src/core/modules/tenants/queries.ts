@@ -1,9 +1,10 @@
 /**
  * Queries de lectura del dominio Tenant.
  *
- * FUENTE TEMPORAL: tabla `gyms` del schema actual.
- * Cuando se complete la Fase 3 del roadmap (tabla `tenants` en Prisma),
- * solo cambia la fuente aquí — los consumidores de estas funciones no cambian.
+ * FUENTE: tabla `runtime_tenants` (RuntimeTenant), raíz neutral de
+ * multi-tenancy de la plataforma. `logo_url` es un campo de la vertical
+ * Gym (extensión opcional) y se resuelve vía la relación `gym` cuando existe;
+ * un RuntimeTenant sin Gym asociado (commerce puro) retorna logo_url: null.
  *
  * MODO: read-only. No hay mutaciones en este módulo.
  */
@@ -14,23 +15,19 @@ import type { Tenant } from "./types";
 // ─── Mapper interno ────────────────────────────────────────────────────────────
 
 /**
- * Convierte un registro Gym al contrato Tenant.
- *
- * Campos incluidos en Tenant:  id, name, slug, logo_url, status, timestamps.
- * Campos GYM-específicos omitidos: address, phone, email, website.
- * (Esos campos irán a GymProfile en Fase 3.)
+ * Convierte un registro RuntimeTenant (+ Gym opcional) al contrato Tenant.
  *
  * El status "deleted" del enum Prisma no existe en Tenant;
  * se normaliza a "inactive" para no exponer semántica interna de borrado.
  */
-function gymToTenant(gym: {
+function runtimeTenantToTenant(tenant: {
   id: string;
   name: string;
   slug: string;
-  logo_url: string | null;
   status: string;
   created_at: Date;
   updated_at: Date;
+  gym: { logo_url: string | null } | null;
 }): Tenant {
   const statusMap: Record<string, Tenant["status"]> = {
     active: "active",
@@ -40,39 +37,39 @@ function gymToTenant(gym: {
   };
 
   return {
-    id: gym.id,
-    name: gym.name,
-    slug: gym.slug,
-    logo_url: gym.logo_url,
-    status: statusMap[gym.status] ?? "inactive",
-    created_at: gym.created_at,
-    updated_at: gym.updated_at,
+    id: tenant.id,
+    name: tenant.name,
+    slug: tenant.slug,
+    logo_url: tenant.gym?.logo_url ?? null,
+    status: statusMap[tenant.status] ?? "inactive",
+    created_at: tenant.created_at,
+    updated_at: tenant.updated_at,
   };
 }
 
-/** Campos Gym necesarios para el mapeo — evita over-fetching. */
+/** Campos RuntimeTenant necesarios para el mapeo — evita over-fetching. */
 const TENANT_SELECT = {
   id: true,
   name: true,
   slug: true,
-  logo_url: true,
   status: true,
   created_at: true,
   updated_at: true,
+  gym: { select: { logo_url: true } },
 } as const;
 
 // ─── Queries públicas ──────────────────────────────────────────────────────────
 
 /**
  * Retorna un tenant por su ID o null si no existe.
- * Fuente temporal: prisma.gym.
+ * Fuente: prisma.runtimeTenant.
  */
 export async function getTenantById(id: string): Promise<Tenant | null> {
-  const gym = await prisma.gym.findUnique({
+  const tenant = await prisma.runtimeTenant.findUnique({
     where: { id },
     select: TENANT_SELECT,
   });
-  return gym ? gymToTenant(gym) : null;
+  return tenant ? runtimeTenantToTenant(tenant) : null;
 }
 
 /**
@@ -80,25 +77,25 @@ export async function getTenantById(id: string): Promise<Tenant | null> {
  * Útil para routing por subdominio o path en futuras integraciones multi-tenant.
  */
 export async function getTenantBySlug(slug: string): Promise<Tenant | null> {
-  const gym = await prisma.gym.findUnique({
+  const tenant = await prisma.runtimeTenant.findUnique({
     where: { slug },
     select: TENANT_SELECT,
   });
-  return gym ? gymToTenant(gym) : null;
+  return tenant ? runtimeTenantToTenant(tenant) : null;
 }
 
 /**
  * Lista todos los tenants activos de la plataforma.
  * Solo relevante para un futuro super-admin de plataforma (no de tenant).
- * Fuente temporal: prisma.gym.
+ * Fuente: prisma.runtimeTenant.
  */
 export async function listActiveTenants(): Promise<Tenant[]> {
-  const gyms = await prisma.gym.findMany({
+  const tenants = await prisma.runtimeTenant.findMany({
     where: { status: "active" },
     select: TENANT_SELECT,
     orderBy: { name: "asc" },
   });
-  return gyms.map(gymToTenant);
+  return tenants.map(runtimeTenantToTenant);
 }
 
 /**

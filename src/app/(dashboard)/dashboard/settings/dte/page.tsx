@@ -67,7 +67,7 @@ export default async function DteSettingsPage() {
 
     const [data, activeLocation] = await Promise.all([
       getDteEnvironmentPanelData(tenantId, location_id, client),
-      getLocationById(location_id, client),
+      getLocationById(location_id, tenantId, client),
     ]);
 
     return (

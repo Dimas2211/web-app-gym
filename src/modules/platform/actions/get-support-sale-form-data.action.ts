@@ -79,7 +79,7 @@ export async function getSupportSaleFormDataAction(
     return await withTemporaryPrismaClient(databaseUrl, async (client) => {
       const [rawBranches, rawCustomers, rawProducts, rawPaymentMethods] = await Promise.all([
         client.branch.findMany({
-          where:   { gym_id: tenantId, status: "active" },
+          where:   { tenant_id: tenantId, status: "active" },
           select:  { id: true, name: true, status: true },
           orderBy: { name: "asc" },
         }),

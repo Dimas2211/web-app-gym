@@ -5,6 +5,7 @@ import { ReportPageHeader } from "@/components/reports/ReportPageHeader";
 import { ActiveClientsReport } from "./ActiveClientsReport";
 import { resolveEffectiveTenantContext } from "@/modules/platform/runtime/effective-tenant-context";
 import { requireEffectiveVertical } from "@/modules/platform/runtime/effective-vertical";
+import { resolveOptionalGymForTenant } from "@/modules/platform/lib/provisioning/resolve-optional-gym-for-tenant";
 
 const ALLOWED_ROLES = ["super_admin", "branch_admin", "reception"];
 
@@ -20,19 +21,23 @@ export default async function ActiveClientsPage() {
     // PASO 6F: reporte GYM — requiere la vertical efectiva GYM.
     await requireEffectiveVertical(context.tenantId, "GYM");
 
+    const gymId = await resolveOptionalGymForTenant(db, context.tenantId);
+
     const [branches, plans] = await Promise.all([
       user.role === "super_admin"
         ? db.branch.findMany({
-            where: { gym_id: context.tenantId, status: "active" },
+            where: { tenant_id: context.tenantId, status: "active" },
             select: { id: true, name: true },
             orderBy: { name: "asc" },
           })
         : Promise.resolve([]),
-      db.membershipPlan.findMany({
-        where: { gym_id: context.tenantId, status: "active" },
-        select: { id: true, name: true },
-        orderBy: { name: "asc" },
-      }),
+      gymId
+        ? db.membershipPlan.findMany({
+            where: { gym_id: gymId, status: "active" },
+            select: { id: true, name: true },
+            orderBy: { name: "asc" },
+          })
+        : Promise.resolve([]),
     ]);
 
     return (

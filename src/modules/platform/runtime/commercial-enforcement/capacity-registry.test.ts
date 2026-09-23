@@ -30,14 +30,14 @@ describe("CAPACITY_REGISTRY — usage providers", () => {
     const db = fakeDb();
     const used = await CAPACITY_REGISTRY["core.users.max"].countUsage("tenant-1", db);
     expect(used).toBe(7);
-    expect(db.user.count).toHaveBeenCalledWith({ where: { gym_id: "tenant-1", status: "active" } });
+    expect(db.user.count).toHaveBeenCalledWith({ where: { tenant_id: "tenant-1", status: "active" } });
   });
 
   it("core.locations.max cuenta Branch activos", async () => {
     const db = fakeDb();
     const used = await CAPACITY_REGISTRY["core.locations.max"].countUsage("tenant-1", db);
     expect(used).toBe(2);
-    expect(db.branch.count).toHaveBeenCalledWith({ where: { gym_id: "tenant-1", status: "active" } });
+    expect(db.branch.count).toHaveBeenCalledWith({ where: { tenant_id: "tenant-1", status: "active" } });
   });
 
   it("commerce.products.max cuenta Product distinto de DISCONTINUED", async () => {

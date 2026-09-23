@@ -62,11 +62,12 @@ vi.mock("@/modules/platform/runtime/require-operational-context", () => ({
 
 import { updateGymSettingsAction, toggleSportStatusAction } from "./actions";
 
-function fakeHandle() {
+function fakeHandle(gymId: string | null = "gym-X") {
   return {
     context: {
       effectiveUser: { id: "u1", role: "super_admin", location_id: "loc-1" },
       tenantId: "tenant-1",
+      gymId,
       locationId: "loc-1",
       client: {
         gymSettings: { upsert: gymSettingsUpsertSpy },
@@ -109,8 +110,8 @@ describe('updateGymSettingsAction (tenant-scoped) — sesión runtime "Operar co
     expect(gymSettingsUpsertSpy).not.toHaveBeenCalled();
   });
 
-  it("modo normal -> upsert filtrado por tenant efectivo", async () => {
-    requireOperationalContextMock.mockResolvedValue(fakeHandle());
+  it("modo normal -> upsert filtrado por gymId (SHARED-PILOT-3C: nunca por tenantId)", async () => {
+    requireOperationalContextMock.mockResolvedValue(fakeHandle("gym-X"));
 
     await updateGymSettingsAction(undefined, fd({
       staff_code_prefix: "A",
@@ -122,8 +123,25 @@ describe('updateGymSettingsAction (tenant-scoped) — sesión runtime "Operar co
     }));
 
     expect(gymSettingsUpsertSpy).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { gym_id: "tenant-1" } }),
+      expect.objectContaining({ where: { gym_id: "gym-X" } }),
     );
+    expect(disposeMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("tenant sin extensión Gym (gymId null) -> falla cerrado, no llama upsert", async () => {
+    requireOperationalContextMock.mockResolvedValue(fakeHandle(null));
+
+    const result = await updateGymSettingsAction(undefined, fd({
+      staff_code_prefix: "A",
+      staff_code_digits: "4",
+      staff_code_start: "1010",
+      client_code_prefix: "C",
+      client_code_digits: "4",
+      client_code_start: "1010",
+    }));
+
+    expect(gymSettingsUpsertSpy).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ error: expect.stringContaining("GYM") });
     expect(disposeMock).toHaveBeenCalledTimes(1);
   });
 });

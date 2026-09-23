@@ -95,7 +95,15 @@ function buildSharedClient() {
     return rows.filter((r) => r.tenant_id === tenantId || r.gym_id === tenantId);
   };
 
+  // RuntimeTenant mirrors the physical gyms 1:1 by id (SHARED-PILOT-3).
+  const runtimeTenants = gyms;
+
   return {
+    runtimeTenant: {
+      findUnique: vi.fn(async ({ where }: { where: { id: string } }) =>
+        runtimeTenants.find((g) => g.id === where.id) ?? null),
+      count: vi.fn(async () => runtimeTenants.length),
+    },
     gym: {
       findUnique: vi.fn(async ({ where }: { where: { id: string } }) =>
         gyms.find((g) => g.id === where.id) ?? null),
@@ -222,7 +230,7 @@ describe("inspectDatabaseProfileAction — Shared DB tenant isolation", () => {
     expect(serialized).not.toContain("sale-a");
   });
 
-  it("organización sin tenant_id vinculado (pre-binding): preserva comportamiento previo, sin inventar tenant", async () => {
+  it("organización sin tenant_id vinculado (pre-binding): FAIL CLOSED, no expone datos organization-scoped de ningún tenant", async () => {
     findUniqueProfileMock.mockResolvedValue({
       id: "profile-unbound",
       label: "Perfil sin bind",
@@ -234,10 +242,35 @@ describe("inspectDatabaseProfileAction — Shared DB tenant isolation", () => {
     const result = await inspectDatabaseProfileAction("profile-unbound");
 
     expect(result.tenantIdUsed).toBeNull();
-    // Pre-binding: toma el primer gym físico (orden created_at asc) sin filtrar
-    expect(result.tenant?.id).toBe(TENANT_A);
-    // Sin filtro: ve ambos tenants físicos (comportamiento pre-binding preservado)
-    expect(result.summary.locations).toBe(2);
-    expect(result.summary.products).toBe(2);
+    // SHARED-PILOT-3 — fail closed: sin binding, ningún tenant/gym/branch/user
+    // ORGANIZATION_SCOPED se consulta ni se expone.
+    expect(result.tenant).toBeNull();
+    expect(result.locations).toEqual([]);
+    expect(result.admins).toEqual([]);
+    expect(result.recentSales).toEqual([]);
+    expect(result.recentDte).toEqual([]);
+    expect(result.dteConfig).toBeNull();
+    expect(result.summary.locations).toBe(0);
+    expect(result.summary.users).toBe(0);
+    expect(result.summary.products).toBe(0);
+    expect(result.summary.customers).toBe(0);
+    expect(result.summary.suppliers).toBe(0);
+    expect(result.summary.sales).toBe(0);
+    expect(result.summary.dteDocuments).toBe(0);
+    expect(result.summary.cashRegisters).toBe(0);
+    expect(result.catalogSummary.productCategories).toBe(0);
+    expect(result.catalogSummary.taxRates).toBe(0);
+    // PHYSICAL_DB — el conteo físico de tenants sigue siendo seguro de exponer
+    expect(result.summary.tenants).toBe(2);
+    // GLOBAL_REFERENCE — catálogos globales siguen disponibles
+    expect(result.catalogSummary.unitsOfMeasure).toBe(5);
+    // Warning explícito exigiendo Tenant Binding
+    expect(result.warnings.some((w) => w.includes("TENANT_BINDING_REQUIRED"))).toBe(true);
+    // Nunca aparece nada de ningún tenant físico
+    const serialized = JSON.stringify(result);
+    expect(serialized).not.toContain(TENANT_A);
+    expect(serialized).not.toContain(TENANT_B);
+    expect(serialized).not.toContain("loc-a1");
+    expect(serialized).not.toContain("loc-b1");
   });
 });

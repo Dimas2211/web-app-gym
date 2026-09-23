@@ -50,12 +50,27 @@ export async function seedBase(prisma: PrismaClient): Promise<BaseContext> {
   console.log("\n🏗️  Estructura base del sistema...");
 
   // ----------------------------------------------------------
+  // 0. RUNTIME TENANT — raíz neutral de identidad (SHARED-PILOT-3B).
+  //    Gym es una extensión vertical opcional de este tenant.
+  // ----------------------------------------------------------
+  const runtimeTenant = await prisma.runtimeTenant.upsert({
+    where: { slug: gymSlug },
+    update: {},
+    create: {
+      name: gymName,
+      slug: gymSlug,
+      status: "active",
+    },
+  });
+
+  // ----------------------------------------------------------
   // 1. GYM
   // ----------------------------------------------------------
   const gym = await prisma.gym.upsert({
     where: { slug: gymSlug },
     update: {},
     create: {
+      tenant_id: runtimeTenant.id,
       name: gymName,
       slug: gymSlug,
       status: "active",
@@ -67,11 +82,12 @@ export async function seedBase(prisma: PrismaClient): Promise<BaseContext> {
   // 2. SUCURSAL PRINCIPAL
   // ----------------------------------------------------------
   let branch = await prisma.branch.findFirst({
-    where: { gym_id: gym.id, name: branchName },
+    where: { tenant_id: runtimeTenant.id, name: branchName },
   });
   if (!branch) {
     branch = await prisma.branch.create({
       data: {
+        tenant_id: runtimeTenant.id,
         gym_id: gym.id,
         name: branchName,
         address: branchAddress || null,
@@ -89,6 +105,7 @@ export async function seedBase(prisma: PrismaClient): Promise<BaseContext> {
     where: { email: adminEmail },
     update: {},
     create: {
+      tenant_id: runtimeTenant.id,
       gym_id: gym.id,
       email: adminEmail,
       password_hash: passwordHash,

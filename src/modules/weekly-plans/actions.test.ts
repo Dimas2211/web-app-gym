@@ -33,6 +33,7 @@ vi.mock("./queries", () => ({
 const {
   templateUpdateSpy,
   templateFindFirstSpy,
+  templateCreateSpy,
   requireOperationalContextMock,
   disposeMock,
   FakeOperationalContextError,
@@ -51,6 +52,7 @@ const {
   return {
     templateUpdateSpy: vi.fn(),
     templateFindFirstSpy: vi.fn(async () => ({ id: "template-1", status: "active", branch_id: null, tenant_id: "tenant-1" })),
+    templateCreateSpy: vi.fn().mockResolvedValue({ id: "template-new" }),
     requireOperationalContextMock: vi.fn(),
     disposeMock: vi.fn().mockResolvedValue(undefined),
     FakeOperationalContextError,
@@ -62,15 +64,18 @@ vi.mock("@/modules/platform/runtime/require-operational-context", () => ({
   OperationalContextError: FakeOperationalContextError,
 }));
 
-import { toggleTemplateStatusAction } from "./actions";
+import { toggleTemplateStatusAction, createTemplateAction } from "./actions";
 
-function fakeHandle(overrides: Partial<{ role: string; tenantId: string }> = {}) {
+function fakeHandle(overrides: Partial<{ role: string; tenantId: string; gymId: string | null }> = {}) {
   return {
     context: {
       effectiveUser: { id: "u1", role: overrides.role ?? "super_admin", location_id: "loc-1", tenant_id: overrides.tenantId ?? "tenant-1" },
       tenantId: overrides.tenantId ?? "tenant-1",
+      gymId: overrides.gymId === undefined ? "gym-1" : overrides.gymId,
       locationId: "loc-1",
-      client: { weeklyPlanTemplate: { findFirst: templateFindFirstSpy, update: templateUpdateSpy } },
+      client: {
+        weeklyPlanTemplate: { findFirst: templateFindFirstSpy, update: templateUpdateSpy, create: templateCreateSpy },
+      },
     },
     dispose: disposeMock,
   };
@@ -79,6 +84,7 @@ function fakeHandle(overrides: Partial<{ role: string; tenantId: string }> = {})
 beforeEach(() => {
   templateUpdateSpy.mockReset();
   templateFindFirstSpy.mockClear();
+  templateCreateSpy.mockClear();
   requireOperationalContextMock.mockReset();
   disposeMock.mockClear();
 });
@@ -121,5 +127,32 @@ describe('toggleTemplateStatusAction — sesión runtime "Operar como cliente" a
     });
     expect(templateUpdateSpy).toHaveBeenCalledTimes(1);
     expect(disposeMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("createTemplateAction — SHARED-PILOT-3: gym_id: context.gymId, nunca context.tenantId", () => {
+  it("tenantId='tenant-A' y gymId='gym-X' distintos -> create persiste gym_id: 'gym-X', tenant_id: 'tenant-A'", async () => {
+    requireOperationalContextMock.mockResolvedValue(
+      fakeHandle({ tenantId: "tenant-A", gymId: "gym-X" }),
+    );
+
+    await createTemplateAction(undefined, fd({ name: "Plantilla A" }));
+
+    expect(templateCreateSpy).toHaveBeenCalledTimes(1);
+    const data = templateCreateSpy.mock.calls[0][0].data;
+    expect(data.gym_id).toBe("gym-X");
+    expect(data.tenant_id).toBe("tenant-A");
+    expect(data.gym_id).not.toBe(data.tenant_id);
+  });
+
+  it("tenant Commerce-only sin Gym (gymId null) -> falla cerrado, nunca usa tenantId como gym_id", async () => {
+    requireOperationalContextMock.mockResolvedValue(
+      fakeHandle({ tenantId: "tenant-commerce", gymId: null }),
+    );
+
+    const result = await createTemplateAction(undefined, fd({ name: "Plantilla" }));
+
+    expect(templateCreateSpy).not.toHaveBeenCalled();
+    expect(result?.error).toBeTruthy();
   });
 });

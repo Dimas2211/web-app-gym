@@ -68,7 +68,7 @@ export async function authenticatePlatformUser(
     email: user.email,
     name: `${user.first_name} ${user.last_name}`,
     role: user.role,
-    tenant_id: user.gym_id,
+    tenant_id: user.tenant_id,
     location_id: user.branch_id,
     auth_scope: "PLATFORM",
   };
