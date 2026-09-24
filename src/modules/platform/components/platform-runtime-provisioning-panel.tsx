@@ -9,6 +9,10 @@
 //   2. Runtime resuelto, sin provisionar → formulario de provisioning
 //      (tenant/location/admin) + confirmación explícita.
 //   3. Ya provisionada (tenant_id) → resumen de solo lectura.
+//
+// SHARED-PILOT-4B: si un intento previo falló o quedó interrumpido, se
+// muestra "Falló — Reintentar". El retry llama a la MISMA acción; la
+// idempotency key vive solo server-side y se reutiliza allí.
 // ─────────────────────────────────────────────────────────────────
 
 import { useState, useTransition } from "react";
@@ -19,6 +23,7 @@ import {
   type ProvisionSharedRuntimeOrganizationResult,
 } from "../actions/provision-shared-runtime-organization.action";
 import type { PlatformSharedRuntimeTargetItem } from "../queries/list-shared-runtime-targets";
+import type { RuntimeProvisioningOperationSummary } from "../queries/get-runtime-provisioning-operation";
 
 const inputCls = "w-full h-9 px-3 text-sm border border-zinc-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-zinc-900";
 
@@ -28,6 +33,7 @@ interface Props {
   sharedRuntimeTarget: { id: string; label: string } | null;
   hasActiveDedicatedProfile: boolean;
   activeSharedTargets: PlatformSharedRuntimeTargetItem[];
+  provisioningOperation: RuntimeProvisioningOperationSummary | null;
 }
 
 export function PlatformRuntimeProvisioningPanel({
@@ -36,6 +42,7 @@ export function PlatformRuntimeProvisioningPanel({
   sharedRuntimeTarget,
   hasActiveDedicatedProfile,
   activeSharedTargets,
+  provisioningOperation,
 }: Props) {
   const [isPending, startTransition] = useTransition();
 
@@ -71,6 +78,10 @@ export function PlatformRuntimeProvisioningPanel({
   const [provisionResult, setProvisionResult] = useState<ProvisionSharedRuntimeOrganizationResult | null>(null);
 
   const runtimeReady = !!sharedRuntimeTarget || hasActiveDedicatedProfile;
+  // Intento previo no completado (FAILED, o RUNNING/PENDING de un proceso que se cayó).
+  const priorAttemptIncomplete =
+    !!provisioningOperation && provisioningOperation.status !== "COMPLETED" && provisioningOperation.attemptCount > 0;
+  const showRetry = !!provisionError || priorAttemptIncomplete;
   const canSubmit =
     confirmed &&
     tenantName.trim().length >= 2 &&
@@ -172,8 +183,11 @@ export function PlatformRuntimeProvisioningPanel({
             Runtime asignado: <span className="font-semibold">{sharedRuntimeTarget ? `Shared — ${sharedRuntimeTarget.label}` : "Dedicated"}</span>
           </p>
 
-          {provisionError && (
-            <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg px-4 py-2">{provisionError}</div>
+          {showRetry && (
+            <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg px-4 py-2 space-y-1">
+              <p className="font-semibold">Falló — Reintentar</p>
+              <p>{provisionError ?? provisioningOperation?.lastError ?? "El intento anterior no terminó. Reintentar es seguro: no se duplicará el tenant."}</p>
+            </div>
           )}
 
           <div>
@@ -251,7 +265,7 @@ export function PlatformRuntimeProvisioningPanel({
           <div className="flex justify-end">
             <button type="button" disabled={!canSubmit || isPending} onClick={handleProvision}
               className="px-4 py-2 text-sm font-semibold bg-zinc-900 text-white rounded-lg hover:bg-zinc-800 disabled:opacity-50">
-              {isPending ? "Provisionando…" : "Provisionar cliente"}
+              {isPending ? "Provisionando…" : showRetry ? "Reintentar provisioning" : "Provisionar cliente"}
             </button>
           </div>
         </div>

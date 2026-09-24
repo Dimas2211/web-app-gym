@@ -23,7 +23,33 @@ model RuntimeTenant {
   branches   Branch[]
   users      User[]
 
+  provisioning_receipt RuntimeProvisioningReceipt?
+
   @@map("runtime_tenants")
+}
+
+// SHARED-PILOT-4B — prueba durable, EN LA BASE RUNTIME, de que una
+// operación de provisioning concreta (idempotency_key generada por
+// Control Plane en PlatformRuntimeProvisioningOperation) ya se aplicó.
+// Se crea en la MISMA transacción runtime que RuntimeTenant + Location
+// + Admin (ver provisionRuntimeTenant): o existen los cuatro, o ninguno.
+// Un retry con la misma key devuelve exactamente estos IDs sin crear
+// filas nuevas. Nunca se busca "algo parecido" por slug/email.
+model RuntimeProvisioningReceipt {
+  id              String   @id @default(uuid())
+  idempotency_key String   @unique
+  mode            String // "COMMERCE_ONLY" | "GYM"
+  tenant_id       String   @unique
+  gym_id          String?
+  location_id     String   @unique
+  admin_user_id   String   @unique
+  created_at      DateTime @default(now())
+
+  runtime_tenant RuntimeTenant @relation(fields: [tenant_id], references: [id], onDelete: Restrict)
+  location       Branch        @relation(fields: [location_id], references: [id], onDelete: Restrict)
+  admin_user     User          @relation(fields: [admin_user_id], references: [id], onDelete: Restrict)
+
+  @@map("runtime_provisioning_receipts")
 }
 
 model Gym {
@@ -77,6 +103,7 @@ model Branch {
   trainers              Trainer[]
   users                 User[]
   weekly_plan_templates WeeklyPlanTemplate[]
+  provisioning_receipt  RuntimeProvisioningReceipt?
 
   @@index([gym_id])
   @@index([tenant_id])
@@ -143,6 +170,7 @@ model User {
   cash_sessions_opened              CashSession[]            @relation("CashSessionOpenedBy")
   cash_sessions_closed              CashSession[]            @relation("CashSessionClosedBy")
   cash_movements_performed          CashMovement[]           @relation("CashMovementPerformedBy")
+  provisioning_receipt              RuntimeProvisioningReceipt?
 
   // SHARED-PILOT-4A / Gap G — identidad runtime es tenant_id + email, no
   // email global. Necesario para que un Shared Runtime pueda alojar
@@ -2587,6 +2615,15 @@ enum PlatformDeploymentStatus {
   ROLLBACK
 }
 
+// SHARED-PILOT-4B — estado de coordinación de la operación de alta
+// runtime inicial (PlatformRuntimeProvisioningOperation).
+enum PlatformRuntimeProvisioningOperationStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+}
+
 enum PlatformProvisioningStatus {
   NOT_READY
   READY
@@ -2732,6 +2769,7 @@ model PlatformOrganization {
   database_profiles     PlatformDatabaseProfile[]
   entitlement_overrides PlatformOrganizationEntitlementOverride[]
   external_integrations PlatformExternalIntegration[]
+  runtime_provisioning_operation PlatformRuntimeProvisioningOperation?
 
   @@index([tenant_id])
   @@index([status])
@@ -2787,6 +2825,49 @@ model PlatformSharedRuntimeTarget {
   @@index([is_active])
   @@index([environment])
   @@map("platform_shared_runtime_targets")
+}
+
+// ── PlatformRuntimeProvisioningOperation — SHARED-PILOT-4B ────────
+// Estado de COORDINACIÓN (fuente de verdad en Control Plane) del alta
+// runtime inicial de una organización. Se persiste ANTES de cualquier
+// escritura runtime, con una idempotency_key generada server-side que
+// se reutiliza en todos los reintentos. La base runtime guarda la
+// prueba de aplicación (RuntimeProvisioningReceipt) bajo esa misma key.
+//
+// - organization_id @unique: como máximo UNA operación de alta inicial
+//   por organización (serializa requests concurrentes).
+// - runtime_target_*: target físico fijado en el primer intento que
+//   llegó a conectarse; un retry contra otro target falla cerrado.
+// - Nunca password, credenciales ni connection strings.
+// PlatformDeploymentLog sigue siendo solo auditoría.
+model PlatformRuntimeProvisioningOperation {
+  id              String @id @default(uuid())
+  organization_id String @unique
+  idempotency_key String @unique
+
+  mode   String // "COMMERCE_ONLY" | "GYM" — modo del último intento
+  status PlatformRuntimeProvisioningOperationStatus @default(PENDING)
+
+  runtime_target_kind String? // "SHARED" | "DEDICATED"
+  runtime_target_id   String? // PlatformSharedRuntimeTarget.id | PlatformDatabaseProfile.id
+
+  result_tenant_id     String?
+  result_gym_id        String?
+  result_location_id   String?
+  result_admin_user_id String?
+
+  attempt_count Int     @default(0)
+  last_error    String? // mensaje sanitizado, sin secretos
+
+  created_by   String?
+  created_at   DateTime  @default(now())
+  updated_at   DateTime  @updatedAt
+  completed_at DateTime?
+
+  organization PlatformOrganization @relation(fields: [organization_id], references: [id])
+
+  @@index([status])
+  @@map("platform_runtime_provisioning_operations")
 }
 
 // ── PlatformModule — catálogo global de módulos disponibles ───────

@@ -18,6 +18,7 @@ import { getDteCorrelativeAlignmentPanelDataQuery } from "@/modules/platform/que
 import { getEffectiveOrganizationEntitlements, getEffectiveOrganizationModules } from "@/modules/platform/lib/entitlements-resolver";
 import { listSharedRuntimeTargets } from "@/modules/platform/queries/list-shared-runtime-targets";
 import { listDatabaseProfiles } from "@/modules/platform/queries/list-database-profiles";
+import { getRuntimeProvisioningOperationQuery } from "@/modules/platform/queries/get-runtime-provisioning-operation";
 
 import { PlatformOrganizationDetail }         from "@/modules/platform/components/platform-organization-detail";
 import { PlatformOrganizationModulesPanel }   from "@/modules/platform/components/platform-organization-modules-panel";
@@ -47,7 +48,7 @@ export default async function PlatformOrganizationDetailPage({ params }: Props) 
 
   const { id } = await params;
 
-  const [org, orgModules, verticals, allPlans, branding, logs, dteCorrelatives, effectiveEntitlements, effectiveModules, activeSharedTargets, orgDatabaseProfiles] = await Promise.all([
+  const [org, orgModules, verticals, allPlans, branding, logs, dteCorrelatives, effectiveEntitlements, effectiveModules, activeSharedTargets, orgDatabaseProfiles, provisioningOperation] = await Promise.all([
     getPlatformOrganizationByIdQuery(id),
     listOrganizationModulesQuery(id),
     listPlatformVerticalsQuery(false),
@@ -59,6 +60,7 @@ export default async function PlatformOrganizationDetailPage({ params }: Props) 
     getEffectiveOrganizationModules(id),
     listSharedRuntimeTargets({ is_active: true }),
     listDatabaseProfiles({ organization_id: id, is_active: true }),
+    getRuntimeProvisioningOperationQuery(id),
   ]);
 
   if (!org) notFound();
@@ -87,6 +89,7 @@ export default async function PlatformOrganizationDetailPage({ params }: Props) 
         sharedRuntimeTarget={org.shared_runtime_target}
         hasActiveDedicatedProfile={orgDatabaseProfiles.length > 0}
         activeSharedTargets={activeSharedTargets}
+        provisioningOperation={provisioningOperation}
       />
 
       {/* Gestión de licencia */}
