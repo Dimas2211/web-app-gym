@@ -1,10 +1,10 @@
+import { redirect } from "next/navigation";
+
+/**
+ * Entrypoint raíz neutral (sin branding de vertical).
+ * Redirige server-side a /login; el middleware ya reenvía a usuarios
+ * autenticados a /dashboard o /portal según su rol.
+ */
 export default function Home() {
-  return (
-    <main className="flex min-h-screen items-center justify-center">
-      <div className="text-center">
-        <h1 className="text-3xl font-bold text-gray-900">Sistema GYM</h1>
-        <p className="mt-2 text-gray-500">Plataforma de gestión multi-sucursal</p>
-      </div>
-    </main>
-  );
+  redirect("/login");
 }
