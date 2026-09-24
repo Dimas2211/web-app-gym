@@ -182,15 +182,9 @@ export function QuickCreateSupplierDialog({
 }: QuickCreateSupplierDialogProps) {
   if (!open) return null;
 
-  function handleBackdrop(e: React.MouseEvent<HTMLDivElement>) {
-    if (e.target === e.currentTarget) onClose();
-  }
-
+  // Sin cierre por click en backdrop: solo X, Cancelar o éxito cierran.
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4"
-      onClick={handleBackdrop}
-    >
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
       <div
         className="w-full max-w-sm rounded-xl bg-white shadow-xl"
         role="dialog"

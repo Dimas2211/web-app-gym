@@ -16,7 +16,7 @@
 // Error: state.errors (por campo) + state.error (banner global)
 // ─────────────────────────────────────────────────────────────────
 
-import { useActionState, useEffect, useState } from "react";
+import { startTransition, useActionState, useEffect, useState } from "react";
 import { X } from "lucide-react";
 import { updateSupplierAction } from "../actions/update-supplier.action";
 import type { SupplierUpdateActionState } from "../actions/update-supplier.action";
@@ -115,21 +115,29 @@ export function EditSupplierDialog({
       .catch(() => setIdTypes(ID_TYPE_FALLBACK));
   }, []);
 
-  function handleBackdrop(e: React.MouseEvent<HTMLDivElement>) {
-    if (e.target === e.currentTarget) onClose();
+  // Submit vía onSubmit + startTransition (no `action=`): React 19 resetea
+  // los formularios no controlados tras cada action y un error de
+  // validación revertía las ediciones a los defaultValue originales.
+  function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    const formData = new FormData(e.currentTarget);
+    startTransition(() => formAction(formData));
   }
 
+  // Sin cierre por click en backdrop: solo X, Cancelar o éxito cierran.
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-start justify-center bg-black/40 overflow-y-auto py-8 px-4"
-      onClick={handleBackdrop}
-    >
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-lg">
+    <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/40 overflow-y-auto py-8 px-4">
+      <div
+        className="bg-white rounded-xl shadow-xl w-full max-w-lg"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="es-dialog-title"
+      >
 
         {/* Header */}
         <div className="flex items-center justify-between px-6 pt-5 pb-4 border-b border-zinc-100">
           <div>
-            <h2 className="text-base font-semibold text-zinc-900">Editar proveedor</h2>
+            <h2 id="es-dialog-title" className="text-base font-semibold text-zinc-900">Editar proveedor</h2>
             <p className="text-xs font-mono text-zinc-400 mt-0.5">{supplier.supplier_code}</p>
           </div>
           <button
@@ -143,7 +151,7 @@ export function EditSupplierDialog({
         </div>
 
         {/* Formulario */}
-        <form action={formAction} className="px-6 py-5">
+        <form onSubmit={handleSubmit} className="px-6 py-5">
 
           {/* Identidad del registro */}
           <input type="hidden" name="id" value={supplier.id} />

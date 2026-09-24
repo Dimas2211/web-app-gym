@@ -30,7 +30,7 @@ export const personTypeEnum = z.enum(
 );
 
 export const idTypeCodeEnum = z.enum(
-  ["00", "02", "03", "13", "37"],
+  ["00", "02", "03", "13", "36", "37"],
   { errorMap: () => ({ message: "Tipo de identificación inválido." }) },
 );
 

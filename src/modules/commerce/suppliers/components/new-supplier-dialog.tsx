@@ -18,9 +18,20 @@
 //
 // Éxito:  result === undefined → onSuccess() + onClose()
 // Error:  state.errors (por campo) + state.error (banner global)
+//
+// Cierre solo explícito (X, Cancelar o éxito). Sin cierre por click en
+// backdrop: una selección de texto que termina fuera del panel dispara
+// click sobre el overlay y descartaba el formulario.
+//
+// Submit vía onSubmit + startTransition (no `action=`): React 19 resetea
+// los formularios no controlados tras cada action, también cuando el
+// servidor devuelve errores de validación, y se perdían los datos escritos.
+//
+// Un error de campo del último submit se oculta cuando el usuario modifica
+// ese campo; el siguiente submit vuelve a mostrar los errores del servidor.
 // ─────────────────────────────────────────────────────────────────
 
-import { useActionState } from "react";
+import { startTransition, useActionState, useState } from "react";
 import { X } from "lucide-react";
 import { createSupplierAction } from "../actions/create-supplier.action";
 import type { SupplierActionState } from "../actions/create-supplier.action";
@@ -101,20 +112,42 @@ export function NewSupplierDialog({ onClose, onSuccess }: NewSupplierDialogProps
     undefined,
   );
 
-  function handleBackdrop(e: React.MouseEvent<HTMLDivElement>) {
-    if (e.target === e.currentTarget) onClose();
+  // Campos editados desde el último submit — ligados a la identidad de
+  // `state`: cada respuesta nueva del servidor los descarta.
+  const [edited, setEdited] = useState<{ source: SupplierActionState; names: string[] }>({
+    source: undefined,
+    names:  [],
+  });
+  const editedNames = edited.source === state ? edited.names : [];
+
+  function fieldErrors(name: string): string[] | undefined {
+    return editedNames.includes(name) ? undefined : state?.errors?.[name];
+  }
+
+  function handleFieldChange(e: React.FormEvent<HTMLFormElement>) {
+    const name = (e.target as HTMLInputElement | HTMLSelectElement).name;
+    if (!name || !state?.errors?.[name] || editedNames.includes(name)) return;
+    setEdited({ source: state, names: [...editedNames, name] });
+  }
+
+  function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    const formData = new FormData(e.currentTarget);
+    startTransition(() => formAction(formData));
   }
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-start justify-center bg-black/40 overflow-y-auto py-8 px-4"
-      onClick={handleBackdrop}
-    >
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-lg">
+    <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/40 overflow-y-auto py-8 px-4">
+      <div
+        className="bg-white rounded-xl shadow-xl w-full max-w-lg"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="ns-dialog-title"
+      >
 
         {/* Header */}
         <div className="flex items-center justify-between px-6 pt-5 pb-4 border-b border-zinc-100">
-          <h2 className="text-base font-semibold text-zinc-900">Nuevo proveedor</h2>
+          <h2 id="ns-dialog-title" className="text-base font-semibold text-zinc-900">Nuevo proveedor</h2>
           <button
             type="button"
             onClick={onClose}
@@ -126,7 +159,7 @@ export function NewSupplierDialog({ onClose, onSuccess }: NewSupplierDialogProps
         </div>
 
         {/* Formulario */}
-        <form action={formAction} className="px-6 py-5">
+        <form onSubmit={handleSubmit} onChange={handleFieldChange} className="px-6 py-5">
 
           {/* Error global */}
           {state?.error && (
@@ -152,7 +185,7 @@ export function NewSupplierDialog({ onClose, onSuccess }: NewSupplierDialogProps
                   autoComplete="off"
                   className={inputCls}
                 />
-                <FieldError errors={state?.errors?.supplier_code} />
+                <FieldError errors={fieldErrors("supplier_code")} />
               </div>
 
               <div>
@@ -170,7 +203,7 @@ export function NewSupplierDialog({ onClose, onSuccess }: NewSupplierDialogProps
                     <option key={o.value} value={o.value}>{o.label}</option>
                   ))}
                 </select>
-                <FieldError errors={state?.errors?.taxpayer_type} />
+                <FieldError errors={fieldErrors("taxpayer_type")} />
               </div>
 
               <div>
@@ -187,7 +220,7 @@ export function NewSupplierDialog({ onClose, onSuccess }: NewSupplierDialogProps
                     <option key={o.value} value={o.value}>{o.label}</option>
                   ))}
                 </select>
-                <FieldError errors={state?.errors?.person_type} />
+                <FieldError errors={fieldErrors("person_type")} />
               </div>
 
               <div className="col-span-2">
@@ -202,7 +235,7 @@ export function NewSupplierDialog({ onClose, onSuccess }: NewSupplierDialogProps
                   autoComplete="off"
                   className={inputCls}
                 />
-                <FieldError errors={state?.errors?.name} />
+                <FieldError errors={fieldErrors("name")} />
               </div>
 
               <div className="col-span-2">
@@ -217,7 +250,7 @@ export function NewSupplierDialog({ onClose, onSuccess }: NewSupplierDialogProps
                   autoComplete="off"
                   className={inputCls}
                 />
-                <FieldError errors={state?.errors?.legal_name} />
+                <FieldError errors={fieldErrors("legal_name")} />
               </div>
 
             </div>
@@ -241,7 +274,7 @@ export function NewSupplierDialog({ onClose, onSuccess }: NewSupplierDialogProps
                     <option key={o.value} value={o.value}>{o.label}</option>
                   ))}
                 </select>
-                <FieldError errors={state?.errors?.id_type_code} />
+                <FieldError errors={fieldErrors("id_type_code")} />
               </div>
 
               <div>
@@ -257,7 +290,7 @@ export function NewSupplierDialog({ onClose, onSuccess }: NewSupplierDialogProps
                   autoComplete="off"
                   className={inputCls}
                 />
-                <FieldError errors={state?.errors?.dui} />
+                <FieldError errors={fieldErrors("dui")} />
               </div>
 
               <div>
@@ -273,7 +306,7 @@ export function NewSupplierDialog({ onClose, onSuccess }: NewSupplierDialogProps
                   autoComplete="off"
                   className={inputCls}
                 />
-                <FieldError errors={state?.errors?.nit} />
+                <FieldError errors={fieldErrors("nit")} />
               </div>
 
               <div>
@@ -288,7 +321,7 @@ export function NewSupplierDialog({ onClose, onSuccess }: NewSupplierDialogProps
                   autoComplete="off"
                   className={inputCls}
                 />
-                <FieldError errors={state?.errors?.nrc} />
+                <FieldError errors={fieldErrors("nrc")} />
               </div>
 
             </div>

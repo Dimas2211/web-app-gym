@@ -108,3 +108,56 @@ describe("createSupplierAction — FASE VI-D2", () => {
     expect(createSupplierSpy).not.toHaveBeenCalled();
   });
 });
+
+describe("createSupplierAction — SHARED-PILOT-4C-C1 (NIT id_type_code=36)", () => {
+  it("SMALL_TAXPAYER + 36 + NIT válido pasa Zod e invoca createSupplier con el client runtime", async () => {
+    const runtimeDbMarker = { __marker: "RUNTIME_CLIENT_DB" };
+    requireOperationalContextMock.mockResolvedValue(fakeHandle({ client: runtimeDbMarker }));
+    createSupplierSpy.mockResolvedValue({ ok: true, id: "s-nit", supplier_code: "PROV-NIT-001" });
+
+    const result = await createSupplierAction(undefined, fd({
+      supplier_code: "PROV-NIT-001",
+      name:          "Supplier Test NIT",
+      taxpayer_type: "SMALL_TAXPAYER",
+      person_type:   "NATURAL_PERSON",
+      id_type_code:  "36",
+      nit:           "0614-010268-009-9",
+      nrc:           "160466-8",
+    }));
+
+    expect(result).toBeUndefined();
+    expect(result?.errors?.taxpayer_type).toBeUndefined();
+    expect(result?.errors?.id_type_code).toBeUndefined();
+    expect(createSupplierSpy).toHaveBeenCalledTimes(1);
+    expect(createSupplierSpy).toHaveBeenCalledWith(
+      "tenant-1",
+      "u1",
+      expect.objectContaining({
+        taxpayer_type: "SMALL_TAXPAYER",
+        person_type:   "NATURAL_PERSON",
+        id_type_code:  "36",
+        nit:           "0614-010268-009-9",
+        nrc:           "160466-8",
+      }),
+      runtimeDbMarker,
+    );
+    expect(disposeMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("NIT mal formado → error en nit, sin error en taxpayer_type/id_type_code, createSupplier NO se invoca", async () => {
+    requireOperationalContextMock.mockResolvedValue(fakeHandle());
+
+    const result = await createSupplierAction(undefined, fd({
+      supplier_code: "PROV-NIT-002",
+      name:          "Supplier Test NIT",
+      taxpayer_type: "SMALL_TAXPAYER",
+      id_type_code:  "36",
+      nit:           "0614010268",
+    }));
+
+    expect(result?.errors?.nit).toBeTruthy();
+    expect(result?.errors?.taxpayer_type).toBeUndefined();
+    expect(result?.errors?.id_type_code).toBeUndefined();
+    expect(createSupplierSpy).not.toHaveBeenCalled();
+  });
+});
