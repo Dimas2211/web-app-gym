@@ -17,9 +17,12 @@ export interface PlatformSharedRuntimeTargetItem {
   db_host: string;
   db_port: number | null;
   db_name: string;
+  db_user: string;
+  ssl_mode: string;
   is_active: boolean;
   last_tested_at: Date | null;
   last_test_status: string;
+  last_test_message: string | null;
   organizationCount: number;
   created_at: Date;
   updated_at: Date;
@@ -40,10 +43,13 @@ export async function listSharedRuntimeTargets(
       db_host:           true,
       db_port:           true,
       db_name:           true,
+      db_user:           true,
+      ssl_mode:          true,
       // encrypted_password: omitido intencionalmente
       is_active:         true,
       last_tested_at:    true,
       last_test_status:  true,
+      last_test_message: true,
       created_at:        true,
       updated_at:        true,
       _count: { select: { organizations: true } },
@@ -59,9 +65,12 @@ export async function listSharedRuntimeTargets(
     db_host:           r.db_host,
     db_port:           r.db_port,
     db_name:           r.db_name,
+    db_user:           r.db_user,
+    ssl_mode:          r.ssl_mode,
     is_active:         r.is_active,
     last_tested_at:    r.last_tested_at,
     last_test_status:  r.last_test_status,
+    last_test_message: r.last_test_message,
     organizationCount: r._count.organizations,
     created_at:        r.created_at,
     updated_at:        r.updated_at,

@@ -150,8 +150,12 @@ export function PlatformDatabaseProfilesClient({
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div>
           <div className="flex items-center gap-2">
-            <Database size={18} className="text-zinc-400" />
-            <h1 className="text-xl font-bold text-zinc-800">Perfiles de base de datos</h1>
+            <Database size={16} className="text-zinc-400" />
+            <h2 className="text-base font-bold text-zinc-800">Perfiles Dedicated</h2>
+            <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold tracking-wide
+                             bg-zinc-200 text-zinc-700">
+              DEDICATED
+            </span>
           </div>
           <p className="text-sm text-zinc-500 mt-0.5">
             {filteredProfiles.length}{selectedOrgId ? "" : ` de ${profiles.length}`} perfil{profiles.length !== 1 ? "es" : ""}

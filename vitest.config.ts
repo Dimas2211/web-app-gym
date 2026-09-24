@@ -5,6 +5,10 @@ import path from "node:path";
 // para que los tests puedan importar módulos server (services/actions)
 // que usan imports absolutos, sin necesidad de mockear cada ruta.
 export default defineConfig({
+  // JSX runtime automático (igual que Next) para tests que importan .tsx
+  esbuild: {
+    jsx: "automatic",
+  },
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
