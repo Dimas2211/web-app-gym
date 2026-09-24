@@ -8,13 +8,14 @@
 // DTO (listSharedRuntimeTargets) ni siquiera los contiene.
 // ─────────────────────────────────────────────────────────────────
 
-import { Power, PlugZap, Loader2 } from "lucide-react";
+import { Pencil, Power, PlugZap, Loader2 } from "lucide-react";
 import type { PlatformSharedRuntimeTargetItem } from "../queries/list-shared-runtime-targets";
 
 interface Props {
   items:          PlatformSharedRuntimeTargetItem[];
   testingId:      string | null;
   togglingId:     string | null;
+  onEdit:         (t: PlatformSharedRuntimeTargetItem) => void;
   onToggleActive: (t: PlatformSharedRuntimeTargetItem) => void;
   onTest:         (t: PlatformSharedRuntimeTargetItem) => void;
 }
@@ -37,6 +38,7 @@ export function PlatformSharedRuntimeTargetsTable({
   items,
   testingId,
   togglingId,
+  onEdit,
   onToggleActive,
   onTest,
 }: Props) {
@@ -139,6 +141,17 @@ export function PlatformSharedRuntimeTargetsTable({
 
                 <td className="px-4 py-3">
                   <div className="flex items-center gap-1.5 flex-wrap">
+                    <button
+                      type="button"
+                      onClick={() => onEdit(t)}
+                      className="inline-flex items-center gap-1 text-xs px-2.5 py-1.5
+                                 border border-zinc-200 rounded-lg text-zinc-600
+                                 hover:bg-zinc-50 hover:border-zinc-300 transition-colors"
+                    >
+                      <Pencil size={11} />
+                      Editar
+                    </button>
+
                     <button
                       type="button"
                       onClick={() => onTest(t)}

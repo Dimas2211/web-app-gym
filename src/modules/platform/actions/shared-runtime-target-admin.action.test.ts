@@ -1,7 +1,7 @@
 // ─────────────────────────────────────────────────────────────────
 // platform/actions — shared-runtime-target-admin.action.test.ts
 //
-// SHARED-PILOT-4C-B0. Cubre create / list / test connection / toggle
+// SHARED-PILOT-4C-B0 / B0.1. Cubre create / list / test connection / toggle / update
 // de PlatformSharedRuntimeTarget. Usa cifrado real (encryption.ts) y
 // el builder real de URL; solo se mockean prisma (control plane),
 // guards y el PrismaClient temporal hacia la runtime DB.
@@ -64,6 +64,7 @@ vi.mock("../lib/client-prisma", () => ({
 import { createSharedRuntimeTargetAction } from "./create-shared-runtime-target.action";
 import { testSharedRuntimeTargetConnectionAction } from "./test-shared-runtime-target-connection.action";
 import { setSharedRuntimeTargetActiveAction } from "./set-shared-runtime-target-active.action";
+import { updateSharedRuntimeTargetAction } from "./update-shared-runtime-target.action";
 import { listSharedRuntimeTargets } from "../queries/list-shared-runtime-targets";
 import { encryptText, decryptText } from "@/lib/security/encryption";
 
@@ -308,5 +309,147 @@ describe("setSharedRuntimeTargetActiveAction", () => {
 
     expect(result?.error).toBeTruthy();
     expect(db.platformSharedRuntimeTarget.update).not.toHaveBeenCalled();
+  });
+});
+
+describe("updateSharedRuntimeTargetAction", () => {
+  const NEW_SECRET = "N3w-S3cr3t@pass";
+
+  function existingRow() {
+    return {
+      id: TARGET_ID, db_host: "db.example.com", db_port: 5432,
+      db_name: "zolvi_shared", db_user: "zolvi_app", ssl_mode: "REQUIRE",
+    };
+  }
+
+  function mockExisting(labelOwner: string | null = TARGET_ID) {
+    db.platformSharedRuntimeTarget.findUnique.mockImplementation(
+      async ({ where }: { where: { id?: string; label?: string } }) => {
+        if (where.id) return where.id === TARGET_ID ? existingRow() : null;
+        return labelOwner ? { id: labelOwner } : null;
+      },
+    );
+  }
+
+  it("password vacío conserva encrypted_password actual", async () => {
+    mockExisting();
+
+    const result = await updateSharedRuntimeTargetAction(
+      TARGET_ID, undefined, formData({ password: "", environment: "STAGING" }),
+    );
+
+    expect(result).toBeUndefined();
+    const upd = db.platformSharedRuntimeTarget.update.mock.calls[0][0];
+    expect(upd.where).toEqual({ id: TARGET_ID });
+    expect(upd.data).not.toHaveProperty("encrypted_password");
+    expect(upd.data).not.toHaveProperty("password");
+    expect(upd.data.environment).toBe("STAGING");
+    expect(upd.data.updated_by).toBe("super-admin-1");
+    // Sin cambios de conexión: resultado del test previo se conserva
+    expect(upd.data).not.toHaveProperty("last_test_status");
+  });
+
+  it("password vacío no requiere PLATFORM_ENCRYPTION_KEY", async () => {
+    mockExisting();
+    delete process.env.PLATFORM_ENCRYPTION_KEY;
+
+    const result = await updateSharedRuntimeTargetAction(TARGET_ID, undefined, formData({ password: "" }));
+
+    expect(result).toBeUndefined();
+    expect(db.platformSharedRuntimeTarget.update).toHaveBeenCalledOnce();
+  });
+
+  it("password nuevo se cifra y reemplaza", async () => {
+    mockExisting();
+
+    const result = await updateSharedRuntimeTargetAction(
+      TARGET_ID, undefined, formData({ password: NEW_SECRET }),
+    );
+
+    expect(result).toBeUndefined();
+    const { data } = db.platformSharedRuntimeTarget.update.mock.calls[0][0];
+    expect(data).not.toHaveProperty("password");
+    expect(JSON.stringify(data)).not.toContain(NEW_SECRET);
+    expect(decryptText(data.encrypted_password)).toBe(NEW_SECRET);
+    expect(data.last_test_status).toBe("UNTESTED");
+  });
+
+  it("password nuevo sin PLATFORM_ENCRYPTION_KEY → fail closed", async () => {
+    mockExisting();
+    delete process.env.PLATFORM_ENCRYPTION_KEY;
+
+    const result = await updateSharedRuntimeTargetAction(
+      TARGET_ID, undefined, formData({ password: NEW_SECRET }),
+    );
+
+    expect(result?.error).toBeTruthy();
+    expect(JSON.stringify(result)).not.toContain(NEW_SECRET);
+    expect(db.platformSharedRuntimeTarget.update).not.toHaveBeenCalled();
+  });
+
+  it("cambio de db_port 5432 → 6543 permitido y resetea el último test", async () => {
+    mockExisting();
+
+    const result = await updateSharedRuntimeTargetAction(
+      TARGET_ID, undefined, formData({ password: "", db_port: "6543" }),
+    );
+
+    expect(result).toBeUndefined();
+    const { data } = db.platformSharedRuntimeTarget.update.mock.calls[0][0];
+    expect(data.db_port).toBe(6543);
+    expect(data).not.toHaveProperty("encrypted_password");
+    expect(data.last_test_status).toBe("UNTESTED");
+    expect(data.last_tested_at).toBeNull();
+    expect(data.last_test_message).toBeNull();
+  });
+
+  it("target inexistente → fail closed sin escribir", async () => {
+    mockExisting();
+
+    const result = await updateSharedRuntimeTargetAction("missing", undefined, formData());
+
+    expect(result?.error).toBeTruthy();
+    expect(db.platformSharedRuntimeTarget.update).not.toHaveBeenCalled();
+  });
+
+  it("label duplicado de otro target → rechazado", async () => {
+    mockExisting("other-target");
+
+    const result = await updateSharedRuntimeTargetAction(
+      TARGET_ID, undefined, formData({ label: "Otro Shared" }),
+    );
+
+    expect(result?.errors?.label).toBeTruthy();
+    expect(db.platformSharedRuntimeTarget.update).not.toHaveBeenCalled();
+  });
+
+  it("errores de validación no devuelven el password", async () => {
+    mockExisting();
+
+    const result = await updateSharedRuntimeTargetAction(
+      TARGET_ID, undefined, formData({ db_host: "", password: NEW_SECRET }),
+    );
+
+    expect(result?.errors?.db_host).toBeTruthy();
+    expect(JSON.stringify(result)).not.toContain(NEW_SECRET);
+    expect(db.platformSharedRuntimeTarget.update).not.toHaveBeenCalled();
+  });
+
+  it("no toca organizaciones ni is_active", async () => {
+    mockExisting();
+
+    await updateSharedRuntimeTargetAction(TARGET_ID, undefined, formData({ db_port: "6543" }));
+
+    const { data } = db.platformSharedRuntimeTarget.update.mock.calls[0][0];
+    expect(data).not.toHaveProperty("organizations");
+    expect(data).not.toHaveProperty("is_active");
+    expectNoOrganizationAccess();
+  });
+
+  it("requiere super_admin antes de cualquier acceso", async () => {
+    requireSuperAdminMock.mockRejectedValue(new Error("NEXT_REDIRECT"));
+
+    await expect(updateSharedRuntimeTargetAction(TARGET_ID, undefined, formData())).rejects.toThrow();
+    expect(db.platformSharedRuntimeTarget.findUnique).not.toHaveBeenCalled();
   });
 });

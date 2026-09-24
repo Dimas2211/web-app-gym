@@ -38,6 +38,7 @@ export function PlatformSharedRuntimeTargetsPanel({
   encryptionKeyMissing,
 }: PlatformSharedRuntimeTargetsPanelProps) {
   const [showDialog, setShowDialog] = useState(false);
+  const [editingTarget, setEditingTarget] = useState<PlatformSharedRuntimeTargetItem | null>(null);
   const [testingId,  setTestingId]  = useState<string | null>(null);
   const [togglingId, setTogglingId] = useState<string | null>(null);
   const [feedback,   setFeedback]   = useState<Feedback | null>(null);
@@ -49,6 +50,21 @@ export function PlatformSharedRuntimeTargetsPanel({
     const t = setTimeout(() => setFeedback(null), 6000);
     return () => clearTimeout(t);
   }, [feedback]);
+
+  function handleOpenCreate() {
+    setEditingTarget(null);
+    setShowDialog(true);
+  }
+
+  function handleOpenEdit(t: PlatformSharedRuntimeTargetItem) {
+    setEditingTarget(t);
+    setShowDialog(true);
+  }
+
+  function handleCloseDialog() {
+    setShowDialog(false);
+    setEditingTarget(null);
+  }
 
   function handleToggleActive(t: PlatformSharedRuntimeTargetItem) {
     // Desactivar hace fail closed para todas las organizaciones asignadas
@@ -111,7 +127,7 @@ export function PlatformSharedRuntimeTargetsPanel({
 
         <button
           type="button"
-          onClick={() => setShowDialog(true)}
+          onClick={handleOpenCreate}
           disabled={encryptionKeyMissing}
           className="flex items-center gap-2 bg-zinc-900 text-white px-4 py-2 rounded-lg
                      text-sm font-semibold hover:bg-zinc-800 transition-colors
@@ -138,13 +154,19 @@ export function PlatformSharedRuntimeTargetsPanel({
           items={targets}
           testingId={testingId}
           togglingId={togglingId}
+          onEdit={handleOpenEdit}
           onToggleActive={handleToggleActive}
           onTest={handleTestConnection}
         />
       </div>
 
+      {/* key fuerza remount al cambiar de modo */}
       {showDialog && (
-        <PlatformSharedRuntimeTargetFormDialog onClose={() => setShowDialog(false)} />
+        <PlatformSharedRuntimeTargetFormDialog
+          key={editingTarget?.id ?? "new"}
+          target={editingTarget}
+          onClose={handleCloseDialog}
+        />
       )}
     </section>
   );
