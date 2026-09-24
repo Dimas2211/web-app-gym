@@ -51,6 +51,9 @@ function matches(row: Row, where: Where | undefined): boolean {
     if (cond !== null && typeof cond === "object" && "not" in (cond as object)) {
       return row[key] !== (cond as { not: unknown }).not;
     }
+    if (cond !== null && typeof cond === "object" && "in" in (cond as object)) {
+      return (cond as { in: unknown[] }).in.includes(row[key]);
+    }
     return (row[key] ?? null) === cond;
   });
 }
@@ -160,6 +163,14 @@ export class InMemoryDb {
         const row = rows().find((r) => matches(r, where));
         return row ? project(row, select) : null;
       },
+      findMany: async ({ where, select }: { where?: Where; select?: Record<string, boolean> } = {}) => {
+        await this.guard(table, "findMany");
+        return rows().filter((r) => matches(r, where)).map((r) => project(r, select));
+      },
+      count: async ({ where }: { where?: Where } = {}) => {
+        await this.guard(table, "count");
+        return rows().filter((r) => matches(r, where)).length;
+      },
       findFirst: async ({ where, select }: { where?: Where; select?: Record<string, boolean> }) => {
         await this.guard(table, "findFirst");
         const row = rows().find((r) => matches(r, where));
@@ -256,6 +267,16 @@ export function createRuntimeDb(): InMemoryDb {
       uniques: [["idempotency_key"], ["tenant_id"], ["location_id"], ["admin_user_id"]],
       foreignKeys: { tenant_id: "runtimeTenant", location_id: "branch", admin_user_id: "user" },
     },
+    // SHARED-OPS-PARITY-1 — baseline Commerce tenant-scoped.
+    taxRate:            { uniques: [] },
+    productCategory:    { uniques: [["tenant_id", "code"]] },
+    tenantFiscalConfig: { uniques: [["tenant_id"]] },
+    // Catálogos globales de la base física (una sola copia, sin tenant_id).
+    unitOfMeasure:      { uniques: [["symbol"]] },
+    identificationType: { uniques: [["code"]] },
+    economicActivity:   { uniques: [["code"]] },
+    municipality:       { uniques: [["code"]] },
+    country:            { uniques: [["code"]] },
   });
 }
 

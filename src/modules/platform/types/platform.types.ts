@@ -1366,19 +1366,35 @@ export interface DataOnboardingDatasetDefinition {
 }
 
 /** Metadatos seguros del perfil para el header del Data Onboarding Center */
-export interface DataOnboardingProfileHeader {
-  id:               string;
-  label:            string;
+/**
+ * SHARED-OPS-PARITY-1. Metadata SEGURA del destino runtime de una
+ * organización (Shared o Dedicated) para el Data Onboarding Center y
+ * operaciones organization-scoped. Nunca incluye password ni DATABASE_URL.
+ */
+export type OrganizationRuntimeKind = "SHARED" | "DEDICATED";
+
+export interface OrganizationRuntimeHeader {
+  organizationId:   string;
+  organizationCode: string;
+  organizationName: string;
+  tenantId:         string;
+  runtimeKind:      OrganizationRuntimeKind;
+  /** PlatformSharedRuntimeTarget.id (SHARED) o PlatformDatabaseProfile.id (DEDICATED). */
+  runtimeTargetId:  string;
+  runtimeLabel:     string;
+  environment:      string;
+  provider:         string;
   db_host:          string;
   db_port:          number | null;
   db_name:          string;
   db_user:          string;
   ssl_mode:         string;
-  environment:      string;
-  is_active:        boolean;
-  last_test_status: string;
-  last_tested_at:   string | null;
-  organization:     { id: string; code: string; name: string };
+  isActive:         boolean;
+  lastTestStatus:   string;
+  /** ISO 8601 */
+  lastTestedAt:     string | null;
+  /** Solo en links históricos Dedicated fijados a un perfil concreto. */
+  pinnedProfileId:  string | null;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

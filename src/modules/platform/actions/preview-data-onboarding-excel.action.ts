@@ -16,6 +16,12 @@
 //  5. Desconectar Prisma temporal.
 //  6. Retornar preview combinado (archivo + DB-aware).
 //
+// SHARED-OPS-PARITY-1: el destino se resuelve SERVER-SIDE por
+// organizationId (Shared o Dedicated) — organizationId →
+// PlatformOrganization.tenant_id → Runtime Router. profileId solo se
+// acepta como fijación de un perfil Dedicated (links históricos) y debe
+// pertenecer a la misma organización. Nunca tenantId del navegador.
+//
 // Reglas de seguridad E1B.1:
 //  - requireSuperAdmin() obligatorio.
 //  - Solo lecturas contra base cliente.
@@ -27,16 +33,21 @@
 // ─────────────────────────────────────────────────────────────────
 
 import { requireSuperAdmin }       from "@/lib/permissions/guards";
-import { prisma }                   from "@/lib/db/prisma";
 import { IMPORT_DATASETS }          from "../lib/data-onboarding/data-onboarding-definitions";
 import { parseDataOnboardingWorkbook }
   from "../lib/data-onboarding/excel-preview-parser";
 import { analyzeDataOnboardingPreviewAgainstDatabase }
   from "../lib/data-onboarding/db-aware-preview-analyzer";
 import { DEFAULT_IMPORT_POLICY }    from "../lib/data-onboarding/import-policy";
-import { buildDatabaseUrlFromProfile, sanitizeDatabaseError }
-  from "../lib/database-profile-url";
+import { sanitizeDataOnboardingError }
+  from "../lib/data-onboarding/run-data-onboarding-import";
+import { sanitizeDatabaseError }    from "../lib/database-profile-url";
 import { withTemporaryPrismaClient } from "../lib/client-prisma";
+import {
+  resolveOrganizationRuntime,
+  isOrganizationRuntimeResolutionError,
+} from "../runtime/resolve-organization-runtime";
+import { getRuntimeDatabaseUrlFromProfile } from "../runtime/runtime-database-router";
 import type {
   DataOnboardingDatasetKey,
   DataOnboardingPreviewActionState,
@@ -44,19 +55,9 @@ import type {
 
 const MAX_FILE_SIZE_BYTES = 5 * 1024 * 1024; // 5 MB
 
-// Patrones de datos sensibles a sanitizar en mensajes de error
-const SENSITIVE_PATTERNS: [RegExp, string][] = [
-  [/postgresql:\/\/[^\s]*/gi,           "***"],
-  [/password[=:\s]+[^\s,}]*/gi,         "***"],
-  [/DATABASE_URL[=:\s]+[^\s]*/gi,       "***"],
-  [/encrypted_password[=:\s]+[^\s]*/gi, "***"],
-];
-
-function sanitizeError(msg: string): string {
-  return SENSITIVE_PATTERNS.reduce(
-    (s, [pattern, replacement]) => s.replace(pattern, replacement),
-    msg,
-  );
+function formString(formData: FormData, key: string): string | null {
+  const v = formData.get(key);
+  return typeof v === "string" && v.trim() ? v.trim() : null;
 }
 
 export async function previewDataOnboardingExcelAction(
@@ -67,12 +68,13 @@ export async function previewDataOnboardingExcelAction(
     await requireSuperAdmin();
 
     // ── 2. Extraer parámetros ─────────────────────────────────
-    const profileId  = formData.get("profileId");
-    const datasetKey = formData.get("datasetKey");
-    const file       = formData.get("file");
+    const organizationId = formString(formData, "organizationId");
+    const profileId      = formString(formData, "profileId");
+    const datasetKey     = formData.get("datasetKey");
+    const file           = formData.get("file");
 
-    if (typeof profileId !== "string" || !profileId.trim()) {
-      return { success: false, error: "profileId requerido." };
+    if (!organizationId && !profileId) {
+      return { success: false, error: "organizationId requerido." };
     }
     if (typeof datasetKey !== "string" || !datasetKey.trim()) {
       return { success: false, error: "datasetKey requerido." };
@@ -101,76 +103,34 @@ export async function previewDataOnboardingExcelAction(
       };
     }
 
-    // ── 5. Verificar perfil — incluye credenciales para análisis DB ─
-    const profile = await prisma.platformDatabaseProfile.findUnique({
-      where:  { id: profileId.trim() },
-      select: {
-        id:                 true,
-        label:              true,
-        db_host:            true,
-        db_port:            true,
-        db_name:            true,
-        db_user:            true,
-        ssl_mode:           true,
-        encrypted_password: true,
-        organization: {
-          select: { tenant_id: true },
-        },
-      },
-    });
-    if (!profile) {
-      return { success: false, error: "Perfil de base de datos no encontrado." };
-    }
-
-    // ── 6. Leer buffer — sin escribir en disco ────────────────
-    const arrayBuffer = await file.arrayBuffer();
-    const buffer      = Buffer.from(arrayBuffer);
-
-    // ── 7. Parsear workbook en memoria ────────────────────────
+    // ── 5. Leer buffer y parsear en memoria ───────────────────
+    const buffer = Buffer.from(await file.arrayBuffer());
     const result = parseDataOnboardingWorkbook({
       datasetKey: datasetKey as DataOnboardingDatasetKey,
       fileBuffer: buffer,
     });
 
-    // ── 8. Análisis DB-aware (solo si hay estructura procesable) ─
-    // Si el archivo tiene errores estructurales críticos (hoja faltante,
-    // columnas ausentes), no tiene sentido consultar la base destino.
-    // Aun con filas inválidas, sí consultamos — el analyzer maneja filas con error.
-
-    const tenantId = profile.organization?.tenant_id;
-
-    if (!tenantId) {
-      // Sin tenant_id no podemos filtrar datos del cliente correctamente
-      return {
-        success:      true,
-        result,
-        dbAwareError:
-          "Esta organización no tiene tenant_id operativo. Ve a Perfiles de BD → " +
-          "Detectar tenant para asociarlo. Si la base es nueva y no aparecen tenants, " +
-          "primero debe ejecutarse provisioning/seed para crear el registro en gyms.",
-      };
-    }
-
-    // Construir URL en memoria — contiene password descifrado, no loguear
+    // ── 6. Resolver destino runtime server-side ───────────────
+    // Sin tenant/runtime resoluble devolvemos igualmente el análisis
+    // del archivo, con el motivo en dbAwareError.
     let databaseUrl: string;
+    let tenantId: string;
     try {
-      databaseUrl = buildDatabaseUrlFromProfile({
-        db_host:            profile.db_host,
-        db_port:            profile.db_port,
-        db_name:            profile.db_name,
-        db_user:            profile.db_user,
-        encrypted_password: profile.encrypted_password,
-        ssl_mode:           profile.ssl_mode,
-      });
-    } catch (urlErr) {
-      return {
-        success:      true,
-        result,
-        dbAwareError: `No se pudo construir la conexión a la base destino: ${sanitizeDatabaseError(urlErr)}.`,
-      };
+      const resolved = await resolveOrganizationRuntime({ organizationId, profileId });
+      tenantId    = resolved.header.tenantId;
+      databaseUrl = getRuntimeDatabaseUrlFromProfile(resolved.profile);
+    } catch (err) {
+      if (isOrganizationRuntimeResolutionError(err)) {
+        return {
+          success:      true,
+          result,
+          dbAwareError: `No se pudo resolver la base destino de la organización: ${sanitizeDataOnboardingError(err.message)}`,
+        };
+      }
+      throw err;
     }
 
-    // Ejecutar análisis DB-aware con Prisma temporal (solo lecturas)
+    // ── 7. Análisis DB-aware (solo lecturas, WHERE tenant_id) ─
     let dbAwareResult;
     let dbAwareError: string | undefined;
 
@@ -197,8 +157,7 @@ export async function previewDataOnboardingExcelAction(
     };
 
   } catch (err) {
-    const raw  = err instanceof Error ? err.message : "Error inesperado al procesar el archivo.";
-    const safe = sanitizeError(raw);
-    return { success: false, error: safe };
+    const raw = err instanceof Error ? err.message : "Error inesperado al procesar el archivo.";
+    return { success: false, error: sanitizeDataOnboardingError(raw) };
   }
 }

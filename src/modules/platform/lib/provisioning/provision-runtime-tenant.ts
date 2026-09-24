@@ -23,7 +23,15 @@
 // - Dentro de UNA transacción runtime: advisory lock por key → buscar
 //   RuntimeProvisioningReceipt → si existe, validar y devolver los MISMOS
 //   IDs sin escribir nada; si no, crear Tenant (+Gym) + Location + Admin
-//   + Receipt. Solo hay dos estados posibles: nada, o los cuatro juntos.
+//   + baseline Commerce + Receipt. Solo hay dos estados posibles: nada,
+//   o todo junto.
+//
+// SHARED-OPS-PARITY-1 — el baseline Commerce tenant-scoped (IVA 13%,
+// categoría GENERAL, TenantFiscalConfig) se crea en la MISMA transacción,
+// antes del receipt: el receipt solo certifica un tenant completamente
+// bootstrappeado. El replay por receipt sigue sin escribir nada (tenants
+// provisionados antes de este cambio se reparan con
+// ensureOrganizationRuntimeBaselineAction, explícitamente).
 // - Nunca se decide "es el mismo" por slug/email. Un slug ya tomado sin
 //   receipt de esta key → RuntimeProvisioningConflictError (fail closed,
 //   nunca se adopta un tenant ajeno).
@@ -31,6 +39,7 @@
 
 import bcrypt from "bcryptjs";
 import { Prisma, type PrismaClient } from "@prisma/client";
+import { ensureCommerceTenantBaseline } from "./ensure-commerce-tenant-baseline";
 
 type ProvisionBaseInput = {
   /** Generada server-side por Control Plane. Nunca viene del browser. */
@@ -249,6 +258,10 @@ export async function provisionRuntimeTenant(
           },
           select: { id: true },
         });
+
+        // Baseline tenant-scoped (tenant_id = RuntimeTenant.id). Nunca
+        // siembra catálogos globales de la base física.
+        await ensureCommerceTenantBaseline(tx, tenant.id);
 
         await tx.runtimeProvisioningReceipt.create({
           data: {

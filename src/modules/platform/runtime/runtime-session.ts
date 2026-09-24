@@ -21,7 +21,9 @@
 // - Server-only: usa `cookies()` de next/headers.
 //
 // Reglas de seguridad:
-// - Solo se crea desde enter-client-runtime.action.ts (requireSuperAdmin).
+// - Solo se crea desde enter-client-runtime.action.ts (Dedicated por
+//   perfil, histórico) o enter-organization-runtime.action.ts (por
+//   organización, Shared o Dedicated) — ambos requireSuperAdmin.
 // - Un payload que no descifra o no pasa la validación de forma se
 //   trata como ausente (no se lanza — se degrada a "sin sesión runtime").
 // - Las páginas reales y las server actions de escritura de
@@ -53,6 +55,14 @@ export interface RuntimeSessionPayload {
   startedByUserId:  string;
   /** ISO 8601 */
   startedAt:        string;
+  /**
+   * SHARED-OPS-PARITY-1. Tipo de runtime de la organización. Ausente en
+   * sesiones abiertas antes de este cambio (= DEDICATED). En SHARED,
+   * `profileId` es el PlatformSharedRuntimeTarget.id resuelto server-side
+   * y la sesión se re-resuelve SIEMPRE por organizationId (ver
+   * resolve-runtime-session-profile.ts) — nunca por el target.
+   */
+  runtimeKind?:     "SHARED" | "DEDICATED";
 }
 
 function isValidPayload(value: unknown): value is RuntimeSessionPayload {
@@ -66,7 +76,8 @@ function isValidPayload(value: unknown): value is RuntimeSessionPayload {
     typeof p.profileLabel     === "string" &&
     p.readOnly                === true &&
     typeof p.startedByUserId  === "string" &&
-    typeof p.startedAt        === "string"
+    typeof p.startedAt        === "string" &&
+    (p.runtimeKind === undefined || p.runtimeKind === "SHARED" || p.runtimeKind === "DEDICATED")
   );
 }
 

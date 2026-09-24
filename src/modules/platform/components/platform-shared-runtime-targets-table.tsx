@@ -6,10 +6,17 @@
 // SHARED-PILOT-4C-B0. Tabla de PlatformSharedRuntimeTarget.
 // NUNCA renderiza password, encrypted_password ni DATABASE_URL — el
 // DTO (listSharedRuntimeTargets) ni siquiera los contiene.
+//
+// SHARED-OPS-PARITY-1: la fila del target solo tiene acciones de BASE
+// FÍSICA (editar, probar conexión, activar). Las operaciones
+// tenant-scoped viven en la subtabla "Organizaciones" (una fila por
+// organización asignada) — nunca sobre el target sin organización.
 // ─────────────────────────────────────────────────────────────────
 
-import { Pencil, Power, PlugZap, Loader2 } from "lucide-react";
+import { Fragment } from "react";
+import { Pencil, Power, PlugZap, Loader2, Building2, ChevronDown, ChevronUp } from "lucide-react";
 import type { PlatformSharedRuntimeTargetItem } from "../queries/list-shared-runtime-targets";
+import { PlatformSharedTargetOrganizationsTable } from "./platform-shared-target-organizations-table";
 
 interface Props {
   items:          PlatformSharedRuntimeTargetItem[];
@@ -18,6 +25,8 @@ interface Props {
   onEdit:         (t: PlatformSharedRuntimeTargetItem) => void;
   onToggleActive: (t: PlatformSharedRuntimeTargetItem) => void;
   onTest:         (t: PlatformSharedRuntimeTargetItem) => void;
+  expandedId?:    string | null;
+  onToggleOrganizations?: (t: PlatformSharedRuntimeTargetItem) => void;
 }
 
 const TEST_STATUS_CFG: Record<string, { cls: string; label: string }> = {
@@ -41,6 +50,8 @@ export function PlatformSharedRuntimeTargetsTable({
   onEdit,
   onToggleActive,
   onTest,
+  expandedId = null,
+  onToggleOrganizations,
 }: Props) {
   if (items.length === 0) {
     return (
@@ -72,9 +83,11 @@ export function PlatformSharedRuntimeTargetsTable({
             const isTesting  = testingId  === t.id;
             const isToggling = togglingId === t.id;
             const status     = TEST_STATUS_CFG[t.last_test_status] ?? TEST_STATUS_CFG.UNTESTED;
+            const isExpanded = expandedId === t.id;
 
             return (
-              <tr key={t.id} className="hover:bg-zinc-50/70 transition-colors">
+              <Fragment key={t.id}>
+              <tr className="hover:bg-zinc-50/70 transition-colors">
                 <td className="px-4 py-3 font-medium text-zinc-800 whitespace-nowrap">
                   {t.label}
                 </td>
@@ -179,9 +192,35 @@ export function PlatformSharedRuntimeTargetsTable({
                       {isToggling ? <Loader2 size={11} className="animate-spin" /> : <Power size={11} />}
                       {t.is_active ? "Desactivar" : "Activar"}
                     </button>
+
+                    {onToggleOrganizations && (
+                      <button
+                        type="button"
+                        onClick={() => onToggleOrganizations(t)}
+                        aria-expanded={isExpanded}
+                        className="inline-flex items-center gap-1 text-xs px-2.5 py-1.5
+                                   border border-violet-200 rounded-lg text-violet-700
+                                   hover:bg-violet-50 transition-colors whitespace-nowrap"
+                        title="Ver las organizaciones de este Shared Runtime y sus operaciones"
+                      >
+                        <Building2 size={11} />
+                        Organizaciones ({t.organizations.length})
+                        {isExpanded ? <ChevronUp size={11} /> : <ChevronDown size={11} />}
+                      </button>
+                    )}
                   </div>
                 </td>
               </tr>
+              {isExpanded && (
+                <tr className="bg-violet-50/40">
+                  <td colSpan={10} className="px-4 py-3">
+                    <div className="rounded-lg border border-violet-200 bg-white overflow-x-auto">
+                      <PlatformSharedTargetOrganizationsTable organizations={t.organizations} />
+                    </div>
+                  </td>
+                </tr>
+              )}
+              </Fragment>
             );
           })}
         </tbody>

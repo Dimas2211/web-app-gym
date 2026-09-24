@@ -1,21 +1,17 @@
 // ─────────────────────────────────────────────────────────────────
-// platform — /dashboard/platform/data-onboarding/[profileId]
+// platform — /dashboard/platform/data-onboarding/org/[organizationId]
 //
-// Link histórico (Dedicated) del Data Onboarding Center, por perfil.
-//
-// SHARED-OPS-PARITY-1: converge con la ruta organization-scoped
-// (/data-onboarding/org/[organizationId]). El perfil solo FIJA qué base
-// Dedicated usar; la identidad operativa sigue siendo la organización
-// dueña del perfil y el tenant sale de PlatformOrganization.tenant_id.
-// Las actions reciben organizationId + profileId y lo re-validan
-// server-side.
+// SHARED-OPS-PARITY-1. Data Onboarding Center ORGANIZATION-SCOPED.
+// Funciona igual para organizaciones Shared y Dedicated: la identidad
+// operativa es organizationId, el runtime y el tenant se resuelven
+// server-side (resolveOrganizationRuntime → Runtime Router).
 //
 // Seguridad: solo super_admin; al cliente solo viaja
 // OrganizationRuntimeHeader (sin encrypted_password ni DATABASE_URL).
 // ─────────────────────────────────────────────────────────────────
 
 import { requireSuperAdmin } from "@/lib/permissions/guards";
-import { prisma }            from "@/lib/db/prisma";
+import { controlPlanePrisma } from "@/modules/platform/runtime/control-plane-prisma";
 import {
   resolveOrganizationRuntime,
   isOrganizationRuntimeResolutionError,
@@ -24,30 +20,28 @@ import { PlatformDataOnboardingClient } from "@/modules/platform/components/plat
 import { DataOnboardingUnavailable } from "@/modules/platform/components/data-onboarding-unavailable";
 
 interface Props {
-  params: Promise<{ profileId: string }>;
+  params: Promise<{ organizationId: string }>;
 }
 
 export async function generateMetadata({ params }: Props) {
-  const { profileId } = await params;
-  const profile = await prisma.platformDatabaseProfile.findUnique({
-    where:  { id: profileId },
-    select: { label: true, organization: { select: { name: true } } },
+  const { organizationId } = await params;
+  const org = await controlPlanePrisma.platformOrganization.findUnique({
+    where:  { id: organizationId },
+    select: { name: true, code: true },
   });
   return {
-    title: profile
-      ? `Data Onboarding — ${profile.label} (${profile.organization.name})`
-      : "Perfil no encontrado",
+    title: org ? `Data Onboarding — ${org.name} (${org.code})` : "Organización no encontrada",
   };
 }
 
-export default async function PlatformDataOnboardingPage({ params }: Props) {
+export default async function PlatformOrganizationDataOnboardingPage({ params }: Props) {
   await requireSuperAdmin();
 
-  const { profileId } = await params;
+  const { organizationId } = await params;
 
   let header;
   try {
-    ({ header } = await resolveOrganizationRuntime({ profileId }));
+    ({ header } = await resolveOrganizationRuntime({ organizationId }));
   } catch (err) {
     if (isOrganizationRuntimeResolutionError(err)) {
       return <DataOnboardingUnavailable reason={err.message} />;

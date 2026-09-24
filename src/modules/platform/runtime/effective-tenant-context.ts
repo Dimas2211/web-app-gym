@@ -39,10 +39,8 @@ if (typeof window !== "undefined") {
 import type { PrismaClient } from "@prisma/client";
 import { prisma } from "@/lib/db/prisma";
 import type { SessionUser } from "@/lib/permissions/guards";
-import {
-  resolveRuntimeDatabaseProfileById,
-  createRuntimePrismaClient,
-} from "./runtime-database-router";
+import { createRuntimePrismaClient } from "./runtime-database-router";
+import { resolveRuntimeProfileForSession } from "./resolve-runtime-session-profile";
 import {
   getRuntimeSession,
   clearRuntimeSession,
@@ -138,7 +136,7 @@ export async function resolveEffectiveTenantContext(
   if (!runtime) return normal;
 
   try {
-    const profile = await resolveRuntimeDatabaseProfileById(runtime.profileId);
+    const profile = await resolveRuntimeProfileForSession(runtime);
     const { client, disconnect } = createRuntimePrismaClient(profile);
     return {
       context: {
@@ -277,7 +275,7 @@ export async function resolveEffectiveApiContext(
   if (!runtime) return normal;
 
   try {
-    const profile = await resolveRuntimeDatabaseProfileById(runtime.profileId);
+    const profile = await resolveRuntimeProfileForSession(runtime);
     const { client, disconnect } = createRuntimePrismaClient(profile);
     const locationId = await resolveRuntimeFirstLocationId({
       tenantId: profile.tenantId,

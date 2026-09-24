@@ -12,6 +12,8 @@
 // - El feedback de test usa solo el mensaje sanitizado de la action.
 // - No se escribe ningún secret en la consola del browser.
 // - No asigna organizaciones.
+// - SHARED-OPS-PARITY-1: "Organizaciones" expande la lista de
+//   organizaciones del target con sus operaciones tenant-scoped.
 // ─────────────────────────────────────────────────────────────────
 
 import { useState, useTransition, useEffect } from "react";
@@ -42,6 +44,7 @@ export function PlatformSharedRuntimeTargetsPanel({
   const [testingId,  setTestingId]  = useState<string | null>(null);
   const [togglingId, setTogglingId] = useState<string | null>(null);
   const [feedback,   setFeedback]   = useState<Feedback | null>(null);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
 
   const [, startTransition] = useTransition();
 
@@ -157,6 +160,8 @@ export function PlatformSharedRuntimeTargetsPanel({
           onEdit={handleOpenEdit}
           onToggleActive={handleToggleActive}
           onTest={handleTestConnection}
+          expandedId={expandedId}
+          onToggleOrganizations={(t) => setExpandedId((cur) => (cur === t.id ? null : t.id))}
         />
       </div>
 

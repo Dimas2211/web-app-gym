@@ -192,6 +192,7 @@ describe("listSharedRuntimeTargets", () => {
         is_active: true, last_tested_at: null, last_test_status: "UNTESTED",
         last_test_message: null, created_at: new Date(), updated_at: new Date(),
         _count: { organizations: 0 },
+        organizations: [],
       },
     ]);
 
@@ -203,7 +204,7 @@ describe("listSharedRuntimeTargets", () => {
     expect(items[0]).not.toHaveProperty("encrypted_password");
     expect(items[0]).not.toHaveProperty("password");
     expect(items[0]).toMatchObject({
-      db_user: "zolvi_app", ssl_mode: "REQUIRE", organizationCount: 0,
+      db_user: "zolvi_app", ssl_mode: "REQUIRE", organizationCount: 0, organizations: [],
     });
   });
 });

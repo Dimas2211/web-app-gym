@@ -7,11 +7,16 @@
 // Permite subir un archivo .xlsx, parsear la hoja "Datos" y ver
 // un preview validado por fila con errores y advertencias.
 //
-// Reglas de seguridad E1B:
-// - No escribe datos en bases cliente.
-// - No llama actions de escritura.
+// SHARED-OPS-PARITY-1: organization-scoped. Recibe
+// OrganizationRuntimeHeader (Shared o Dedicated) y envía a las actions
+// solo organizationId (+ profileId si el link histórico fijó un perfil
+// Dedicated). tenant, runtime y credenciales se resuelven server-side.
+//
+// Reglas de seguridad:
 // - No expone encrypted_password ni DATABASE_URL.
-// - El botón "Importar" permanece deshabilitado hasta E1C.
+// - Nunca envía tenantId: el servidor lo toma de PlatformOrganization.
+// - PRODUCTION: dry-run permitido; EXECUTE exige confirmación que
+//   incluye organization.code (validada otra vez server-side).
 // ─────────────────────────────────────────────────────────────────
 
 import { useState, useRef, useTransition } from "react";
@@ -42,7 +47,7 @@ import {
 } from "lucide-react";
 
 import type {
-  DataOnboardingProfileHeader,
+  OrganizationRuntimeHeader,
   DataOnboardingDatasetDefinition,
   DataOnboardingDatasetKey,
   DataOnboardingPreviewActionState,
@@ -95,6 +100,10 @@ import { IMPORT_PRODUCTS_CONFIRMATION_TEXT }
   from "../lib/data-onboarding/import-runners/products-import.constants";
 import { IMPORT_INVENTORY_CONFIRMATION_TEXT }
   from "../lib/data-onboarding/import-runners/inventory-import.constants";
+import {
+  buildDataOnboardingConfirmationText,
+  DATA_ONBOARDING_RECOMMENDED_ORDER,
+} from "../lib/data-onboarding/data-onboarding-confirmation";
 
 // ── Datasets con importación real habilitada (E1C-A · E1C-B · E1C-C · E1C-D · E1C-E1) ──
 
@@ -149,12 +158,25 @@ function importRowParentValue(row: AnyImportRowResult): string | undefined {
 // ── Props ─────────────────────────────────────────────────────────
 
 interface Props {
-  profile: DataOnboardingProfileHeader;
+  header: OrganizationRuntimeHeader;
+}
+
+/** Destino de las actions — solo identificadores; el servidor resuelve el resto. */
+interface DataOnboardingTarget {
+  organizationId:   string;
+  organizationCode: string;
+  pinnedProfileId:  string | null;
+  environment:      string;
 }
 
 interface DatasetCardProps {
-  dataset:   DataOnboardingDatasetDefinition;
-  profileId: string;
+  dataset: DataOnboardingDatasetDefinition;
+  target:  DataOnboardingTarget;
+}
+
+function setTargetFields(fd: FormData, target: DataOnboardingTarget) {
+  fd.set("organizationId", target.organizationId);
+  if (target.pinnedProfileId) fd.set("profileId", target.pinnedProfileId);
 }
 
 // ── Badge de resolución DB-aware ──────────────────────────────────
@@ -698,11 +720,12 @@ function PreviewPanel({ result, datasetKey }: { result: DataOnboardingPreviewRes
 
 // ── Card de un dataset ────────────────────────────────────────────
 
-function DatasetCard({ dataset, profileId }: DatasetCardProps) {
+function DatasetCard({ dataset, target }: DatasetCardProps) {
   const canImport   = dataset.direction === "IMPORT" || dataset.direction === "BOTH";
   const canExport   = dataset.direction === "EXPORT" || dataset.direction === "BOTH";
   const hasTemplate = canImport && TEMPLATE_AVAILABLE_KEYS.has(dataset.key);
-  const templateUrl = `/dashboard/platform/data-onboarding/${profileId}/templates/${dataset.key}`;
+  const templateUrl = `/dashboard/platform/data-onboarding/org/${target.organizationId}/templates/${dataset.key}`;
+  const isProduction = target.environment === "PRODUCTION";
 
   // ── Estado de upload y política ───────────────────────────────
   const [selectedFile,   setSelectedFile]   = useState<File | null>(null);
@@ -715,9 +738,16 @@ function DatasetCard({ dataset, profileId }: DatasetCardProps) {
   const [importState,     setImportState]   = useState<AnyImportActionState | null>(null);
   const [confirmText,     setConfirmText]   = useState("");
   const [isPendingImport, startImportTrans] = useTransition();
+  const [dryRunState,     setDryRunState]   = useState<AnyImportActionState | null>(null);
 
   const isImportEnabled       = isImportEnabledDataset(dataset.key);
-  const expectedConfirmation  = isImportEnabledDataset(dataset.key) ? IMPORT_CONFIRMATION_TEXT[dataset.key] : null;
+  const expectedConfirmation  = isImportEnabledDataset(dataset.key)
+    ? buildDataOnboardingConfirmationText(
+        IMPORT_CONFIRMATION_TEXT[dataset.key],
+        target.environment,
+        target.organizationCode,
+      )
+    : null;
 
   // DB-aware limpio = READY y solo filas CREATE (sin errores)
   const dbAwareResult = previewState?.success ? previewState.dbAwareResult : undefined;
@@ -729,32 +759,58 @@ function DatasetCard({ dataset, profileId }: DatasetCardProps) {
   const confirmationMatches = expectedConfirmation !== null && confirmText.trim() === expectedConfirmation;
   const canRunImport = isImportEnabled && dbAwareClean && confirmationMatches && !isPendingImport && !isPending;
 
-  function handleImport() {
-    if (!selectedFile || !canRunImport || !isImportEnabled) return;
-
-    const fd = new FormData();
-    fd.set("profileId",         profileId);
-    fd.set("datasetKey",        dataset.key);
-    fd.set("importPolicy",      "CREATE_ONLY");
-    fd.set("mode",              "EXECUTE");
-    fd.set("confirmationText",  confirmText.trim());
-    fd.set("file",              selectedFile);
-
-    startImportTrans(async () => {
-      const result = dataset.key === "categories"
-        ? await importDataOnboardingCategoriesAction(fd)
+  function runImportAction(fd: FormData): Promise<AnyImportActionState> {
+    return dataset.key === "categories"
+        ? importDataOnboardingCategoriesAction(fd)
         : dataset.key === "lines"
-          ? await importDataOnboardingLinesAction(fd)
+          ? importDataOnboardingLinesAction(fd)
           : dataset.key === "sublines"
-            ? await importDataOnboardingSublinesAction(fd)
+            ? importDataOnboardingSublinesAction(fd)
             : dataset.key === "customers"
-              ? await importDataOnboardingCustomersAction(fd)
+              ? importDataOnboardingCustomersAction(fd)
               : dataset.key === "suppliers"
-                ? await importDataOnboardingSuppliersAction(fd)
+                ? importDataOnboardingSuppliersAction(fd)
                 : dataset.key === "products"
-                  ? await importDataOnboardingProductsAction(fd)
-                  : await importDataOnboardingInventoryAction(fd);
-      setImportState(result);
+                  ? importDataOnboardingProductsAction(fd)
+                  : importDataOnboardingInventoryAction(fd);
+  }
+
+  function buildImportFormData(mode: "DRY_RUN" | "EXECUTE"): FormData | null {
+    if (!selectedFile) return null;
+    const fd = new FormData();
+    setTargetFields(fd, target);
+    fd.set("datasetKey",   dataset.key);
+    fd.set("importPolicy", "CREATE_ONLY");
+    fd.set("mode",         mode);
+    if (mode === "EXECUTE") fd.set("confirmationText", confirmText.trim());
+    fd.set("file",         selectedFile);
+    return fd;
+  }
+
+  function handleDryRun() {
+    if (!isImportEnabled || !dbAwareClean || isPendingImport) return;
+    const fd = buildImportFormData("DRY_RUN");
+    if (!fd) return;
+    startImportTrans(async () => {
+      setDryRunState(await runImportAction(fd));
+    });
+  }
+
+  function handleImport() {
+    if (!canRunImport || !isImportEnabled) return;
+    if (
+      isProduction &&
+      !window.confirm(
+        `Vas a importar datos REALES en PRODUCTION para la organización ${target.organizationCode}. ` +
+        "La operación es CREATE_ONLY y no se puede deshacer desde aquí. ¿Continuar?",
+      )
+    ) {
+      return;
+    }
+    const fd = buildImportFormData("EXECUTE");
+    if (!fd) return;
+    startImportTrans(async () => {
+      setImportState(await runImportAction(fd));
     });
   }
 
@@ -762,6 +818,7 @@ function DatasetCard({ dataset, profileId }: DatasetCardProps) {
     const f = e.target.files?.[0] ?? null;
     setSelectedFile(f);
     setPreviewState(null);
+    setDryRunState(null);
     // Limpiar el input para permitir re-seleccionar el mismo archivo
     if (e.target) e.target.value = "";
   }
@@ -775,7 +832,7 @@ function DatasetCard({ dataset, profileId }: DatasetCardProps) {
     if (!selectedFile) return;
 
     const fd = new FormData();
-    fd.set("profileId",  profileId);
+    setTargetFields(fd, target);
     fd.set("datasetKey", dataset.key);
     fd.set("file",       selectedFile);
 
@@ -1062,6 +1119,40 @@ function DatasetCard({ dataset, profileId }: DatasetCardProps) {
             </p>
           </div>
 
+          {isProduction && (
+            <div className="flex items-start gap-2 p-2 rounded border border-red-300 bg-red-50">
+              <AlertTriangle size={12} className="text-red-600 shrink-0 mt-0.5" />
+              <p className="text-[11px] text-red-700 leading-snug">
+                <span className="font-semibold">PRODUCTION — organización {target.organizationCode}.</span>{" "}
+                Ejecute primero la simulación (dry-run). La confirmación debe incluir el código de la organización.
+              </p>
+            </div>
+          )}
+
+          {/* Dry-run — sin escrituras (permitido también en PRODUCTION) */}
+          <button
+            type="button"
+            onClick={handleDryRun}
+            disabled={isPendingImport || isPending}
+            className="inline-flex items-center justify-center gap-1.5 text-xs px-3 py-1.5
+                       border border-sky-300 rounded-lg text-sky-700 bg-white
+                       hover:bg-sky-100 disabled:opacity-60 disabled:cursor-not-allowed
+                       transition-colors font-medium"
+          >
+            {isPendingImport ? <Loader2 size={11} className="animate-spin" /> : <CheckCircle2 size={11} />}
+            Simular importación (dry-run)
+          </button>
+          {dryRunState && (
+            dryRunState.success && dryRunState.dryRunResult ? (
+              <p className="text-[11px] text-sky-700">
+                Dry-run: {dryRunState.dryRunResult.wouldCreate} registro(s) se crearían ·{" "}
+                {dryRunState.dryRunResult.blocked} bloqueado(s). No se escribió nada.
+              </p>
+            ) : !dryRunState.success ? (
+              <p className="text-[11px] text-red-700">{dryRunState.error}</p>
+            ) : null
+          )}
+
           {/* Input de confirmación */}
           <div className="flex flex-col gap-1">
             <label className="text-[10px] font-semibold text-zinc-500 uppercase tracking-wide">
@@ -1075,6 +1166,7 @@ function DatasetCard({ dataset, profileId }: DatasetCardProps) {
                 setConfirmText(e.target.value);
                 setImportState(null);
               }}
+              autoComplete="off"
               placeholder={expectedConfirmation ?? ""}
               className={`w-full text-xs font-mono px-2.5 py-1.5 border rounded-lg outline-none transition-colors
                 ${confirmationMatches
@@ -1185,7 +1277,15 @@ function DatasetCard({ dataset, profileId }: DatasetCardProps) {
 
 // ── Componente principal ──────────────────────────────────────────
 
-export function PlatformDataOnboardingClient({ profile }: Props) {
+export function PlatformDataOnboardingClient({ header }: Props) {
+  const target: DataOnboardingTarget = {
+    organizationId:   header.organizationId,
+    organizationCode: header.organizationCode,
+    pinnedProfileId:  header.pinnedProfileId,
+    environment:      header.environment,
+  };
+  const isProduction = header.environment === "PRODUCTION";
+
   return (
     <div className="max-w-6xl mx-auto px-4 py-8 space-y-8">
 
@@ -1244,38 +1344,61 @@ export function PlatformDataOnboardingClient({ profile }: Props) {
           <code className="font-mono">product_sublines</code>, <code className="font-mono">customers</code>,{" "}
           <code className="font-mono">suppliers</code>, <code className="font-mono">products</code>,{" "}
           <code className="font-mono">product_locations</code> e <code className="font-mono">inventory_movements</code>.
-          No actualiza, no elimina, no hace upsert. PRODUCTION bloqueado. Requiere confirmación textual. No hay importación parcial.
+          No actualiza, no elimina, no hace upsert. Requiere confirmación textual. No hay importación parcial.
+          Todas las lecturas y escrituras se limitan al <code className="font-mono">tenant_id</code> de la organización destino.
         </p>
       </div>
 
-      {/* Header seguro del perfil */}
+      {isProduction && (
+        <div className="flex items-start gap-2 p-3 rounded-lg border border-red-300 bg-red-50">
+          <AlertTriangle size={14} className="text-red-600 mt-0.5 shrink-0" />
+          <p className="text-xs text-red-700">
+            <span className="font-semibold">PRODUCTION.</span> Validación y dry-run permitidos. La importación real
+            exige análisis sin errores, módulo habilitado y la confirmación{" "}
+            <code className="font-mono">IMPORT … {header.organizationCode}</code>.
+          </p>
+        </div>
+      )}
+
+      {/* Header seguro de la organización destino */}
       <div className="border border-zinc-200 rounded-xl bg-white p-5 space-y-3">
-        <h2 className="text-sm font-semibold text-zinc-700">Perfil de base de datos destino</h2>
+        <div className="flex items-center gap-2">
+          <h2 className="text-sm font-semibold text-zinc-700">Organización y runtime destino</h2>
+          <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold tracking-wide ${
+            header.runtimeKind === "SHARED" ? "bg-violet-100 text-violet-700" : "bg-zinc-100 text-zinc-600"
+          }`}>
+            {header.runtimeKind}
+          </span>
+        </div>
 
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-xs">
           <div>
-            <p className="text-zinc-400 mb-0.5">Nombre</p>
-            <p className="font-medium text-zinc-800">{profile.label}</p>
-          </div>
-          <div>
             <p className="text-zinc-400 mb-0.5">Organización</p>
             <p className="font-medium text-zinc-800">
-              <span className="text-zinc-500">{profile.organization.code}</span>
+              <span className="text-zinc-500">{header.organizationCode}</span>
               {" — "}
-              {profile.organization.name}
+              {header.organizationName}
             </p>
           </div>
           <div>
+            <p className="text-zinc-400 mb-0.5">Tenant ID</p>
+            <p className="font-mono text-zinc-700 break-all">{header.tenantId}</p>
+          </div>
+          <div>
+            <p className="text-zinc-400 mb-0.5">{header.runtimeKind === "SHARED" ? "Shared Runtime" : "Perfil Dedicated"}</p>
+            <p className="font-medium text-zinc-800">{header.runtimeLabel}</p>
+          </div>
+          <div>
             <p className="text-zinc-400 mb-0.5">Ambiente</p>
-            <EnvBadge env={profile.environment} />
+            <EnvBadge env={header.environment} />
           </div>
           <div>
             <p className="text-zinc-400 mb-0.5">Última conexión</p>
             <div className="flex flex-col gap-0.5">
-              <TestStatusBadge status={profile.last_test_status} />
-              {profile.last_tested_at && (
+              <TestStatusBadge status={header.lastTestStatus} />
+              {header.lastTestedAt && (
                 <span className="text-zinc-400 text-[10px]">
-                  {new Date(profile.last_tested_at).toLocaleString("es-SV")}
+                  {new Date(header.lastTestedAt).toLocaleString("es-SV")}
                 </span>
               )}
             </div>
@@ -1283,27 +1406,37 @@ export function PlatformDataOnboardingClient({ profile }: Props) {
           <div>
             <p className="text-zinc-400 mb-0.5">Host</p>
             <p className="font-mono text-zinc-700">
-              {profile.db_host}
-              {profile.db_port != null && <span className="text-zinc-400">:{profile.db_port}</span>}
+              {header.db_host}
+              {header.db_port != null && <span className="text-zinc-400">:{header.db_port}</span>}
             </p>
           </div>
           <div>
             <p className="text-zinc-400 mb-0.5">Base de datos</p>
-            <p className="font-mono text-zinc-700">{profile.db_name}</p>
-          </div>
-          <div>
-            <p className="text-zinc-400 mb-0.5">Usuario</p>
-            <p className="font-mono text-zinc-700">{profile.db_user}</p>
+            <p className="font-mono text-zinc-700">{header.db_name}</p>
           </div>
           <div>
             <p className="text-zinc-400 mb-0.5">Estado</p>
             <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
-              profile.is_active ? "bg-green-100 text-green-700" : "bg-zinc-100 text-zinc-500"
+              header.isActive ? "bg-green-100 text-green-700" : "bg-zinc-100 text-zinc-500"
             }`}>
-              {profile.is_active ? "Activo" : "Inactivo"}
+              {header.isActive ? "Activo" : "Inactivo"}
             </span>
           </div>
         </div>
+      </div>
+
+      {/* Orden operativo recomendado */}
+      <div className="border border-sky-200 rounded-xl bg-sky-50 p-4">
+        <h2 className="text-sm font-semibold text-sky-800 mb-2">Orden recomendado para un Commerce nuevo</h2>
+        <ol className="text-xs text-sky-800 space-y-0.5 pl-5 list-decimal">
+          {DATA_ONBOARDING_RECOMMENDED_ORDER.map((step) => (
+            <li key={step}>{step}</li>
+          ))}
+        </ol>
+        <p className="text-[11px] text-sky-700 mt-2">
+          Unidades de medida, tipos de identificación, actividades económicas, municipios y países son catálogos
+          globales de la base física: no se cargan por organización.
+        </p>
       </div>
 
       {/* Resumen de datasets */}
@@ -1327,7 +1460,7 @@ export function PlatformDataOnboardingClient({ profile }: Props) {
         <h2 className="text-base font-semibold text-zinc-800 mb-4">Datasets disponibles</h2>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {DATA_ONBOARDING_DATASETS.map((dataset) => (
-            <DatasetCard key={dataset.key} dataset={dataset} profileId={profile.id} />
+            <DatasetCard key={dataset.key} dataset={dataset} target={target} />
           ))}
         </div>
       </div>
