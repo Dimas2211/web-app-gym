@@ -9,7 +9,7 @@ export function SidebarToggle() {
     <button
       onClick={toggle}
       aria-label={open ? "Colapsar menú lateral" : "Expandir menú lateral"}
-      className="w-8 h-8 flex items-center justify-center rounded text-zinc-300 hover:text-white hover:bg-zinc-800 transition-colors shrink-0"
+      className="w-8 h-8 flex items-center justify-center rounded-md text-white/70 hover:text-white hover:bg-white/10 transition-colors shrink-0"
     >
       <svg
         width="16"

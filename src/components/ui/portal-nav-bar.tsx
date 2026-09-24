@@ -22,10 +22,10 @@ export function PortalNavBar() {
   }
 
   function linkClass(active: boolean) {
-    return `text-sm px-3 py-1.5 rounded transition-colors ${
+    return `text-sm px-3 py-1.5 rounded-md transition-colors ${
       active
-        ? "bg-zinc-700 text-white font-medium"
-        : "text-zinc-300 hover:text-white hover:bg-zinc-800"
+        ? "bg-white/15 text-white font-medium"
+        : "text-white/70 hover:text-white hover:bg-white/10"
     }`;
   }
 
@@ -43,7 +43,7 @@ export function PortalNavBar() {
       {/* Mobile hamburger button */}
       <button
         onClick={() => setOpen(!open)}
-        className="sm:hidden p-2 rounded text-zinc-300 hover:text-white hover:bg-zinc-800 transition-colors"
+        className="sm:hidden p-2 rounded-md text-white/70 hover:text-white hover:bg-white/10 transition-colors"
         aria-label={open ? "Cerrar menú" : "Abrir menú"}
       >
         {open ? (
@@ -59,7 +59,7 @@ export function PortalNavBar() {
 
       {/* Mobile dropdown */}
       {open && (
-        <div className="sm:hidden fixed top-14 left-0 right-0 z-50 bg-zinc-900 border-t border-zinc-800 shadow-lg">
+        <div className="sm:hidden fixed top-14 left-0 right-0 z-50 bg-brand-navy border-t border-white/10 shadow-lg">
           <nav className="flex flex-col px-4 py-3 gap-1">
             {PORTAL_LINKS.map((link) => (
               <Link
@@ -68,8 +68,8 @@ export function PortalNavBar() {
                 onClick={() => setOpen(false)}
                 className={`text-sm px-3 py-2.5 rounded transition-colors ${
                   isActive(link)
-                    ? "bg-zinc-700 text-white font-medium"
-                    : "text-zinc-300 hover:text-white hover:bg-zinc-800"
+                    ? "bg-white/15 text-white font-medium"
+                    : "text-white/70 hover:text-white hover:bg-white/10"
                 }`}
               >
                 {link.label}

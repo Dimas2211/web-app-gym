@@ -16,10 +16,10 @@ export function NavBar({ role: _role }: NavBarProps) {
     <nav className="flex items-center">
       <Link
         href="/dashboard"
-        className={`text-sm px-3 py-1.5 rounded transition-colors ${
+        className={`text-sm px-3 py-1.5 rounded-md transition-colors ${
           isHome
-            ? "bg-zinc-700 text-white font-medium"
-            : "text-zinc-300 hover:text-white hover:bg-zinc-800"
+            ? "bg-white/15 text-white font-medium"
+            : "text-white/70 hover:text-white hover:bg-white/10"
         }`}
       >
         Inicio

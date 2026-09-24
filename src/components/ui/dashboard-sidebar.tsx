@@ -81,13 +81,13 @@ export function DashboardSidebar({ role, enabledModuleCodes, effectiveVerticalCo
       >
         {/* Encabezado del sidebar */}
         <div className="flex items-center justify-between h-14 border-b border-zinc-100 px-3 shrink-0">
-          <span className="text-xs font-semibold text-zinc-400 uppercase tracking-widest truncate">
+          <span className="text-xs font-semibold text-brand-navy/60 uppercase tracking-widest truncate">
             Módulos
           </span>
           <button
             onClick={close}
             aria-label="Cerrar menú lateral"
-            className="w-7 h-7 flex items-center justify-center rounded text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100 transition-colors shrink-0"
+            className="w-7 h-7 flex items-center justify-center rounded text-zinc-400 hover:text-brand-navy hover:bg-brand-blue-soft transition-colors shrink-0"
           >
             <svg
               width="14"
@@ -132,10 +132,10 @@ export function DashboardSidebar({ role, enabledModuleCodes, effectiveVerticalCo
                     href={item.href}
                     onClick={close}
                     className={cn(
-                      "flex items-center mx-2 px-2 py-1.5 rounded text-sm transition-colors",
+                      "flex items-center mx-2 px-2 py-1.5 rounded-md text-sm transition-colors",
                       isActive
-                        ? "bg-zinc-100 text-zinc-900 font-medium"
-                        : "text-zinc-600 hover:bg-zinc-50 hover:text-zinc-900"
+                        ? "bg-brand-blue-soft text-brand-navy font-semibold shadow-[inset_3px_0_0_0_var(--color-brand-blue)]"
+                        : "text-zinc-600 hover:bg-brand-canvas hover:text-brand-navy"
                     )}
                   >
                     <span className="truncate">{item.label}</span>

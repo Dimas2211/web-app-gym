@@ -10,6 +10,7 @@ import { LocationSwitcher } from "@/core/components/ui/location-switcher";
 import { SidebarProvider } from "@/components/ui/sidebar-context";
 import { SidebarToggle } from "@/components/ui/sidebar-toggle";
 import { DashboardSidebar } from "@/components/ui/dashboard-sidebar";
+import { ZolviLogo } from "@/components/ui/zolvi-logo";
 import { RuntimeSessionBanner } from "@/modules/platform/components/runtime-session-banner";
 import type { SessionUser } from "@/lib/permissions/guards";
 import type { UserRole } from "@prisma/client";
@@ -70,25 +71,21 @@ export default async function DashboardLayout({ children }: { children: React.Re
       locationSwitcherData = { locations, activeLocationId };
     }
 
-    // PASO 6F — branding runtime-aware: "GYM" solo si la vertical efectiva
-    // es GYM. En cualquier otro caso (Commerce-only, sin vertical, u otra
-    // vertical) se muestra una marca neutral en vez de asumir gimnasio.
-    const brandLabel = dashCtx.verticalCode === "GYM" ? "GYM" : "ZOLVI";
-
     return (
       <SidebarProvider>
-        <div className="flex h-screen flex-col bg-zinc-50">
+        <div className="flex h-screen flex-col bg-brand-canvas">
           {/* Banner de sesión runtime "Operar como cliente" (PASO 6A) */}
           <RuntimeSessionBanner />
 
           {/* Top bar compartida */}
-          <header className="sticky top-0 z-30 flex h-14 shrink-0 items-center justify-between gap-4 bg-zinc-900 px-4 text-white sm:px-6">
+          <header className="sticky top-0 z-30 flex h-14 shrink-0 items-center justify-between gap-4 bg-brand-navy px-4 text-white sm:px-6">
+            {/* Branding global Zolvi (SHARED-PILOT-4B.2): franja de acento */}
+            <div aria-hidden className="bg-brand-gradient absolute inset-x-0 bottom-0 h-0.5" />
+
             {/* Logo + sidebar toggle + nav */}
             <div className="flex min-w-0 items-center gap-2">
               <SidebarToggle />
-              <span className="shrink-0 text-base font-black tracking-widest uppercase">
-                {brandLabel}
-              </span>
+              <ZolviLogo tone="onDark" className="mr-2" />
               <NavBar role={user.role} />
             </div>
 
@@ -105,10 +102,10 @@ export default async function DashboardLayout({ children }: { children: React.Re
             {/* Usuario + logout */}
             <div className="flex shrink-0 items-center gap-2">
               <div className="hidden items-center gap-2 sm:flex">
-                <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-zinc-700 text-xs font-bold">
+                <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-brand-blue text-xs font-bold text-brand-navy">
                   {initials}
                 </div>
-                <span className="max-w-[140px] truncate text-xs text-zinc-400">{user.name}</span>
+                <span className="max-w-[140px] truncate text-xs text-white/70">{user.name}</span>
               </div>
 
               <form
@@ -119,7 +116,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
               >
                 <button
                   type="submit"
-                  className="ml-1 rounded px-2.5 py-1.5 text-xs text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-white"
+                  className="ml-1 rounded-md px-2.5 py-1.5 text-xs text-white/70 transition-colors hover:bg-white/10 hover:text-white"
                 >
                   Salir
                 </button>

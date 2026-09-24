@@ -1,1 +1,61 @@
 @import "tailwindcss";
+
+/*
+ * ─── Branding global Zolvi (SHARED-PILOT-4B.2) ───────────────────────────
+ * Única fuente de verdad de la paleta de marca. Colores extraídos del logo
+ * oficial (public/branding/zolvi-mark.svg). Branding GLOBAL del producto:
+ * no depende de hostname ni de organización.
+ *
+ * Uso en componentes nuevos: bg-brand-navy, text-brand-blue,
+ * ring-brand-blue, bg-brand-blue-soft, bg-brand-canvas, bg-brand-gradient…
+ */
+@theme {
+  --color-brand-navy: #1c1953;
+  --color-brand-navy-light: #2a2766;
+  --color-brand-navy-dark: #13113b;
+  --color-brand-blue: #40ace1;
+  --color-brand-blue-soft: #e9f5fc;
+  --color-brand-magenta: #ec195a;
+  --color-brand-magenta-soft: #fde8ef;
+  --color-brand-canvas: #f5f7fb;
+
+  /*
+   * Tinta oscura del sistema → navy Zolvi.
+   * La app usa zinc-800/900/950 como color "primario" (botones, cabeceras,
+   * paneles de reportes, focus rings). Remapearlos aquí aplica la marca a
+   * toda la app sin tocar cientos de clases dispersas. zinc-700 e inferiores
+   * se mantienen neutros para texto secundario y bordes.
+   */
+  --color-zinc-800: #2a2766;
+  --color-zinc-900: #1c1953;
+  --color-zinc-950: #13113b;
+}
+
+/* Franja de acento de marca (azul → magenta), usada en login y topbars. */
+@utility bg-brand-gradient {
+  background-image: linear-gradient(
+    90deg,
+    var(--color-brand-blue),
+    var(--color-brand-navy) 55%,
+    var(--color-brand-magenta)
+  );
+}
+
+@layer base {
+  :root {
+    accent-color: var(--color-brand-navy);
+  }
+
+  body {
+    background-color: var(--color-brand-canvas);
+    color: var(--color-zinc-900);
+  }
+
+  ::selection {
+    background-color: color-mix(in srgb, var(--color-brand-blue) 30%, transparent);
+  }
+
+  :focus-visible {
+    outline-color: var(--color-brand-blue);
+  }
+}

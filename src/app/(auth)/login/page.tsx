@@ -2,7 +2,11 @@
 
 import { useActionState } from "react";
 import { useFormStatus } from "react-dom";
+import { ZOLVI_BRAND, ZolviMark } from "@/components/ui/zolvi-logo";
 import { loginAction } from "./actions";
+
+const INPUT_CLASS =
+  "w-full rounded-lg border border-zinc-300 bg-white px-3.5 py-2.5 text-sm text-zinc-900 placeholder:text-zinc-400 transition focus:border-transparent focus:outline-none focus:ring-2 focus:ring-brand-blue";
 
 function SubmitButton() {
   const { pending } = useFormStatus();
@@ -10,7 +14,7 @@ function SubmitButton() {
     <button
       type="submit"
       disabled={pending}
-      className="w-full bg-zinc-900 text-white py-3 px-4 rounded-lg font-semibold text-sm hover:bg-zinc-800 active:bg-zinc-950 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+      className="w-full rounded-lg bg-brand-navy px-4 py-3 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-brand-navy-light focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue focus-visible:ring-offset-2 active:bg-brand-navy-dark disabled:cursor-not-allowed disabled:opacity-50"
     >
       {pending ? "Verificando..." : "Iniciar sesión"}
     </button>
@@ -21,77 +25,91 @@ export default function LoginPage() {
   const [state, action] = useActionState(loginAction, undefined);
 
   return (
-    <div className="min-h-screen bg-zinc-100 flex items-center justify-center p-4">
-      <div className="w-full max-w-sm">
-        {/* Header de la tarjeta */}
-        <div className="bg-zinc-900 rounded-t-2xl px-8 py-7 text-center">
-          <div className="text-white text-2xl font-black tracking-widest uppercase">
-            Zolvi
+    <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-brand-canvas p-4">
+      {/* Halos decorativos con los colores de marca */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute -left-32 -top-32 h-96 w-96 rounded-full bg-brand-blue/20 blur-3xl"
+      />
+      <div
+        aria-hidden
+        className="pointer-events-none absolute -bottom-40 -right-32 h-[28rem] w-[28rem] rounded-full bg-brand-magenta/10 blur-3xl"
+      />
+
+      <div className="relative w-full max-w-sm">
+        {/* Marca */}
+        <div className="mb-8 flex flex-col items-center text-center">
+          <ZolviMark size={64} priority />
+          <div className="mt-4 text-3xl font-bold tracking-tight text-brand-navy">
+            {ZOLVI_BRAND.name}
           </div>
-          <p className="text-zinc-400 text-xs mt-1 tracking-wide uppercase">
-            Plataforma de gestión
+          <p className="mt-1 text-xs font-medium uppercase tracking-[0.2em] text-zinc-500">
+            {ZOLVI_BRAND.tagline}
           </p>
         </div>
 
-        {/* Formulario */}
-        <div className="bg-white rounded-b-2xl px-8 py-8 shadow-lg">
-          <h1 className="text-lg font-semibold text-zinc-800 mb-6">
-            Acceso al sistema
-          </h1>
+        {/* Tarjeta de acceso */}
+        <div className="overflow-hidden rounded-2xl bg-white shadow-xl shadow-brand-navy/5 ring-1 ring-zinc-200/80">
+          <div aria-hidden className="bg-brand-gradient h-1" />
 
-          <form action={action} className="space-y-4">
-            <div>
-              <label
-                htmlFor="email"
-                className="block text-sm font-medium text-zinc-700 mb-1.5"
-              >
-                Correo electrónico
-              </label>
-              <input
-                id="email"
-                name="email"
-                type="email"
-                autoComplete="email"
-                required
-                placeholder="usuario@ejemplo.com"
-                className="w-full border border-zinc-300 rounded-lg px-3.5 py-2.5 text-sm text-zinc-900 placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-zinc-900 focus:border-transparent transition"
-              />
-            </div>
+          <div className="px-8 py-8">
+            <h1 className="text-lg font-semibold text-brand-navy">Acceso al sistema</h1>
+            <p className="mb-6 mt-1 text-sm text-zinc-500">
+              Ingresa con tu cuenta para continuar.
+            </p>
 
-            <div>
-              <label
-                htmlFor="password"
-                className="block text-sm font-medium text-zinc-700 mb-1.5"
-              >
-                Contraseña
-              </label>
-              <input
-                id="password"
-                name="password"
-                type="password"
-                autoComplete="current-password"
-                required
-                placeholder="••••••••"
-                className="w-full border border-zinc-300 rounded-lg px-3.5 py-2.5 text-sm text-zinc-900 placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-zinc-900 focus:border-transparent transition"
-              />
-            </div>
-
-            {state?.error && (
-              <div className="flex items-start gap-2.5 bg-red-50 border border-red-200 text-red-700 text-sm px-4 py-3 rounded-lg">
-                <span className="mt-0.5 shrink-0">⚠</span>
-                <span>{state.error}</span>
+            <form action={action} className="space-y-4">
+              <div>
+                <label
+                  htmlFor="email"
+                  className="mb-1.5 block text-sm font-medium text-zinc-700"
+                >
+                  Correo electrónico
+                </label>
+                <input
+                  id="email"
+                  name="email"
+                  type="email"
+                  autoComplete="email"
+                  required
+                  placeholder="usuario@ejemplo.com"
+                  className={INPUT_CLASS}
+                />
               </div>
-            )}
 
-            <div className="pt-1">
-              <SubmitButton />
-            </div>
-          </form>
+              <div>
+                <label
+                  htmlFor="password"
+                  className="mb-1.5 block text-sm font-medium text-zinc-700"
+                >
+                  Contraseña
+                </label>
+                <input
+                  id="password"
+                  name="password"
+                  type="password"
+                  autoComplete="current-password"
+                  required
+                  placeholder="••••••••"
+                  className={INPUT_CLASS}
+                />
+              </div>
+
+              {state?.error && (
+                <div className="flex items-start gap-2.5 rounded-lg border border-brand-magenta/30 bg-brand-magenta-soft px-4 py-3 text-sm text-red-700">
+                  <span className="mt-0.5 shrink-0">⚠</span>
+                  <span>{state.error}</span>
+                </div>
+              )}
+
+              <div className="pt-1">
+                <SubmitButton />
+              </div>
+            </form>
+          </div>
         </div>
 
-        <p className="text-center text-xs text-zinc-400 mt-4">
-          Zolvi · Plataforma multiindustria
-        </p>
+        <p className="mt-6 text-center text-xs text-zinc-400">{ZOLVI_BRAND.footer}</p>
       </div>
     </div>
   );
