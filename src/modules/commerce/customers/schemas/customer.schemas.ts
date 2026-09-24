@@ -3,6 +3,7 @@
 // ─────────────────────────────────────────────────────────────────
 
 import { z } from "zod";
+import { cat022IdTypeCodeEnum } from "@/modules/commerce/shared/cat-022-identification-types";
 
 const TAXPAYER_TYPES = ["FINAL_CONSUMER", "REGISTERED_TAXPAYER", "EXCLUDED_SUBJECT"] as const;
 
@@ -31,10 +32,9 @@ export const createCustomerSchema = z.object({
     message: "Tipo de contribuyente no válido",
   }),
 
-  id_type_code: z
-    .string()
-    .trim()
-    .max(5)
+  // CAT-022 oficial (02, 03, 13, 36, 37) o null. "Consumidor final" es
+  // taxpayer_type = FINAL_CONSUMER, nunca un id_type_code.
+  id_type_code: cat022IdTypeCodeEnum
     .optional()
     .nullable(),
 

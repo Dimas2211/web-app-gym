@@ -37,6 +37,7 @@ import { updateCustomerContactAction } from "../actions/update-customer-contact.
 import type { UpdateCustomerContactState } from "../actions/update-customer-contact.action";
 
 import type { CustomerDetail, CustomerTaxpayerType } from "../types/customer.types";
+import { CAT022_ID_TYPE_OPTIONS } from "@/modules/commerce/shared/cat-022-identification-types";
 
 // ── Catálogos locales ─────────────────────────────────────────────
 
@@ -46,14 +47,8 @@ const TAXPAYER_LABELS: Record<CustomerTaxpayerType, string> = {
   EXCLUDED_SUBJECT:    "Sujeto excluido",
 };
 
-const ID_TYPE_OPTIONS = [
-  { code: "13", label: "DUI" },
-  { code: "00", label: "NIT" },
-  { code: "36", label: "NIT (36 dígitos)" },
-  { code: "02", label: "Carné de residente" },
-  { code: "03", label: "Pasaporte" },
-  { code: "37", label: "Otro" },
-] as const;
+// CAT-022 oficial — "00" no es un tipo de documento.
+const ID_TYPE_OPTIONS = CAT022_ID_TYPE_OPTIONS.map((o) => ({ code: o.code, label: o.name }));
 
 const ID_TYPE_LABELS: Record<string, string> = Object.fromEntries(
   ID_TYPE_OPTIONS.map((o) => [o.code, o.label]),

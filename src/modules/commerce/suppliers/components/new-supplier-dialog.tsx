@@ -35,6 +35,7 @@ import { startTransition, useActionState, useState } from "react";
 import { X } from "lucide-react";
 import { createSupplierAction } from "../actions/create-supplier.action";
 import type { SupplierActionState } from "../actions/create-supplier.action";
+import { CAT022_ID_TYPE_OPTIONS } from "@/modules/commerce/shared/cat-022-identification-types";
 
 // ── Style helpers ─────────────────────────────────────────────────
 
@@ -79,16 +80,11 @@ const PERSON_TYPE_OPTIONS = [
   { value: "LEGAL_ENTITY",   label: "Persona jurídica"   },
 ] as const;
 
-// CAT-022 — Tipos de identificación DTE El Salvador
-const ID_TYPE_OPTIONS = [
-  { value: "",   label: "— Sin tipo —"              },
-  { value: "36", label: "36 — NIT"                  },
-  { value: "13", label: "13 — DUI"                  },
-  { value: "02", label: "02 — Carnet de residente"  },
-  { value: "03", label: "03 — Pasaporte"            },
-  { value: "37", label: "37 — Otro"                 },
-  { value: "00", label: "00 — Consumidor final"     },
-] as const;
+// CAT-022 — Tipos de identificación DTE El Salvador (solo códigos oficiales)
+export const ID_TYPE_OPTIONS: ReadonlyArray<{ value: string; label: string }> = [
+  { value: "", label: "— Sin tipo —" },
+  ...CAT022_ID_TYPE_OPTIONS.map((o) => ({ value: o.code, label: `${o.code} — ${o.name}` })),
+];
 
 // ── Props ─────────────────────────────────────────────────────────
 

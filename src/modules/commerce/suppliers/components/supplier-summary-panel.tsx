@@ -14,17 +14,14 @@
 
 import { Building2, Pencil } from "lucide-react";
 import type { SupplierDetail, TaxpayerType } from "../types/supplier.types";
+import { CAT022_ID_TYPE_OPTIONS } from "@/modules/commerce/shared/cat-022-identification-types";
 
 // ── Mapas de presentación ─────────────────────────────────────────
 
 // CAT-022 — códigos operativos de El Salvador
-const ID_TYPE_LABELS: Record<string, string> = {
-  "13": "DUI",
-  "00": "NIT",
-  "02": "Carné de residente",
-  "03": "Pasaporte",
-  "37": "Otro",
-};
+const ID_TYPE_LABELS: Record<string, string> = Object.fromEntries(
+  CAT022_ID_TYPE_OPTIONS.map((o) => [o.code, o.name]),
+);
 
 const TAXPAYER_LABELS: Record<TaxpayerType, string> = {
   LARGE_TAXPAYER: "Gran contribuyente",

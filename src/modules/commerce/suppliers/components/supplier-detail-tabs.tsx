@@ -23,15 +23,12 @@ import { updateSupplierAddressAction } from "../actions/update-supplier-address.
 import type { UpdateSupplierAddressState } from "../actions/update-supplier-address.action";
 import type { SupplierDetail } from "../types/supplier.types";
 import type { CountryItem, EconomicActivityItem, MunicipalityItem } from "../types/supplier-catalogs.types";
+import { CAT022_ID_TYPE_OPTIONS } from "@/modules/commerce/shared/cat-022-identification-types";
 
 // CAT-022 — mismo map que supplier-summary-panel para consistencia entre vistas
-const ID_TYPE_LABELS: Record<string, string> = {
-  "13": "DUI",
-  "00": "NIT",
-  "02": "Carné de residente",
-  "03": "Pasaporte",
-  "37": "Otro",
-};
+const ID_TYPE_LABELS: Record<string, string> = Object.fromEntries(
+  CAT022_ID_TYPE_OPTIONS.map((o) => [o.code, o.name]),
+);
 
 // ── Tipos ─────────────────────────────────────────────────────────
 

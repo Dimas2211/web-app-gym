@@ -14,6 +14,7 @@
 
 import { Pencil, Users } from "lucide-react";
 import type { CustomerDetail, CustomerTaxpayerType } from "../types/customer.types";
+import { CAT022_ID_TYPE_OPTIONS } from "@/modules/commerce/shared/cat-022-identification-types";
 
 // ── Mapas de presentación ─────────────────────────────────────────
 
@@ -23,14 +24,9 @@ const TAXPAYER_LABELS: Record<CustomerTaxpayerType, string> = {
   EXCLUDED_SUBJECT:    "Sujeto excluido",
 };
 
-const ID_TYPE_LABELS: Record<string, string> = {
-  "13": "DUI",
-  "00": "NIT",
-  "36": "NIT (36 dígitos)",
-  "02": "Carné de residente",
-  "03": "Pasaporte",
-  "37": "Otro",
-};
+const ID_TYPE_LABELS: Record<string, string> = Object.fromEntries(
+  CAT022_ID_TYPE_OPTIONS.map((o) => [o.code, o.name]),
+);
 
 const STATUS_CONFIG = {
   active:   { label: "Activo",   cls: "bg-emerald-50 text-emerald-700 border border-emerald-200" },

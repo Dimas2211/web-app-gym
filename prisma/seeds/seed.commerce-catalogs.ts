@@ -20,11 +20,10 @@ import {
 import { MUNICIPALITIES } from "../importers/generated/municipalities.data";
 
 // ════════════════════════════════════════════════════════════════
-// CAT-022 — Tipos de identificación del contribuyente
+// CAT-022 — Tipos de identificación del Receptor (oficial v1.2: 02, 03, 13, 36, 37)
 // ════════════════════════════════════════════════════════════════
 
 const IDENTIFICATION_TYPES = [
-  { code: "00", name: "Consumidor final",    description: "Sin número de documento tributario" },
   { code: "02", name: "Carnet de residente", description: "Carnet de residente emitido por DGME" },
   { code: "03", name: "Pasaporte",           description: "Pasaporte vigente" },
   { code: "13", name: "DUI",                 description: "Documento Único de Identidad" },

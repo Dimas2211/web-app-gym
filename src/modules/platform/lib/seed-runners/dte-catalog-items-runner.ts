@@ -94,7 +94,6 @@ const CATALOG_ITEMS: CatalogRow[] = [
   { catalog_code: "CAT-018", item_code: "03", item_label: "Años",  sort_order: 3 },
 
   // ── CAT-022: Tipo de Documento de Identificación del Receptor ─
-  { catalog_code: "CAT-022", item_code: "00", item_label: "Consumidor final",    description: "Sin número de documento tributario", sort_order: 1 },
   { catalog_code: "CAT-022", item_code: "13", item_label: "DUI",                 description: "Documento Único de Identidad",       sort_order: 2 },
   { catalog_code: "CAT-022", item_code: "02", item_label: "Carnet de residente", description: "Carnet emitido por DGME",            sort_order: 3 },
   { catalog_code: "CAT-022", item_code: "03", item_label: "Pasaporte",           description: "Pasaporte vigente",                  sort_order: 4 },

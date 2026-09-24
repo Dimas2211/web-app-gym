@@ -16,6 +16,7 @@
 // ─────────────────────────────────────────────────────────────────
 
 import { z } from "zod";
+import { cat022IdTypeCodeEnum } from "@/modules/commerce/shared/cat-022-identification-types";
 
 // ── Enums exportados (reutilizables en otros schemas del módulo) ──
 
@@ -29,10 +30,8 @@ export const personTypeEnum = z.enum(
   { errorMap: () => ({ message: "Clasificación persona natural/jurídica inválida." }) },
 );
 
-export const idTypeCodeEnum = z.enum(
-  ["00", "02", "03", "13", "36", "37"],
-  { errorMap: () => ({ message: "Tipo de identificación inválido." }) },
-);
+// CAT-022 oficial (02, 03, 13, 36, 37). "00" no existe en CAT-022.
+export const idTypeCodeEnum = cat022IdTypeCodeEnum;
 
 // ── Regexes de documentos El Salvador ────────────────────────────
 

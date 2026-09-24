@@ -22,6 +22,7 @@ import { updateSupplierAction } from "../actions/update-supplier.action";
 import type { SupplierUpdateActionState } from "../actions/update-supplier.action";
 import type { SupplierDetail } from "../types/supplier.types";
 import type { IdentificationTypeItem } from "../types/supplier-catalogs.types";
+import { CAT022_ID_TYPE_OPTIONS } from "@/modules/commerce/shared/cat-022-identification-types";
 
 // ── Style helpers ─────────────────────────────────────────────────
 
@@ -65,14 +66,11 @@ const PERSON_TYPE_OPTIONS = [
   { value: "LEGAL_ENTITY",   label: "Persona jurídica"   },
 ] as const;
 
-const ID_TYPE_FALLBACK: IdentificationTypeItem[] = [
-  { code: "36", name: "NIT",                description: null },
-  { code: "13", name: "DUI",                description: null },
-  { code: "02", name: "Carnet de residente", description: null },
-  { code: "03", name: "Pasaporte",           description: null },
-  { code: "37", name: "Otro",               description: null },
-  { code: "00", name: "Consumidor final",   description: null },
-];
+export const ID_TYPE_FALLBACK: IdentificationTypeItem[] = CAT022_ID_TYPE_OPTIONS.map((o) => ({
+  code:        o.code,
+  name:        o.name,
+  description: null,
+}));
 
 // ── Props ─────────────────────────────────────────────────────────
 

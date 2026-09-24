@@ -16,7 +16,7 @@
 
 /**
  * Ítem del catálogo de tipos de identificación.
- * Codes operativos: "00" | "02" | "03" | "13" | "36" | "37"
+ * Codes oficiales CAT-022 v1.2: "02" | "03" | "13" | "36" | "37"
  * Usado en el selector de tipo de documento de la ficha del proveedor.
  */
 export interface IdentificationTypeItem {

@@ -24,6 +24,7 @@ import { createCustomerAction } from "../actions/create-customer.action";
 import type { CreateCustomerInput } from "../schemas/customer.schemas";
 import { ActivityPicker }     from "./activity-picker";
 import { MunicipalityPicker } from "./municipality-picker";
+import { CAT022_ID_TYPE_OPTIONS } from "@/modules/commerce/shared/cat-022-identification-types";
 
 // ── Style helpers ─────────────────────────────────────────────────
 
@@ -56,14 +57,7 @@ const TAXPAYER_OPTIONS = [
 ] as const;
 
 // Fallback CAT-022 — se usa si el endpoint falla
-const ID_TYPE_FALLBACK = [
-  { code: "36", name: "NIT"               },
-  { code: "13", name: "DUI"               },
-  { code: "02", name: "Carnet de residente" },
-  { code: "03", name: "Pasaporte"          },
-  { code: "37", name: "Otro"              },
-  { code: "00", name: "Consumidor final"  },
-];
+export const ID_TYPE_FALLBACK: ReadonlyArray<{ code: string; name: string }> = CAT022_ID_TYPE_OPTIONS;
 
 // ── Helpers ───────────────────────────────────────────────────────
 
@@ -113,7 +107,7 @@ export function NewCustomerDialog({ onClose, onSuccess }: NewCustomerDialogProps
       name:               strVal(fd, "name") ?? "",
       legal_name:         strVal(fd, "legal_name"),
       taxpayer_type:      (strVal(fd, "taxpayer_type") ?? "FINAL_CONSUMER") as CreateCustomerInput["taxpayer_type"],
-      id_type_code:       strVal(fd, "id_type_code"),
+      id_type_code:       strVal(fd, "id_type_code") as CreateCustomerInput["id_type_code"],
       nit:                strVal(fd, "nit"),
       nrc:                strVal(fd, "nrc"),
       dui:                strVal(fd, "dui"),

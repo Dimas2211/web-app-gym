@@ -45,13 +45,13 @@ describe("createSupplierSchema — id_type_code / NIT", () => {
     expect(fieldErrors({ ...BASE, id_type_code: "13", dui: "012345678" }).dui).toBeTruthy();
   });
 
-  it.each(["00", "02", "03", "13", "36", "37"])("id_type_code=%s aceptado", (code) => {
+  it.each(["02", "03", "13", "36", "37"])("id_type_code=%s aceptado (CAT-022 oficial)", (code) => {
     expect(idTypeCodeEnum.safeParse(code).success).toBe(true);
     expect(createSupplierSchema.safeParse({ ...BASE, id_type_code: code }).success).toBe(true);
   });
 
-  it("id_type_code desconocido sigue rechazado", () => {
-    expect(fieldErrors({ ...BASE, id_type_code: "99" }).id_type_code?.[0]).toBe("Tipo de identificación inválido.");
+  it.each(["00", "99"])("id_type_code=%s rechazado (no pertenece a CAT-022)", (code) => {
+    expect(fieldErrors({ ...BASE, id_type_code: code }).id_type_code?.[0]).toBe("Tipo de identificación inválido.");
   });
 
   it("id_type_code null (sin tipo) sigue aceptado", () => {

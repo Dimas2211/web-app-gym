@@ -22,6 +22,7 @@ import {
 } from "@/modules/platform/runtime/require-operational-context";
 import { str, strNullable } from "@/lib/utils/form-data-parsers";
 import { updateCustomer } from "../services/customer.service";
+import { isCat022IdTypeCode } from "@/modules/commerce/shared/cat-022-identification-types";
 
 export type UpdateCustomerIdentificationState =
   | { error: string }
@@ -65,6 +66,10 @@ export async function updateCustomerIdentificationAction(
 
     if (!TAXPAYER_TYPES.includes(taxpayer_type as TaxpayerType)) {
       return { error: "Tipo de contribuyente no válido." };
+    }
+
+    if (id_type_code !== null && !isCat022IdTypeCode(id_type_code)) {
+      return { error: "Tipo de identificación inválido." };
     }
 
     const result = await updateCustomer(id, context.tenantId, context.effectiveUser.id, {
