@@ -13,22 +13,20 @@ import { Loader2, Search, X, Plus, ArrowLeft } from "lucide-react";
 import {
   searchForeignCustomersAction,
   createForeignCustomerAction,
+  updateForeignCustomerCountryAction,
 } from "../actions/export-sale.actions";
 import type { ForeignCustomerLookup } from "../queries/search-foreign-customers";
 import type { CreateForeignCustomerInput } from "../schemas/export-sale.schemas";
 import type { DteCatalogItem } from "@/modules/commerce/dte/types/dte-catalog.types";
+import type { CountryItem } from "@/modules/commerce/suppliers/types/supplier-catalogs.types";
 import { CatalogSearchSelect } from "./catalog-search-select";
 
 interface Props {
   onClose: () => void;
   onSelect: (customer: ForeignCustomerLookup) => void;
-  // País (F3-C23D): catálogo de compatibilidad FEX v1 para receptor.codPais
-  // (catalog_code "FEX-11-V1-CODPAIS", códigos numéricos legados) — NO
-  // CAT-020 (ISO alpha-2, modelo `Country`). Mientras FEX 11 siga sobre el
-  // schema v1 local, este campo debe guardar un código de este catálogo
-  // (ej. "9540"), nunca un código ISO como "US". Ver
-  // docs/dte-official/extracts/fex11-catalogs-operational.md.
-  catalogFexCountries: DteCatalogItem[];
+  // País: CAT-020 vigente (modelo `Country`, ISO alpha-2 — ej. "US"),
+  // usado por receptor.codPais de la Factura de Exportación (FEX-PROD-0B).
+  catalogCountries: CountryItem[];
   catalogCAT022: DteCatalogItem[]; // Tipo de documento de identificación
   catalogCAT029: DteCatalogItem[]; // Tipo de persona
 }
@@ -44,17 +42,20 @@ function receiverIdTypes(catalogCAT022: DteCatalogItem[]): DteCatalogItem[] {
   return catalogCAT022.filter((t) => t.item_code !== "00");
 }
 
-function emptyDraft(catalogFexCountries: DteCatalogItem[]): CreateForeignCustomerInput {
+// País sin valor por defecto: el usuario debe elegirlo explícitamente.
+function emptyDraft(): CreateForeignCustomerInput {
   return {
     name: "", legal_name: "", id_type_code: "03", document_number: "",
-    country_code: catalogFexCountries[0]?.item_code ?? "", country_name: catalogFexCountries[0]?.item_label ?? "",
+    country_code: "", country_name: "",
     customer_person_type: "2", activity_name: "", address_complement: "", phone: "", email: "",
   };
 }
 
-export function ExportCustomerModal({ onClose, onSelect, catalogFexCountries, catalogCAT022, catalogCAT029 }: Props) {
+export function ExportCustomerModal({ onClose, onSelect, catalogCountries, catalogCAT022, catalogCAT029 }: Props) {
   const [mode, setMode] = useState<"search" | "create">("search");
   const idTypes = receiverIdTypes(catalogCAT022);
+  const countryItems = catalogCountries.map((c) => ({ code: c.code, label: c.name }));
+  const validCountryCodes = new Set(catalogCountries.map((c) => c.code));
 
   // Búsqueda
   const [query, setQuery] = useState("");
@@ -63,7 +64,7 @@ export function ExportCustomerModal({ onClose, onSelect, catalogFexCountries, ca
   const [hasSearched, setHasSearched] = useState(false);
 
   // Alta rápida
-  const [draft, setDraft] = useState<CreateForeignCustomerInput>(() => emptyDraft(catalogFexCountries));
+  const [draft, setDraft] = useState<CreateForeignCustomerInput>(() => emptyDraft());
   const [isCreating, setIsCreating] = useState(false);
 
   const [error, setError] = useState<string | null>(null);
@@ -106,6 +107,12 @@ export function ExportCustomerModal({ onClose, onSelect, catalogFexCountries, ca
     } finally {
       setIsCreating(false);
     }
+  }
+
+  // Cliente con país legado (versión anterior de la Factura de
+  // Exportación): se corrige explícitamente con CAT-020, nunca en automático.
+  function handleCountryFixed(customerId: string, country: { country_code: string; country_name: string }) {
+    setResults((rs) => rs.map((r) => (r.id === customerId ? { ...r, ...country } : r)));
   }
 
   function handleBackdrop(e: React.MouseEvent<HTMLDivElement>) {
@@ -181,7 +188,15 @@ export function ExportCustomerModal({ onClose, onSelect, catalogFexCountries, ca
               ) : results.length === 0 ? (
                 <p className="px-3 py-3 text-xs text-zinc-500">Sin resultados para “{query}”.</p>
               ) : (
-                results.map((c) => (
+                results.map((c) => !validCountryCodes.has(c.country_code ?? "") ? (
+                  <LegacyCountryFix
+                    key={c.id}
+                    customer={c}
+                    countryItems={countryItems}
+                    onFixed={handleCountryFixed}
+                    onError={setError}
+                  />
+                ) : (
                   <button
                     key={c.id}
                     type="button"
@@ -236,25 +251,19 @@ export function ExportCustomerModal({ onClose, onSelect, catalogFexCountries, ca
               </div>
               <div>
                 <label className={labelCls}>Número de documento</label>
-                <input className={inputCls} value={draft.document_number}
+                <input className={inputCls} value={draft.document_number} maxLength={20}
                   onChange={(e) => setDraft((s) => ({ ...s, document_number: e.target.value }))} />
               </div>
               <div>
-                <label className={labelCls}>País (FEX v1)</label>
+                <label className={labelCls}>País destino</label>
                 <CatalogSearchSelect
-                  items={catalogFexCountries.map((c) => ({ code: c.item_code, label: c.item_label }))}
+                  items={countryItems}
                   value={draft.country_code}
                   placeholder="Buscar país…"
                   onSelect={(country) =>
                     setDraft((s) => ({ ...s, country_code: country.code, country_name: country.label }))
                   }
                 />
-                <p className="mt-1 text-[10px] text-zinc-600">
-                  Catálogo de compatibilidad FEX v1 (no CAT-020 ISO) — código numérico. Países confirmados
-                  aparecen primero (ej. Estados Unidos = 9540); el resto muestra &quot;nombre no
-                  confirmado&quot; porque el repo no tiene una fuente oficial con nombres reales para esos
-                  códigos legados — verifique el código correcto con el catálogo del MH antes de transmitir.
-                </p>
               </div>
               <div>
                 <label className={labelCls}>Tipo de persona (CAT-029)</label>
@@ -265,12 +274,12 @@ export function ExportCustomerModal({ onClose, onSelect, catalogFexCountries, ca
               </div>
               <div className="col-span-2">
                 <label className={labelCls}>Actividad económica</label>
-                <input className={inputCls} value={draft.activity_name}
+                <input className={inputCls} value={draft.activity_name} maxLength={150}
                   onChange={(e) => setDraft((s) => ({ ...s, activity_name: e.target.value }))} />
               </div>
               <div className="col-span-2">
                 <label className={labelCls}>Dirección / complemento</label>
-                <input className={inputCls} value={draft.address_complement}
+                <input className={inputCls} value={draft.address_complement} maxLength={200}
                   onChange={(e) => setDraft((s) => ({ ...s, address_complement: e.target.value }))} />
               </div>
               <div>
@@ -305,6 +314,66 @@ export function ExportCustomerModal({ onClose, onSelect, catalogFexCountries, ca
             </div>
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+function LegacyCountryFix({
+  customer,
+  countryItems,
+  onFixed,
+  onError,
+}: {
+  customer: ForeignCustomerLookup;
+  countryItems: { code: string; label: string }[];
+  onFixed: (customerId: string, country: { country_code: string; country_name: string }) => void;
+  onError: (message: string | null) => void;
+}) {
+  const [code, setCode] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  async function handleSave() {
+    if (!code) return;
+    setSaving(true);
+    onError(null);
+    try {
+      const result = await updateForeignCustomerCountryAction(customer.id, code);
+      if (!result.ok) { onError(result.error); return; }
+      onFixed(customer.id, { country_code: result.country_code, country_name: result.country_name });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="px-3 py-2 bg-amber-950/20">
+      <div className="flex items-center gap-2">
+        <span className="font-mono text-[10px] text-zinc-500">{customer.customer_code}</span>
+        <span className="text-xs font-medium text-zinc-200 truncate">{customer.name}</span>
+      </div>
+      <p className="mt-1 text-[10px] text-amber-400">
+        El país guardado ({customer.country_name ?? "sin nombre"} · {customer.country_code ?? "sin código"}) no
+        pertenece al catálogo de países vigente. Seleccione el país correcto para poder facturar.
+      </p>
+      <div className="mt-1.5 flex gap-2">
+        <div className="flex-1">
+          <CatalogSearchSelect
+            items={countryItems}
+            value={code}
+            placeholder="Buscar país…"
+            onSelect={(country) => setCode(country.code)}
+          />
+        </div>
+        <button
+          type="button"
+          onClick={handleSave}
+          disabled={!code || saving}
+          className="h-8 px-3 flex items-center gap-1 text-xs text-zinc-200 border border-zinc-600 rounded hover:border-zinc-400 disabled:opacity-40 transition-colors"
+        >
+          {saving && <Loader2 className="h-3 w-3 animate-spin" />}
+          Guardar país
+        </button>
       </div>
     </div>
   );

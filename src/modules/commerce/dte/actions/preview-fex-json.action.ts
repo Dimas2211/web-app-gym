@@ -30,7 +30,7 @@ import addFormats from "ajv-formats";
 import { requireAdmin, type SessionUser } from "@/lib/permissions/guards";
 import type { UserRole } from "@prisma/client";
 import { getEffectiveLocationId } from "@/lib/location/active-location";
-import fexSchema from "../schemas/mh/fex-11.schema.json";
+import fexSchema from "../schemas/mh/fex-11-v3.schema.json";
 import { generateFexJsonForSale } from "../services/generate-fex-json.service";
 import type { FexJsonDocument } from "../types/fex-json.types";
 import {

@@ -241,3 +241,187 @@ NC (`fe-nc-v4`), FSE (`fe-fse-v2`), invalidación (v3) y contingencia (v4). El
 repo usa versiones anteriores. MH PRODUCTION aceptó FE v1 y FSE v1 en agosto
 2026, pero no hay fecha oficial de fin de transición localizada. Requiere
 auditoría dedicada; no se tocó aquí.
+
+---
+
+## 16. FEX-PROD-0B — migración de código a FEX v3 (2026-09-25)
+
+HEAD de partida: `8c25b84` (commit de esta auditoría sobre `d15e865`).
+Sin firma real, sin MH (TEST/PROD), sin MariaDB, sin escrituras remotas,
+sin cambios de schema Prisma, sin migraciones. FEX 11 sigue TEST-only
+(`fex11-feature-guard.ts` y routing de ambiente **sin cambios**).
+
+### 16.1 Schema productivo
+
+| Archivo | Contenido | Uso |
+|---|---|---|
+| `src/modules/commerce/dte/schemas/mh/fex-11-v3.schema.json` | copia literal de `fe-fex-v3.json` (md5 `e40610cf975822b48ddefad0d3122e55`, = fuentes #4/#5) | `SCHEMA_MAP["11"]` de `validateDteJsonSchema`, preview y fixtures |
+| `src/modules/commerce/dte/schemas/mh/fex-11-v1.legacy.schema.json` | ex `fex-11.schema.json` (v1, md5 `1679f1f9…`) | solo el seed del catálogo histórico `FEX-11-V1-CODPAIS`; **no** valida documentos |
+
+El schema oficial no se editó. Un test verifica el md5 y `version.const = 3`.
+
+### 16.2 Versión
+
+`utils/fex11-schema-version.ts`: `FEX11_SCHEMA_VERSION = 3` (fijado por código,
+no seleccionable desde frontend). Firma (`sign-dte-document.service.ts`) y
+transmisión (`transmit-dte-document.service.ts`) de tipo 11 exigen
+`json_document.identificacion.version === 3`; la transmisión envía `version: 3`.
+Un JSON v1 no firmado se regenera con el pipeline; un v1 firmado no se transmite.
+
+### 16.3 Mapping v3 — decisiones
+
+| Campo v3 | Implementación | Fuente |
+|---|---|---|
+| `identificacion.version` | `3` | schema `const 3` |
+| `identificacion.motivoContin` | `null` (operación normal, sin contingencia) | schema; `motivoContigencia` eliminado |
+| `documentoRelacionado` | `null` | schema `array\|null`, `minItems 1` → `[]` prohibido |
+| `compraTercero` / `ventaTercero` | `null` / `null` | schema nullable + `oneOf` (rama null/null) |
+| `emisor.tipoEstablecimiento`, `codEstableMH`, `codPuntoVentaMH` | no se emiten | eliminados en v3 (`additionalProperties:false`). **Siguen en `DteIssuerConfig`** (FE/CCFE/NC/FSE los usan; `cod_estable_mh`/`cod_punto_venta_mh` siguen formando el numeroControl) |
+| `emisor.direccion.distrito` | `Municipality.district_code` del par (`dept_code`,`municipality_code`) del emisor, vía `resolveDteMunicipality` (campo aditivo `districtCode`) | CSV oficial CAT-013 municipios/distritos (ya seedeado). Sin columna nueva |
+| `emisor.direccion.municipio` | `Municipality.code` (sin cambio) | contrato aceptado por MH en TEST/PROD |
+| `emisor.tipoRegimen` | servicios (`tipoItemExpor=2`) → `null`; bienes (1/3) → **bloqueado** | ver 16.5 |
+| `emisor.recintoFiscal` / `regimen` | `null` (solo servicios emitibles) | igual que v1 para servicios |
+| `receptor.codPais` / `nombrePais` | fila CAT-020 vigente (`Country`, ISO alpha-2) — código y nombre oficiales | Catálogos v1.2 = 249 códigos, idénticos a `Country` (verificado) |
+| `cuerpo.tipoItem` | CAT-011 desde `SaleItem.product_type_snapshot` (`SERVICE`→2, resto→1), mismo mapeo que FE/CCFE aceptados por MH | CAT-011; Manual §XII |
+| `cuerpo.numeroDocumento` | `null` | sin `documentoRelacionado` no hay documento que referenciar (ejemplo oficial del Manual: `null`) |
+| `cuerpo.codTributo` | `null` | Manual §XIV: "Tributo sujeto a cálculo de IVA" aplica a ítems tipo 4 (tributos sección 2). C3 es sección 1 → va en `tributos` |
+| `cuerpo.tributos` | `["C3"]` | Manual §XIV |
+| `cuerpo.codigo` | `product_code_snapshot`, `""`→`null`; > 25 → error (no se trunca) | schema `maxLength 25` |
+| `resumen.descuGravada` | `0` | Manual §XVIII.2: "$0.00" cuando no se aplica descuento global; Zolvi no maneja descuento global FEX |
+| `resumen.totalDescu` | `Σ montoDescu + descuGravada` | Manual §XVIII.4 — **corrige** el valor histórico de `resumen.descuento` (antes = Σ montoDescu) |
+| `resumen.tributos` | `[{codigo:"C3", descripcion:"Impuesto al Valor Agregado (exportaciones) 0%", valor:0}]` | Manual §XIV ("aunque su valor sea $0.0"); descripción CAT-015 v1.2 |
+| `resumen.totalNoOnerosas` | `0`; líneas con `ventaGravada ≤ 0` se rechazan | Zolvi solo registra ventas onerosas |
+| `resumen.saldoFavor` | `0` | Zolvi no aplica saldos a favor; schemas hermanos FE v2/CCFE v4 lo definen `maximum 0` (negativo = saldo). 0 es neutro |
+| `observaciones`, `descIncoterms`, `nombreComercial`, `referencia` | `""`/espacios → `null` | `minLength 1` en v3 |
+
+Exportación sigue diferenciada de venta exenta/no sujeta: el builder exige
+`tax_rate_snapshot = 0` en toda línea y emite C3 (no se generalizó C3 fuera
+de FEX; modelos Commerce sin cambios).
+
+### 16.4 Fórmulas (`utils/fex11-v3-formulas.ts`, tests independientes)
+
+```
+totalGravada        = Σ ventaGravada                (ventaGravada = line_subtotal = precio×cant − montoDescu)
+totalDescu          = Σ montoDescu + descuGravada
+montoTotalOperacion = totalGravada − descuGravada + seguro + flete + Σ resumen.tributos.valor
+totalNoGravado      = Σ noGravado
+totalPagar          = montoTotalOperacion + totalNoGravado + saldoFavor
+```
+
+Con el alcance soportado (`descuGravada=0`, `noGravado=0`, C3 `valor=0`,
+`saldoFavor=0`): `montoTotalOperacion = totalGravada + seguro + flete` y
+`totalPagar = montoTotalOperacion`. El builder además exige
+`|totalGravada − Sale.total_amount| ≤ 0.01`. Orden de la fórmula según la
+representación gráfica FEX V3 del Manual V2.0; el término `saldoFavor` es
+inferido de los schemas hermanos y solo se ejercita con 0.
+
+### 16.5 Gaps abiertos (bloquean FEX-PROD-1)
+
+1. **`emisor.tipoRegimen` para exportación de bienes** — requerido por v3
+   (`string|null`), aparece como "Tipo de Régimen" en la representación
+   gráfica FEX V3, pero **ningún catálogo oficial vigente lo define**
+   (Catálogos v1.2 CAT-001…CAT-032 no lo incluyen; CAT-028 "Régimen" es el
+   campo `regimen`, 13 caracteres). No se infiere (p. ej. prefijo `EX-1` de
+   CAT-028) ni se inventa. **Exportación de bienes (tipo 1 y 3) bloqueada**
+   en `createExportSale` (antes de confirmar la venta / mover inventario) y
+   en el builder. Servicios (tipo 2) → `null`, coherente con recinto/régimen
+   `null`. Requiere confirmación MH.
+2. **Formato de `distrito` / `municipio` bajo CAT-013 v1.2** — se envía el
+   código de distrito de 6 dígitos del CSV oficial (`050611`) y `municipio`
+   sigue siendo el código DTE histórico (`11`). CAT-013 v1.2 lista solo los
+   44 municipios nuevos (códigos 13–36 por departamento). No hay ejemplo JSON
+   oficial con `distrito`. AJV no lo restringe (`string` libre). Debe
+   certificarse con MH TEST v3 ACCEPTED antes de producción (afecta también a
+   la futura migración FE v2/CCFE v4).
+3. **Certificación MH TEST v3** — pendiente por diseño de esta fase (cero
+   llamadas MH).
+4. Fecha de fin de aceptación FEX v1 en MH: no localizada (sin cambio).
+
+### 16.6 Contrato de país final
+
+- Nuevos receptores FEX: `country_code` validado contra CAT-020 vigente
+  (`Country` activo); el servidor guarda el **nombre oficial** CAT-020.
+  El Salvador (`SV`) rechazado como destino.
+- Clientes con código legado numérico (catálogo `FEX-11-V1-CODPAIS`): **sin
+  conversión ni UPDATE masivo**. `createExportSale` y el builder bloquean con
+  mensaje claro; el modal de receptor en `/dashboard/sales/export` muestra el
+  cliente como "país no vigente" con selector CAT-020 y botón "Guardar país"
+  (`updateForeignCustomerCountryAction` → solo `country_code`/`country_name`
+  de ese cliente, tenant-scoped, runtime DB).
+- `FEX-11-V1-CODPAIS` permanece seedeado solo como referencia histórica; no
+  lo consume ningún flujo productivo.
+
+### 16.7 SaleExportDetails
+
+| Campo | Clasificación |
+|---|---|
+| `country_code` / `country_name` | KEEP (CAT-020 en ventas nuevas; históricos intactos) |
+| `customer_person_type`, `item_type_export`, `incoterm_code`, `incoterm_desc`, `insurance_amount`, `freight_amount` | KEEP |
+| `fiscal_precinct_code` / `regime_code` (+ `_name`) | KEEP (sin uso emitible mientras bienes esté bloqueado) |
+| `extra_export_data` | KEEP |
+| NEW REQUIRED | ninguno — `tipoRegimen` no se modela hasta tener catálogo oficial |
+
+**Prisma: sin cambios. Sin migración.**
+
+### 16.8 UI `/dashboard/sales/export`
+
+Misma pantalla. País = CAT-020 (sin valor por defecto), sin texto "FEX v1";
+límites v3 en captura (complemento ≤ 200, actividad 5–150, documento ≤ 20,
+teléfono ≥ 8); corrección explícita de país legado; errores de negocio
+claros para bienes, `product_code > 25` y bien dentro de exportación de
+servicios. La consola `/dashboard/dte/fex11-test` genera ahora un caso de
+servicios con país `US`. `dev/verify-fex11-preview-local.ts` conserva su
+escenario de bienes (reporta el bloqueo v3).
+
+### 16.9 DTE FEX históricos (diagnóstico solo lectura, base local `TrustmeDB`)
+
+15 documentos tipo 11, todos TEST: 6 ACCEPTED v1, 5 REJECTED v1,
+3 PENDING_GENERATION (sin JSON), 1 GENERATED v1. Ningún SIGNED ni
+SCHEMA_VALIDATED. 5 clientes extranjeros, los 5 con `country_code` legado
+numérico. Base remota **no consultada**.
+
+Política: ACCEPTED/REJECTED v1 = evidencia histórica, no se regeneran ni
+revalidan (`validateDteJsonSchema` solo opera sobre GENERATED). PENDING/
+GENERATED v1 (TEST) pueden regenerarse como v3 con el pipeline existente
+tras corregir el país del cliente; si su venta es de bienes, quedan
+bloqueados por 16.5.1. Ningún documento se mutó en esta fase.
+
+### 16.10 Tests
+
+- `services/generate-fex-json.v3.test.ts` — A–R + T (schema md5/const, AJV, campos v3, país, límites, fórmulas, tenant).
+- `utils/fex11-v3-formulas.test.ts` — fórmulas independientes.
+- `utils/fex11-schema-version.test.ts` — versión/guardia.
+- `services/generate-fex-json-pipeline.service.v3.test.ts` — pipeline local in-memory: PENDING_GENERATION → GENERATED → AJV v3 → SCHEMA_VALIDATED.
+- `sales/export/services/export-sale.service.v3.test.ts` — S (servicio comercial, país legado, bienes, product_code, DTE 11 TEST).
+- Ampliados: `generate-fex-json.service.runtime-write.test.ts`, `sign-dte-document.service.runtime-write.test.ts`, `transmit-dte-document.service.runtime.test.ts` (adapters mockeados, 0 HTTP).
+- `npx tsx src/modules/commerce/dte/dev/verify-fex11-json.fixture.ts` → VERIFICACIÓN OK (v3).
+
+### 16.11 Schemas de los demás documentos (solo registro — no migrados)
+
+| Tipo | Schema usado por Zolvi | Schema publicado (factura.gob.sv 2026-08-11) | Estado |
+|---|---|---|---|
+| 01 FE | `fe-01.schema.json` (fe-fc v1) | `v2/fe-f-v2.json` | DESACTUALIZADO |
+| 03 CCFE | `ccfe-03.schema.json` (fe-ccf v3) | `v4/fe-ccf-v4.json` | DESACTUALIZADO |
+| 05 NC | `fe-nc-v3.json` | `v4/fe-nc-v4.json` | DESACTUALIZADO |
+| 11 FEX | `fex-11-v3.schema.json` | `v3/fe-fex-v3.json` | **ALINEADO** (esta fase) |
+| 14 FSE | `fse-14.schema.json` (fe-fse v1) | `v2/fe-fse-v2.json` | DESACTUALIZADO |
+| Invalidación | `anulacion-schema-v2.json` | `v3/invalidacion-schema-v3.json` | DESACTUALIZADO |
+| Contingencia | `contingencia-schema-v3.json` | `v4/contingencia-schema-v4.json` | DESACTUALIZADO |
+
+Entrada para una fase posterior dedicada. Los builders ajenos a FEX no se tocaron.
+
+### 16.12 Flags
+
+```
+FEX_V3_SCHEMA_INSTALLED            = YES
+FEX_V3_TYPES_READY                 = YES
+FEX_V3_BUILDER_READY               = YES  (servicios; bienes fail-closed por 16.5.1)
+FEX_V3_AJV_PASS                    = YES
+FEX_V3_COUNTRY_CONTRACT_READY      = YES
+FEX_V3_FORMULAS_READY              = YES  (alcance soportado 16.4)
+FEX_V3_UI_READY                    = YES  (validación visual manual pendiente)
+FEX_V3_RUNTIME_ISOLATION_PRESERVED = YES
+DTE_REGRESSION_PASS                = YES
+FEX_V3_CODE_READY                  = NO   (16.5.1 y 16.5.2 sin fuente oficial)
+READY_FOR_FEX_PROD_1               = NO
+```

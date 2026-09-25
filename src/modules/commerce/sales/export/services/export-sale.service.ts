@@ -34,7 +34,9 @@ import { CAT014_UNITS } from "../../../../../../prisma/seeds/data/cat014-units";
 import {
   validateExportSaleBusinessRules,
   validateForeignCustomerCatalogs,
+  validateFexCountryCode,
   type ExportProductForValidation,
+  type FexCountryItem,
 } from "../utils/fex-validation";
 import type { CreateForeignCustomerInput, CreateExportSaleInput } from "../schemas/export-sale.schemas";
 
@@ -43,6 +45,10 @@ import type { CreateForeignCustomerInput, CreateExportSaleInput } from "../schem
 export type CreateForeignCustomerResult =
   | { ok: true; id: string; customer_code: string }
   | { ok: false; error: string; field?: string };
+
+export type UpdateForeignCustomerCountryResult =
+  | { ok: true; country_code: string; country_name: string }
+  | { ok: false; error: string };
 
 export type CreateExportSaleResult =
   | { ok: true; sale_id: string; sale_code: string; dte_document_id: string }
@@ -69,15 +75,18 @@ export async function createForeignCustomer(
   input:     CreateForeignCustomerInput,
   db: PrismaClient = prisma,
 ): Promise<CreateForeignCustomerResult> {
-  const [fexCountries, personTypes, idTypes] = await Promise.all([
-    // F3-C23D — catálogo de compatibilidad FEX v1 para receptor.codPais,
-    // NO CAT-020 (ISO alpha-2). Ver fex-validation.ts.
-    listDteCatalogItems({ catalog_code: DTE_CATALOG_CODES.FEX_V1_CODPAIS }),
+  const [country, personTypes, idTypes] = await Promise.all([
+    // FEX-PROD-0B — receptor.codPais de FEX v3 = CAT-020 vigente (Country).
+    findActiveCountry(input.country_code, db),
     listDteCatalogItems({ catalog_code: DTE_CATALOG_CODES.CAT_029_TIPO_PERSONA }),
     listDteCatalogItems({ catalog_code: DTE_CATALOG_CODES.CAT_022_TIPO_IDENTIFICACION }),
   ]);
 
-  const catalogErrors = validateForeignCustomerCatalogs(input, { fexCountries, personTypes, idTypes });
+  const catalogErrors = validateForeignCustomerCatalogs(input, {
+    countries: country ? [country] : [],
+    personTypes,
+    idTypes,
+  });
   if (catalogErrors.length > 0) {
     return { ok: false, error: catalogErrors[0] };
   }
@@ -105,8 +114,9 @@ export async function createForeignCustomer(
         email:                 input.email ?? null,
         status:                "active",
         is_foreign:            true,
-        country_code:          input.country_code,
-        country_name:          input.country_name,
+        // Nombre oficial CAT-020, no el texto enviado por el cliente.
+        country_code:          country!.code,
+        country_name:          country!.name,
         customer_person_type:  input.customer_person_type,
         created_by:            user_id,
         updated_by:            user_id,
@@ -121,6 +131,56 @@ export async function createForeignCustomer(
     }
     throw e;
   }
+}
+
+// ── País CAT-020 vigente (modelo Country) ──────────────────────────
+
+async function findActiveCountry(
+  code: string | null | undefined,
+  db: PrismaClient,
+): Promise<FexCountryItem | null> {
+  if (!code) return null;
+  return db.country.findFirst({
+    where:  { code, status: "active" },
+    select: { code: true, name: true },
+  });
+}
+
+// ── Corregir país de un cliente extranjero (FEX-PROD-0B) ──────────
+//
+// Clientes creados con el catálogo de compatibilidad FEX v1 guardan un
+// country_code numérico legado. No se convierten automáticamente: el
+// usuario elige explícitamente el país CAT-020 correcto y solo se
+// actualizan country_code/country_name de ese cliente.
+
+export async function updateForeignCustomerCountry(
+  tenant_id:    string,
+  user_id:      string,
+  customer_id:  string,
+  country_code: string,
+  db: PrismaClient = prisma,
+): Promise<UpdateForeignCustomerCountryResult> {
+  const customer = await db.customer.findFirst({
+    where:  { id: customer_id, tenant_id, status: "active" },
+    select: { id: true, is_foreign: true },
+  });
+  if (!customer) {
+    return { ok: false, error: "El cliente no existe o está inactivo en este tenant." };
+  }
+  if (!customer.is_foreign) {
+    return { ok: false, error: "Solo se puede corregir el país de clientes extranjeros." };
+  }
+
+  const country = await findActiveCountry(country_code, db);
+  const countryError = validateFexCountryCode(country_code, country ? [country] : []);
+  if (countryError) return { ok: false, error: countryError };
+
+  await db.customer.update({
+    where: { id: customer.id },
+    data:  { country_code: country!.code, country_name: country!.name, updated_by: user_id },
+  });
+
+  return { ok: true, country_code: country!.code, country_name: country!.name };
 }
 
 // ── Resolver configuración TEST activa del emisor ─────────────────
@@ -363,18 +423,25 @@ export async function createExportSale(
   if (!customer.is_foreign) {
     return { ok: false, field: "customer_id", error: "Para Factura de Exportación (FEX 11) el cliente debe estar marcado como extranjero." };
   }
-  if (!customer.country_code || !customer.country_name) {
-    return { ok: false, field: "customer_id", error: "El cliente extranjero no tiene país configurado (country_code/country_name)." };
+  // País CAT-020 vigente — un código legado FEX v1 bloquea antes de crear la venta.
+  const customerCountry = await findActiveCountry(customer.country_code, db);
+  const countryError = validateFexCountryCode(customer.country_code, customerCountry ? [customerCountry] : []);
+  if (countryError) {
+    return { ok: false, field: "customer_id", error: countryError };
   }
 
   // 2. Validar productos (unidad con código MH) y reglas de negocio de exportación
   const productIds = [...new Set(input.items.map((i) => i.product_id))];
   const products = await db.product.findMany({
     where: { id: { in: productIds }, tenant_id, allow_sale: true, status: { notIn: ["BLOCKED_SALE", "INACTIVE", "DISCONTINUED"] } },
-    select: { id: true, name: true, unit: { select: { mh_unit_code: true } } },
+    select: {
+      id: true, name: true, product_code: true, product_type: true,
+      unit: { select: { mh_unit_code: true } },
+    },
   });
   const productsForValidation: ExportProductForValidation[] = products.map((p) => ({
-    id: p.id, name: p.name, mh_unit_code: p.unit?.mh_unit_code ?? null,
+    id: p.id, name: p.name, product_code: p.product_code, product_type: p.product_type,
+    mh_unit_code: p.unit?.mh_unit_code ?? null,
   }));
 
   const [fiscalPrecincts, regimes, incoterms, tributes] = await Promise.all([
@@ -444,8 +511,8 @@ export async function createExportSale(
     data: {
       tenant_id,
       sale_id,
-      country_code:          customer.country_code!,
-      country_name:          customer.country_name!,
+      country_code:          customerCountry!.code,
+      country_name:          customerCountry!.name,
       customer_person_type:  customer.customer_person_type,
       item_type_export:      input.item_type_export,
       fiscal_precinct_code:  input.item_type_export === 2 ? null : (input.fiscal_precinct_code ?? null),

@@ -17,8 +17,9 @@
 //                            identificador interno de conveniencia.
 //                            NUNCA se envía en direccion.municipio.
 //   district_code          → código de distrito de la nueva organización
-//                            territorial (6 dígitos). Uso interno/
-//                            informativo, NUNCA en direccion.municipio.
+//                            territorial (6 dígitos). NUNCA en
+//                            direccion.municipio; FEX 11 v3 lo envía en
+//                            direccion.distrito (FEX-PROD-0B).
 //   district_name          → nombre del distrito/localidad.
 //   new_municipality_code  → código del municipio administrativo NUEVO
 //                            (ej. "0506" La Libertad Sur). Clasificación
@@ -40,6 +41,7 @@ import { prisma } from "@/lib/db/prisma";
 export interface ResolvedDteMunicipality {
   departmentCode:       string;
   municipalityCode:      string; // Municipality.code — el que va en direccion.municipio
+  districtCode:          string | null; // Municipality.district_code — direccion.distrito (FEX v3)
   districtName:          string | null;
   newMunicipalityCode:   string | null;
   newMunicipalityName:   string | null;
@@ -69,6 +71,7 @@ export async function resolveDteMunicipality(
     select: {
       dept_code:             true,
       code:                  true,
+      district_code:         true,
       district_name:         true,
       new_municipality_code: true,
       new_municipality_name: true,
@@ -80,6 +83,7 @@ export async function resolveDteMunicipality(
   return {
     departmentCode:      row.dept_code,
     municipalityCode:    row.code,
+    districtCode:        row.district_code,
     districtName:        row.district_name,
     newMunicipalityCode:  row.new_municipality_code,
     newMunicipalityName:  row.new_municipality_name,

@@ -312,3 +312,61 @@ describe("transmitDteDocument — VI-E6A aislamiento cross-tenant/cross-location
     expect(transaction).not.toHaveBeenCalled();
   });
 });
+
+// ─────────────────────────────────────────────────────────────────
+// FEX-PROD-0B — FEX 11 se transmite con version 3 y solo si el JSON
+// firmado es v3. Adapter de transmisión mockeado: cero HTTP a MH.
+// ─────────────────────────────────────────────────────────────────
+
+describe("transmitDteDocument — FEX 11 schema v3 (FEX-PROD-0B)", () => {
+  const FEX_SIGNED_DOC = {
+    ...SIGNED_DOC,
+    dte_type_code: "11",
+    control_number: "DTE-11-M001P001-000000000000001",
+  };
+
+  function fexRuntimeDb(doc: unknown) {
+    runtimeFindFirstSpy.mockResolvedValue(doc);
+    runtimeTransactionSpy.mockImplementation(async (arg: unknown) => {
+      if (Array.isArray(arg)) return Promise.all(arg);
+      const cb = arg as (tx: unknown) => Promise<unknown>;
+      return cb({ dteOutgoingDocument: { update: vi.fn() }, dteTransmissionLog: { create: vi.fn() } });
+    });
+    return {
+      dteOutgoingDocument: { findFirst: runtimeFindFirstSpy, update: vi.fn() },
+      dteTransmissionLog: { create: vi.fn() },
+      $transaction: runtimeTransactionSpy,
+    } as unknown as Parameters<typeof transmitDteDocument>[1];
+  }
+
+  const PARAMS = { dteDocumentId: "dte-doc-1", userId: "user-1", tenantId: "tenant-1", locationId: "loc-1" };
+
+  it("FEX firmado con JSON v3 -> adapter recibe version 3", async () => {
+    vi.stubEnv("DTE_FEX11_TEST_ENABLED", "YES");
+    try {
+      const db = fexRuntimeDb({ ...FEX_SIGNED_DOC, json_document: { identificacion: { version: 3 } } });
+
+      await transmitDteDocument(PARAMS, db);
+
+      expect(transmitAdapterSpy).toHaveBeenCalledTimes(1);
+      expect(transmitAdapterSpy.mock.calls[0][0]).toMatchObject({ version: 3 });
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("FEX firmado con JSON v1 (histórico) -> no se transmite ni reserva metering", async () => {
+    vi.stubEnv("DTE_FEX11_TEST_ENABLED", "YES");
+    try {
+      const db = fexRuntimeDb({ ...FEX_SIGNED_DOC, json_document: { identificacion: { version: 1 } } });
+
+      const result = await transmitDteDocument(PARAMS, db);
+
+      expect(result.ok).toBe(false);
+      expect(transmitAdapterSpy).not.toHaveBeenCalled();
+      expect(reserveDteFiscalCapacitySpy).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+});

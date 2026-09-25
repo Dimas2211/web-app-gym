@@ -2,10 +2,12 @@
 // commerce/dte — generate-fex-json.service.ts
 //
 // generateFexJsonForSale — construye (sin persistir) el json_document
-// para Factura de Exportación Electrónica (FEX 11).
+// para Factura de Exportación Electrónica (FEX 11), schema oficial v3
+// (schemas/mh/fex-11-v3.schema.json = fe-fex-v3.json, factura.gob.sv
+// 2026-08-11). FEX-PROD-0B migró este builder desde v1; no existe un
+// builder v1 paralelo. Ver docs/modules/fex11-production-readiness.md.
 //
-// Microfase F3-C4 — builder aislado. A diferencia de generate-fe-json
-// y generate-ccfe-json, esta función:
+// Esta función:
 //   - NO escribe en base de datos.
 //   - NO actualiza DteOutgoingDocument.
 //   - NO cambia el estado de la venta.
@@ -13,92 +15,60 @@
 //   - NO firma ni transmite.
 //   - Solo lee y devuelve el JSON candidato.
 //
-// El DteOutgoingDocument debe existir previamente con
-// codigoGeneracion/numeroControl ya reservados (mismo patrón que
-// dte-outgoing.service.ts usa para FE/CCFE al crear el documento).
-//
-// Decisiones de mapeo documentadas (ver docs/modules/fex11-data-contract.md):
-//   - receptor.codPais/nombrePais se toman de Customer.country_code/
-//     country_name (matriz §6 del contrato) — SaleExportDetails también
-//     tiene country_code/country_name, pero el contrato designa a
-//     Customer como fuente para el receptor.
-//   - emisor.codEstableMH/codPuntoVentaMH usan los códigos reales
-//     asignados por MH (DteIssuerConfig.cod_estable_mh/cod_punto_venta_mh),
-//     no los códigos internos (establishment_code/point_of_sale_code)
-//     que FE/CCFE reutilizan para ambos pares — el schema FEX exige
-//     los 4 campos y estos son los que representan semánticamente
-//     "asignado por el MH".
-//   - Toda línea de exportación se asume gravada al 0% (tributo fijo
-//     "C3"), con noGravado = 0. TODO FEX FORMULA REVIEW: no hay
-//     confirmación de negocio para escenarios con noGravado != 0.
-//   - resumen.descuento y resumen.totalDescu se calculan igual (suma de
-//     montoDescu de líneas). TODO FEX FORMULA REVIEW: el contrato
-//     (§10) marca como no confirmada la diferencia semántica entre
-//     ambos campos.
-//   - resumen.montoTotalOperacion = total_amount de la venta (sin IVA,
-//     ya que exportación es 0%) + seguro + flete de SaleExportDetails.
-//   - resumen.totalPagar = montoTotalOperacion. TODO FEX FORMULA REVIEW:
-//     el contrato (§10.8) marca como no confirmado si son conceptos
-//     distintos.
+// Decisiones de mapeo v3 (fuentes: schema v3 + Manual Funcional V2.0 +
+// Catálogos v1.2; detalle en fex11-production-readiness.md §16):
+//   - receptor.codPais = CAT-020 vigente (ISO alpha-2, modelo `Country`,
+//     idéntico a los 249 códigos del catálogo v1.2). Un country_code legado
+//     (p. ej. "9540" del catálogo de compatibilidad FEX v1) bloquea la
+//     emisión: nunca se convierte automáticamente.
+//   - emisor.direccion.distrito = Municipality.district_code (CSV oficial
+//     CAT-013 municipios/distritos) del par (dept_code, municipality_code)
+//     del emisor. municipio sigue siendo Municipality.code.
+//   - emisor.tipoRegimen: sin catálogo oficial publicado. Exportación de
+//     servicios (tipoItemExpor=2) → null, igual que recintoFiscal/regimen.
+//     Exportación de bienes (1/3) → bloqueada hasta confirmar la fuente.
+//   - cuerpo: tipoItem CAT-011 desde product_type_snapshot (mismo mapeo
+//     que FE/CCFE ya aceptados por MH); numeroDocumento = null (no hay
+//     documentoRelacionado); codTributo = null (Manual §XIV: solo ítems
+//     tipoItem 4 "otros tributos"); tributos = ["C3"].
+//   - resumen: descuGravada = 0 (Zolvi no maneja descuento global FEX);
+//     totalDescu = Σ montoDescu; tributos = [C3 valor 0] (Manual §XIV);
+//     totalNoOnerosas = 0; saldoFavor = 0. Fórmulas en fex11-v3-formulas.ts.
+//   - documentoRelacionado, compraTercero, ventaTercero, otrosDocumentos,
+//     apendice = null (propiedades requeridas y nullable en v3).
 // ─────────────────────────────────────────────────────────────────
 
 import type { PrismaClient } from "@prisma/client";
 import { prisma } from "@/lib/db/prisma";
 import { numeroALetras } from "../utils/numero-a-letras";
 import { normalizeNitForDte, normalizeNrcForDte } from "../utils/fiscal-id.utils";
-import { validateDteAddressCodes } from "../utils/dte-territory.resolver";
-import fexSchema from "../schemas/mh/fex-11.schema.json";
+import { resolveDteMunicipality, validateDteAddressCodes } from "../utils/dte-territory.resolver";
+import { FEX11_SCHEMA_VERSION } from "../utils/fex11-schema-version";
+import { computeFexV3ResumenTotals, r2 } from "../utils/fex11-v3-formulas";
+import { FEX_V3_LIMITS, FEX_GOODS_TIPO_REGIMEN_BLOCKED_ERROR } from "../utils/fex11-v3-rules";
 import type {
   FexJsonDocument,
   FexCuerpoItem,
   FexPago,
+  FexResumenTributo,
 } from "../types/fex-json.types";
 
 const TOLERANCE = 0.01;
 
-// ── F3-C23C/F3-C23D — bloqueo por conflicto CAT-020 (ISO alpha-2) vs schema MH ──
-//
-// El catálogo oficial CAT-020 v1.2 (10/2025, database/catalogs/Catálogos
-// del Sistema de Transmisión V 1.2.xlsx, hoja "CAT-020 País") usa códigos
-// ISO 3166-1 alpha-2 ("US", "SV", ...) — catálogo central del sistema
-// (modelo `Country`, ver get-countries.ts), vigente y sin cambios.
-//
-// El Ministerio publicó en julio 2026 schemas nuevos (FEX ahora aparece
-// como v3, con receptor.codPais alineado a CAT-020 ISO). Esta versión NO
-// migra a esos schemas nuevos — sigue operando sobre el schema local
-// vigente `fex-11.schema.json` (copia de `fe-fex-v1.json`, FEX v1,
-// fechado 03/2023), que define `receptor.codPais` como un enum cerrado de
-// 275 códigos numéricos de 4 dígitos y NO acepta códigos alfabéticos. Es
-// una contradicción real entre CAT-020 (fuente más reciente) y el schema
-// v1 local (fuente más vieja) — ver
-// docs/dte-official/extracts/fex11-catalogs-operational.md (§"F3-C23C"/"F3-C23D").
-//
-// F3-C23C bloqueaba aquí y dejaba FEX 11 sin forma de operar, porque la
-// UI solo ofrecía CAT-020. F3-C23D restaura la operación agregando un
-// catálogo de COMPATIBILIDAD separado para receptor.codPais de FEX v1
-// (catalog_code "FEX-11-V1-CODPAIS", derivado de este mismo enum — ver
-// prisma/seeds/data/fex11-catalog-rows.ts), que /dashboard/sales/export
-// ahora usa en vez de CAT-020 para este campo mientras sigamos en v1. La
-// guardia se mantiene sin cambios: sigue bloqueando cualquier
-// `country_code` fuera de este enum (p. ej. si llegara "US" por datos
-// heredados o un cliente creado antes de esta fase) — nunca convierte
-// silenciosamente ISO → numérico.
-const FEX_COD_PAIS_SCHEMA_ENUM = new Set<string>(
-  (fexSchema as unknown as {
-    properties: { receptor: { properties: { codPais: { enum: string[] } } } };
-  }).properties.receptor.properties.codPais.enum,
-);
+// numeroControl v3: DTE-11-(M|B|S|P)NNNPNNN-NNNNNNNNNNNNNNN
+const FEX_V3_NUMERO_CONTROL = /^DTE-11-(M|B|S|P)[0-9]{3}P[0-9]{3}-[0-9]{15}$/;
 
-// Detección best-effort de un código con "forma" ISO alpha-2 (2 letras),
-// solo para dar un mensaje de error más claro cuando el valor bloqueado
-// viene evidentemente de CAT-020 — no valida que exista en CAT-020 real.
-const ISO_ALPHA2_LIKE = /^[A-Z]{2}$/;
+// CAT-015 v1.2 — descripción oficial del tributo C3.
+const C3_TRIBUTO: FexResumenTributo = {
+  codigo:      "C3",
+  descripcion: "Impuesto al Valor Agregado (exportaciones) 0%",
+  valor:       0,
+};
 
 // ── Tipos de entrada para la función pura ──────────────────────────
 // Reflejan exactamente los campos que buildFexJsonFromLoadedData lee de
-// los `select` de Prisma en generateFexJsonForSale. Se extraen aquí para
-// permitir probar el builder con un objeto ya cargado (fixture), sin
-// depender de PrismaClient real (Microfase F3-C6).
+// los `select` de Prisma en generateFexJsonForSale, para poder probar el
+// builder con un fixture in-memory sin PrismaClient real.
 
 export interface FexLoadedCustomer {
   id:                   string;
@@ -132,6 +102,7 @@ export interface FexLoadedItem {
   line_number:           number;
   product_code_snapshot: string | null;
   product_name_snapshot: string;
+  product_type_snapshot: string | null;
   quantity:               number | string;
   unit_price:             number | string;
   discount_amount:        number | string;
@@ -174,10 +145,7 @@ export interface FexLoadedIssuerConfig {
   activity_code:            string | null;
   activity_name:            string | null;
   establishment_code:       string | null;
-  establishment_type_code:  string | null;
   point_of_sale_code:       string | null;
-  cod_estable_mh:           string | null;
-  cod_punto_venta_mh:       string | null;
   dept_code:                string | null;
   municipality_code:        string | null;
   address_complement:       string | null;
@@ -187,17 +155,18 @@ export interface FexLoadedIssuerConfig {
 }
 
 export interface FexLoadedData {
-  tenant_id:      string;
-  dteDoc:         { control_number: string; generation_code: string };
-  sale:           FexLoadedSale;
-  issuerConfig:   FexLoadedIssuerConfig;
+  tenant_id:    string;
+  dteDoc:       { control_number: string; generation_code: string };
+  sale:         FexLoadedSale;
+  issuerConfig: FexLoadedIssuerConfig;
+  // Resueltos por generateFexJsonForSale contra catálogos del sistema:
+  // Municipality.district_code del emisor y fila CAT-020 (Country) del
+  // country_code del receptor (null si no existe/activo en CAT-020).
+  emisorDistrictCode: string | null;
+  receptorCountry:    { code: string; name: string } | null;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────
-
-function r2(n: number): number {
-  return Math.round(n * 100) / 100;
-}
 
 // America/El_Salvador = UTC-6, sin DST.
 function svDateTime(d: Date): { date: string; time: string } {
@@ -208,6 +177,16 @@ function svDateTime(d: Date): { date: string; time: string } {
 
 function mapAmbiente(env: string): string {
   return env === "PRODUCTION" ? "01" : "00";
+}
+
+// CAT-011 — mismo mapeo que FE/CCFE: SERVICE → 2 (Servicios), resto → 1 (Bienes).
+function mapTipoItem(productTypeSnapshot: string | null): number {
+  return productTypeSnapshot === "SERVICE" ? 2 : 1;
+}
+
+function blankToNull(v: string | null | undefined): string | null {
+  const t = v?.trim();
+  return t ? t : null;
 }
 
 const VALID_RECEPTOR_ID_TYPES = new Set(["36", "13", "02", "03", "37"]);
@@ -322,6 +301,7 @@ export async function generateFexJsonForSale(
           line_number:           true,
           product_code_snapshot: true,
           product_name_snapshot: true,
+          product_type_snapshot: true,
           quantity:              true,
           unit_price:            true,
           discount_amount:       true,
@@ -358,11 +338,8 @@ export async function generateFexJsonForSale(
       legal_name:         true,
       activity_code:      true,
       activity_name:      true,
-      establishment_code:      true,
-      establishment_type_code: true,
-      point_of_sale_code:      true,
-      cod_estable_mh:          true,
-      cod_punto_venta_mh:      true,
+      establishment_code: true,
+      point_of_sale_code: true,
       dept_code:          true,
       municipality_code:  true,
       address_complement: true,
@@ -377,7 +354,7 @@ export async function generateFexJsonForSale(
   }
 
   // ── Validación territorial del emisor (resolver único) ───────────
-  // FEX 11 no incluye dept/municipio en el receptor (extranjero, usa
+  // FEX 11 no incluye dirección en el receptor (extranjero, usa
   // codPais/nombrePais) — solo el emisor requiere esta validación.
   const emisorAddrCheck = await validateDteAddressCodes({
     role:             "emisor",
@@ -386,24 +363,41 @@ export async function generateFexJsonForSale(
   }, db);
   if (!emisorAddrCheck.ok) return { ok: false, error: emisorAddrCheck.error };
 
+  // Distrito v3: del mismo registro Municipality del emisor.
+  const emisorTerritory = await resolveDteMunicipality({
+    deptCode:         issuerConfig.dept_code,
+    municipalityCode: issuerConfig.municipality_code,
+  }, db);
+
+  // País del receptor: CAT-020 vigente (modelo Country). Solo se busca
+  // por el código tal como está guardado — sin normalización ni mapeo.
+  const countryCode = sale.customer?.country_code ?? null;
+  const receptorCountry = countryCode
+    ? await db.country.findFirst({
+        where:  { code: countryCode, status: "active" },
+        select: { code: true, name: true },
+      })
+    : null;
+
   return buildFexJsonFromLoadedData({
     tenant_id,
     dteDoc: {
       control_number:  dteDoc.control_number,
       generation_code: dteDoc.generation_code,
     },
-    sale:         sale as unknown as FexLoadedSale,
-    issuerConfig: issuerConfig as unknown as FexLoadedIssuerConfig,
+    sale:               sale as unknown as FexLoadedSale,
+    issuerConfig:       issuerConfig as unknown as FexLoadedIssuerConfig,
+    emisorDistrictCode: emisorTerritory?.districtCode ?? null,
+    receptorCountry:    receptorCountry ?? null,
   });
 }
 
 // ── Función pura ───────────────────────────────────────────────────
-// Construye el json_document FEX 11 a partir de datos ya cargados.
-// No accede a Prisma ni a ningún recurso externo — permite pruebas
-// aisladas con un fixture in-memory (Microfase F3-C6).
+// Construye el json_document FEX 11 v3 a partir de datos ya cargados.
+// No accede a Prisma ni a ningún recurso externo.
 
 export function buildFexJsonFromLoadedData(loaded: FexLoadedData): GenerateFexJsonResult {
-  const { tenant_id, dteDoc, sale, issuerConfig } = loaded;
+  const { tenant_id, dteDoc, sale, issuerConfig, emisorDistrictCode, receptorCountry } = loaded;
 
   // ── 5. Validar precondiciones de la venta ─────────────────────────
   if (sale.primary_dte_type_code !== "11") {
@@ -417,6 +411,13 @@ export function buildFexJsonFromLoadedData(loaded: FexLoadedData): GenerateFexJs
   }
   if (sale.items.length === 0) {
     return { ok: false, error: "La venta no tiene líneas de detalle. No se puede generar DTE sin productos." };
+  }
+  if (!FEX_V3_NUMERO_CONTROL.test(dteDoc.control_number)) {
+    return {
+      ok:    false,
+      error: `El número de control "${dteDoc.control_number}" no cumple el formato de Factura de Exportación ` +
+             `(DTE-11-M001P001-000000000000001). Revise cod_estable_mh/cod_punto_venta_mh del emisor.`,
+    };
   }
 
   const totalAmount = Number(sale.total_amount);
@@ -434,13 +435,12 @@ export function buildFexJsonFromLoadedData(loaded: FexLoadedData): GenerateFexJs
 
   if (!c.is_foreign)                missingCustomerFields.push("marcado como cliente extranjero (is_foreign)");
   if (!c.country_code)              missingCustomerFields.push("código de país (country_code)");
-  if (!c.country_name)              missingCustomerFields.push("nombre de país (country_name)");
   if (!c.name)                      missingCustomerFields.push("nombre");
   if (!c.id_type_code || !VALID_RECEPTOR_ID_TYPES.has(c.id_type_code)) {
     missingCustomerFields.push("tipo de documento de identificación válido (36, 13, 02, 03 o 37)");
   }
-  if (!c.address_complement)        missingCustomerFields.push("complemento de dirección");
-  if (!c.activity_name)             missingCustomerFields.push("descripción de actividad económica");
+  if (!c.address_complement?.trim()) missingCustomerFields.push("complemento de dirección");
+  if (!c.activity_name?.trim())      missingCustomerFields.push("descripción de actividad económica");
   if (c.customer_person_type !== "1" && c.customer_person_type !== "2") {
     missingCustomerFields.push("tipo de persona (1=jurídica, 2=natural)");
   }
@@ -452,23 +452,20 @@ export function buildFexJsonFromLoadedData(loaded: FexLoadedData): GenerateFexJs
     };
   }
 
-  // F3-C23D — c.country_code debe venir del catálogo de compatibilidad
-  // FEX v1 (FEX-11-V1-CODPAIS, códigos numéricos legados), no de CAT-020
-  // (ISO alpha-2). Ver nota junto a FEX_COD_PAIS_SCHEMA_ENUM arriba.
-  if (!FEX_COD_PAIS_SCHEMA_ENUM.has(c.country_code!)) {
-    const isIsoAlpha2 = ISO_ALPHA2_LIKE.test(c.country_code!);
+  // País: debe existir en CAT-020 vigente. Un código legado (numérico del
+  // catálogo de compatibilidad FEX v1) no se convierte: se corrige el
+  // cliente explícitamente.
+  if (!receptorCountry) {
     return {
-      ok: false,
-      error: isIsoAlpha2
-        ? `El país "${c.country_code}" pertenece al catálogo CAT-020 ISO actualizado, pero la ` +
-          `versión actual de FEX 11 usa códigos numéricos compatibles con el schema v1 ` +
-          `(catálogo de compatibilidad FEX-11-V1-CODPAIS, no CAT-020). Seleccione el país desde ` +
-          `el catálogo FEX v1 en /dashboard/sales/export.`
-        : `No se puede generar el JSON de FEX 11: el país del cliente ("${c.country_code}") ` +
-          `no es compatible con el schema de validación MH vigente (fex-11.schema.json). ` +
-          `Seleccione un país válido del catálogo de compatibilidad FEX v1 (FEX-11-V1-CODPAIS) ` +
-          `— ver docs/dte-official/extracts/fex11-catalogs-operational.md (sección F3-C23D).`,
+      ok:    false,
+      error: /^[0-9]+$/.test(c.country_code!)
+        ? `El país del cliente ("${c.country_code}") usa un código de la versión anterior de la Factura de ` +
+          `Exportación. Actualice el país del cliente con el catálogo de países vigente (CAT-020) antes de emitir.`
+        : `El país del cliente ("${c.country_code}") no existe en el catálogo de países vigente (CAT-020).`,
     };
+  }
+  if (receptorCountry.code === "SV") {
+    return { ok: false, error: "El país destino de una Factura de Exportación no puede ser El Salvador." };
   }
 
   const numDoc = c.id_type_code === "36"
@@ -477,6 +474,30 @@ export function buildFexJsonFromLoadedData(loaded: FexLoadedData): GenerateFexJs
 
   if (!numDoc) {
     return { ok: false, error: "El cliente no tiene número de documento (NIT/DUI) para el tipo de documento configurado." };
+  }
+
+  const receptorComplement = c.address_complement!.trim();
+  const receptorActivity   = c.activity_name!.trim();
+  const receptorPhone      = blankToNull(c.phone);
+  const receptorEmail      = blankToNull(c.email);
+  const receptorErrors: string[] = [];
+  if (receptorComplement.length > FEX_V3_LIMITS.receptorComplementMax) {
+    receptorErrors.push(`el complemento de dirección tiene ${receptorComplement.length} caracteres (máximo ${FEX_V3_LIMITS.receptorComplementMax})`);
+  }
+  if (receptorActivity.length < FEX_V3_LIMITS.receptorActivityMin || receptorActivity.length > FEX_V3_LIMITS.receptorActivityMax) {
+    receptorErrors.push(`la actividad económica debe tener entre ${FEX_V3_LIMITS.receptorActivityMin} y ${FEX_V3_LIMITS.receptorActivityMax} caracteres`);
+  }
+  if (numDoc.length > FEX_V3_LIMITS.receptorDocumentMax) {
+    receptorErrors.push(`el número de documento excede ${FEX_V3_LIMITS.receptorDocumentMax} caracteres`);
+  }
+  if (receptorPhone && (receptorPhone.length < FEX_V3_LIMITS.phoneMin || receptorPhone.length > FEX_V3_LIMITS.phoneMax)) {
+    receptorErrors.push(`el teléfono debe tener entre ${FEX_V3_LIMITS.phoneMin} y ${FEX_V3_LIMITS.phoneMax} caracteres`);
+  }
+  if (receptorEmail && (receptorEmail.length < FEX_V3_LIMITS.emailMin || receptorEmail.length > FEX_V3_LIMITS.emailMax)) {
+    receptorErrors.push(`el correo debe tener entre ${FEX_V3_LIMITS.emailMin} y ${FEX_V3_LIMITS.emailMax} caracteres`);
+  }
+  if (receptorErrors.length > 0) {
+    return { ok: false, error: `Datos del cliente no válidos para la Factura de Exportación: ${receptorErrors.join("; ")}.` };
   }
 
   // ── 7. Validar SaleExportDetails ──────────────────────────────────
@@ -490,18 +511,29 @@ export function buildFexJsonFromLoadedData(loaded: FexLoadedData): GenerateFexJs
   if (![1, 2, 3].includes(exportDetails.item_type_export)) {
     return { ok: false, error: "El tipo de ítem de exportación (item_type_export) debe ser 1 (bienes), 2 (servicios) o 3 (ambos)." };
   }
-  if (exportDetails.item_type_export === 2) {
-    if (exportDetails.fiscal_precinct_code || exportDetails.regime_code) {
-      return { ok: false, error: "Para exportación de servicios (item_type_export=2), recinto fiscal y régimen deben quedar vacíos." };
-    }
-  } else if (!exportDetails.fiscal_precinct_code || !exportDetails.regime_code) {
-    return { ok: false, error: "Para exportación de bienes, recinto fiscal y régimen son obligatorios." };
+  if (exportDetails.item_type_export !== 2) {
+    // emisor.tipoRegimen es requerido por el schema v3, pero ningún
+    // catálogo oficial vigente (Catálogos v1.2, Manual Funcional V2.0)
+    // define sus valores. No se infiere desde CAT-028 ni se inventa.
+    return { ok: false, error: FEX_GOODS_TIPO_REGIMEN_BLOCKED_ERROR };
+  }
+  if (exportDetails.fiscal_precinct_code || exportDetails.regime_code) {
+    return { ok: false, error: "Para exportación de servicios (item_type_export=2), recinto fiscal y régimen deben quedar vacíos." };
   }
 
   const insuranceAmount = Number(exportDetails.insurance_amount);
   const freightAmount   = Number(exportDetails.freight_amount);
   if (insuranceAmount < 0 || freightAmount < 0) {
     return { ok: false, error: "Seguro y flete no pueden ser negativos." };
+  }
+
+  const descIncoterms = blankToNull(exportDetails.incoterm_desc);
+  if (descIncoterms && descIncoterms.length > FEX_V3_LIMITS.descIncotermsMax) {
+    return { ok: false, error: `La descripción INCOTERMS excede ${FEX_V3_LIMITS.descIncotermsMax} caracteres.` };
+  }
+  const observaciones = blankToNull(sale.notes);
+  if (observaciones && observaciones.length > FEX_V3_LIMITS.observacionesMax) {
+    return { ok: false, error: `Las observaciones exceden ${FEX_V3_LIMITS.observacionesMax} caracteres.` };
   }
 
   // ── 8. Validar configuración del emisor (ya cargada por el caller) ─
@@ -513,6 +545,7 @@ export function buildFexJsonFromLoadedData(loaded: FexLoadedData): GenerateFexJs
   if (!issuerConfig.activity_name)       missingIssuerFields.push("descripción de actividad económica");
   if (!issuerConfig.dept_code)           missingIssuerFields.push("departamento");
   if (!issuerConfig.municipality_code)   missingIssuerFields.push("municipio");
+  if (!emisorDistrictCode)               missingIssuerFields.push("distrito (código de distrito del municipio configurado)");
   if (!issuerConfig.address_complement)  missingIssuerFields.push("complemento de dirección");
   if (!issuerConfig.phone)               missingIssuerFields.push("teléfono");
   if (!issuerConfig.email)               missingIssuerFields.push("correo electrónico");
@@ -520,8 +553,19 @@ export function buildFexJsonFromLoadedData(loaded: FexLoadedData): GenerateFexJs
   if (missingIssuerFields.length > 0) {
     return {
       ok:    false,
-      error: `La configuración del emisor no está completa para FEX 11 (el schema exige dirección/teléfono/correo/NRC obligatorios). Campos faltantes: ${missingIssuerFields.join(", ")}.`,
+      error: `La configuración del emisor no está completa para FEX 11. Campos faltantes: ${missingIssuerFields.join(", ")}.`,
     };
+  }
+
+  const issuerErrors: string[] = [];
+  if (issuerConfig.address_complement!.length > FEX_V3_LIMITS.emisorComplementMax) {
+    issuerErrors.push(`complemento de dirección excede ${FEX_V3_LIMITS.emisorComplementMax} caracteres`);
+  }
+  if (issuerConfig.phone!.length < FEX_V3_LIMITS.phoneMin || issuerConfig.phone!.length > FEX_V3_LIMITS.phoneMax) {
+    issuerErrors.push(`teléfono debe tener entre ${FEX_V3_LIMITS.phoneMin} y ${FEX_V3_LIMITS.phoneMax} caracteres`);
+  }
+  if (issuerErrors.length > 0) {
+    return { ok: false, error: `La configuración del emisor no es válida para FEX 11: ${issuerErrors.join("; ")}.` };
   }
 
   // ── 9. Validar totales internos ───────────────────────────────────
@@ -535,74 +579,90 @@ export function buildFexJsonFromLoadedData(loaded: FexLoadedData): GenerateFexJs
 
   // ── 10. Construir cuerpoDocumento ─────────────────────────────────
 
-  const missingUnitLines: number[] = [];
-  const invalidQtyLines: number[] = [];
+  const lineErrors: string[] = [];
 
   const cuerpoDocumento: FexCuerpoItem[] = sale.items.map((item) => {
+    const n   = item.line_number;
     const qty = Number(item.quantity);
-    if (qty <= 0) invalidQtyLines.push(item.line_number);
+    if (qty <= 0) lineErrors.push(`línea ${n}: cantidad inválida (debe ser mayor a cero)`);
 
     const mhUnitCode = item.product.unit.mh_unit_code;
     if (!mhUnitCode || !Number.isInteger(Number(mhUnitCode))) {
-      missingUnitLines.push(item.line_number);
+      lineErrors.push(`línea ${n}: la unidad de medida no tiene código MH configurado (UnitOfMeasure.mh_unit_code)`);
     }
 
-    // FEX asume exportación gravada al 0% (tributo C3) — precioUni/montoDescu
-    // sin IVA. Si tax_rate_snapshot != 0, se extrae la base defensivamente
-    // (mismo patrón que CCFE), aunque el negocio no ha confirmado ese caso.
-    const taxRate    = Number(item.tax_rate_snapshot ?? 0);
-    const hasIva     = taxRate > 0;
-    const taxFactor  = hasIva ? 1 + taxRate / 100 : 1;
+    // Exportación gravada al 0% (C3): la línea no puede traer IVA.
+    if (Number(item.tax_rate_snapshot ?? 0) !== 0) {
+      lineErrors.push(`línea ${n}: la exportación se factura al 0% (C3) y la línea tiene tasa ${Number(item.tax_rate_snapshot)}%`);
+    }
 
-    const unitPriceWithIva = Number(item.unit_price);
-    const descuWithIva     = Number(item.discount_amount);
-    const precioUni = hasIva ? r2(unitPriceWithIva / taxFactor) : r2(unitPriceWithIva);
-    const montoDescu = hasIva ? r2(descuWithIva / taxFactor) : r2(descuWithIva);
+    const codigo = blankToNull(item.product_code_snapshot);
+    if (codigo && codigo.length > FEX_V3_LIMITS.itemCodeMax) {
+      lineErrors.push(`línea ${n}: el código de producto "${codigo}" tiene ${codigo.length} caracteres (máximo ${FEX_V3_LIMITS.itemCodeMax})`);
+    }
+    if (item.product_name_snapshot.length > FEX_V3_LIMITS.itemDescriptionMax) {
+      lineErrors.push(`línea ${n}: la descripción excede ${FEX_V3_LIMITS.itemDescriptionMax} caracteres`);
+    }
 
-    // line_subtotal es la base gravada sin IVA persistida — fuente de verdad de ventaGravada.
+    const tipoItem = mapTipoItem(item.product_type_snapshot);
+    if (exportDetails.item_type_export === 2 && tipoItem !== 2) {
+      lineErrors.push(`línea ${n}: "${item.product_name_snapshot}" es un bien y la exportación está declarada como servicios`);
+    }
+
+    // line_subtotal es la base gravada persistida (precio×cantidad − descuento).
     const ventaGravada = r2(Number(item.line_subtotal));
+    if (ventaGravada <= 0) {
+      // Una línea sin valor sería una transferencia no onerosa, que Zolvi
+      // no modela (resumen.totalNoOnerosas se emite en 0).
+      lineErrors.push(`línea ${n}: el valor de venta debe ser mayor a cero`);
+    }
 
     return {
-      numItem:      item.line_number,
-      cantidad:     qty,
-      codigo:       item.product_code_snapshot ?? null,
-      uniMedida:    mhUnitCode ? Number(mhUnitCode) : 0,
-      descripcion:  item.product_name_snapshot,
-      precioUni,
-      montoDescu,
+      numItem:         n,
+      tipoItem,
+      numeroDocumento: null,
+      cantidad:        qty,
+      codigo,
+      codTributo:      null,
+      uniMedida:       mhUnitCode ? Number(mhUnitCode) : 0,
+      descripcion:     item.product_name_snapshot,
+      precioUni:       r2(Number(item.unit_price)),
+      montoDescu:      r2(Number(item.discount_amount)),
       ventaGravada,
-      tributos:     ["C3"],
-      noGravado:    0, // TODO FEX FORMULA REVIEW: sin confirmación de negocio para cargos/abonos no gravados
+      tributos:        ["C3"],
+      noGravado:       0,
     };
   });
 
-  if (invalidQtyLines.length > 0) {
-    return { ok: false, error: `Las líneas ${invalidQtyLines.join(", ")} tienen cantidad inválida (debe ser mayor a cero).` };
-  }
-  if (missingUnitLines.length > 0) {
-    return {
-      ok:    false,
-      error: `Las líneas ${missingUnitLines.join(", ")} usan una unidad de medida sin código MH configurado (UnitOfMeasure.mh_unit_code).`,
-    };
+  if (lineErrors.length > 0) {
+    return { ok: false, error: `Líneas no válidas para la Factura de Exportación: ${lineErrors.join("; ")}.` };
   }
 
-  // ── 11. Calcular totales del resumen ──────────────────────────────
-
-  const totalGravada  = r2(cuerpoDocumento.reduce((s, i) => s + i.ventaGravada, 0));
-  const totalDescuento = r2(cuerpoDocumento.reduce((s, i) => s + i.montoDescu, 0));
-  const totalNoGravado = r2(cuerpoDocumento.reduce((s, i) => s + i.noGravado, 0));
+  // ── 11. Calcular totales del resumen (fex11-v3-formulas.ts) ────────
 
   const seguro = r2(insuranceAmount);
   const flete  = r2(freightAmount);
+  const resumenTributos: FexResumenTributo[] = [C3_TRIBUTO];
 
-  // montoTotalOperacion = total de la venta (sin IVA, exportación 0%) + seguro + flete.
-  const montoTotalOperacion = r2(totalAmount + seguro + flete);
-  const totalPagar          = montoTotalOperacion; // TODO FEX FORMULA REVIEW: ver contrato §10.8
+  const totals = computeFexV3ResumenTotals({
+    lines:         cuerpoDocumento,
+    seguro,
+    flete,
+    descuGravada:  0,
+    tributosValor: resumenTributos.reduce((s, t) => s + t.valor, 0),
+    saldoFavor:    0,
+  });
 
-  // Regla condicional del schema (allOf raíz): correo obligatorio si
-  // resumen.montoTotalOperacion >= 10000 (no basta con validar total_amount,
-  // ya que montoTotalOperacion suma seguro + flete).
-  if (montoTotalOperacion >= 10000 && !c.email) {
+  if (Math.abs(totals.totalGravada - r2(totalAmount)) > TOLERANCE) {
+    return {
+      ok:    false,
+      error: `Inconsistencia de totales: total gravado (${totals.totalGravada}) difiere del total de la venta (${r2(totalAmount)}).`,
+    };
+  }
+
+  // Regla de negocio Zolvi (heredada de v1; el schema v3 ya no la exige):
+  // correo del receptor obligatorio si montoTotalOperacion >= 10000.
+  if (totals.montoTotalOperacion >= 10000 && !receptorEmail) {
     return { ok: false, error: "El cliente debe tener correo electrónico configurado: el monto total de la operación (incluye seguro y flete) es igual o mayor a $10,000." };
   }
 
@@ -611,10 +671,14 @@ export function buildFexJsonFromLoadedData(loaded: FexLoadedData): GenerateFexJs
   let pagos: FexPago[];
   const validPayments = sale.payments.filter((p) => p.mh_payment_form_code);
   if (validPayments.length > 0) {
+    const longRef = validPayments.find((p) => (p.reference?.length ?? 0) > FEX_V3_LIMITS.paymentReferenceMax);
+    if (longRef) {
+      return { ok: false, error: `La referencia de pago "${longRef.reference}" excede ${FEX_V3_LIMITS.paymentReferenceMax} caracteres.` };
+    }
     pagos = validPayments.map((p) => ({
       codigo:     p.mh_payment_form_code!,
       montoPago:  r2(Number(p.amount)),
-      referencia: p.reference ?? null,
+      referencia: blankToNull(p.reference),
       plazo:      null,
       periodo:    null,
     }));
@@ -622,7 +686,7 @@ export function buildFexJsonFromLoadedData(loaded: FexLoadedData): GenerateFexJs
     const condicion = sale.condition_operation_code ?? "1";
     pagos = [{
       codigo:     sale.payment_method_code || "99",
-      montoPago:  totalPagar,
+      montoPago:  totals.totalPagar,
       referencia: null,
       plazo:      condicion === "2" ? (sale.payment_term_code ?? null) : null,
       periodo:    condicion === "2" ? (sale.payment_term_value ?? null) : null,
@@ -635,14 +699,14 @@ export function buildFexJsonFromLoadedData(loaded: FexLoadedData): GenerateFexJs
     nombre:          c.name,
     tipoDocumento:   c.id_type_code!,
     numDocumento:    numDoc,
-    nombreComercial: c.legal_name ?? null,
-    codPais:         c.country_code!,
-    nombrePais:      c.country_name!,
-    complemento:     c.address_complement!,
+    nombreComercial: blankToNull(c.legal_name),
+    codPais:         receptorCountry.code,
+    nombrePais:      receptorCountry.name,
+    complemento:     receptorComplement,
     tipoPersona:     Number(c.customer_person_type),
-    descActividad:   c.activity_name!,
-    telefono:        c.phone ?? null,
-    correo:          c.email ?? null,
+    descActividad:   receptorActivity,
+    telefono:        receptorPhone,
+    correo:          receptorEmail,
   };
 
   // ── 14. Construir identificacion ───────────────────────────────────
@@ -654,79 +718,83 @@ export function buildFexJsonFromLoadedData(loaded: FexLoadedData): GenerateFexJs
     : 1;
 
   const identificacion = {
-    version:           1 as const,
-    ambiente:          mapAmbiente(issuerConfig.environment),
-    tipoDte:           "11" as const,
-    numeroControl:     dteDoc.control_number,
-    codigoGeneracion:  dteDoc.generation_code,
-    tipoModelo:        1,
-    tipoOperacion:     1,
-    tipoContingencia:  null,
-    motivoContigencia: null,
+    version:          FEX11_SCHEMA_VERSION,
+    ambiente:         mapAmbiente(issuerConfig.environment),
+    tipoDte:          "11" as const,
+    numeroControl:    dteDoc.control_number,
+    codigoGeneracion: dteDoc.generation_code,
+    tipoModelo:       1,
+    tipoOperacion:    1,
+    tipoContingencia: null,
+    motivoContin:     null,
     fecEmi,
     horEmi,
-    tipoMoneda:        "USD" as const,
+    tipoMoneda:       "USD" as const,
   };
 
   // ── 15. Construir emisor ────────────────────────────────────────────
+  // Sin tipoEstablecimiento/codEstableMH/codPuntoVentaMH: v3 los eliminó
+  // (siguen existiendo en DteIssuerConfig para FE/CCFE/NC/FSE).
 
   const emisor = {
-    nit:                 normalizeNitForDte(issuerConfig.nit),
-    nrc:                 normalizeNrcForDte(issuerConfig.nrc),
-    nombre:              issuerConfig.name,
-    codActividad:        issuerConfig.activity_code!,
-    descActividad:       issuerConfig.activity_name!,
-    nombreComercial:     issuerConfig.legal_name ?? null,
-    tipoEstablecimiento: issuerConfig.establishment_type_code ?? "02",
+    nit:             normalizeNitForDte(issuerConfig.nit)!,
+    nrc:             normalizeNrcForDte(issuerConfig.nrc)!,
+    nombre:          issuerConfig.name,
+    codActividad:    issuerConfig.activity_code!,
+    descActividad:   issuerConfig.activity_name!,
+    nombreComercial: blankToNull(issuerConfig.legal_name),
     direccion: {
       departamento: issuerConfig.dept_code!,
       municipio:    issuerConfig.municipality_code!,
+      distrito:     emisorDistrictCode!,
       complemento:  issuerConfig.address_complement!,
     },
-    telefono:        issuerConfig.phone!,
-    correo:          issuerConfig.email!,
-    codEstableMH:    issuerConfig.cod_estable_mh     ?? null,
-    codEstable:      issuerConfig.establishment_code ?? null,
-    codPuntoVentaMH: issuerConfig.cod_punto_venta_mh ?? null,
-    codPuntoVenta:   issuerConfig.point_of_sale_code ?? null,
-    tipoItemExpor:   exportDetails.item_type_export,
-    recintoFiscal:   exportDetails.item_type_export === 2 ? null : (exportDetails.fiscal_precinct_code ?? null),
-    regimen:         exportDetails.item_type_export === 2 ? null : (exportDetails.regime_code ?? null),
+    telefono:      issuerConfig.phone!,
+    correo:        issuerConfig.email!,
+    codEstable:    issuerConfig.establishment_code ?? null,
+    codPuntoVenta: issuerConfig.point_of_sale_code ?? null,
+    tipoItemExpor: exportDetails.item_type_export,
+    recintoFiscal: null,
+    tipoRegimen:   null,
+    regimen:       null,
   };
 
   // ── 16. Construir resumen ────────────────────────────────────────────
 
   const resumen = {
-    totalGravada,
-    descuento:           totalDescuento, // TODO FEX FORMULA REVIEW: ver contrato §10 (descuento vs totalDescu)
+    totalGravada:        totals.totalGravada,
+    descuGravada:        totals.descuGravada,
     porcentajeDescuento: 0,
-    totalDescu:          totalDescuento,
+    totalDescu:          totals.totalDescu,
     seguro,
     flete,
-    montoTotalOperacion,
-    totalNoGravado,
-    totalPagar,
-    totalLetras:         numeroALetras(totalPagar),
+    tributos:            resumenTributos,
+    montoTotalOperacion: totals.montoTotalOperacion,
+    totalNoGravado:      totals.totalNoGravado,
+    totalNoOnerosas:     0,
+    totalPagar:          totals.totalPagar,
+    totalLetras:         numeroALetras(totals.totalPagar),
+    saldoFavor:          0,
     condicionOperacion:  condicion,
     pagos,
-    codIncoterms:        exportDetails.incoterm_code ?? null,
-    descIncoterms:       exportDetails.incoterm_desc ?? null,
+    codIncoterms:        blankToNull(exportDetails.incoterm_code),
+    descIncoterms,
     numPagoElectronico:  null,
-    observaciones:       sale.notes ?? null,
+    observaciones,
   };
 
   // ── 17. Ensamblar json_document (sin persistir) ───────────────────
-  // Raíz sin "documentoRelacionado" ni "extension": el schema FEX 11
-  // (additionalProperties=false) no los define en el nivel raíz.
   const jsonDocument: FexJsonDocument = {
     identificacion,
+    documentoRelacionado: null,
     emisor,
     receptor,
-    otrosDocumentos: null,
-    ventaTercero:    null,
+    otrosDocumentos:      null,
+    ventaTercero:         null,
+    compraTercero:        null,
     cuerpoDocumento,
     resumen,
-    apendice:        null,
+    apendice:             null,
   };
 
   return { ok: true, json: jsonDocument };

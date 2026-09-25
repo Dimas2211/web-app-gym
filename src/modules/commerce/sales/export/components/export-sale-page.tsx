@@ -15,12 +15,13 @@ import { useRouter } from "next/navigation";
 import { AlertTriangle } from "lucide-react";
 import { ExportSaleWorkspace } from "./export-sale-workspace";
 import type { DteCatalogItem } from "@/modules/commerce/dte/types/dte-catalog.types";
+import type { CountryItem } from "@/modules/commerce/suppliers/types/supplier-catalogs.types";
 
 interface Props {
   fex11Enabled: boolean;
   catalogCAT016: DteCatalogItem[];
   catalogCAT017: DteCatalogItem[];
-  catalogFexCountries: DteCatalogItem[]; // País — catálogo compatibilidad FEX v1 (F3-C23D)
+  catalogCountries: CountryItem[]; // País — CAT-020 vigente (FEX v3)
   catalogCAT022: DteCatalogItem[];
   catalogCAT027: DteCatalogItem[];
   catalogCAT028: DteCatalogItem[];
@@ -31,7 +32,7 @@ interface Props {
 
 export function ExportSalePage({
   fex11Enabled, catalogCAT016, catalogCAT017,
-  catalogFexCountries, catalogCAT022, catalogCAT027, catalogCAT028, catalogCAT029, catalogCAT031,
+  catalogCountries, catalogCAT022, catalogCAT027, catalogCAT028, catalogCAT029, catalogCAT031,
   contextNote,
 }: Props) {
   const router = useRouter();
@@ -59,7 +60,7 @@ export function ExportSalePage({
     <ExportSaleWorkspace
       catalogCAT016={catalogCAT016}
       catalogCAT017={catalogCAT017}
-      catalogFexCountries={catalogFexCountries}
+      catalogCountries={catalogCountries}
       catalogCAT022={catalogCAT022}
       catalogCAT027={catalogCAT027}
       catalogCAT028={catalogCAT028}

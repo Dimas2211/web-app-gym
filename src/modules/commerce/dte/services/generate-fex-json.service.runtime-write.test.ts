@@ -3,7 +3,8 @@
 //
 // FASE VI-E4A — generateFexJsonForSale acepta un `db` explícito y usa
 // esa misma DB para TODOS los reads (DteOutgoingDocument, Sale,
-// DteIssuerConfig). Este test hace fallar cualquier llamada al Prisma
+// DteIssuerConfig, Country CAT-020 y Municipality vía el resolver
+// territorial — FEX-PROD-0B). Este test hace fallar cualquier llamada al Prisma
 // global para certificar RUNTIME_CLIENT_FEX11_GENERATION_CAN_HIT_GLOBAL_PRISMA
 // = NO.
 // ─────────────────────────────────────────────────────────────────
@@ -23,10 +24,14 @@ vi.mock("@/lib/db/prisma", () => ({
 
 vi.mock("../utils/dte-territory.resolver", () => ({
   validateDteAddressCodes: vi.fn(async () => ({ ok: true })),
+  resolveDteMunicipality: vi.fn(async () => ({
+    departmentCode: "06", municipalityCode: "23", districtCode: "060123",
+    districtName: "Distrito", newMunicipalityCode: null, newMunicipalityName: null,
+  })),
 }));
 
 import { generateFexJsonForSale } from "./generate-fex-json.service";
-import { validateDteAddressCodes } from "../utils/dte-territory.resolver";
+import { resolveDteMunicipality, validateDteAddressCodes } from "../utils/dte-territory.resolver";
 
 function buildFakeRuntimeDb() {
   const dteDoc = {
@@ -57,7 +62,7 @@ function buildFakeRuntimeDb() {
       id_type_code: "37", nit: null, dui: "PASSPORT-123",
       activity_name: "Actividad Test", address_complement: "Direccion",
       phone: "22222222", email: "cust@test.com",
-      is_foreign: true, country_code: "9999", country_name: "ESTADOS UNIDOS DE AMERICA",
+      is_foreign: true, country_code: "US", country_name: "Estados Unidos",
       customer_person_type: "2",
     },
     export_details: {
@@ -67,7 +72,8 @@ function buildFakeRuntimeDb() {
       insurance_amount: 0, freight_amount: 0,
     },
     items: [{
-      line_number: 1, product_code_snapshot: "P1", product_name_snapshot: "Producto 1",
+      line_number: 1, product_code_snapshot: "P1", product_name_snapshot: "Servicio 1",
+      product_type_snapshot: "SERVICE",
       quantity: 1, unit_price: 100, discount_amount: 0, tax_rate_snapshot: 0,
       line_subtotal: 100, line_total: 100,
       product: { unit: { mh_unit_code: "59" } },
@@ -89,6 +95,7 @@ function buildFakeRuntimeDb() {
     dteOutgoingDocument: { findFirst: vi.fn().mockResolvedValue(dteDoc) },
     sale:                { findFirst: vi.fn().mockResolvedValue(sale) },
     dteIssuerConfig:     { findFirst: vi.fn().mockResolvedValue(issuerConfig) },
+    country:             { findFirst: vi.fn().mockResolvedValue({ code: "US", name: "Estados Unidos" }) },
   };
 
   return { db, dteDoc, sale, issuerConfig };
@@ -126,6 +133,26 @@ describe("generateFexJsonForSale — FASE VI-E4A (runtime db injection)", () => 
     );
 
     expect(validateDteAddressCodes).toHaveBeenCalledWith(expect.objectContaining({ role: "emisor" }), db);
+  });
+
+  it("FEX v3: país CAT-020 y distrito del emisor se resuelven con el mismo db", async () => {
+    const { db } = buildFakeRuntimeDb();
+
+    const result = await generateFexJsonForSale(
+      { tenant_id: "tenant-1", location_id: "loc-1", dte_document_id: "dte-1" },
+      db as never,
+    );
+
+    expect(db.country.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { code: "US", status: "active" } }),
+    );
+    expect(resolveDteMunicipality).toHaveBeenCalledWith({ deptCode: "06", municipalityCode: "23" }, db);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.json.identificacion.version).toBe(3);
+      expect(result.json.emisor.direccion.distrito).toBe("060123");
+      expect(result.json.receptor.codPais).toBe("US");
+    }
   });
 
   it("sin db explícito -> usa Prisma global por defecto (comportamiento preservado)", async () => {

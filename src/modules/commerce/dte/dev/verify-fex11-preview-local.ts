@@ -6,7 +6,7 @@
 //
 //   DteOutgoingDocument (11, real) → Sale (real) → Customer extranjero
 //   (real) → SaleExportDetails (real) → UnitOfMeasure.mh_unit_code (real)
-//   → generateFexJsonForSale → AJV (fex-11.schema.json)
+//   → generateFexJsonForSale → AJV (fex-11-v3.schema.json)
 //
 // Este script NO firma, NO transmite a Hacienda, NO toca MariaDB y NO
 // habilita el tipo 11 en el pipeline real (create-pending-dte-for-sale,
@@ -24,7 +24,7 @@ import Ajv from "ajv";
 import addFormats from "ajv-formats";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db/prisma";
-import fexSchema from "../schemas/mh/fex-11.schema.json";
+import fexSchema from "../schemas/mh/fex-11-v3.schema.json";
 import { reserveDteControlNumber } from "../services/dte-correlative.service";
 import { generateFexJsonForSale } from "../services/generate-fex-json.service";
 import { previewFexJsonAction } from "../actions/preview-fex-json.action";
@@ -311,8 +311,8 @@ async function ensureCustomer(tenant_id: string): Promise<{ id: string; name: st
     email: "fex11-test-customer@example.com",
     status: "active" as const,
     is_foreign: true,
-    country_code: "9540", // CAT-020: Estados Unidos
-    country_name: "ESTADOS UNIDOS",
+    country_code: "US", // CAT-020 vigente (FEX v3)
+    country_name: "Estados Unidos",
     customer_person_type: "2", // natural
   };
 
@@ -357,8 +357,8 @@ async function ensureSale(
       data: {
         tenant_id,
         sale_id: existingSale.id,
-        country_code: "9540",
-        country_name: "ESTADOS UNIDOS",
+        country_code: "US",
+        country_name: "Estados Unidos",
         customer_person_type: "2",
         item_type_export: 1,
         ...EXPORT_DETAILS_VALUES,
@@ -448,8 +448,8 @@ async function ensureSale(
       data: {
         tenant_id,
         sale_id: sale.id,
-        country_code: "9540",
-        country_name: "ESTADOS UNIDOS",
+        country_code: "US",
+        country_name: "Estados Unidos",
         customer_person_type: "2",
         item_type_export: 1,
         ...EXPORT_DETAILS_VALUES,
@@ -583,7 +583,7 @@ async function main() {
     console.log(`Detalle técnico: ${err instanceof Error ? err.message : String(err)}`);
   }
 
-  console.log("\n── AJV (fex-11.schema.json) sobre datos reales ──");
+  console.log("\n── AJV (fex-11-v3.schema.json) sobre datos reales ──");
   const ajvResult = validateFexAjv(genResult.json);
   if (!ajvResult.ok) {
     console.log("AJV: FALLA");

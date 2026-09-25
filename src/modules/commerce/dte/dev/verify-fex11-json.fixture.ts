@@ -9,24 +9,17 @@
 // de venta/cliente/emisor son un fixture in-memory que representa lo
 // que generateFexJsonForSale cargaría de Prisma.
 //
-// Actualización F3-C23D — restauración de transmisión FEX 11 (versión
-// actual, sin migrar a FEX v3): los Escenarios A/B/C usan "9540" porque
-// eso es exactamente lo que /dashboard/sales/export guarda hoy para
-// receptor.codPais (catálogo de compatibilidad FEX v1, catalog_code
-// "FEX-11-V1-CODPAIS" — ver prisma/seeds/data/fex11-catalog-rows.ts), NO
-// un valor de regresión histórica aislado. El Escenario D prueba el
-// código ISO alpha-2 de CAT-020 ("US") y espera que el builder lo
-// BLOQUEE — la UI ya no ofrece ni guarda ISO para este campo mientras
-// sigamos en FEX v1, pero la guardia server-side se mantiene como red de
-// seguridad. Ver docs/dte-official/extracts/fex11-catalogs-operational.md
-// (§F3-C23C/F3-C23D).
+// FEX-PROD-0B — migrado a schema v3 (fex-11-v3.schema.json). Escenarios
+// A/B/C usan exportación de servicios y país CAT-020 vigente ("US"). El
+// Escenario D prueba un código legado del catálogo de compatibilidad
+// FEX v1 ("9540"): el builder debe BLOQUEARLO (no hay conversión).
 //
 // Ejecutar:  npx tsx src/modules/commerce/dte/dev/verify-fex11-json.fixture.ts
 // ─────────────────────────────────────────────────────────────────
 
 import Ajv from "ajv";
 import addFormats from "ajv-formats";
-import fexSchema from "../schemas/mh/fex-11.schema.json";
+import fexSchema from "../schemas/mh/fex-11-v3.schema.json";
 import {
   buildFexJsonFromLoadedData,
   type FexLoadedData,
@@ -61,13 +54,8 @@ function makeBaseLoadedData(overrides: {
 }): FexLoadedData {
   const {
     unitPrice, quantity, customerEmail, insurance = 0, freight = 0,
-    // F3-C23D — "9540" es el código real que /dashboard/sales/export
-    // guarda hoy para receptor.codPais (catálogo de compatibilidad FEX v1
-    // "FEX-11-V1-CODPAIS", NO CAT-020 oficial ISO alpha-2). El caso ISO
-    // ("US", catálogo CAT-020) se prueba aparte en el Escenario D, donde
-    // se espera bloqueo explícito por el builder.
-    countryCode = "9540",
-    countryName = "ESTADOS UNIDOS",
+    countryCode = "US",
+    countryName = "Estados Unidos",
   } = overrides;
 
   const lineSubtotal = unitPrice * quantity;
@@ -76,7 +64,7 @@ function makeBaseLoadedData(overrides: {
   return {
     tenant_id: "tenant-001",
     dteDoc: {
-      control_number: "DTE-11-A1B2C3D4-000000000000001",
+      control_number: "DTE-11-M001P001-000000000000001",
       generation_code: "A1B2C3D4-E5F6-1234-5678-9ABCDEF01234",
     },
     sale: {
@@ -108,19 +96,20 @@ function makeBaseLoadedData(overrides: {
       },
       export_details: {
         tenant_id: "tenant-001",
-        item_type_export: 1,
-        fiscal_precinct_code: "10",
-        regime_code: "EX01",
-        incoterm_code: "FOB",
-        incoterm_desc: "FREE ON BOARD",
+        item_type_export: 2,
+        fiscal_precinct_code: null,
+        regime_code: null,
+        incoterm_code: "09",
+        incoterm_desc: "FOB-Libre a bordo",
         insurance_amount: insurance,
         freight_amount: freight,
       },
       items: [
         {
           line_number: 1,
-          product_code_snapshot: "PROD-001",
-          product_name_snapshot: "CAMISA DE ALGODON",
+          product_code_snapshot: "SRV-001",
+          product_name_snapshot: "SERVICIO DE ENTRENAMIENTO",
+          product_type_snapshot: "SERVICE",
           quantity,
           unit_price: unitPrice,
           discount_amount: 0,
@@ -147,11 +136,8 @@ function makeBaseLoadedData(overrides: {
       legal_name: "MI EMPRESA",
       activity_code: "47190",
       activity_name: "VENTA AL POR MENOR",
-      establishment_code: "0001",
-      establishment_type_code: "02",
-      point_of_sale_code: "0001",
-      cod_estable_mh: "0001",
-      cod_punto_venta_mh: "0001",
+      establishment_code: "M001",
+      point_of_sale_code: "P001",
       dept_code: "06",
       municipality_code: "01",
       address_complement: "COLONIA CENTRO, SAN SALVADOR",
@@ -159,6 +145,10 @@ function makeBaseLoadedData(overrides: {
       email: "facturacion@miempresa.com",
       environment: "TEST",
     },
+    emisorDistrictCode: "060101",
+    // Resuelto contra CAT-020 (Country) en el service real; aquí solo "US"
+    // existe — cualquier otro código simula "no encontrado".
+    receptorCountry: countryCode === "US" ? { code: "US", name: countryName } : null,
   };
 }
 
@@ -248,19 +238,15 @@ function main() {
   const dataC = makeBaseLoadedData({ unitPrice: 1200, quantity: 10, customerEmail: null });
   results.push(runScenario("Escenario C (monto >= 10000, sin correo → debe fallar)", dataC, true));
 
-  // Escenario D — F3-C23D: codPais de CAT-020 (ISO alpha-2 "US"), que la
-  // UI ya NO ofrece ni guarda para este campo, pero que la guardia
-  // server-side (FEX_COD_PAIS_SCHEMA_ENUM en generate-fex-json.service.ts)
-  // debe seguir bloqueando ANTES de llegar a AJV como red de seguridad —
-  // p. ej. datos heredados de antes de esta fase. Así queda probado que
-  // ninguno de los tres (UI, validación server-side, AJV) acepta "US"
-  // mientras el schema fex-11.schema.json no lo soporte.
+  // Escenario D — código país legado del catálogo de compatibilidad
+  // FEX v1 ("9540"): no existe en CAT-020 vigente y debe bloquearse
+  // ANTES de AJV, sin conversión automática.
   const dataD = makeBaseLoadedData({
     unitPrice: 500, quantity: 10, customerEmail: "cliente@acme.com",
-    countryCode: "US", countryName: "ESTADOS UNIDOS",
+    countryCode: "9540", countryName: "ESTADOS UNIDOS",
   });
   results.push(runScenario(
-    "Escenario D (codPais real de UI: ISO 'US' → debe ser bloqueado por el builder)",
+    "Escenario D (codPais legado FEX v1 '9540' → debe ser bloqueado por el builder)",
     dataD,
     true,
   ));
@@ -270,13 +256,13 @@ function main() {
   const scenarioAOk = results[0].builderOk && results[0].ajvOk === true;
   const scenarioBOk = results[1].builderOk && results[1].ajvOk === true;
   const scenarioCOk = !results[2].builderOk; // debe fallar, con error claro
-  const scenarioDOk = !results[3].builderOk; // debe fallar, con error claro (bloqueo F3-C23C)
+  const scenarioDOk = !results[3].builderOk; // debe fallar, con error claro (código legado)
 
   console.log("\n── Resumen ──");
   console.log(`Escenario A: ${scenarioAOk ? "PASA" : "FALLA"}`);
   console.log(`Escenario B: ${scenarioBOk ? "PASA" : "FALLA"}`);
   console.log(`Escenario C (negativo esperado): ${scenarioCOk ? "PASA" : "FALLA"}`);
-  console.log(`Escenario D (negativo esperado, codPais UI real "US"): ${scenarioDOk ? "PASA" : "FALLA"}`);
+  console.log(`Escenario D (negativo esperado, codPais legado "9540"): ${scenarioDOk ? "PASA" : "FALLA"}`);
 
   const allOk = scenarioAOk && scenarioBOk && scenarioCOk && scenarioDOk;
   if (!allOk) {

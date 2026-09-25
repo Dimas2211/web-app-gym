@@ -23,7 +23,7 @@ import { prisma }  from "@/lib/db/prisma";
 import feSchema    from "../schemas/mh/fe-01.schema.json";
 import ccfeSchema  from "../schemas/mh/ccfe-03.schema.json";
 import ncSchema    from "../schemas/mh/fe-nc-v3.json";
-import fexSchema   from "../schemas/mh/fex-11.schema.json";
+import fexSchema   from "../schemas/mh/fex-11-v3.schema.json";
 import fseSchema   from "../schemas/mh/fse-14.schema.json";
 
 // ── Tipos públicos ────────────────────────────────────────────────
@@ -50,7 +50,9 @@ class DteValidationBusinessError extends Error {
 // "01" = Factura Electrónica             → fe-01.schema.json   (fe-fc-v1.json del ZIP MH)
 // "03" = Comprobante de Crédito Fiscal   → ccfe-03.schema.json (fe-ccf-v3.json del ZIP MH)
 // "05" = Nota de Crédito Electrónica     → fe-nc-v3.json       (fe-nc-v3.json del ZIP MH)
-// "11" = Factura de Exportación          → fex-11.schema.json  (fe-fex-v1.json del ZIP MH)
+// "11" = Factura de Exportación          → fex-11-v3.schema.json (fe-fex-v3.json, factura.gob.sv
+//        2026-08-11 — FEX-PROD-0B). El schema v1 queda solo como legacy
+//        (fex-11-v1.legacy.schema.json) y no se usa para validar.
 
 const SCHEMA_MAP: Record<string, object> = {
   "01": feSchema   as object,

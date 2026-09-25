@@ -13,16 +13,44 @@
 import { isValidItemTypeExport } from "./fex-catalogs";
 import type { CreateExportSaleInput, CreateForeignCustomerInput } from "../schemas/export-sale.schemas";
 import type { DteCatalogItem } from "@/modules/commerce/dte/types/dte-catalog.types";
-
-// Forma best-effort de un código ISO alpha-2 (CAT-020), solo para dar un
-// mensaje de error más claro cuando el valor rechazado viene evidentemente
-// de CAT-020 en vez del catálogo de compatibilidad FEX v1 (F3-C23D).
-const ISO_ALPHA2_LIKE = /^[A-Z]{2}$/;
+import {
+  FEX_GOODS_TIPO_REGIMEN_BLOCKED_ERROR,
+  FEX_V3_LIMITS,
+} from "@/modules/commerce/dte/utils/fex11-v3-rules";
 
 export interface ExportProductForValidation {
   id:           string;
   name:         string;
+  product_code: string;
+  product_type: string | null;
   mh_unit_code: string | null;
+}
+
+// País CAT-020 vigente (modelo Country, ISO alpha-2).
+export interface FexCountryItem {
+  code: string;
+  name: string;
+}
+
+/**
+ * Valida el país de un receptor FEX contra CAT-020 vigente. Un código
+ * legado (numérico, catálogo de compatibilidad FEX v1) no se convierte:
+ * se informa para que el usuario corrija el país del cliente.
+ */
+export function validateFexCountryCode(
+  country_code: string | null | undefined,
+  countries:    FexCountryItem[],
+): string | null {
+  if (!country_code) return "El país es requerido.";
+  if (countries.some((c) => c.code === country_code)) {
+    return country_code === "SV"
+      ? "El país destino de una Factura de Exportación no puede ser El Salvador."
+      : null;
+  }
+  return /^[0-9]+$/.test(country_code)
+    ? `El país "${country_code}" usa un código de la versión anterior de la Factura de Exportación. ` +
+      `Seleccione el país desde el catálogo de países vigente (CAT-020).`
+    : `El país "${country_code}" no existe en el catálogo de países vigente (CAT-020).`;
 }
 
 export interface FexSaleCatalogItems {
@@ -51,11 +79,15 @@ export function validateExportSaleBusinessRules(
       errors.push("Para exportación de servicios, recinto fiscal y régimen deben quedar vacíos.");
     }
   } else {
-    if (!input.fiscal_precinct_code || !existsInCatalog(catalogs.fiscalPrecincts, input.fiscal_precinct_code)) {
-      errors.push("El recinto fiscal es requerido y debe existir en el catálogo DTE (CAT-027).");
+    // FEX-PROD-0B: bienes bloqueados hasta que exista catálogo oficial de
+    // emisor.tipoRegimen (schema v3). Se bloquea antes de confirmar la
+    // venta para no mover inventario de una venta que no puede facturarse.
+    errors.push(FEX_GOODS_TIPO_REGIMEN_BLOCKED_ERROR);
+    if (input.fiscal_precinct_code && !existsInCatalog(catalogs.fiscalPrecincts, input.fiscal_precinct_code)) {
+      errors.push("El recinto fiscal debe existir en el catálogo DTE (CAT-027).");
     }
-    if (!input.regime_code || !existsInCatalog(catalogs.regimes, input.regime_code)) {
-      errors.push("El régimen es requerido y debe existir en el catálogo DTE (CAT-028).");
+    if (input.regime_code && !existsInCatalog(catalogs.regimes, input.regime_code)) {
+      errors.push("El régimen debe existir en el catálogo DTE (CAT-028).");
     }
   }
 
@@ -81,6 +113,15 @@ export function validateExportSaleBusinessRules(
       errors.push(`El producto ${item.product_id} no existe o no está disponible para venta.`);
       continue;
     }
+    if (product.product_code.length > FEX_V3_LIMITS.itemCodeMax) {
+      errors.push(
+        `El producto "${product.name}" tiene código "${product.product_code}" de ${product.product_code.length} ` +
+        `caracteres; la Factura de Exportación admite máximo ${FEX_V3_LIMITS.itemCodeMax}. Ajuste el código en el maestro de productos.`,
+      );
+    }
+    if (input.item_type_export === 2 && product.product_type !== "SERVICE") {
+      errors.push(`El producto "${product.name}" es un bien; la exportación está declarada como servicios.`);
+    }
     if (!product.mh_unit_code) {
       errors.push(
         `El producto "${product.name}" usa una unidad de medida sin código MH (CAT-014) configurado. ` +
@@ -93,14 +134,9 @@ export function validateExportSaleBusinessRules(
 }
 
 export interface FexCustomerCatalogItems {
-  // País (F3-C23D): catálogo de COMPATIBILIDAD FEX v1 para
-  // receptor.codPais (catalog_code "FEX-11-V1-CODPAIS", códigos numéricos
-  // legados) — NO CAT-020 (ISO alpha-2, modelo `Country`). CAT-020 sigue
-  // vigente en el sistema central, pero FEX 11 v1 no lo usa para este
-  // campo. Ver docs/dte-official/extracts/fex11-catalogs-operational.md.
-  fexCountries: DteCatalogItem[];
-  personTypes:  DteCatalogItem[]; // CAT-029
-  idTypes:      DteCatalogItem[]; // CAT-022
+  countries:   FexCountryItem[];  // CAT-020 vigente (modelo Country)
+  personTypes: DteCatalogItem[];  // CAT-029
+  idTypes:     DteCatalogItem[];  // CAT-022
 }
 
 export function validateForeignCustomerCatalogs(
@@ -109,17 +145,8 @@ export function validateForeignCustomerCatalogs(
 ): string[] {
   const errors: string[] = [];
 
-  if (!input.country_code) {
-    errors.push("El país es requerido.");
-  } else if (!existsInCatalog(catalogs.fexCountries, input.country_code)) {
-    errors.push(
-      ISO_ALPHA2_LIKE.test(input.country_code)
-        ? `El país "${input.country_code}" pertenece al catálogo CAT-020 ISO actualizado, pero la ` +
-          `versión actual de FEX 11 usa códigos numéricos compatibles con el schema v1. Seleccione ` +
-          `el país desde el catálogo FEX v1 (FEX-11-V1-CODPAIS).`
-        : `El país indicado no existe en el catálogo de compatibilidad FEX v1 (FEX-11-V1-CODPAIS).`,
-    );
-  }
+  const countryError = validateFexCountryCode(input.country_code, catalogs.countries);
+  if (countryError) errors.push(countryError);
   if (!existsInCatalog(catalogs.personTypes, input.customer_person_type)) {
     errors.push("El tipo de persona indicado no existe en el catálogo DTE (CAT-029).");
   }

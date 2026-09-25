@@ -273,7 +273,7 @@ const CAT_031_ROWS: CatalogRow[] = [
 // ── FEX-11-V1-CODPAIS: catálogo de compatibilidad de país para FEX v1 ──
 // Generado desde el enum real receptor.codPais de fex-11.schema.json —
 // ver header F3-C23D arriba. NO es CAT-020 oficial v1.2.
-import fexSchemaV1 from "../../../src/modules/commerce/dte/schemas/mh/fex-11.schema.json";
+import fexSchemaV1 from "../../../src/modules/commerce/dte/schemas/mh/fex-11-v1.legacy.schema.json";
 
 const FEX_V1_CODPAIS_ENUM: string[] = (fexSchemaV1 as unknown as {
   properties: { receptor: { properties: { codPais: { enum: string[] } } } };

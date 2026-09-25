@@ -31,7 +31,9 @@ import {
   createForeignCustomer,
   createExportSale,
   configureUnitMhCode,
+  updateForeignCustomerCountry,
   type CreateForeignCustomerResult,
+  type UpdateForeignCustomerCountryResult,
   type CreateExportSaleResult,
   type ConfigureUnitMhCodeResult,
 } from "../services/export-sale.service";
@@ -43,7 +45,7 @@ import {
   type OperationalContext,
 } from "@/modules/platform/runtime/require-operational-context";
 
-// Bloque B — guard central único: cubre las 6 actions exportadas de este
+// Bloque B — guard central único: cubre todas las actions exportadas de este
 // archivo (todas llaman requireExportSession antes de operar).
 async function requireExportSession(write: boolean):
   Promise<{ context: OperationalContext; dispose: () => Promise<void> } | { error: string }> {
@@ -170,6 +172,37 @@ export async function createForeignCustomerAction(
       revalidatePath("/dashboard/sales/export");
     }
 
+    return result;
+  } finally {
+    await dispose();
+  }
+}
+
+// ── Corregir país de un cliente extranjero (CAT-020) ──────────────
+//
+// FEX-PROD-0B — salida explícita para clientes con código de país legado
+// de la versión anterior de FEX: el usuario elige el país CAT-020 vigente.
+
+export async function updateForeignCustomerCountryAction(
+  customer_id:  string,
+  country_code: string,
+): Promise<UpdateForeignCustomerCountryResult> {
+  const session = await requireExportSession(true);
+  if (!isSession(session)) return { ok: false, error: session.error };
+  const { context, dispose } = session;
+
+  try {
+    if (typeof customer_id !== "string" || typeof country_code !== "string" || !customer_id || !country_code) {
+      return { ok: false, error: "Cliente y país son requeridos." };
+    }
+    const result = await updateForeignCustomerCountry(
+      context.tenantId,
+      context.effectiveUser.id,
+      customer_id,
+      country_code.trim(),
+      context.client,
+    );
+    if (result.ok) revalidatePath("/dashboard/sales/export");
     return result;
   } finally {
     await dispose();

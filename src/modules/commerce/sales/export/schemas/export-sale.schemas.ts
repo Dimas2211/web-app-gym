@@ -28,12 +28,14 @@ export const createForeignCustomerSchema = z.object({
   }),
 
   // Número de documento — se persiste en nit o dui según id_type_code.
+  // FEX v3: receptor.numDocumento máximo 20.
   document_number: z
     .string()
     .trim()
     .min(1, "El número de documento es requerido")
-    .max(30),
+    .max(20, "El número de documento admite máximo 20 caracteres"),
 
+  // CAT-020 vigente (ISO alpha-2); el nombre oficial lo fija el servidor.
   country_code: z
     .string()
     .trim()
@@ -50,22 +52,26 @@ export const createForeignCustomerSchema = z.object({
     message: "Tipo de persona no válido",
   }),
 
+  // FEX v3: receptor.descActividad 5..150.
   activity_name: z
     .string()
     .trim()
-    .min(1, "La descripción de actividad económica es requerida")
-    .max(200),
+    .min(5, "La descripción de actividad económica debe tener al menos 5 caracteres")
+    .max(150, "La descripción de actividad económica admite máximo 150 caracteres"),
 
+  // FEX v3: receptor.complemento máximo 200.
   address_complement: z
     .string()
     .trim()
     .min(5, "El complemento de dirección debe tener al menos 5 caracteres")
-    .max(300),
+    .max(200, "El complemento de dirección admite máximo 200 caracteres"),
 
+  // FEX v3: receptor.telefono 8..30 (vacío = sin teléfono).
   phone: z
     .string()
     .trim()
     .max(20)
+    .refine((v) => v.length === 0 || v.length >= 8, "El teléfono debe tener al menos 8 caracteres")
     .optional()
     .nullable(),
 

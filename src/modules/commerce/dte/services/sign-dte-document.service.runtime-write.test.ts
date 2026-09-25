@@ -195,3 +195,36 @@ describe("signDteDocument — FASE VI-E5A (runtime db injection)", () => {
     await expect(signDteDocument(BASE_PARAMS)).rejects.toThrow("RUNTIME_UNSAFE");
   });
 });
+
+describe("signDteDocument — FEX 11 solo firma JSON schema v3 (FEX-PROD-0B)", () => {
+  it("FEX 11 con JSON v1 (histórico/pendiente) -> bloquea antes del firmador", async () => {
+    const db = buildFakeRuntimeDb();
+    db.dteOutgoingDocument.findFirst = vi.fn().mockResolvedValue({
+      ...DTE_DOC,
+      dte_type_code: "11",
+      json_document: { identificacion: { version: 1, tipoDte: "11" } },
+    });
+
+    const result = await signDteDocument(BASE_PARAMS, db as never);
+
+    expect(result).toMatchObject({ ok: false });
+    if (!result.ok) expect(result.error).toContain("Regenere el JSON");
+    expect(resolveDteSignerConfigForIssuerSpy).not.toHaveBeenCalled();
+    expect(signerAdapterSignSpy).not.toHaveBeenCalled();
+  });
+
+  it("FEX 11 con JSON v3 -> firma normalmente (adapter mockeado, sin red)", async () => {
+    const db = buildFakeRuntimeDb();
+    db.dteOutgoingDocument.findFirst = vi.fn().mockResolvedValue({
+      ...DTE_DOC,
+      dte_type_code: "11",
+      json_document: { identificacion: { version: 3, tipoDte: "11" } },
+    });
+    signerAdapterSignSpy.mockResolvedValue({ ok: true, signedJws: "jws-fex-v3", signedAt: new Date("2026-01-01T00:00:00.000Z") });
+
+    const result = await signDteDocument(BASE_PARAMS, db as never);
+
+    expect(result).toMatchObject({ ok: true, dteStatus: "SIGNED" });
+    expect(signerAdapterSignSpy).toHaveBeenCalledTimes(1);
+  });
+});

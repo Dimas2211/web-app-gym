@@ -37,6 +37,7 @@ import { resolveDteMhUrls }           from "../config/dte-mh.config";
 import { MhDteTransmissionAdapter }  from "../adapters/dte-transmission.adapter";
 import { MhAuthAdapter }             from "../adapters/dte-auth.adapter";
 import { canUseFex11InServerFlow }   from "../utils/fex11-feature-guard";
+import { FEX11_SCHEMA_VERSION, fex11LegacyVersionError } from "../utils/fex11-schema-version";
 import { isMhProcessedObserved }     from "../utils/dte-mh-observations.utils";
 import { assertDteContingencyTransmissionAllowed } from "./assert-dte-contingency-transmission-allowed.service";
 import { resolveCommercialEnforcementContext } from "@/modules/platform/runtime/commercial-enforcement/resolve-commercial-context";
@@ -88,8 +89,8 @@ const SUPPORTED_TYPE_CODES = new Set(["01", "03", "05", "14"]);
 
 function dteTypeCodeToVersion(code: string): number {
   if (code === "03" || code === "05") return 3;
-  // FEX 11 identificacion.version es fijo en 1 (ver fex-json.types.ts).
-  if (code === "11") return 1;
+  // FEX 11 identificacion.version = 3 (FEX-PROD-0B, fex11-schema-version.ts).
+  if (code === "11") return FEX11_SCHEMA_VERSION;
   // FSE 14 identificacion.version es fijo en 1 (ver fse-json.types.ts / fse-14.schema.json).
   if (code === "14") return 1;
   return 1;
@@ -159,6 +160,7 @@ export async function transmitDteDocument(
         retry_count:     true,
         transmission_type_code: true,
         contingency_type_code:  true,
+        json_document:   true,
       },
     });
 
@@ -196,6 +198,10 @@ export async function transmitDteDocument(
           `Solo se pueden transmitir documentos firmados. Estado actual: ${dteDoc.dte_status}.`,
         );
       }
+      // FEX-PROD-0B: la versión enviada a MH debe coincidir con el JSON
+      // firmado. Un FEX v1 firmado antes de la migración no se transmite.
+      const legacyError = fex11LegacyVersionError(dteDoc.json_document);
+      if (legacyError) throw new TransmitDteBusinessError(legacyError);
     } else if (!SUPPORTED_TYPE_CODES.has(dteDoc.dte_type_code)) {
       throw new TransmitDteBusinessError(
         `Tipo DTE no soportado para transmisión: ${dteDoc.dte_type_code}.`,

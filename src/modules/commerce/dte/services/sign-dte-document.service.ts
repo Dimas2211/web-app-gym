@@ -32,6 +32,7 @@ import { DteSignerConfigError }   from "../config/dte-signer.config";
 import { resolveDteSignerConfigForIssuer } from "./dte-credential.service";
 import { MhHttpDteSignerAdapter } from "../adapters/dte-signer.adapter";
 import type { DteMhEnvironment }  from "../types/dte-mh-auth.types";
+import { fex11LegacyVersionError } from "../utils/fex11-schema-version";
 
 // ── Tipos públicos ────────────────────────────────────────────────
 
@@ -87,6 +88,7 @@ export async function signDteDocument(
         retry_count:      true,
         environment:      true,
         issuer_config_id: true,
+        dte_type_code:    true,
       },
     });
 
@@ -113,6 +115,13 @@ export async function signDteDocument(
       throw new SignDteBusinessError(
         "El documento DTE no tiene JSON generado. Genera y valida el JSON antes de firmar.",
       );
+    }
+
+    // 3a. FEX 11: solo se firma JSON schema v3 (FEX-PROD-0B). Un JSON v1
+    //     pendiente se regenera; nunca se firma como documento nuevo.
+    if (dteDoc.dte_type_code === "11") {
+      const legacyError = fex11LegacyVersionError(dteDoc.json_document);
+      if (legacyError) throw new SignDteBusinessError(legacyError);
     }
 
     // 3b. Consistencia de ambiente documento <-> emisor (VI-E5A / J).

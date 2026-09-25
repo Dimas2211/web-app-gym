@@ -26,6 +26,7 @@ import { getExportDteStateAction, type ExportDteState } from "../actions/export-
 import type { ForeignCustomerLookup } from "../queries/search-foreign-customers";
 import type { ExportProductLookup } from "../queries/search-export-products";
 import type { DteCatalogItem } from "@/modules/commerce/dte/types/dte-catalog.types";
+import type { CountryItem } from "@/modules/commerce/suppliers/types/supplier-catalogs.types";
 
 interface CreatedSale {
   sale_id: string;
@@ -36,7 +37,7 @@ interface CreatedSale {
 export function ExportSaleWorkspace({
   catalogCAT016,
   catalogCAT017,
-  catalogFexCountries,
+  catalogCountries,
   catalogCAT022,
   catalogCAT027,
   catalogCAT028,
@@ -47,7 +48,7 @@ export function ExportSaleWorkspace({
 }: {
   catalogCAT016: DteCatalogItem[];
   catalogCAT017: DteCatalogItem[];
-  catalogFexCountries: DteCatalogItem[]; // País — catálogo compatibilidad FEX v1 (F3-C23D)
+  catalogCountries: CountryItem[]; // País — CAT-020 vigente (FEX v3)
   catalogCAT022: DteCatalogItem[];
   catalogCAT027: DteCatalogItem[];
   catalogCAT028: DteCatalogItem[];
@@ -315,7 +316,7 @@ export function ExportSaleWorkspace({
 
       {showCustomerModal && (
         <ExportCustomerModal
-          catalogFexCountries={catalogFexCountries}
+          catalogCountries={catalogCountries}
           catalogCAT022={catalogCAT022}
           catalogCAT029={catalogCAT029}
           onClose={() => {

@@ -13,10 +13,10 @@
 // Adaptado de dev/verify-fex11-preview-local.ts, operando con
 // tenant_id/location_id resueltos desde sesión (no desde env).
 //
-// Datos de catálogo oficiales — Catálogo Sistema de Transmisión,
-// confirmados en F3-C15B: CAT-027 (02 = Marítima de Acajutla),
-// CAT-028 (EX-1.1000.000 = exportación definitiva común),
-// CAT-031 (09 = FOB-Libre a bordo).
+// FEX-PROD-0B (schema v3): el caso es exportación de SERVICIOS
+// (tipoItemExpor=2, sin recinto/régimen) — la exportación de bienes
+// queda bloqueada hasta que exista catálogo oficial de tipoRegimen.
+// País = CAT-020 vigente ("US"). INCOTERM CAT-031 09 = FOB.
 //
 // No firma, no transmite a Hacienda, no toca MariaDB.
 // ─────────────────────────────────────────────────────────────────
@@ -34,11 +34,14 @@ const CATEGORY_CODE = "FEX11-UI-TEST";
 const CATEGORY_NAME = "FEX11_UI_TEST_CATEGORY";
 
 const EXPORT_DETAILS_VALUES = {
-  fiscal_precinct_code: "02",            // CAT-027: Marítima de Acajutla
-  regime_code:          "EX-1.1000.000", // CAT-028: exportación definitiva común
+  fiscal_precinct_code: null,            // servicios: sin recinto fiscal
+  regime_code:          null,            // servicios: sin régimen
   incoterm_code:        "09",            // CAT-031: FOB
   incoterm_desc:        "FOB-Libre a bordo",
 };
+
+// CAT-020 vigente (modelo Country, ISO alpha-2).
+const TEST_COUNTRY = { code: "US", name: "Estados Unidos" };
 
 export interface CreateFex11TestCaseParams {
   tenant_id:   string;
@@ -141,7 +144,7 @@ async function ensureProduct(tenant_id: string, unit_id: string, category_id: st
       tenant_id,
       product_code:   PRODUCT_CODE,
       name:           "FEX11_UI_TEST_PRODUCT",
-      product_type:   "PRODUCT",
+      product_type:   "SERVICE",
       status:         "ACTIVE",
       is_stockable:   false,
       allow_purchase: false,
@@ -160,7 +163,14 @@ async function ensureCustomer(tenant_id: string): Promise<string> {
     where: { tenant_id, customer_code: CUSTOMER_CODE },
     select: { id: true },
   });
-  if (existing) return existing.id;
+  if (existing) {
+    // Cliente propio de la consola: se alinea a CAT-020 vigente (FEX v3).
+    await prisma.customer.update({
+      where: { id: existing.id },
+      data:  { country_code: TEST_COUNTRY.code, country_name: TEST_COUNTRY.name },
+    });
+    return existing.id;
+  }
 
   const created = await prisma.customer.create({
     data: {
@@ -177,8 +187,8 @@ async function ensureCustomer(tenant_id: string): Promise<string> {
       email:                 "fex11-ui-test-customer@example.com",
       status:                "active",
       is_foreign:            true,
-      country_code:          "9540", // CAT-020: Estados Unidos
-      country_name:          "ESTADOS UNIDOS",
+      country_code:          TEST_COUNTRY.code,
+      country_name:          TEST_COUNTRY.name,
       customer_person_type:  "2", // natural
     },
     select: { id: true },
@@ -245,7 +255,7 @@ async function createSaleAndExportDetails(
         line_number:            1,
         product_code_snapshot:  PRODUCT_CODE,
         product_name_snapshot:  "FEX11_UI_TEST_PRODUCT",
-        product_type_snapshot:  "PRODUCT",
+        product_type_snapshot:  "SERVICE",
         is_stockable_snapshot:  false,
         quantity:               new Prisma.Decimal(quantity),
         unit_price:             new Prisma.Decimal(unitPrice),
@@ -271,10 +281,10 @@ async function createSaleAndExportDetails(
       data: {
         tenant_id,
         sale_id:               createdSale.id,
-        country_code:          "9540",
-        country_name:          "ESTADOS UNIDOS",
+        country_code:          TEST_COUNTRY.code,
+        country_name:          TEST_COUNTRY.name,
         customer_person_type:  "2",
-        item_type_export:      1,
+        item_type_export:      2,
         ...EXPORT_DETAILS_VALUES,
         insurance_amount:      new Prisma.Decimal(0),
         freight_amount:        new Prisma.Decimal(0),
