@@ -1,6 +1,8 @@
 # Shared Runtime — Manual Onboarding (SHARED-PILOT-4A)
 
-Estado: implementado y validado en LOCAL (4A + 4B idempotencia distribuida). No desplegado a producción. No se creó ningún cliente piloto real todavía.
+Estado: **en producción y cerrado** (4A + 4B + 4C + SHARED-OPS-PARITY-1, HEAD `2a14917`). Wildcard `*.getzolvi.com` aplicado. Commerce Pilot (`commerce-pilot-0001`) certificado y Metatraining (`meta-training`) operando como primer cliente Shared real. Cierre formal: `docs/context/shared-pilot-4c-closure.md`.
+
+> *HISTÓRICO / SUPERADO*: la versión original de este documento decía "validado en LOCAL, no desplegado, sin cliente piloto". Las secciones 1–7 siguen vigentes como diseño; §8 y §9 reflejan el estado actual.
 
 ## 1. Objetivo
 
@@ -32,8 +34,8 @@ PlatformOrganization (control plane)
 2. Abrir la organización → panel **Runtime**.
 3. Si no tiene runtime asignado: seleccionar un Shared Runtime registrado (o asignar un perfil Dedicated desde Database Profiles) → botón "Asignar".
 4. Con runtime resuelto: completar modo (Commerce-only / Gym), nombre/slug de tenant, location inicial, datos del admin (email/password/nombre) → checkbox de confirmación → "Provisionar cliente".
-5. Resultado: Tenant ID, Location creada, Admin creado, Gym extension ("No aplica" en Commerce-only), Binding OK — todo en la misma pantalla, sin mostrar el password.
-6. (Fuera de esta fase) el humano abre `https://cliente.getzolvi.com` e inicia sesión.
+5. Resultado: Tenant ID, Location creada, Admin creado, Gym extension ("No aplica" en Commerce-only), Binding OK — todo en la misma pantalla, sin mostrar el password. Desde SHARED-OPS-PARITY-1 la misma transacción runtime crea además el baseline Commerce (IVA 13%, GENERAL, TenantFiscalConfig) antes del receipt.
+6. El humano abre `https://<cliente>.getzolvi.com` e inicia sesión (login runtime directo por hostname, operativo gracias al wildcard `*.getzolvi.com`).
 
 Ningún paso requiere UUIDs copiados a mano, SQL, ni reingresar la contraseña de la base compartida.
 
@@ -146,9 +148,21 @@ Resultado verificado: 1 RuntimeTenant, 1 Location, 1 Admin, 1 Receipt, 1 operaci
 - Secreto del Shared Runtime Target nunca se selecciona en las queries que alimentan la UI (`list-shared-runtime-targets.ts` omite `encrypted_password` explícitamente).
 - Email ambiguo (2+ filas) en login de Platform Admin → fail closed, nunca "el primero" (`authorize-credentials.test.ts`).
 
-## 8. Lo que NO se hizo en esta fase
+## 8. Lo que NO se hizo en 4A/4B (estado actualizado)
 
-- No se creó ningún cliente piloto real (Commerce Pilot).
-- Wildcard DNS/Vercel para `*.getzolvi.com` — infraestructura externa, no aplicada ni requerida para que el código funcione; solo falta ese paso one-time para que un dominio de cliente resuelva al deployment.
-- DTE — explícitamente fuera de alcance de este wizard.
+- ~~No se creó ningún cliente piloto real~~ — *SUPERADO*: Commerce Pilot (`commerce-pilot-0001`, COMMERCE_ONLY, Gym = 0) certificado en 4C; Metatraining (`meta-training`) es el primer cliente Shared real.
+- ~~Wildcard DNS/Vercel para `*.getzolvi.com` pendiente~~ — *SUPERADO*: wildcard aplicado; no se requiere DNS individual por cliente.
+- DTE — sigue fuera de alcance de este wizard. Onboarding fiscal Shared: **DEFERRED** (ver `shared-pilot-4c-closure.md` §13).
 - ~~Idempotencia formal end-to-end~~ — cerrada en SHARED-PILOT-4B (sección 4).
+
+## 9. Operaciones organization-scoped (SHARED-OPS-PARITY-1)
+
+Todas resuelven `organizationId → PlatformOrganization → tenant_id → Runtime Router`, igual para Shared y Dedicated. Nunca se opera sobre un Shared Runtime Target sin seleccionar organización.
+
+Acceso: Platform Admin → Shared Runtime Targets → **Organizaciones** (subtabla por target) → organización → acción.
+
+| Acción | Detalle |
+|---|---|
+| Operar como cliente | `enterOrganizationRuntimeAction`; la sesión guarda `runtimeKind` y las sesiones Shared se re-resuelven por organización. Support Session `readOnly = true` (no emitir/transmitir DTE desde ahí). |
+| Data Onboarding | `/dashboard/platform/data-onboarding/org/[organizationId]`. La ruta legacy `/[profileId]` converge en el mismo resolver. EXECUTE en PRODUCTION permitido bajo guardas con confirmación `IMPORT <DATASET> <organization.code>`. |
+| Baseline Commerce | `ensureOrganizationRuntimeBaselineAction()` — reparación idempotente para organizaciones existentes (IVA 13%, GENERAL, TenantFiscalConfig). No toca catálogos globales de la base física. |

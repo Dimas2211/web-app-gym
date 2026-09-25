@@ -14,7 +14,8 @@
 - commerce/dte — primer cierre FSE14 TEST sobre runtime multiindustria (cliente TrustMe, vía Runtime Database Router): CREATE→GENERATE→VALIDATE→SIGN→TRANSMIT→DELIVER→VERIFY completo, estado final ACCEPTED, delivery MariaDB confirmado. Solo TEST; SignerProfile por tenant/emisor/ambiente implementado (ver docs/modules/dte-signer-multitenant-block.md). Ver docs/modules/dte-trustme-fse14-test-closure.md.
 - commerce/dte — delivery externo runtime-aware desde `/dashboard/dte/outgoing` implementado (allowlist `DELIVER_EXTERNAL`, solo super_admin, confirmación explícita, auditado en PlatformDeploymentLog). Resto de acciones DTE (generar/validar/firmar/transmitir/invalidar) siguen en Prisma global — fuera de la allowlist.
 - commerce/dte — metering comercial `fiscal.dte.monthly_issued` (FASE IV-A a IV-D) **implementado, operable y certificado**: motor de reserva/consumo/liberación (PENDING/CONSUMED/RELEASED, transacción Serializable, timezone fail-closed, Unlimited mide sin bloquear, UNCONFIGURED fail-closed) en `dte-fiscal-metering.service.ts`; reconciliación MH real y certificada contra MH TEST (FASE IV-B, `reconcileDteWithMh`, runtime-aware); operación manual + inspector de metering en `/dashboard/dte/outgoing` y `/dashboard/dte/monitoring` (FASE IV-C); límites finitos certificados técnicamente contra PostgreSQL real, incluyendo concurrencia (FASE IV-D) — **pero ningún límite finito real está activado para ninguna organización todavía**; GYM/TrustMe siguen en Unlimited/UNCONFIGURED según su configuración actual. Ver `docs/modules/platform-phase-4-dte-monthly-metering.md`, `platform-phase-4b-dte-query-reconciliation.md`, `platform-phase-4c-dte-metering-operations.md`, `platform-phase-4d-dte-finite-limits-certification.md`.
-- platform — FASE 7 cerrada: base operativa multi-cliente auditada y documentada (provisioning, TrustMe como único cliente runtime probado, matriz de automatización existente/faltante). Hueco principal: `SEED_TENANT_BASE` (crear tenant/location/admin en runtime) solo existe como script ad-hoc, no como runner controlado. Ver docs/modules/platform-phase-7-multiclient-provisioning.md.
+- platform — FASE 7 cerrada: base operativa multi-cliente auditada y documentada. Ver docs/modules/platform-phase-7-multiclient-provisioning.md. *(HISTÓRICO / SUPERADO: el hueco `SEED_TENANT_BASE` "solo como script ad-hoc" quedó cerrado por el provisioning controlado desde Platform Admin — SHARED-PILOT-4A/4B/4C.)*
+- platform — **SHARED-PILOT-4C + SHARED-OPS-PARITY-1 cerrados** (HEAD `2a14917`): Shared Runtime productivo, wildcard `*.getzolvi.com`, login runtime directo por hostname, Data Onboarding organization-scoped (incluye EXECUTE en PRODUCTION bajo guardas), baseline Commerce, Commerce Pilot certificado y Metatraining como primer cliente Shared real. Ver sección "Estado vigente — Runtime, Shared y Onboarding" abajo y docs/context/shared-pilot-4c-closure.md.
 - commerce/cash cerrado y operativo — apertura/cierre de sesión, movimientos manuales, corte de caja, historial, exportación PDF/Excel, asociación automática venta → sesión. Ver docs/modules/cash-summary.md.
 
 ## Identidad activa
@@ -22,14 +23,33 @@
 - No volver a usar gym_id / branch_id como contrato principal.
 - El JWT bridge gym_id / branch_id ya fue eliminado.
 
+## Estado vigente — Runtime, Shared y Onboarding (fuente rápida de verdad, HEAD `2a14917`)
+
+> Esta sección prevalece sobre cualquier afirmación de las secciones de fases
+> VI-B..VI-F más abajo, que se conservan como historia. Detalle completo en
+> `docs/context/shared-pilot-4c-closure.md`.
+
+- **Raíz runtime**: `PlatformOrganization → tenant_id → RuntimeTenant` (Branch/Location, User, Commerce, DTE, Gym como extensión opcional). `Gym` **no** es la raíz universal del tenant: en `COMMERCE_ONLY` no existe fila Gym. El tenant operativo es `RuntimeTenant.id`, no `gyms.id` (para tenants GYM históricos ambos ids coinciden).
+- **Shared**: `PlatformOrganization → shared_runtime_target_id → PlatformSharedRuntimeTarget` (misma base física para N organizaciones, aislamiento por `tenant_id`). **Dedicated**: `PlatformOrganization → PlatformDatabaseProfile` (base propia). Ambos convergen en `resolveRuntimeDatabaseProfileForOrganization()`; las operaciones administrativas nuevas resuelven por `organizationId`, nunca por `profileId` como autoridad de tenant.
+- **Login**: `hostname → PlatformOrganization.domain → runtime authentication → RUNTIME_CLIENT → Runtime Router → tenant aislado`. `RUNTIME_CLIENT` está **habilitado** en producción. Wildcard Vercel `*.getzolvi.com` aplicado — no se requiere DNS por cliente. Dominios operativos: `getzolvi.com`, `app.getzolvi.com`, `trustme.getzolvi.com`, `commerce-pilot.getzolvi.com`, `metatraining.getzolvi.com`.
+- **Provisioning**: desde Platform Admin (Shared o Dedicated), retry-safe (operación CP + receipt runtime). Crea tenant + location + admin (+ Gym solo en modo GYM) + baseline Commerce en una sola transacción runtime.
+- **Baseline Commerce**: `ensureCommerceTenantBaseline()` — IVA 13%, ProductCategory GENERAL, TenantFiscalConfig por `tenant_id`; idempotente. Reparación para organizaciones existentes: `ensureOrganizationRuntimeBaselineAction()`. No duplica catálogos globales de la base física.
+- **Data Onboarding**: organization-scoped (`/dashboard/platform/data-onboarding/org/[organizationId]`; legacy `/[profileId]` converge en el mismo resolver). 7 datasets. PRODUCTION: DRY_RUN permitido; EXECUTE permitido bajo guardas (super_admin, CREATE_ONLY, módulo habilitado, conexión verificada, análisis limpio, confirmación `IMPORT <DATASET> <organization.code>`, tenantId server-side).
+- **Operar como cliente**: Platform Admin → Shared Runtime Targets → Organizaciones → organización → Operar como cliente. Support Session `readOnly = true`.
+- **Clientes Shared**: Commerce Pilot (`commerce-pilot-0001`, COMMERCE_ONLY, certificado, aislamiento vs TrustMe PASS) y Metatraining (`meta-training`, primer cliente Shared real; primer Data Onboarding EXECUTE en PRODUCTION: `categories`, created = 1).
+- **CAT-022**: solo `02`, `03`, `13`, `36`, `37`. `00 — Consumidor final` retirado; Consumidor Final es `taxpayer_type = FINAL_CONSUMER`.
+- **DTE Shared**: onboarding fiscal **DEFERRED**. Metatraining sin `DteIssuerConfig`/`DteCredential`/`DteCorrelative`/`DteOutgoingDocument`. No emitir/transmitir DTE desde Support Session (readOnly).
+- **Deuda diferida (no bloqueante)**: onboarding fiscal Shared, credenciales MH por tenant, pruebas de volumen y concurrencia de Data Onboarding, RLS.
+
 ## Platform — FASE VI-B: Runtime Identity Security Foundation (cerrada, no es cierre de FASE VI completa)
 
 Introduce `AuthScope` (`src/core/auth/types.ts`) como concepto ORTOGONAL a `role`:
 `role` sigue gobernando privilegios dentro del tenant/organización; `auth_scope`
 gobierna el origen/alcance de la identidad. Valores: `PLATFORM` (identidad
 autenticada por el flujo global actual — el único login activo hoy) y
-`RUNTIME_CLIENT` (reservado para login runtime futuro, **NOT YET ENABLED**,
-llegará en FASE VI-C). `role === "super_admin"` dejó de ser prueba suficiente
+`RUNTIME_CLIENT` (reservado para login runtime futuro en el momento de VI-B;
+*HISTÓRICO / SUPERADO: hoy `RUNTIME_CLIENT` está habilitado en producción,
+ver "Estado vigente" arriba*). `role === "super_admin"` dejó de ser prueba suficiente
 de identidad Platform Admin.
 
 - **Frontera única**: `canAccessPlatformAdmin(user)` en
@@ -74,9 +94,12 @@ de identidad Platform Admin.
 
 ## Platform — FASE VI-C: Hostname Resolution + Runtime Authentication Foundation (fundación, FASE VI NO cerrada)
 
-Implementa la FUNDACIÓN técnica de login runtime por hostname. **Login
-runtime productivo NO está habilitado** — `RUNTIME_HOST_AUTH_ENABLED`
-default `false`, feature gate temporal hasta FASE VI-F.
+Implementa la FUNDACIÓN técnica de login runtime por hostname. En VI-C el
+login runtime productivo no estaba habilitado (`RUNTIME_HOST_AUTH_ENABLED`
+default `false`). *HISTÓRICO / SUPERADO: login runtime directo por hostname
+está habilitado en producción (ver "Estado vigente").* Las menciones a
+`user.gym_id === organization.tenant_id` en esta sección reflejan el modelo
+anterior; hoy la identidad es `User.tenant_id` / `RuntimeTenant.id`.
 
 - **Hostname resolution** (`src/lib/http/hostname.ts`):
   `normalizeRequestHostname()` (puro, edge-safe) y
@@ -150,7 +173,7 @@ default `false`, feature gate temporal hasta FASE VI-F.
   tocar, login contra TrustMe PROD, escrituras runtime de cliente, DTE
   runtime.
 
-## Platform — FASE VI-D: Runtime Operational Context (EN CURSO, FASE VI NO cerrada)
+## Platform — FASE VI-D: Runtime Operational Context (HISTÓRICO — "en curso" al momento de escribirse; cerrada en VI-D7/VI-D9)
 
 Migra módulos operativos NO-DTE al contrato `RUNTIME_CLIENT` definido en VI-C.
 `RUNTIME_HOST_AUTH_ENABLED` sigue en `false` — nada de esto es alcanzable en
@@ -1053,8 +1076,9 @@ Certificación de lo implementado en VI-E1..E7 (no re-audit desde cero). Ver
   AUTH/TRANSMIT/METERING/RECONCILIATION/EXTERNAL DELIVERY — certificada
   completa salvo TRANSMIT/RECONCILIATION de FEX11 (no está en el pipeline
   de transmisión productiva todavía, deuda ya conocida).
-- `DEDICATED_RUNTIME_MODE_PRESERVED = YES`, `SHARED_RUNTIME_IMPLEMENTED = NO`,
-  `HYBRID_RUNTIME_IMPLEMENTED = NO` — no se declara `DEDICATED_RUNTIME_V1 =
+- `DEDICATED_RUNTIME_MODE_PRESERVED = YES`, `SHARED_RUNTIME_IMPLEMENTED = NO`
+  *(HISTÓRICO / SUPERADO: Shared Runtime implementado y en producción desde
+  SHARED-PILOT-4A..4C)*, `HYBRID_RUNTIME_IMPLEMENTED = NO` — no se declara `DEDICATED_RUNTIME_V1 =
   CERTIFIED` (pendiente de un "Cliente 3" end-to-end real).
 - Validación: 880/880 tests PASS, `tsc --noEmit` limpio, `npm run lint` sin
   errores nuevos, `npm run build` PASS, `git diff --check` limpio. Sin
@@ -1078,8 +1102,9 @@ Auditoría + cierre de gaps puntuales, no construcción desde cero. Ver
   sin schema nuevo. Falta solo el dato real de TrustMe (Control Plane,
   fuera de esta fase).
 - `app.getzolvi.com` se resuelve vía `PLATFORM_HOSTS` (config, no código).
-- `RUNTIME_HOST_AUTH_ENABLED` sigue en `false` en todo ambiente — cambio de
-  env pendiente de decisión explícita de cutover, no ejecutado aquí.
+- `RUNTIME_HOST_AUTH_ENABLED` seguía en `false` al cierre de VI-F.
+  *HISTÓRICO / SUPERADO: cutover ejecutado; login runtime directo por
+  hostname operativo en producción (TrustMe, Commerce Pilot, Metatraining).*
 - Validación: 882/882 tests PASS (880 previos + 2), `tsc --noEmit` limpio,
   `npm run lint` sin errores nuevos, `npm run build` PASS, `git diff
   --check` limpio. `SCHEMA_CHANGE = NO`, `MIGRATION_REQUIRED = NO`.
@@ -1099,8 +1124,10 @@ Auditoría + cierre de gaps puntuales, no construcción desde cero. Ver
   (no forma parte de VI-E7/E8).
 - `DEDICATED_RUNTIME_V1 = CERTIFIED` — pendiente de un "Cliente 3" end-to-end
   real (fase futura, fuera de alcance de VI-E7/E8 por decisión explícita).
-- Runner controlado `SEED_TENANT_BASE` (crear tenant/location/admin contra un PlatformDatabaseProfile, con D0 + dry-run + auditoría) — hoy ese paso solo existe como script ad-hoc (prisma/seed-trustmedb.ts). Ver docs/modules/platform-phase-7-multiclient-provisioning.md §12.
-- Variantes runtime-aware de DteIssuerConfig/DteCredential (hoy solo operan sobre Prisma global) antes de dar de alta un segundo cliente runtime con DTE activo.
+- ~~Runner controlado `SEED_TENANT_BASE`~~ — *SUPERADO*: provisioning controlado desde Platform Admin (Shared/Dedicated, retry-safe, con baseline Commerce). Ver docs/context/shared-pilot-4c-closure.md.
+- Onboarding fiscal DTE de clientes Shared (DteIssuerConfig/DteCredential/DteCorrelative por tenant, credenciales MH reales) — **DEFERRED**, bloque explícito futuro. Metatraining no tiene configuración fiscal.
+- Pruebas de volumen alto y de concurrencia real de Data Onboarding.
+- RLS como capa adicional de aislamiento Shared — deuda arquitectónica futura.
 - Fase futura de operación editable completa desde plataforma (products, customers, suppliers, purchases, sales, inventory, cash, DTE) — solo mencionada como pendiente, no diseñada todavía.
 - Vista global /dashboard/dte/outgoing (lista de DTEs emitidos).
 - Vista de logs DTE completa.

@@ -862,7 +862,7 @@ model TaxRate {
 
 // CAT-022 El Salvador DTE — tipos de identificación del contribuyente
 model IdentificationType {
-  code        String  @id // "00", "02", "03", "13", "37"
+  code        String  @id // CAT-022 oficial: "02", "03", "13", "36", "37" ("00" retirado — Consumidor Final es taxpayer_type FINAL_CONSUMER)
   name        String
   description String?
   status      Status  @default(active)

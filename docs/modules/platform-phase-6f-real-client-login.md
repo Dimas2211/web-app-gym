@@ -1,5 +1,10 @@
 # Platform — FASE VI-F: Real Client Login (Dedicated Runtime) — Code-Ready
 
+> *HISTÓRICO / SUPERADO*: el cutover ya se ejecutó. Login runtime directo por
+> hostname está habilitado en producción (TrustMe, Commerce Pilot,
+> Metatraining) y el wildcard `*.getzolvi.com` está aplicado. Estado vigente:
+> `docs/context/shared-pilot-4c-closure.md`.
+
 ## Objetivo
 
 Cerrar FASE VI dejando el código LISTO para que `trustme.getzolvi.com` (u

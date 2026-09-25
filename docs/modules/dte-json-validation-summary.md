@@ -143,9 +143,13 @@ Archivo: `src/modules/commerce/dte/utils/fiscal-id.utils.ts`
 
 Corrección aplicada en subfase 4I-4D.
 
+> *Actualización (commit `a2587f1`)*: `00 — Consumidor final` fue **retirado**
+> de CAT-022. No es un tipo de documento oficial; Consumidor Final es
+> `taxpayer_type = FINAL_CONSUMER`. CAT-022 oficial: `02`, `03`, `13`, `36`, `37`.
+
 | Código | Descripción |
 |--------|-------------|
-| `00`   | Consumidor final / uso interno operativo |
+| ~~`00`~~ | ~~Consumidor final / uso interno operativo~~ — *retirado, no es CAT-022* |
 | `13`   | DUI |
 | `36`   | NIT |
 | `02`   | Carnet de residente |
@@ -154,7 +158,7 @@ Corrección aplicada en subfase 4I-4D.
 
 ### Regla de uso
 
-- `"00"` **no debe enviarse** como `tipoDocumento` en el JSON DTE FE 01.
+- `"00"` no es un código CAT-022 válido (retirado de seeds, validación y UI) y nunca debe enviarse como `tipoDocumento`.
 - Si el receptor es consumidor final, `receptor = null` completo.
 - La UI debe mostrar código + nombre para todos los tipos.
 - El código `"36"` (NIT) estaba ausente del catálogo inicial — fue corregido en 4I-4D.

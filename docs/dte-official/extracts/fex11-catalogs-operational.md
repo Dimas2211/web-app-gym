@@ -284,7 +284,7 @@ aceptar `{code,label}` en vez de estar acoplado a `DteCatalogItem`).
 | CAT-016 Condición de operación | 3 | Completo | Verificado contra Excel oficial — coincide exacto. |
 | CAT-017 Forma de pago | 6 | **Parcial** (hallazgo, no corregido — fuera de alcance) | El Excel oficial trae 12 códigos (faltan 08 Dinero electrónico, 09 Monedero electrónico, 11 Bitcoin, 12 Otras Criptomonedas, 13 Cuentas por pagar del receptor, 14 Giro bancario). CAT-017 es compartido con FE/CCFE y esta fase solo pidió "reutilizar" — se reporta como hallazgo, no se amplía sin instrucción explícita. |
 | **CAT-020 País** | **250 activos en `Country`** (249 del catálogo oficial + 1 preexistente) | **Completo, códigos y nombres reales** | Modelo `Country` ya existente — mismo Excel oficial. Ya NO vive en `DteCatalogItem`. |
-| CAT-022 Tipo doc. receptor | 6 | Completo para FEX (el Excel oficial para *este* subcatálogo no lista "00" Consumidor final — se mantiene por compatibilidad con FE/CCFE, fuera de alcance tocar) | Excel oficial + `36` NIT (F3-C23). |
+| CAT-022 Tipo doc. receptor | 6 *(hoy 5)* | Completo para FEX (el Excel oficial para *este* subcatálogo no lista "00" Consumidor final). *Actualización `a2587f1`: "00" retirado de CAT-022 en seeds, validación y UI; oficial = 02, 03, 13, 36, 37.* | Excel oficial + `36` NIT (F3-C23). |
 | CAT-027 Recinto fiscal | 46 | **Completo** | Verificado byte a byte contra Excel oficial — coincide exacto con F3-C23. |
 | CAT-028 Régimen | **56** (61 filas crudas del Excel, 5 duplicadas descartadas) | **Completo** | Excel oficial completo — ya no bloqueado/parcial. |
 | CAT-029 Tipo de persona | 2 | **Completo — CORREGIDO** | Era `1=jurídica,2=natural` (invertido); el Excel oficial es `1=Persona Natural, 2=Persona Jurídica`. Corregido. |

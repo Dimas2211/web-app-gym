@@ -1,5 +1,13 @@
 # Cierre Técnico — Data Onboarding Controlado desde Platform Admin
 
+> **Actualización SHARED-OPS-PARITY-1 (HEAD `2a14917`)** — partes de este
+> documento describen la etapa original y quedan como *HISTÓRICO /
+> SUPERADO*. El contrato vigente está en la **sección 22**. En resumen, ya
+> NO es cierto que: (a) Data Onboarding solo funcione por
+> `PlatformDatabaseProfile`/`profileId`; (b) PRODUCTION esté siempre
+> bloqueado; (c) el tenant operativo venga de `gyms.id`; (d) Shared Runtime
+> no esté soportado.
+
 ## 1. Resumen ejecutivo
 
 Esta etapa habilita la preparación controlada de bases cliente/demo desde Platform Admin mediante plantillas Excel, validación previa y análisis contra la base destino, y runners seguros de importación.
@@ -88,11 +96,11 @@ Incluye:
 
 ## 4. Tenant Binding y perfiles de base
 
-Documentación de C7 — Organization Tenant Binding & Auto-Discovery:
+Documentación de C7 — Organization Tenant Binding & Auto-Discovery (*HISTÓRICO*; ver §22 para el contrato vigente):
 
 - `PlatformDatabaseProfile` conecta a una base destino.
 - `PlatformOrganization.tenant_id` representa el tenant operativo dentro de la base runtime.
-- El tenant se detecta desde la tabla `gyms`.
+- ~~El tenant se detecta desde la tabla `gyms`.~~ *SUPERADO*: la detección lee `runtime_tenants` (`RuntimeTenant.id`). Para tenants GYM históricos ese id coincide con `gyms.id`; en COMMERCE_ONLY no existe Gym.
 - La detección es read-only.
 - El binding requiere:
   - superadmin;
@@ -110,11 +118,7 @@ Perfil BD → Detectar tenant → Asignar tenant → Data onboarding habilitado
 
 ### 4.2 Base nueva futura
 
-```text
-Provisioning → Crear base → Migraciones → Crear gyms → Guardar gym.id en organization.tenant_id
-```
-
-El provisioning automático completo queda fuera de esta etapa.
+*HISTÓRICO / SUPERADO*. Flujo vigente (SHARED-PILOT-4A..4C): provisioning desde Platform Admin crea `RuntimeTenant` + Location + Admin (+ Gym solo en modo GYM) + baseline Commerce + receipt, y hace el bind de `RuntimeTenant.id` en `organization.tenant_id`. Ver `docs/context/shared-runtime-manual-onboarding.md`.
 
 ## 5. Flujo operativo de uso
 
@@ -139,7 +143,7 @@ El provisioning automático completo queda fuera de esta etapa.
 ## 6. Reglas de seguridad aplicadas
 
 - Solo `super_admin`.
-- Bloqueo de `PRODUCTION`.
+- ~~Bloqueo de `PRODUCTION`.~~ *SUPERADO*: PRODUCTION permite DRY_RUN y EXECUTE bajo guardas explícitas (§22.3).
 - Execution safety gate con `RUN_IMPORT`.
 - Confirmación textual por dataset.
 - Re-parseo server-side.
@@ -168,6 +172,8 @@ El provisioning automático completo queda fuera de esta etapa.
 | Productos          | IMPORT PRODUCTS           |
 | Inventario inicial | IMPORT INITIAL INVENTORY |
 | Tenant binding      | BIND TENANT                |
+
+En PRODUCTION la confirmación de import agrega el código de la organización destino: `IMPORT <DATASET> <organization.code>` (p.ej. `IMPORT CATEGORIES meta-training`). Ver §22.3.
 
 ## 8. Política CREATE_ONLY
 
@@ -343,7 +349,7 @@ Pendiente (no confirmado en esta etapa):
 
 - `tenant_id` vive en `PlatformOrganization`, no en el perfil.
 - El perfil solo almacena conexión.
-- El tenant operativo viene de `gyms.id`.
+- ~~El tenant operativo viene de `gyms.id`.~~ *SUPERADO*: el tenant operativo es `RuntimeTenant.id` (= `PlatformOrganization.tenant_id`), resuelto server-side por organización.
 - Inventario inicial no usa `recordInventoryMovement()` porque ese servicio requiere `ProductLocation` preexistente.
 - E1C-E1 usa transacción propia para crear `ProductLocation` + `InventoryMovement`.
 - Productos no generan `product_code`.
@@ -425,4 +431,67 @@ Pendiente (no confirmado en esta etapa):
 
 ## 21. Estado final de la etapa
 
-La etapa queda técnicamente cerrada. La plataforma puede preparar una base cliente/demo desde Platform Admin mediante importación controlada por Excel, manteniendo validaciones contra la base destino, bloqueo de producción, confirmaciones textuales, ejecución transaccional y auditoría administrativa.
+La etapa queda técnicamente cerrada. La plataforma puede preparar una base cliente/demo desde Platform Admin mediante importación controlada por Excel, manteniendo validaciones contra la base destino, confirmaciones textuales, ejecución transaccional y auditoría administrativa. (*El "bloqueo de producción" original fue reemplazado por la política de §22.3.*)
+
+## 22. Contrato vigente — SHARED-OPS-PARITY-1 (HEAD `2a14917`)
+
+### 22.1 Resolución organization-scoped
+
+```text
+organizationId → PlatformOrganization → tenant_id → Runtime Router → runtime efectivo (Shared o Dedicated)
+```
+
+- Ruta nueva: `/dashboard/platform/data-onboarding/org/[organizationId]` (+ plantillas en `.../org/[organizationId]/templates/[datasetKey]`).
+- Ruta legacy Dedicated: `/dashboard/platform/data-onboarding/[profileId]` — el perfil se valida contra su organización y converge en el mismo resolver. `profileId` no es autoridad de tenant.
+- Shared Runtime soportado: la organización resuelve su `PlatformSharedRuntimeTarget` y el aislamiento es por `tenant_id`.
+- `tenantId` siempre server-side; tenant/target/host enviados por el navegador se ignoran.
+- Pipeline único `runDataOnboardingImport` (`src/modules/platform/lib/data-onboarding/run-data-onboarding-import.ts`) para los 7 datasets: `categories`, `lines`, `sublines`, `customers`, `suppliers`, `products`, `inventory_initial`.
+
+### 22.2 Orden recomendado
+
+Baseline Commerce (automático al provisionar / reparación desde Platform Admin) → Categorías → Líneas → Sublíneas → Proveedores → Clientes → Productos → Inventario inicial.
+
+### 22.3 Política PRODUCTION
+
+Fuente: `src/modules/platform/lib/data-onboarding/data-onboarding-execution-policy.ts`.
+
+| Modo | No PRODUCTION | PRODUCTION |
+|---|---|---|
+| DRY_RUN | Safety Gate D0 histórico | Permitido (sin escrituras) |
+| EXECUTE | Safety Gate D0 histórico + confirmación `IMPORT <DATASET>` | Permitido bajo guardas |
+
+Guardas de EXECUTE en PRODUCTION:
+
+- `super_admin` (Platform);
+- organización válida y tenant válido;
+- runtime activo;
+- `CREATE_ONLY`;
+- módulo comercial del dataset habilitado para la organización (`commerce.products`, `commerce.suppliers`, `core.customers`, `commerce.inventory`);
+- conexión verificada (test reciente o análisis DB-aware completado en la misma operación);
+- análisis DB-aware sin errores y solo filas CREATE;
+- confirmación textual exacta `IMPORT <DATASET> <organization.code>` (código leído del Control Plane);
+- `tenantId` siempre server-side.
+
+El Safety Gate D0 global no se modificó: sigue bloqueando PRODUCTION para seeds, repairs y migraciones.
+
+### 22.4 Baseline Commerce
+
+`ensureCommerceTenantBaseline()` asegura por `tenant_id` (`RuntimeTenant.id`): TaxRate IVA 13%, ProductCategory GENERAL, TenantFiscalConfig. Para organizaciones existentes: `ensureOrganizationRuntimeBaselineAction()`. No duplica catálogos globales de la base física (`units_of_measure`, `identification_types`, `economic_activities`, `municipalities`, `countries`, catálogos DTE).
+
+### 22.5 Evidencia productiva
+
+Primer EXECUTE real organization-scoped sobre Shared Runtime en PRODUCTION:
+
+| Campo | Valor |
+|---|---|
+| Organización | Metatraining (`meta-training`) |
+| Runtime | SHARED — Zolvi Shared 01 |
+| Environment | PRODUCTION |
+| Dataset | `categories` |
+| Registro creado | `SERVICIOS — SERVICIOS` |
+| Control Plane | `RUN_IMPORT = SUCCESS`, created = 1 |
+
+### 22.6 Pendientes (no bloqueantes)
+
+- Pruebas de volumen alto.
+- Pruebas de concurrencia real (dos operadores, mismo dataset/organización).

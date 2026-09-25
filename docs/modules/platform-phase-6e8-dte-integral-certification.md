@@ -1,5 +1,10 @@
 # FASE VI-E8 — DTE Integral Dedicated-Runtime Certification
 
+> *HISTÓRICO*: `SHARED_RUNTIME_IMPLEMENTED = NO` refleja el momento de E8.
+> Shared Runtime está implementado y en producción desde SHARED-PILOT-4A..4C
+> (ver `docs/context/shared-pilot-4c-closure.md`). El onboarding fiscal DTE
+> de clientes Shared sigue **DEFERRED**.
+
 Dedicated DB only. NO Shared/Hybrid. Certifica lo ya implementado en
 VI-E1..E7 (no re-audita desde cero) más el cierre de la última deuda
 TypeScript conocida. NO declara `DEDICATED_RUNTIME_V1 = CERTIFIED` (fase
