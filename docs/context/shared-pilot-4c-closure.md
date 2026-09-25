@@ -195,7 +195,7 @@ CAT-022 oficial (Catálogo — Sistema de Transmisión v1.2):
 
 - `00 — Consumidor final` fue **retirado** de CAT-022 (commit `a2587f1`): validación Zod de customers/suppliers, UI, fallbacks y seeds.
 - Consumidor Final es una clasificación de contribuyente: `taxpayer_type = FINAL_CONSUMER`, no un tipo de documento.
-- Filas `00` persistidas en bases existentes: `prisma/scripts/retire-cat022-code-00.ts` (dry-run por defecto, protegido por cero referencias). Este cierre no afirma que se haya ejecutado en ninguna base.
+- Las filas persistidas `00` fueron retiradas de las dos bases físicas productivas mediante limpieza SQL dirigida equivalente a `prisma/scripts/retire-cat022-code-00.ts`. El script permanece disponible como herramienta idempotente de mantenimiento (dry-run por defecto y protegido por cero referencias), pero no fue el mecanismo utilizado para aquella limpieza.
 
 ## 12. Evidencia productiva
 
