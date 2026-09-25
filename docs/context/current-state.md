@@ -883,6 +883,16 @@ Cierra 4 gaps puntuales sobre el modelo comercial ya READY (Bloque A/B) — sin 
 
 Sin cambios de schema, sin migraciones. Tests: 8 casos nuevos de vertical safety en `entitlements-resolver.test.ts` (más el existente `resolve-commercial-context.test.ts`, sin cambios porque `getEffectiveOrganizationModules` ya encapsula la nueva query).
 
+## Platform — FASE V-C: code de plan editable + cierre del modelo comercial (cerrada)
+
+**FASE_V_TECHNICAL_STATUS = CLOSED.** ✅ Plan Manager dinámico · ✅ planes editables · ✅ `code` editable · ✅ módulos por plan · ✅ límites/capacidades por plan · ✅ precios mensual/anual · ✅ herencia · ✅ overrides · ✅ vertical safety · ✅ impacto organizaciones · ✅ códigos comerciales alineados Starter/Growth/Business.
+
+- **`code` editable** en "Editar plan" (`platform-plan-form-dialog.tsx`). `updatePlatformPlanSchema` usa la misma regla que create (`platformPlanCodeSchema`: 2–60, trim, lowercase). `updatePlatformPlanAction` actualiza siempre `where: { id }` dentro de la transacción existente; unicidad verificada excluyendo el propio plan (`Ya existe otro plan con el código "x".`) + P2002 concurrente sobre `code` traducido a error de campo. `id` (UUID) es la identidad; organizations/modules/entitlements referencian `plan_id` y no se tocan.
+- **Sin dependencia runtime de `plan.code`**: los únicos consumidores en `src/` son presentación/export (provisioning package, deployment bundle, env preview, summary). Ningún `if/switch` sobre `starter`/`professional`/`enterprise`.
+- **Seed/bootstrap**: `seed.platform.ts` y `bootstrap-platform-commercial-catalog.ts` hacían `upsert` de planes base por `code` (sobrescribiendo `name`/`description`). Ahora solo siembran planes base si **no existe ningún plan** (`shouldSeedBasePlans`) — un re-run ya no renombra planes gestionados desde Platform Admin ni recrea `professional`/`enterprise` huérfanos.
+- **Control Plane (`nygdqnlzoalmhrqwijjn`) realineado 2026-09-25** — una transacción, por id, orden seguro para evitar la colisión de `starter`: Growth `starter→growth`, Business `professional→business`, Starter `enterprise→starter`. Verificado PRE/POST: mismos ids, precios, organizaciones (Starter: `commerce-pilot-0001`, `meta-training`), módulos y entitlements; resolver efectivo idéntico para ambas organizaciones. Sin migración.
+- **Growth / DTE**: `fiscal.dte` = ON y `fiscal.dte.monthly_issued` = 600 → configuración consistente. Composición comercial futura (qué incluye cada plan) es decisión comercial, fuera de la fase técnica.
+
 ### Commerce sin vertical (FASE A11)
 `vertical_id = null` es válido y NO es un error de provisioning. `provisioning-validator.ts` → `checkVertical` ahora pasa (`passed: true`) tanto si hay vertical asignada como si no (mensaje "No aplica — organización transversal (Commerce sin vertical)"). NO se usa la vertical `GENERAL` como fallback.
 

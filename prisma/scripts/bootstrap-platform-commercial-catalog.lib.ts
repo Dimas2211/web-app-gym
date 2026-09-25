@@ -11,9 +11,9 @@
  * ENTITLEMENT_DEFINITIONS) — nunca las duplica ni las reinterpreta.
  */
 
-import { VERTICALS, PLANS, MODULES, ENTITLEMENT_DEFINITIONS } from "../seeds/seed.platform";
+import { VERTICALS, PLANS, MODULES, ENTITLEMENT_DEFINITIONS, shouldSeedBasePlans } from "../seeds/seed.platform";
 
-export { VERTICALS, PLANS, MODULES, ENTITLEMENT_DEFINITIONS };
+export { VERTICALS, PLANS, MODULES, ENTITLEMENT_DEFINITIONS, shouldSeedBasePlans };
 
 // ── Organizaciones objetivo (bootstrap de producción — NUNCA se crean) ──
 

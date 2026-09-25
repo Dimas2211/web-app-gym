@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { platformPlanCodeSchema } from "./create-platform-plan.schema";
 
 // Bloque A — mismas piezas que create-platform-plan.schema.ts.
 const planModuleInputSchema = z.object({
@@ -17,6 +18,7 @@ const planEntitlementInputSchema = z.object({
 
 export const updatePlatformPlanSchema = z.object({
   id:            z.string().uuid(),
+  code:          platformPlanCodeSchema,
   name:          z.string().min(2).max(200).trim().optional(),
   description:   z.string().max(500).trim().nullable().optional(),
   billing_cycle: z.enum(["MONTHLY", "ANNUAL", "LIFETIME", "NONE"]).optional(),

@@ -78,6 +78,7 @@ import {
   VERTICALS,
   PLANS,
   MODULES,
+  shouldSeedBasePlans,
   ENTITLEMENT_DEFINITIONS,
   TARGET_ORG_CODES,
   TRUSTME_MODULE_CODES,
@@ -305,7 +306,7 @@ async function runInspect() {
 
   console.log("── Catálogo que sembraría/actualizaría EXECUTE (upsert por code) ──");
   console.log(`  Verticales                    : ${VERTICALS.map((v) => v.code).join(", ")}`);
-  console.log(`  Planes base (sin composición)  : ${PLANS.map((p) => p.code).join(", ")}`);
+  console.log(`  Planes base (sin composición)  : ${PLANS.map((p) => p.code).join(", ")} (solo si no existe ningún plan)`);
   console.log(`  Módulos                        : ${MODULES.map((m) => m.code).join(", ")}`);
   console.log(`  Entitlement definitions        : ${ENTITLEMENT_DEFINITIONS.map((e) => e.code).join(", ")}`);
   console.log("");
@@ -353,7 +354,12 @@ async function runExecute() {
     }
 
     console.log("  → Planes base (sin composición)...");
-    for (const p of PLANS) {
+    // FASE V-C — solo en catálogo de planes vacío (ver shouldSeedBasePlans).
+    const existingPlanCount = await tx.platformPlan.count();
+    if (!shouldSeedBasePlans(existingPlanCount)) {
+      console.log(`    (omitido — ya existen ${existingPlanCount} planes; se gestionan desde Platform Admin)`);
+    }
+    for (const p of shouldSeedBasePlans(existingPlanCount) ? PLANS : []) {
       await tx.platformPlan.upsert({
         where: { code: p.code },
         update: { name: p.name, description: p.description },

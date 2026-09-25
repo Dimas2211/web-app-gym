@@ -17,6 +17,7 @@ import {
   assertCatalogConsistency,
   planModuleActivation,
   planUnlimitedOverrides,
+  shouldSeedBasePlans,
 } from "./bootstrap-platform-commercial-catalog.lib";
 
 describe("assertCatalogConsistency", () => {
@@ -166,5 +167,19 @@ describe("planUnlimitedOverrides", () => {
   it("nunca incluye fiscal.dte.monthly_issued al planificar con UNLIMITED_ENTITLEMENT_CODES", () => {
     const plan = planUnlimitedOverrides(UNLIMITED_ENTITLEMENT_CODES, []);
     expect(plan.toCreate).not.toContain(DEFERRED_ENTITLEMENT_CODE);
+  });
+});
+
+// FASE V-C — tras realinear códigos (enterprise→starter, starter→growth,
+// professional→business) un re-run del seed/bootstrap NO debe renombrar
+// planes existentes ni recrear "professional"/"enterprise" huérfanos.
+describe("shouldSeedBasePlans", () => {
+  it("siembra planes base solo en un catálogo de planes vacío", () => {
+    expect(shouldSeedBasePlans(0)).toBe(true);
+  });
+
+  it("no toca planes cuando ya existe al menos uno", () => {
+    expect(shouldSeedBasePlans(1)).toBe(false);
+    expect(shouldSeedBasePlans(3)).toBe(false);
   });
 });

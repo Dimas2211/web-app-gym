@@ -156,13 +156,13 @@ export function PlatformPlanFormDialog({ plan, allModules, entitlementDefinition
           <div>
             <h3 className="text-xs font-bold text-zinc-500 uppercase tracking-wide mb-3">Datos generales</h3>
             <div className="grid grid-cols-2 gap-4">
-              {!isEdit && (
-                <div className="col-span-2">
-                  <Field label="Código *" error={state?.errors?.code?.[0]}>
-                    <input name="code" type="text" placeholder="ej: commerce-standard" className={inputCls} />
-                  </Field>
-                </div>
-              )}
+              {/* FASE V-C — code editable también en edición. La identidad
+                  del plan es `id`; cambiar el code no mueve relaciones. */}
+              <div className="col-span-2">
+                <Field label="Código *" error={state?.errors?.code?.[0]}>
+                  <input name="code" type="text" defaultValue={plan?.code} placeholder="ej: commerce-standard" className={inputCls} />
+                </Field>
+              </div>
 
               <div className="col-span-2">
                 <Field label="Nombre *" error={state?.errors?.name?.[0]}>

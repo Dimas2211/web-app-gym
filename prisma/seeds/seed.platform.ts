@@ -87,6 +87,15 @@ export const PLANS = [
   },
 ] as const;
 
+// FASE V-C — los planes base solo se siembran en un catálogo de planes
+// VACÍO (control plane nuevo). Con planes existentes, `code`/`name` son
+// datos comerciales editables desde Platform Admin: un re-run del seed no
+// debe renombrarlos ni recrear códigos base retirados (p.ej. tras
+// realinear enterprise→starter, starter→growth, professional→business).
+export function shouldSeedBasePlans(existingPlanCount: number): boolean {
+  return existingPlanCount === 0;
+}
+
 // Catálogo de módulos — uno por funcionalidad identificada
 export const MODULES = [
   // Core — transversales, base de toda instancia
@@ -158,7 +167,11 @@ export async function seedPlatform(prisma: PrismaClient): Promise<void> {
 
   // ── 2. Planes ────────────────────────────────────────────────
   console.log("  → Planes de licencia...");
-  for (const p of PLANS) {
+  const existingPlanCount = await prisma.platformPlan.count();
+  if (!shouldSeedBasePlans(existingPlanCount)) {
+    console.log(`    (omitido — ya existen ${existingPlanCount} planes; se gestionan desde Platform Admin)`);
+  }
+  for (const p of shouldSeedBasePlans(existingPlanCount) ? PLANS : []) {
     await prisma.platformPlan.upsert({
       where:  { code: p.code },
       update: { name: p.name, description: p.description },
