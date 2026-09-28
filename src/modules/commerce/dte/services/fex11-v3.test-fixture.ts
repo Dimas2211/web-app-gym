@@ -117,7 +117,7 @@ export function makeFexV3LoadedData(): FexLoadedData {
       email:              "facturacion@gym.test",
       environment:        "TEST",
     },
-    emisorFexTerritory: { departamento: "05", municipio: "06", distrito: "11" },
+    emisorFexTerritory: { departamento: "05", municipio: "28", distrito: "11" },
     receptorCountry:    { code: "US", name: "Estados Unidos" },
   };
 }

@@ -107,7 +107,7 @@ describe("pipeline FEX 11 v3 local (in-memory, sin MH)", () => {
     const persisted = doc.json_document as { identificacion: { version: number; ambiente: string }; emisor: { direccion: { departamento: string; municipio: string; distrito: string } } };
     expect(persisted.identificacion.version).toBe(3);
     expect(persisted.identificacion.ambiente).toBe("00");
-    expect(persisted.emisor.direccion).toMatchObject({ departamento: "05", municipio: "06", distrito: "11" });
+    expect(persisted.emisor.direccion).toMatchObject({ departamento: "05", municipio: "28", distrito: "11" });
     expect(validateAgainstFexV3(persisted).ok).toBe(true);
   });
 

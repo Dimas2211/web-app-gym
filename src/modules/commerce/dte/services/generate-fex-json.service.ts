@@ -23,9 +23,10 @@
 //     emisión: nunca se convierte automáticamente.
 //   - emisor.direccion: proyección territorial FEX v3 (fex11-v3-territory.ts)
 //     del registro Municipality del emisor — departamento = dept_code,
-//     municipio = new_municipality_code sin depto, distrito = district_code
-//     sin municipio nuevo (Santa Tecla → 05/06/11). MH TEST rechazó
-//     05/11/050611 (FEX-V3-TERRITORY-FIX). FE/CCFE/NC/FSE no cambian.
+//     municipio = CAT-013 de (dept_code, new_municipality_name), distrito =
+//     district_code sin municipio nuevo (Santa Tecla → 05/28/11). MH TEST
+//     rechazó 05/11/050611 y 05/06/11 (FEX-V3-TERRITORY-FIX). FE/CCFE/NC/FSE
+//     no cambian.
 //   - emisor.tipoRegimen: sin catálogo oficial publicado. Exportación de
 //     servicios (tipoItemExpor=2) → null, igual que recintoFiscal/regimen.
 //     Exportación de bienes (1/3) → bloqueada hasta confirmar la fuente.

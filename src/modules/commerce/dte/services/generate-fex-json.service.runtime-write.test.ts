@@ -150,7 +150,7 @@ describe("generateFexJsonForSale — FASE VI-E4A (runtime db injection)", () => 
     expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.json.identificacion.version).toBe(3);
-      expect(result.json.emisor.direccion).toMatchObject({ departamento: "06", municipio: "01", distrito: "23" });
+      expect(result.json.emisor.direccion).toMatchObject({ departamento: "06", municipio: "23", distrito: "23" });
       expect(result.json.receptor.codPais).toBe("US");
     }
   });

@@ -146,11 +146,11 @@ describe("FEX v3 — documento estándar", () => {
     expect(validateAgainstFexV3(missing).ok).toBe(false);
   });
 
-  it("G. emisor.direccion = proyección territorial FEX v3 (05/06/11); sin territorio → error claro", () => {
+  it("G. emisor.direccion = proyección territorial FEX v3 (05/28/11); sin territorio → error claro", () => {
     const json = buildOk();
     expect(json.emisor.direccion).toEqual({
       departamento: "05",
-      municipio:    "06",
+      municipio:    "28",
       distrito:     "11",
       complemento:  "Calle Principal 123, Santa Tecla",
     });

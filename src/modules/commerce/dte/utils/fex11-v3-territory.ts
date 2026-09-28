@@ -4,18 +4,20 @@
 // FEX-V3-TERRITORY-FIX — proyección territorial EXCLUSIVA de FEX 11 v3
 // para emisor.direccion.{departamento, municipio, distrito}.
 //
-// MH TEST rechazó (codigoMsg 096) un FEX v3 con municipio="11" y
-// distrito="050611" (Municipality.code / district_code completos). FEX v3
-// usa la organización territorial nueva, con códigos de 2 dígitos
-// relativos a su nivel superior:
+// Evidencia MH TEST (codigoMsg 096, Santa Tecla):
+//   05 / 11 / 050611 → rechazó municipio y distrito.
+//   05 / 06 / 11     → rechazó solo municipio (distrito "11" aceptado).
+// FEX v3 exige municipio = código CAT-013 (Catálogos MH v1.2, 10/2025):
 //
-//   departamento = dept_code                         ("05")
-//   municipio    = new_municipality_code sin depto   ("0506"   → "06")
-//   distrito     = district_code sin municipio nuevo ("050611" → "11")
+//   departamento = dept_code                                  ("05")
+//   municipio    = CAT-013 de (dept_code, new_municipality_name) ("28")
+//   distrito     = district_code sin municipio nuevo           ("11")
 //
-// No se hace slice ciego: se exige la jerarquía
-// dept(2) ⊂ new_municipality_code(4) ⊂ district_code(6). Si no se cumple,
-// fail-closed antes de generar/firmar.
+// new_municipality_code ya no se envía, pero sigue validando la
+// jerarquía dept(2) ⊂ new_municipality_code(4) ⊂ district_code(6).
+// Cualquier inconsistencia, nombre ausente o CAT-013 sin coincidencia
+// única → fail-closed antes de generar/firmar. Sin fallback a
+// Municipality.code ni a new_municipality_code.
 //
 // NO cambia el contrato de resolveDteMunicipality (municipalityCode =
 // Municipality.code), del que dependen FE 01 / CCFE 03 / NC 05 / FSE 14.
@@ -24,6 +26,11 @@
 // ─────────────────────────────────────────────────────────────────
 
 import type { ResolvedDteMunicipality } from "./dte-territory.resolver";
+import {
+  CAT013_FEX_V3_MUNICIPALITIES,
+  normalizeCat013Name,
+  type Cat013FexV3Municipality,
+} from "./cat013-fex-v3-municipalities";
 
 export interface FexV3Territory {
   departamento: string;
@@ -40,10 +47,12 @@ const FOUR_DIGITS = /^[0-9]{4}$/;
 const SIX_DIGITS  = /^[0-9]{6}$/;
 
 export function projectFexV3Territory(
-  resolved: Pick<ResolvedDteMunicipality, "departmentCode" | "newMunicipalityCode" | "districtCode">,
+  resolved: Pick<ResolvedDteMunicipality, "departmentCode" | "newMunicipalityCode" | "newMunicipalityName" | "districtCode">,
+  cat013: readonly Cat013FexV3Municipality[] = CAT013_FEX_V3_MUNICIPALITIES,
 ): ProjectFexV3TerritoryResult {
-  const deptCode    = resolved.departmentCode;
-  const newMuniCode = resolved.newMunicipalityCode;
+  const deptCode     = resolved.departmentCode;
+  const newMuniCode  = resolved.newMunicipalityCode;
+  const newMuniName  = resolved.newMunicipalityName?.trim() ?? "";
   const districtCode = resolved.districtCode;
   const fail = (detail: string): ProjectFexV3TerritoryResult => ({
     ok:    false,
@@ -65,12 +74,30 @@ export function projectFexV3Territory(
   if (!districtCode.startsWith(newMuniCode)) {
     return fail(`distrito "${districtCode}" no pertenece al municipio nuevo "${newMuniCode}"`);
   }
+  if (!newMuniName) {
+    return fail("falta el nombre del municipio nuevo (requerido para resolver CAT-013)");
+  }
+
+  const wanted  = normalizeCat013Name(newMuniName);
+  const matches = cat013.filter(
+    (m) => m.departmentCode === deptCode && normalizeCat013Name(m.municipalityName) === wanted,
+  );
+  if (matches.length === 0) {
+    return fail(`el municipio "${newMuniName}" del departamento "${deptCode}" no existe en CAT-013`);
+  }
+  if (matches.length > 1) {
+    return fail(`el municipio "${newMuniName}" del departamento "${deptCode}" es ambiguo en CAT-013 (${matches.length} coincidencias)`);
+  }
+  const cat013Code = matches[0].municipalityCode;
+  if (!TWO_DIGITS.test(cat013Code)) {
+    return fail(`código CAT-013 "${cat013Code}" debe tener 2 dígitos`);
+  }
 
   return {
     ok: true,
     territory: {
       departamento: deptCode,
-      municipio:    newMuniCode.slice(2),
+      municipio:    cat013Code,
       distrito:     districtCode.slice(4),
     },
   };
