@@ -11,7 +11,7 @@
 // definido en F3-C10:
 //   - cargar DteOutgoingDocument (tenant/location explícitos);
 //   - validar dte_type_code === "11";
-//   - validar environment === "TEST";
+//   - validar flag FEX 11 del ambiente del documento (FEX-PROD-1);
 //   - validar sale_id presente;
 //   - validar signed_jws null;
 //   - validar dte_status en {PENDING_GENERATION, GENERATED, SCHEMA_VALIDATED};
@@ -34,7 +34,7 @@ import {
   validateDteJsonSchema,
   type DteValidationError,
 } from "./validate-dte-json-schema.service";
-import { canUseFex11InServerFlow } from "../utils/fex11-feature-guard";
+import { canUseFex11InServerFlow, FEX11_NOT_ENABLED_ERROR } from "../utils/fex11-feature-guard";
 
 // ── Tipos públicos ────────────────────────────────────────────────
 
@@ -105,7 +105,7 @@ export async function generateAndPersistFexJsonForDte(
   if (!canUseFex11InServerFlow({ dte_type_code: dteDoc.dte_type_code, environment: dteDoc.environment })) {
     return {
       ok:    false,
-      error: "FEX 11 solo está habilitada para pruebas controladas en ambiente TEST.",
+      error: FEX11_NOT_ENABLED_ERROR,
     };
   }
   if (dteDoc.signed_jws) {

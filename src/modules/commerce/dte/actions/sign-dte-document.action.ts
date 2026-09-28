@@ -22,9 +22,10 @@
 // eso es un control de cliente, no de servidor — este guard cierra esa
 // brecha a nivel de action.
 //
-// F3-C17 — FEX 11 se permite únicamente bajo fex11-feature-guard
-// (DTE_FEX11_TEST_ENABLED=YES, TEST, NODE_ENV != production). Sigue sin
-// haber UI para tipo 11.
+// F3-C17 — FEX 11 se permite únicamente bajo fex11-feature-guard.
+// FEX-PROD-1: el flag se evalúa contra el ambiente del documento (TEST
+// → DTE_FEX11_TEST_ENABLED / DTE_FEX11_ENABLED; PRODUCTION → solo
+// DTE_FEX11_PRODUCTION_ENABLED). Nunca depende de NODE_ENV.
 //
 // FASE VI-E5A — reemplaza requireAdmin + getEffectiveLocationId +
 // resolveCommercialEnforcementContext manual por
@@ -42,7 +43,7 @@ import {
   signDteDocument,
   type SignDteDocumentResult,
 } from "../services/sign-dte-document.service";
-import { canUseFex11InServerFlow } from "../utils/fex11-feature-guard";
+import { canUseFex11InServerFlow, FEX11_NOT_ENABLED_ERROR } from "../utils/fex11-feature-guard";
 import {
   requireOperationalContext,
   OperationalContextError,
@@ -95,7 +96,7 @@ export async function signDteDocumentAction(
       if (!eligible) {
         return {
           ok:    false,
-          error: "FEX 11 solo está habilitada para pruebas controladas en ambiente TEST.",
+          error: FEX11_NOT_ENABLED_ERROR,
         };
       }
     } else if (!SIGNABLE_TYPE_CODES.has(dteDoc.dte_type_code)) {

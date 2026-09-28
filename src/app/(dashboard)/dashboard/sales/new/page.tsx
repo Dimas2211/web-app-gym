@@ -4,7 +4,7 @@ import { getLocationById } from "@/core/modules/locations/queries";
 import { listDteCatalogItems } from "@/modules/commerce/dte/queries/list-dte-catalog-items";
 import { getSaleDetailById } from "@/modules/commerce/sales/queries/get-sale-detail-by-id";
 import { SaleNewClient } from "@/modules/commerce/sales/components/sale-new-client";
-import { isFex11Enabled } from "@/modules/commerce/dte/utils/fex11-feature-guard";
+import { resolveFex11AvailabilityForLocation } from "@/modules/commerce/sales/export/services/export-sale.service";
 import {
   resolveEffectiveTenantContext,
   resolveRuntimeFirstLocationId,
@@ -41,11 +41,13 @@ export default async function NewSalePage({
       );
     }
 
-    const [cat016, cat017, cat018, location] = await Promise.all([
+    const [cat016, cat017, cat018, location, fex11] = await Promise.all([
       listDteCatalogItems({ catalog_code: "CAT-016" }, context.client),
       listDteCatalogItems({ catalog_code: "CAT-017" }, context.client),
       listDteCatalogItems({ catalog_code: "CAT-018" }, context.client),
       getLocationById(location_id, tenant_id, context.client),
+      // FEX-PROD-1: flag del ambiente fiscal efectivo de la sucursal.
+      resolveFex11AvailabilityForLocation(tenant_id, location_id, context.client),
     ]);
 
     // Si viene sale_id, cargar el borrador existente (solo si es DRAFT y pertenece al tenant/location)
@@ -65,7 +67,7 @@ export default async function NewSalePage({
         catalogCAT018={cat018}
         locationName={location?.name ?? undefined}
         initialDraft={initialDraft}
-        fex11Enabled={isFex11Enabled()}
+        fex11Enabled={fex11.enabled}
       />
     );
   } finally {

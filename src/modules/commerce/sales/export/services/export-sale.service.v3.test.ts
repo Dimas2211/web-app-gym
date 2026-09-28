@@ -7,7 +7,7 @@
 // DteOutgoingDocument 11 en TEST. DB in-memory; Prisma global prohibido.
 // ─────────────────────────────────────────────────────────────────
 
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 vi.mock("@/lib/db/prisma", () => ({
   prisma: new Proxy({}, {
@@ -35,9 +35,6 @@ vi.mock("../../../dte/services/dte-correlative.service", () => ({
 }));
 vi.mock("../../../dte/queries/list-dte-catalog-items", () => ({
   listDteCatalogItems: listCatalogMock,
-}));
-vi.mock("../../../dte/utils/fex11-feature-guard", () => ({
-  isFex11Enabled: () => true,
 }));
 
 import {
@@ -88,6 +85,7 @@ function buildDb(opts: { customerCountry?: string; productCode?: string; product
       }]),
     },
     dteIssuerConfig: {
+      findMany: vi.fn(async () => [{ environment: "TEST" }]),
       findFirst: vi.fn(async () => ({
         id: "cfg-1", nit: "06141234567890", nrc: "1234567", name: "GYM", activity_code: "93110",
         activity_name: "Deportes", dept_code: "05", municipality_code: "11", address_complement: "Calle 1",
@@ -130,6 +128,12 @@ beforeEach(() => {
   addSaleItemToDraftMock.mockResolvedValue({ ok: true });
   confirmSaleMock.mockResolvedValue({ ok: true });
   reserveMock.mockResolvedValue({ control_number: "DTE-11-M001P001-000000000000001" });
+  // FEX-PROD-1: guard real (sin mock) con el flag TEST activo.
+  vi.stubEnv("DTE_FEX11_TEST_ENABLED", "YES");
+});
+
+afterEach(() => {
+  vi.unstubAllEnvs();
 });
 
 describe("createExportSale — FEX v3", () => {

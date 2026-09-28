@@ -27,7 +27,12 @@ import { Prisma, type PrismaClient } from "@prisma/client";
 import { prisma } from "@/lib/db/prisma";
 import { createSaleDraft, addSaleItemToDraft, confirmSale } from "../../services/sale.service";
 import { reserveDteControlNumber } from "../../../dte/services/dte-correlative.service";
-import { isFex11Enabled } from "../../../dte/utils/fex11-feature-guard";
+import {
+  isFex11Enabled,
+  isFex11EnvironmentEnabled,
+  FEX11_NOT_ENABLED_ERROR,
+  type Fex11Environment,
+} from "../../../dte/utils/fex11-feature-guard";
 import { listDteCatalogItems } from "../../../dte/queries/list-dte-catalog-items";
 import { DTE_CATALOG_CODES } from "../../../dte/types/dte-catalog.types";
 import { CAT014_UNITS } from "../../../../../../prisma/seeds/data/cat014-units";
@@ -183,25 +188,72 @@ export async function updateForeignCustomerCountry(
   return { ok: true, country_code: country!.code, country_name: country!.name };
 }
 
-// ── Resolver configuración TEST activa del emisor ─────────────────
+// ── Resolver ambiente fiscal efectivo y emisor activo ─────────────
 //
-// FEX 11 solo opera en ambiente TEST (NO-GO producción confirmado en
-// docs/modules/fex11-e2e-ui-mh-mariadb-close.md). No se infiere
-// PRODUCTION aquí bajo ninguna circunstancia.
+// FEX-PROD-1 — mismo patrón fiscal efectivo que FE/CCFE
+// (create-pending-dte-simple.action.ts): el ambiente es el del ÚNICO
+// DteIssuerConfig activo de tenant+location. Con TEST y PRODUCTION
+// activos a la vez no se infiere nada. Nunca depende de NODE_ENV y no
+// hay fallback TEST <-> PRODUCTION: el emisor se carga después con el
+// ambiente exacto.
 
-interface ActiveTestIssuer {
+export type ResolveFexEnvironmentResult =
+  | { ok: true; environment: Fex11Environment }
+  | { ok: false; error: string };
+
+export async function resolveEffectiveFexEnvironment(
+  tenant_id:   string,
+  location_id: string,
+  db: PrismaClient = prisma,
+): Promise<ResolveFexEnvironmentResult> {
+  const active = await db.dteIssuerConfig.findMany({
+    where:  { tenant_id, location_id, is_active: true },
+    select: { environment: true },
+    take:   3,
+  });
+  if (active.length === 0) {
+    return { ok: false, error: "No existe una configuración DTE activa para esta sucursal. Configure el emisor DTE primero." };
+  }
+  if (active.length > 1) {
+    return { ok: false, error: "Hay más de una configuración DTE activa (TEST y PRODUCTION). Desactive una de las dos antes de emitir." };
+  }
+  const environment = active[0].environment;
+  if (environment !== "TEST" && environment !== "PRODUCTION") {
+    return { ok: false, error: "Ambiente DTE del emisor no reconocido." };
+  }
+  return { ok: true, environment };
+}
+
+/**
+ * UI (páginas): FEX 11 disponible para la sucursal solo si el ambiente
+ * fiscal efectivo existe y su flag está activo. Fail-closed.
+ */
+export async function resolveFex11AvailabilityForLocation(
+  tenant_id:   string,
+  location_id: string,
+  db: PrismaClient = prisma,
+): Promise<{ enabled: boolean; environment: Fex11Environment | null }> {
+  if (!isFex11Enabled()) return { enabled: false, environment: null };
+  const env = await resolveEffectiveFexEnvironment(tenant_id, location_id, db);
+  if (!env.ok) return { enabled: false, environment: null };
+  return { enabled: isFex11EnvironmentEnabled(env.environment), environment: env.environment };
+}
+
+interface ActiveIssuer {
   id:                 string;
+  environment:        Fex11Environment;
   cod_estable_mh:     string;
   cod_punto_venta_mh: string;
 }
 
-async function loadActiveTestIssuerConfigOrError(
-  tenant_id: string,
+export async function loadActiveIssuerConfigOrError(
+  tenant_id:   string,
   location_id: string,
+  environment: Fex11Environment,
   db: PrismaClient = prisma,
-): Promise<{ ok: true; issuer: ActiveTestIssuer } | { ok: false; error: string }> {
+): Promise<{ ok: true; issuer: ActiveIssuer } | { ok: false; error: string }> {
   const issuer = await db.dteIssuerConfig.findFirst({
-    where: { tenant_id, location_id, environment: "TEST", is_active: true },
+    where: { tenant_id, location_id, environment, is_active: true },
     select: {
       id: true, nit: true, nrc: true, name: true, activity_code: true, activity_name: true,
       dept_code: true, municipality_code: true, address_complement: true, phone: true, email: true,
@@ -210,7 +262,7 @@ async function loadActiveTestIssuerConfigOrError(
   });
 
   if (!issuer) {
-    return { ok: false, error: "No existe configuración DTE activa (ambiente TEST) para esta sucursal. Configure el emisor DTE primero." };
+    return { ok: false, error: `No existe configuración DTE activa (ambiente ${environment}) para esta sucursal. Configure el emisor DTE primero.` };
   }
 
   const missing: string[] = [];
@@ -228,13 +280,14 @@ async function loadActiveTestIssuerConfigOrError(
   if (!issuer.cod_punto_venta_mh || issuer.cod_punto_venta_mh.length !== 4) missing.push("cod_punto_venta_mh (4 caracteres)");
 
   if (missing.length > 0) {
-    return { ok: false, error: `La configuración del emisor (TEST) está incompleta para FEX 11. Campos faltantes: ${missing.join(", ")}.` };
+    return { ok: false, error: `La configuración del emisor (${environment}) está incompleta para FEX 11. Campos faltantes: ${missing.join(", ")}.` };
   }
 
   return {
     ok: true,
     issuer: {
       id:                 issuer.id,
+      environment,
       cod_estable_mh:     issuer.cod_estable_mh!,
       cod_punto_venta_mh: issuer.cod_punto_venta_mh!,
     },
@@ -299,15 +352,17 @@ async function createPendingExportDte(
   tenant_id:   string,
   location_id: string,
   sale_id:     string,
-  issuer:      ActiveTestIssuer,
+  issuer:      ActiveIssuer,
   db: PrismaClient = prisma,
 ): Promise<string> {
+  // Correlativo aislado por tenant/location/issuer/environment — el
+  // ambiente sale del emisor ya resuelto, nunca de un literal.
   const created = await db.$transaction(async (tx) => {
     const { control_number } = await reserveDteControlNumber(tx, {
       tenant_id,
       location_id,
       issuer_config_id:   issuer.id,
-      environment:        "TEST",
+      environment:        issuer.environment,
       dte_type_code:      "11",
       cod_estable_mh:     issuer.cod_estable_mh,
       cod_punto_venta_mh: issuer.cod_punto_venta_mh,
@@ -322,7 +377,7 @@ async function createPendingExportDte(
         sale_id,
         issuer_config_id: issuer.id,
         dte_type_code:    "11",
-        environment:      "TEST",
+        environment:      issuer.environment,
         generation_code,
         control_number,
         dte_status:  "PENDING_GENERATION",
@@ -356,12 +411,12 @@ export async function regenerateRejectedExportDte(
   db: PrismaClient = prisma,
 ): Promise<RegenerateExportDteResult> {
   if (!isFex11Enabled()) {
-    return { ok: false, error: "FEX 11 no está habilitada. Active DTE_FEX11_ENABLED o DTE_FEX11_TEST_ENABLED en ambiente TEST." };
+    return { ok: false, error: FEX11_NOT_ENABLED_ERROR };
   }
 
   const rejected = await db.dteOutgoingDocument.findFirst({
     where:  { id: dte_document_id, tenant_id, location_id, dte_type_code: "11" },
-    select: { id: true, sale_id: true, dte_status: true, issuer_config_id: true },
+    select: { id: true, sale_id: true, dte_status: true, issuer_config_id: true, environment: true },
   });
   if (!rejected) {
     return { ok: false, error: "El documento DTE de exportación no existe o no pertenece a la location activa." };
@@ -381,14 +436,23 @@ export async function regenerateRejectedExportDte(
 
   const issuerConfig = await db.dteIssuerConfig.findFirst({
     where:  { id: rejected.issuer_config_id, tenant_id, location_id },
-    select: { id: true, cod_estable_mh: true, cod_punto_venta_mh: true },
+    select: { id: true, environment: true, cod_estable_mh: true, cod_punto_venta_mh: true },
   });
   if (!issuerConfig?.cod_estable_mh || !issuerConfig?.cod_punto_venta_mh) {
     return { ok: false, error: "No se pudo resolver la configuración del emisor original para generar el nuevo DTE." };
   }
+  // FEX-PROD-1: el nuevo DTE hereda el ambiente del original, que debe
+  // coincidir con su emisor y estar habilitado — sin mezcla TEST/PROD.
+  if (issuerConfig.environment !== rejected.environment) {
+    return { ok: false, error: "El ambiente del emisor no coincide con el ambiente del documento DTE." };
+  }
+  if (!isFex11EnvironmentEnabled(rejected.environment)) {
+    return { ok: false, error: FEX11_NOT_ENABLED_ERROR };
+  }
 
   const newDteId = await createPendingExportDte(tenant_id, location_id, rejected.sale_id, {
     id:                 issuerConfig.id,
+    environment:        rejected.environment as Fex11Environment,
     cod_estable_mh:     issuerConfig.cod_estable_mh,
     cod_punto_venta_mh: issuerConfig.cod_punto_venta_mh,
   }, db);
@@ -406,7 +470,7 @@ export async function createExportSale(
   db: PrismaClient = prisma,
 ): Promise<CreateExportSaleResult> {
   if (!isFex11Enabled()) {
-    return { ok: false, error: "FEX 11 no está habilitada. Active DTE_FEX11_ENABLED o DTE_FEX11_TEST_ENABLED en ambiente TEST." };
+    return { ok: false, error: FEX11_NOT_ENABLED_ERROR };
   }
 
   // 1. Cliente debe ser extranjero
@@ -465,8 +529,17 @@ export async function createExportSale(
     return { ok: false, error: "Datos de exportación no válidos.", errors: businessErrors };
   }
 
-  // 3. Resolver emisor TEST activo antes de crear nada (fail fast)
-  const issuerResult = await loadActiveTestIssuerConfigOrError(tenant_id, location_id, db);
+  // 3. Resolver ambiente fiscal efectivo + emisor activo de ESE ambiente
+  //    antes de crear nada (fail fast). El flag se evalúa contra el
+  //    ambiente efectivo: DTE_FEX11_ENABLED nunca habilita PRODUCTION.
+  const envResult = await resolveEffectiveFexEnvironment(tenant_id, location_id, db);
+  if (!envResult.ok) {
+    return { ok: false, error: envResult.error };
+  }
+  if (!isFex11EnvironmentEnabled(envResult.environment)) {
+    return { ok: false, error: FEX11_NOT_ENABLED_ERROR };
+  }
+  const issuerResult = await loadActiveIssuerConfigOrError(tenant_id, location_id, envResult.environment, db);
   if (!issuerResult.ok) {
     return { ok: false, error: issuerResult.error };
   }
@@ -530,7 +603,7 @@ export async function createExportSale(
     return { ok: false, error: `No se pudo confirmar la venta de exportación: ${confirmed.error}` };
   }
 
-  // 8. Crear DteOutgoingDocument tipo 11 (PENDING_GENERATION) en TEST
+  // 8. Crear DteOutgoingDocument tipo 11 (PENDING_GENERATION) en el ambiente del emisor
   const sale = await db.sale.findFirst({ where: { id: sale_id }, select: { sale_code: true } });
   const dte_document_id = await createPendingExportDte(tenant_id, location_id, sale_id, issuerResult.issuer, db);
 

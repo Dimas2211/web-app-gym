@@ -57,6 +57,8 @@ interface Props {
   errorMessage:   string | null;
   successMessage: string | null;
   contextNote?:   string | null;
+  /** FEX-PROD-1 — ambiente fiscal efectivo de la sucursal. */
+  environment?:   "TEST" | "PRODUCTION";
 }
 
 const FALLBACK_CAT016 = [
@@ -91,7 +93,7 @@ export function ExportTopBar({
   notes, onNotesChange,
   fiscalData, onOpenFiscalModal,
   onBack, readOnly,
-  errorMessage, successMessage, contextNote,
+  errorMessage, successMessage, contextNote, environment = "TEST",
 }: Props) {
   const cat016Items = catalogCAT016.length > 0 ? catalogCAT016 : FALLBACK_CAT016;
   const cat017Items = catalogCAT017.length > 0 ? catalogCAT017 : FALLBACK_CAT017;
@@ -115,10 +117,16 @@ export function ExportTopBar({
           <h1 className="text-sm font-semibold text-zinc-100 leading-tight">Ventas de exportación</h1>
           <p className="text-[10px] text-zinc-500 leading-tight">Factura de exportación FEX 11</p>
         </div>
-        <span className="inline-flex items-center gap-1 rounded border border-amber-800/50 bg-amber-900/20 px-2 py-0.5 text-[10px] font-medium text-amber-400 flex-none">
-          <AlertTriangle className="h-2.5 w-2.5" />
-          TEST / controlado
-        </span>
+        {environment === "PRODUCTION" ? (
+          <span className="inline-flex items-center gap-1 rounded border border-emerald-800/50 bg-emerald-900/20 px-2 py-0.5 text-[10px] font-medium text-emerald-400 flex-none">
+            PRODUCCIÓN
+          </span>
+        ) : (
+          <span className="inline-flex items-center gap-1 rounded border border-amber-800/50 bg-amber-900/20 px-2 py-0.5 text-[10px] font-medium text-amber-400 flex-none">
+            <AlertTriangle className="h-2.5 w-2.5" />
+            TEST / controlado
+          </span>
+        )}
 
         {saleCode && (
           <span className="inline-flex items-center h-6 px-2 text-[11px] font-mono text-zinc-300 bg-zinc-800 border border-zinc-700 rounded flex-none">

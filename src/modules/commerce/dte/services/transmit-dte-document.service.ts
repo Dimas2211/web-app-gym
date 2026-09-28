@@ -36,7 +36,7 @@ import { Prisma }                    from "@prisma/client";
 import { resolveDteMhUrls }           from "../config/dte-mh.config";
 import { MhDteTransmissionAdapter }  from "../adapters/dte-transmission.adapter";
 import { MhAuthAdapter }             from "../adapters/dte-auth.adapter";
-import { canUseFex11InServerFlow }   from "../utils/fex11-feature-guard";
+import { canUseFex11InServerFlow, FEX11_NOT_ENABLED_ERROR }   from "../utils/fex11-feature-guard";
 import { FEX11_SCHEMA_VERSION, fex11LegacyVersionError } from "../utils/fex11-schema-version";
 import { isMhProcessedObserved }     from "../utils/dte-mh-observations.utils";
 import { assertDteContingencyTransmissionAllowed } from "./assert-dte-contingency-transmission-allowed.service";
@@ -82,9 +82,8 @@ class TransmitDteBusinessError extends Error {
 // ── Helpers ───────────────────────────────────────────────────────
 
 // Tipos DTE con transmisión pública habilitada sin condiciones adicionales.
-// FEX 11 se evalúa aparte vía fex11-feature-guard — habilitada solo para
-// TEST mediante DTE_FEX11_TEST_ENABLED hasta que exista UI y validaciones
-// completas de catálogos.
+// FEX 11 se evalúa aparte vía fex11-feature-guard — FEX-PROD-1: flag por
+// ambiente del documento (TEST / PRODUCTION con DTE_FEX11_PRODUCTION_ENABLED).
 const SUPPORTED_TYPE_CODES = new Set(["01", "03", "05", "14"]);
 
 function dteTypeCodeToVersion(code: string): number {
@@ -190,7 +189,7 @@ export async function transmitDteDocument(
     if (dteDoc.dte_type_code === "11") {
       if (!canUseFex11InServerFlow({ dte_type_code: dteDoc.dte_type_code, environment: dteDoc.environment })) {
         throw new TransmitDteBusinessError(
-          "FEX 11 solo está habilitada para pruebas controladas en ambiente TEST.",
+          FEX11_NOT_ENABLED_ERROR,
         );
       }
       if (dteDoc.dte_status !== "SIGNED") {
@@ -202,6 +201,25 @@ export async function transmitDteDocument(
       // firmado. Un FEX v1 firmado antes de la migración no se transmite.
       const legacyError = fex11LegacyVersionError(dteDoc.json_document);
       if (legacyError) throw new TransmitDteBusinessError(legacyError);
+      // FEX-PROD-1: emisor del mismo tenant/location y mismo ambiente que
+      // el documento — antes de auth MH, metering o cualquier mutación.
+      if (!dteDoc.issuer_config_id) {
+        throw new TransmitDteBusinessError("El documento DTE no tiene configuración de emisor vinculada.");
+      }
+      const fexIssuer = await db.dteIssuerConfig.findFirst({
+        where:  { id: dteDoc.issuer_config_id, tenant_id: tenantId, location_id: locationId },
+        select: { environment: true },
+      });
+      if (!fexIssuer) {
+        throw new TransmitDteBusinessError(
+          "La configuración del emisor del documento no existe o no pertenece a la location activa.",
+        );
+      }
+      if (fexIssuer.environment !== dteDoc.environment) {
+        throw new TransmitDteBusinessError(
+          "El ambiente del emisor no coincide con el ambiente del documento DTE. Transmisión bloqueada.",
+        );
+      }
     } else if (!SUPPORTED_TYPE_CODES.has(dteDoc.dte_type_code)) {
       throw new TransmitDteBusinessError(
         `Tipo DTE no soportado para transmisión: ${dteDoc.dte_type_code}.`,
@@ -225,7 +243,8 @@ export async function transmitDteDocument(
 
     // 4. Parámetros de transmisión
     const environment   = dteDoc.environment as "TEST" | "PRODUCTION";
-    // FEX 11 se transmite solo bajo fex11-feature-guard (ver arriba). El tipo
+    // FEX 11 se transmite solo bajo fex11-feature-guard (ver arriba), con el
+    // ambiente del documento (TEST o PRODUCTION) — nunca NODE_ENV. El tipo
     // compartido DteTypeCode del adapter no incluye "11" por diseño (F3-C11B);
     // se castea localmente aquí, igual que en el script dev-only equivalente.
     const dteTypeCode   = dteDoc.dte_type_code as "01" | "03" | "05" | "14";

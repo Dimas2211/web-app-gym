@@ -352,6 +352,11 @@ export async function generateFexJsonForSale(
   if (!issuerConfig) {
     return { ok: false, error: "La configuración DTE del emisor no existe o no pertenece a esta location." };
   }
+  // FEX-PROD-1: identificacion.ambiente sale del emisor — debe coincidir
+  // con el ambiente del documento (sin mezcla TEST/PRODUCTION).
+  if (issuerConfig.environment !== dteDoc.environment) {
+    return { ok: false, error: "El ambiente del emisor no coincide con el ambiente del documento DTE." };
+  }
 
   // ── Validación territorial del emisor (resolver único) ───────────
   // FEX 11 no incluye dirección en el receptor (extranjero, usa

@@ -20,7 +20,7 @@ import type {
   ExternalDtePayload,
   ExternalDteResponseMH,
 } from "../types/external-dte-delivery.types";
-import { canUseFex11InServerFlow } from "../utils/fex11-feature-guard";
+import { canUseFex11InServerFlow, FEX11_NOT_ENABLED_ERROR } from "../utils/fex11-feature-guard";
 import { isFiscallyReceivedByMh } from "../utils/dte-fiscal-receipt.utils";
 
 // ── Forma esperada del documento cargado ─────────────────────────
@@ -51,9 +51,8 @@ export type BuildExternalDtePayloadResult =
 
 // ── Tipos DTE integrados en esta fase ─────────────────────────────
 //
-// FEX 11 se evalúa aparte vía fex11-feature-guard — habilitada solo para
-// TEST mediante DTE_FEX11_TEST_ENABLED hasta que exista UI y validaciones
-// completas de catálogos.
+// FEX 11 se evalúa aparte vía fex11-feature-guard — FEX-PROD-1: flag por
+// ambiente del documento (TEST / PRODUCTION con DTE_FEX11_PRODUCTION_ENABLED).
 
 const SUPPORTED_TYPES = new Set(["01", "03", "05", "14"]);
 
@@ -73,7 +72,7 @@ export function buildExternalDtePayload(
     if (!canUseFex11InServerFlow({ dte_type_code: doc.dte_type_code, environment: doc.environment })) {
       return {
         ok:    false,
-        error: "FEX 11 solo está habilitada para pruebas controladas en ambiente TEST.",
+        error: FEX11_NOT_ENABLED_ERROR,
       };
     }
   } else if (!SUPPORTED_TYPES.has(doc.dte_type_code)) {
@@ -114,6 +113,10 @@ export function buildExternalDtePayload(
 
   if (doc.dte_type_code === "11" && identificacion?.["tipoDte"] !== "11") {
     return { ok: false, error: "El json_document no corresponde a un tipoDte 11 (FEX)." };
+  }
+  // FEX-PROD-1: el JSON fiscal debe declarar el mismo ambiente que el documento.
+  if (doc.dte_type_code === "11" && identificacion?.["ambiente"] !== (doc.environment === "PRODUCTION" ? "01" : "00")) {
+    return { ok: false, error: "El ambiente del json_document FEX no coincide con el ambiente del documento." };
   }
   if (doc.dte_type_code === "14" && identificacion?.["tipoDte"] !== "14") {
     return { ok: false, error: "El json_document no corresponde a un tipoDte 14 (FSE)." };

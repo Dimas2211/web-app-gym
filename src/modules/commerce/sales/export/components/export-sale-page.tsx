@@ -19,6 +19,7 @@ import type { CountryItem } from "@/modules/commerce/suppliers/types/supplier-ca
 
 interface Props {
   fex11Enabled: boolean;
+  environment?: "TEST" | "PRODUCTION";
   catalogCAT016: DteCatalogItem[];
   catalogCAT017: DteCatalogItem[];
   catalogCountries: CountryItem[]; // País — CAT-020 vigente (FEX v3)
@@ -31,7 +32,7 @@ interface Props {
 }
 
 export function ExportSalePage({
-  fex11Enabled, catalogCAT016, catalogCAT017,
+  fex11Enabled, environment, catalogCAT016, catalogCAT017,
   catalogCountries, catalogCAT022, catalogCAT027, catalogCAT028, catalogCAT029, catalogCAT031,
   contextNote,
 }: Props) {
@@ -46,10 +47,7 @@ export function ExportSalePage({
             Ventas de exportación — módulo deshabilitado
           </div>
           <p className="text-sm text-amber-800/90 leading-relaxed">
-            FEX 11 solo está habilitada para pruebas controladas en ambiente TEST. Activa{" "}
-            <code className="rounded bg-amber-100 px-1.5 py-0.5 text-xs text-amber-900">DTE_FEX11_ENABLED=YES</code> o{" "}
-            <code className="rounded bg-amber-100 px-1.5 py-0.5 text-xs text-amber-900">DTE_FEX11_TEST_ENABLED=YES</code>{" "}
-            fuera de producción para usar este módulo.
+            Ventas de exportación no están habilitadas para esta organización.
           </p>
         </div>
       </div>
@@ -68,6 +66,7 @@ export function ExportSalePage({
       catalogCAT031={catalogCAT031}
       onBack={() => router.push("/dashboard/sales")}
       contextNote={contextNote}
+      environment={environment}
     />
   );
 }

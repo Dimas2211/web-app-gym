@@ -23,7 +23,7 @@
 import { requireAdmin }           from "@/lib/permissions/guards";
 import { getEffectiveLocationId } from "@/lib/location/active-location";
 import { prisma }                 from "@/lib/db/prisma";
-import { isFex11TestEnabled }     from "../../utils/fex11-feature-guard";
+import { isFex11TestConsoleEnabled }     from "../../utils/fex11-feature-guard";
 import { createFex11TestCase }    from "../utils/fex11-test-data";
 import { generateFexJsonForSaleAction } from "../../actions/generate-fex-json-for-sale.action";
 import { signDteDocumentAction }        from "../../actions/sign-dte-document.action";
@@ -69,7 +69,7 @@ async function requireConsoleSession(): Promise<ConsoleSession | { error: string
   if (process.env.NODE_ENV === "production") {
     return { error: "La consola de prueba FEX 11 está deshabilitada en producción." };
   }
-  if (!isFex11TestEnabled()) {
+  if (!isFex11TestConsoleEnabled()) {
     return { error: "DTE_FEX11_TEST_ENABLED no está activo. La consola está bloqueada." };
   }
 
@@ -166,7 +166,7 @@ export interface Fex11ConsoleFlagState {
 
 export async function getFex11ConsoleFlagStateAction(): Promise<Fex11ConsoleFlagState> {
   return {
-    flag_enabled:   isFex11TestEnabled(),
+    flag_enabled:   isFex11TestConsoleEnabled(),
     node_env:       process.env.NODE_ENV ?? "unknown",
     environment_ok: process.env.NODE_ENV !== "production",
   };

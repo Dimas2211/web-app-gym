@@ -24,7 +24,7 @@
 // ─────────────────────────────────────────────────────────────────
 
 import { requireAdmin }           from "@/lib/permissions/guards";
-import { isFex11Enabled }         from "../../../dte/utils/fex11-feature-guard";
+import { isFex11Enabled, FEX11_NOT_ENABLED_ERROR }         from "../../../dte/utils/fex11-feature-guard";
 import { generateFexJsonForSaleAction } from "../../../dte/actions/generate-fex-json-for-sale.action";
 import { signDteDocumentAction }        from "../../../dte/actions/sign-dte-document.action";
 import { transmitDteDocumentAction }    from "../../../dte/actions/transmit-dte-document.action";
@@ -65,7 +65,7 @@ export type ExportDteActionResult =
 async function requireExportDteSession(write: boolean):
   Promise<{ context: OperationalContext; dispose: () => Promise<void> } | { error: string }> {
   if (!isFex11Enabled()) {
-    return { error: "FEX 11 no está habilitada. Active DTE_FEX11_ENABLED o DTE_FEX11_TEST_ENABLED en ambiente TEST." };
+    return { error: FEX11_NOT_ENABLED_ERROR };
   }
 
   const sessionUser = await requireAdmin();

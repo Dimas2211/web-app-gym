@@ -25,7 +25,7 @@ import { makeFexV3LoadedData, validateAgainstFexV3 } from "./fex11-v3.test-fixtu
 
 type DocState = Record<string, unknown>;
 
-function buildInMemoryDb(overrides?: { countryCode?: string }) {
+function buildInMemoryDb(overrides?: { countryCode?: string; environment?: "TEST" | "PRODUCTION" }) {
   const loaded = makeFexV3LoadedData();
   if (overrides?.countryCode) loaded.sale.customer!.country_code = overrides.countryCode;
 
@@ -34,7 +34,7 @@ function buildInMemoryDb(overrides?: { countryCode?: string }) {
     tenant_id:        "tenant-1",
     location_id:      "loc-1",
     dte_type_code:    "11",
-    environment:      "TEST",
+    environment:      overrides?.environment ?? "TEST",
     sale_id:          "sale-1",
     issuer_config_id: "cfg-1",
     signed_jws:       null,
@@ -65,7 +65,7 @@ function buildInMemoryDb(overrides?: { countryCode?: string }) {
           : null),
     },
     dteIssuerConfig: {
-      findFirst: vi.fn(async () => loaded.issuerConfig),
+      findFirst: vi.fn(async () => ({ ...loaded.issuerConfig, environment: overrides?.environment ?? "TEST" })),
     },
     municipality: {
       findFirst: vi.fn(async ({ where }: { where: { dept_code: string; code: string } }) =>
@@ -140,5 +140,41 @@ describe("pipeline FEX 11 v3 local (in-memory, sin MH)", () => {
 
     expect(result.ok).toBe(false);
     expect(db.sale.findFirst).not.toHaveBeenCalled();
+  });
+});
+
+// FEX-PROD-1 — mismo pipeline en PRODUCTION, gobernado solo por el flag PROD.
+describe("pipeline FEX 11 v3 — PRODUCTION (FEX-PROD-1)", () => {
+  function clearFexFlags() {
+    vi.stubEnv("DTE_FEX11_TEST_ENABLED", "");
+    vi.stubEnv("DTE_FEX11_ENABLED", "");
+    vi.stubEnv("DTE_FEX11_PRODUCTION_ENABLED", "");
+  }
+
+  it("documento PROD + flag PROD → SCHEMA_VALIDATED con ambiente 01 y AJV v3 PASS", async () => {
+    clearFexFlags();
+    vi.stubEnv("DTE_FEX11_PRODUCTION_ENABLED", "YES");
+    const { db, doc } = buildInMemoryDb({ environment: "PRODUCTION" });
+
+    const result = await generateAndPersistFexJsonForDte(PARAMS, db as never);
+
+    expect(result).toMatchObject({ ok: true, dte_status: "SCHEMA_VALIDATED" });
+    const persisted = doc.json_document as { identificacion: { version: number; ambiente: string } };
+    expect(persisted.identificacion.ambiente).toBe("01");
+    expect(persisted.identificacion.version).toBe(3);
+    expect(validateAgainstFexV3(persisted).ok).toBe(true);
+  });
+
+  it("documento PROD con solo flags TEST/comercial → bloqueado antes del builder", async () => {
+    clearFexFlags();
+    vi.stubEnv("DTE_FEX11_TEST_ENABLED", "YES");
+    vi.stubEnv("DTE_FEX11_ENABLED", "YES");
+    const { db } = buildInMemoryDb({ environment: "PRODUCTION" });
+
+    const result = await generateAndPersistFexJsonForDte(PARAMS, db as never);
+
+    expect(result.ok).toBe(false);
+    expect(db.sale.findFirst).not.toHaveBeenCalled();
+    expect(db.dteOutgoingDocument.update).not.toHaveBeenCalled();
   });
 });

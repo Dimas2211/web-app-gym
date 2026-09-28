@@ -94,7 +94,7 @@ export function SaleDteSection({ primaryDteTypeCode, onChange, onSelectFex11, fe
       {/* Nota informativa */}
       <p className="text-[9px] text-zinc-600 leading-snug">
         FE 01 y CCFE 03 se operan aquí. FEX 11 se opera en el portal especializado de exportación
-        ({fex11Enabled ? "habilitado en TEST" : "deshabilitado"}). Los demás tipos se habilitarán por fases.
+        ({fex11Enabled ? "habilitado" : "deshabilitado"}). Los demás tipos se habilitarán por fases.
       </p>
 
       {/* Estado DTE */}

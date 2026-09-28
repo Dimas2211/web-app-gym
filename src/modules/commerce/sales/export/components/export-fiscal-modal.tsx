@@ -74,6 +74,12 @@ export function ExportFiscalModal({ data, onChange, onClose, catalogCAT027, cata
             >
               {FEX_ITEM_TYPE_EXPORT.map((t) => <option key={t.code} value={t.code}>{t.label}</option>)}
             </select>
+            {data.itemTypeExport !== 2 && (
+              // FEX-PROD-1: bienes/mixto fail-closed hasta definición oficial de emisor.tipoRegimen.
+              <p className="mt-1.5 rounded border border-amber-800/50 bg-amber-900/20 px-2 py-1.5 text-[11px] text-amber-300">
+                La exportación de bienes todavía no está habilitada. Por ahora solo se puede emitir exportación de servicios.
+              </p>
+            )}
           </div>
 
           {data.itemTypeExport !== 2 && (

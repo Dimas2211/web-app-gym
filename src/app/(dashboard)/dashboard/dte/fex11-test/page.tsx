@@ -16,7 +16,7 @@
 
 import { requireAdmin } from "@/lib/permissions/guards";
 import { getEffectiveLocationId } from "@/lib/location/active-location";
-import { isFex11TestEnabled } from "@/modules/commerce/dte/utils/fex11-feature-guard";
+import { isFex11TestConsoleEnabled } from "@/modules/commerce/dte/utils/fex11-feature-guard";
 import { getDteMhConfig } from "@/modules/commerce/dte/config/dte-mh.config";
 import { getDteSignerConfig } from "@/modules/commerce/dte/config/dte-signer.config";
 import { getExternalDteMariaDbConfig } from "@/modules/commerce/dte/config/external-dte-mariadb.config";
@@ -41,7 +41,7 @@ export default async function Fex11TestConsolePage() {
       : (context.locationId ??
         (await getEffectiveLocationId(sessionUser, context.client, context.tenantId)));
 
-    const flagEnabled = isFex11TestEnabled();
+    const flagEnabled = isFex11TestConsoleEnabled();
     const nodeEnv = process.env.NODE_ENV ?? "unknown";
     const environmentOk = nodeEnv !== "production";
     const consoleEnabled = flagEnabled && environmentOk;

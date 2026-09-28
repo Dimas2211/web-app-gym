@@ -9,8 +9,9 @@
 // Reglas:
 //   - requireAdmin en toda action.
 //   - tenant_id y location_id siempre desde el contexto operacional.
-//   - FEX 11 solo opera si DTE_FEX11_ENABLED o DTE_FEX11_TEST_ENABLED
-//     está activo, y solo en ambiente TEST (isFex11Enabled()).
+//   - Gate grueso: FEX 11 habilitada en algún ambiente (isFex11Enabled()).
+//     FEX-PROD-1: el flag del ambiente fiscal efectivo (TEST/PRODUCTION)
+//     se valida en createExportSale, antes de crear nada.
 //   - No se firma, transmite ni entrega a MariaDB aquí — eso ocurre
 //     en las actions ya existentes (generateFexJsonForSaleAction,
 //     signDteDocumentAction, transmitDteDocumentAction,
@@ -23,7 +24,7 @@
 
 import { revalidatePath }         from "next/cache";
 import { requireAdmin }           from "@/lib/permissions/guards";
-import { isFex11Enabled }         from "../../../dte/utils/fex11-feature-guard";
+import { isFex11Enabled, FEX11_NOT_ENABLED_ERROR }         from "../../../dte/utils/fex11-feature-guard";
 import { searchForeignCustomers, type ForeignCustomerLookup } from "../queries/search-foreign-customers";
 import { searchExportProducts, type ExportProductLookup }     from "../queries/search-export-products";
 import { getUnitMhContext, type UnitMhContext }                from "../queries/get-unit-mh-context";
@@ -50,7 +51,7 @@ import {
 async function requireExportSession(write: boolean):
   Promise<{ context: OperationalContext; dispose: () => Promise<void> } | { error: string }> {
   if (!isFex11Enabled()) {
-    return { error: "FEX 11 no está habilitada. Active DTE_FEX11_ENABLED o DTE_FEX11_TEST_ENABLED en ambiente TEST." };
+    return { error: FEX11_NOT_ENABLED_ERROR };
   }
 
   const sessionUser = await requireAdmin();

@@ -45,6 +45,7 @@ export function ExportSaleWorkspace({
   catalogCAT031,
   onBack,
   contextNote,
+  environment,
 }: {
   catalogCAT016: DteCatalogItem[];
   catalogCAT017: DteCatalogItem[];
@@ -56,6 +57,7 @@ export function ExportSaleWorkspace({
   catalogCAT031: DteCatalogItem[];
   onBack: () => void;
   contextNote?: string | null;
+  environment?: "TEST" | "PRODUCTION";
 }) {
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -260,6 +262,7 @@ export function ExportSaleWorkspace({
           errorMessage={combinedError}
           successMessage={success}
           contextNote={!created ? contextNote : null}
+          environment={environment}
         />
 
         <div className="flex-1 min-h-0 flex flex-row overflow-hidden">

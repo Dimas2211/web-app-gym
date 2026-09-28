@@ -7,16 +7,22 @@
 // max-width — ExportSaleWorkspace controla su propio full-bleed
 // bajo el header del dashboard.
 //
-// Guard: requireAdmin, igual que /dashboard/sales. Bloqueada si ni
-// DTE_FEX11_ENABLED ni DTE_FEX11_TEST_ENABLED están activos, o si
-// NODE_ENV === "production" (isFex11Enabled ya aplica ambas reglas).
+// Guard: requireAdmin, igual que /dashboard/sales. FEX-PROD-1: el
+// módulo se habilita solo si el ambiente fiscal efectivo de la
+// sucursal (único DteIssuerConfig activo) tiene su flag FEX 11 activo
+// (TEST o PRODUCTION). Nunca depende de NODE_ENV.
 // ─────────────────────────────────────────────────────────────────
 
 import { requireAdmin } from "@/lib/permissions/guards";
-import { isFex11Enabled } from "@/modules/commerce/dte/utils/fex11-feature-guard";
+import { getEffectiveLocationId } from "@/lib/location/active-location";
 import { listDteCatalogItems } from "@/modules/commerce/dte/queries/list-dte-catalog-items";
 import { getCountries } from "@/modules/commerce/suppliers/queries/get-countries";
 import { ExportSalePage } from "@/modules/commerce/sales/export/components/export-sale-page";
+import { resolveFex11AvailabilityForLocation } from "@/modules/commerce/sales/export/services/export-sale.service";
+import {
+  resolveEffectiveTenantContext,
+  resolveRuntimeFirstLocationId,
+} from "@/modules/platform/runtime/effective-tenant-context";
 
 export const metadata = {
   title: "Ventas de exportación",
@@ -27,10 +33,26 @@ export default async function SalesExportPage({
 }: {
   searchParams: Promise<{ from?: string }>;
 }) {
-  await requireAdmin();
+  const sessionUser = await requireAdmin();
   const { from } = await searchParams;
 
-  const fex11Enabled = isFex11Enabled();
+  const { context, dispose } = await resolveEffectiveTenantContext(sessionUser);
+  let availability: Awaited<ReturnType<typeof resolveFex11AvailabilityForLocation>> = {
+    enabled: false, environment: null,
+  };
+  try {
+    const location_id = context.runtime
+      ? await resolveRuntimeFirstLocationId(context)
+      : (context.locationId ??
+        (await getEffectiveLocationId(sessionUser, context.client, context.tenantId)));
+    if (context.tenantId && location_id) {
+      availability = await resolveFex11AvailabilityForLocation(context.tenantId, location_id, context.client);
+    }
+  } finally {
+    await dispose();
+  }
+
+  const fex11Enabled = availability.enabled;
 
   // País (FEX-PROD-0B): receptor.codPais de FEX v3 = CAT-020 vigente
   // (modelo `Country`, ISO alpha-2). El catálogo de compatibilidad FEX v1
@@ -51,6 +73,7 @@ export default async function SalesExportPage({
   return (
     <ExportSalePage
       fex11Enabled={fex11Enabled}
+      environment={availability.environment ?? undefined}
       catalogCAT016={cat016}
       catalogCAT017={cat017}
       catalogCountries={countries}

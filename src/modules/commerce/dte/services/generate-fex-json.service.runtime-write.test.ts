@@ -161,3 +161,47 @@ describe("generateFexJsonForSale — FASE VI-E4A (runtime db injection)", () => 
     ).rejects.toThrow("RUNTIME_UNSAFE");
   });
 });
+
+// ─────────────────────────────────────────────────────────────────
+// FEX-PROD-1 — identificacion.ambiente sigue al ambiente del documento
+// (y de su emisor, que debe coincidir). Sin cambios de fórmulas/schema.
+// ─────────────────────────────────────────────────────────────────
+
+describe("generateFexJsonForSale — ambiente TEST/PRODUCTION (FEX-PROD-1)", () => {
+  function dbFor(docEnv: string, issuerEnv: string) {
+    const { db, dteDoc, issuerConfig } = buildFakeRuntimeDb();
+    db.dteOutgoingDocument.findFirst.mockResolvedValue({ ...dteDoc, environment: docEnv });
+    db.dteIssuerConfig.findFirst.mockResolvedValue({ ...issuerConfig, environment: issuerEnv });
+    return db;
+  }
+  const PARAMS = { tenant_id: "tenant-1", location_id: "loc-1", dte_document_id: "dte-1" };
+
+  it("documento TEST -> identificacion.ambiente = \"00\", version 3", async () => {
+    const result = await generateFexJsonForSale(PARAMS, dbFor("TEST", "TEST") as never);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.json.identificacion.ambiente).toBe("00");
+      expect(result.json.identificacion.version).toBe(3);
+    }
+  });
+
+  it("documento PRODUCTION -> identificacion.ambiente = \"01\", version 3", async () => {
+    const result = await generateFexJsonForSale(PARAMS, dbFor("PRODUCTION", "PRODUCTION") as never);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.json.identificacion.ambiente).toBe("01");
+      expect(result.json.identificacion.version).toBe(3);
+    }
+  });
+
+  it("documento PRODUCTION + emisor TEST -> no genera JSON", async () => {
+    const result = await generateFexJsonForSale(PARAMS, dbFor("PRODUCTION", "TEST") as never);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toContain("no coincide");
+  });
+
+  it("documento TEST + emisor PRODUCTION -> no genera JSON", async () => {
+    const result = await generateFexJsonForSale(PARAMS, dbFor("TEST", "PRODUCTION") as never);
+    expect(result.ok).toBe(false);
+  });
+});

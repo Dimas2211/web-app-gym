@@ -19,7 +19,7 @@
 // toca datos fiscales fuera de su propia runtime DB).
 // ─────────────────────────────────────────────────────────────────
 
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 const {
   globalFindFirstSpy,
@@ -335,6 +335,8 @@ describe("transmitDteDocument — FEX 11 schema v3 (FEX-PROD-0B)", () => {
     return {
       dteOutgoingDocument: { findFirst: runtimeFindFirstSpy, update: vi.fn() },
       dteTransmissionLog: { create: vi.fn() },
+      // FEX-PROD-1: emisor del mismo ambiente que el documento.
+      dteIssuerConfig: { findFirst: vi.fn(async () => ({ environment: (doc as { environment: string }).environment })) },
       $transaction: runtimeTransactionSpy,
     } as unknown as Parameters<typeof transmitDteDocument>[1];
   }
@@ -368,5 +370,160 @@ describe("transmitDteDocument — FEX 11 schema v3 (FEX-PROD-0B)", () => {
     } finally {
       vi.unstubAllEnvs();
     }
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────
+// FEX-PROD-1 — routing TEST/PRODUCTION de la transmisión FEX 11.
+// Adapter MH, auth MH y metering mockeados: cero HTTP. El guard debe
+// cortar ANTES de auth MH, adapter, reserva de metering y mutación.
+// ─────────────────────────────────────────────────────────────────
+
+describe("transmitDteDocument — FEX 11 routing TEST/PRODUCTION (FEX-PROD-1)", () => {
+  const FEX_V3_JSON = { identificacion: { version: 3 } };
+
+  function fexDoc(environment: "TEST" | "PRODUCTION", issuer_config_id: string) {
+    return {
+      ...SIGNED_DOC,
+      dte_type_code:  "11",
+      environment,
+      issuer_config_id,
+      control_number: "DTE-11-M001P001-000000000000001",
+      json_document:  FEX_V3_JSON,
+    };
+  }
+
+  // Emisores de dos tenants en una sola DB fake; findFirst respeta el scope.
+  const ISSUERS = [
+    { id: "issuer-p1", tenant_id: "tenant-1", location_id: "loc-1", environment: "PRODUCTION" },
+    { id: "issuer-t1", tenant_id: "tenant-1", location_id: "loc-1", environment: "TEST" },
+    { id: "issuer-B",  tenant_id: "tenant-B", location_id: "loc-B", environment: "PRODUCTION" },
+  ];
+
+  function routingDb(doc: unknown) {
+    runtimeFindFirstSpy.mockResolvedValue(doc);
+    runtimeTransactionSpy.mockImplementation(async (arg: unknown) => {
+      if (Array.isArray(arg)) return Promise.all(arg);
+      const cb = arg as (tx: unknown) => Promise<unknown>;
+      return cb({ dteOutgoingDocument: { update: vi.fn() }, dteTransmissionLog: { create: vi.fn() } });
+    });
+    const issuerFindFirst = vi.fn(async ({ where }: { where: { id: string; tenant_id: string; location_id: string } }) => {
+      const row = ISSUERS.find((i) => i.id === where.id && i.tenant_id === where.tenant_id && i.location_id === where.location_id);
+      return row ? { environment: row.environment } : null;
+    });
+    const db = {
+      dteOutgoingDocument: { findFirst: runtimeFindFirstSpy, update: vi.fn() },
+      dteTransmissionLog: { create: vi.fn() },
+      dteIssuerConfig: { findFirst: issuerFindFirst },
+      $transaction: runtimeTransactionSpy,
+    };
+    return { db: db as unknown as Parameters<typeof transmitDteDocument>[1], issuerFindFirst };
+  }
+
+  const PARAMS = { dteDocumentId: "dte-doc-1", userId: "user-1", tenantId: "tenant-1", locationId: "loc-1" };
+
+  function expectBlockedBeforeMh() {
+    expect(mhAuthAdapterCtorSpy).not.toHaveBeenCalled();
+    expect(mhTransmissionAdapterCtorSpy).not.toHaveBeenCalled();
+    expect(transmitAdapterSpy).not.toHaveBeenCalled();
+    expect(reserveDteFiscalCapacitySpy).not.toHaveBeenCalled();
+    expect(runtimeTransactionSpy).not.toHaveBeenCalled();
+  }
+
+  // Hermético: el .env local puede traer flags FEX; se limpian los tres.
+  beforeEach(() => {
+    vi.stubEnv("DTE_FEX11_TEST_ENABLED", "");
+    vi.stubEnv("DTE_FEX11_ENABLED", "");
+    vi.stubEnv("DTE_FEX11_PRODUCTION_ENABLED", "");
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("FEX PROD + DTE_FEX11_PRODUCTION_ENABLED=YES -> adapter MOCK con environment=PRODUCTION y version=3", async () => {
+    vi.stubEnv("DTE_FEX11_PRODUCTION_ENABLED", "YES");
+    reserveDteFiscalCapacitySpy.mockResolvedValue({ ok: true, token: { mode: "RESERVED", reservationId: "r-1" } });
+    const { db } = routingDb(fexDoc("PRODUCTION", "issuer-p1"));
+
+    await transmitDteDocument(PARAMS, db);
+
+    expect(transmitAdapterSpy).toHaveBeenCalledTimes(1);
+    expect(transmitAdapterSpy.mock.calls[0][0]).toMatchObject({
+      environment: "PRODUCTION", version: 3, issuerConfigId: "issuer-p1",
+    });
+    expect(reserveDteFiscalCapacitySpy.mock.calls[0][0]).toMatchObject({ environment: "PRODUCTION", tenantId: "tenant-1" });
+  });
+
+  it("FEX PROD sin flag PROD (solo DTE_FEX11_ENABLED y flag TEST) -> falla antes de auth/adapter/metering/mutación", async () => {
+    vi.stubEnv("DTE_FEX11_ENABLED", "YES");
+    vi.stubEnv("DTE_FEX11_TEST_ENABLED", "YES");
+    const { db } = routingDb(fexDoc("PRODUCTION", "issuer-p1"));
+
+    const result = await transmitDteDocument(PARAMS, db);
+
+    expect(result.ok).toBe(false);
+    expectBlockedBeforeMh();
+  });
+
+  it("FEX PROD con flag PROD = 'yes' (no literal YES) -> bloqueado", async () => {
+    vi.stubEnv("DTE_FEX11_PRODUCTION_ENABLED", "yes");
+    const { db } = routingDb(fexDoc("PRODUCTION", "issuer-p1"));
+
+    const result = await transmitDteDocument(PARAMS, db);
+
+    expect(result.ok).toBe(false);
+    expectBlockedBeforeMh();
+  });
+
+  it("FEX TEST con solo flag PROD -> bloqueado", async () => {
+    vi.stubEnv("DTE_FEX11_PRODUCTION_ENABLED", "YES");
+    const { db } = routingDb(fexDoc("TEST", "issuer-t1"));
+
+    const result = await transmitDteDocument(PARAMS, db);
+
+    expect(result.ok).toBe(false);
+    expectBlockedBeforeMh();
+  });
+
+  it("FEX TEST + flag TEST -> adapter MOCK con environment=TEST", async () => {
+    vi.stubEnv("DTE_FEX11_TEST_ENABLED", "YES");
+    const { db } = routingDb(fexDoc("TEST", "issuer-t1"));
+
+    await transmitDteDocument(PARAMS, db);
+
+    expect(transmitAdapterSpy.mock.calls[0][0]).toMatchObject({ environment: "TEST", version: 3 });
+  });
+
+  it("documento PROD + emisor TEST (mismatch) -> falla antes del adapter", async () => {
+    vi.stubEnv("DTE_FEX11_PRODUCTION_ENABLED", "YES");
+    const { db } = routingDb(fexDoc("PRODUCTION", "issuer-t1"));
+
+    const result = await transmitDteDocument(PARAMS, db);
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toContain("no coincide");
+    expectBlockedBeforeMh();
+  });
+
+  it("documento de tenant-1 apuntando al emisor de tenant-B -> falla antes del adapter", async () => {
+    vi.stubEnv("DTE_FEX11_PRODUCTION_ENABLED", "YES");
+    const { db } = routingDb(fexDoc("PRODUCTION", "issuer-B"));
+
+    const result = await transmitDteDocument(PARAMS, db);
+
+    expect(result.ok).toBe(false);
+    expectBlockedBeforeMh();
+  });
+
+  it("flag PROD de FEX no altera FE 01 en PROD (sin consulta de emisor FEX)", async () => {
+    vi.stubEnv("DTE_FEX11_PRODUCTION_ENABLED", "YES");
+    reserveDteFiscalCapacitySpy.mockResolvedValue({ ok: true, token: { mode: "RESERVED", reservationId: "r-1" } });
+    const { db, issuerFindFirst } = routingDb({ ...SIGNED_DOC, environment: "PRODUCTION" });
+
+    await transmitDteDocument(PARAMS, db);
+
+    expect(transmitAdapterSpy.mock.calls[0][0]).toMatchObject({ environment: "PRODUCTION", dteTypeCode: "01", version: 1 });
+    expect(issuerFindFirst).not.toHaveBeenCalled();
   });
 });
