@@ -145,7 +145,7 @@ function makeBaseLoadedData(overrides: {
       email: "facturacion@miempresa.com",
       environment: "TEST",
     },
-    emisorDistrictCode: "060101",
+    emisorFexTerritory: { departamento: "06", municipio: "01", distrito: "01" },
     // Resuelto contra CAT-020 (Country) en el service real; aquí solo "US"
     // existe — cualquier otro código simula "no encontrado".
     receptorCountry: countryCode === "US" ? { code: "US", name: countryName } : null,

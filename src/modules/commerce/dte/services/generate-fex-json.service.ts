@@ -21,9 +21,11 @@
 //     idéntico a los 249 códigos del catálogo v1.2). Un country_code legado
 //     (p. ej. "9540" del catálogo de compatibilidad FEX v1) bloquea la
 //     emisión: nunca se convierte automáticamente.
-//   - emisor.direccion.distrito = Municipality.district_code (CSV oficial
-//     CAT-013 municipios/distritos) del par (dept_code, municipality_code)
-//     del emisor. municipio sigue siendo Municipality.code.
+//   - emisor.direccion: proyección territorial FEX v3 (fex11-v3-territory.ts)
+//     del registro Municipality del emisor — departamento = dept_code,
+//     municipio = new_municipality_code sin depto, distrito = district_code
+//     sin municipio nuevo (Santa Tecla → 05/06/11). MH TEST rechazó
+//     05/11/050611 (FEX-V3-TERRITORY-FIX). FE/CCFE/NC/FSE no cambian.
 //   - emisor.tipoRegimen: sin catálogo oficial publicado. Exportación de
 //     servicios (tipoItemExpor=2) → null, igual que recintoFiscal/regimen.
 //     Exportación de bienes (1/3) → bloqueada hasta confirmar la fuente.
@@ -43,6 +45,7 @@ import { prisma } from "@/lib/db/prisma";
 import { numeroALetras } from "../utils/numero-a-letras";
 import { normalizeNitForDte, normalizeNrcForDte } from "../utils/fiscal-id.utils";
 import { resolveDteMunicipality, validateDteAddressCodes } from "../utils/dte-territory.resolver";
+import { projectFexV3Territory, type FexV3Territory } from "../utils/fex11-v3-territory";
 import { FEX11_SCHEMA_VERSION } from "../utils/fex11-schema-version";
 import { computeFexV3ResumenTotals, r2 } from "../utils/fex11-v3-formulas";
 import { FEX_V3_LIMITS, FEX_GOODS_TIPO_REGIMEN_BLOCKED_ERROR } from "../utils/fex11-v3-rules";
@@ -160,9 +163,10 @@ export interface FexLoadedData {
   sale:         FexLoadedSale;
   issuerConfig: FexLoadedIssuerConfig;
   // Resueltos por generateFexJsonForSale contra catálogos del sistema:
-  // Municipality.district_code del emisor y fila CAT-020 (Country) del
-  // country_code del receptor (null si no existe/activo en CAT-020).
-  emisorDistrictCode: string | null;
+  // proyección territorial FEX v3 del emisor (fex11-v3-territory.ts) y
+  // fila CAT-020 (Country) del country_code del receptor (null si no
+  // existe/activo en CAT-020).
+  emisorFexTerritory: FexV3Territory | null;
   receptorCountry:    { code: string; name: string } | null;
 }
 
@@ -368,11 +372,18 @@ export async function generateFexJsonForSale(
   }, db);
   if (!emisorAddrCheck.ok) return { ok: false, error: emisorAddrCheck.error };
 
-  // Distrito v3: del mismo registro Municipality del emisor.
+  // Dirección v3: proyección FEX del mismo registro Municipality del
+  // emisor. Jerarquía territorial inconsistente → fail-closed.
   const emisorTerritory = await resolveDteMunicipality({
     deptCode:         issuerConfig.dept_code,
     municipalityCode: issuerConfig.municipality_code,
   }, db);
+  let emisorFexTerritory: FexV3Territory | null = null;
+  if (emisorTerritory) {
+    const projected = projectFexV3Territory(emisorTerritory);
+    if (!projected.ok) return { ok: false, error: projected.error };
+    emisorFexTerritory = projected.territory;
+  }
 
   // País del receptor: CAT-020 vigente (modelo Country). Solo se busca
   // por el código tal como está guardado — sin normalización ni mapeo.
@@ -392,7 +403,7 @@ export async function generateFexJsonForSale(
     },
     sale:               sale as unknown as FexLoadedSale,
     issuerConfig:       issuerConfig as unknown as FexLoadedIssuerConfig,
-    emisorDistrictCode: emisorTerritory?.districtCode ?? null,
+    emisorFexTerritory,
     receptorCountry:    receptorCountry ?? null,
   });
 }
@@ -402,7 +413,7 @@ export async function generateFexJsonForSale(
 // No accede a Prisma ni a ningún recurso externo.
 
 export function buildFexJsonFromLoadedData(loaded: FexLoadedData): GenerateFexJsonResult {
-  const { tenant_id, dteDoc, sale, issuerConfig, emisorDistrictCode, receptorCountry } = loaded;
+  const { tenant_id, dteDoc, sale, issuerConfig, emisorFexTerritory, receptorCountry } = loaded;
 
   // ── 5. Validar precondiciones de la venta ─────────────────────────
   if (sale.primary_dte_type_code !== "11") {
@@ -550,7 +561,7 @@ export function buildFexJsonFromLoadedData(loaded: FexLoadedData): GenerateFexJs
   if (!issuerConfig.activity_name)       missingIssuerFields.push("descripción de actividad económica");
   if (!issuerConfig.dept_code)           missingIssuerFields.push("departamento");
   if (!issuerConfig.municipality_code)   missingIssuerFields.push("municipio");
-  if (!emisorDistrictCode)               missingIssuerFields.push("distrito (código de distrito del municipio configurado)");
+  if (!emisorFexTerritory)               missingIssuerFields.push("distrito (código de distrito del municipio configurado)");
   if (!issuerConfig.address_complement)  missingIssuerFields.push("complemento de dirección");
   if (!issuerConfig.phone)               missingIssuerFields.push("teléfono");
   if (!issuerConfig.email)               missingIssuerFields.push("correo electrónico");
@@ -749,9 +760,9 @@ export function buildFexJsonFromLoadedData(loaded: FexLoadedData): GenerateFexJs
     descActividad:   issuerConfig.activity_name!,
     nombreComercial: blankToNull(issuerConfig.legal_name),
     direccion: {
-      departamento: issuerConfig.dept_code!,
-      municipio:    issuerConfig.municipality_code!,
-      distrito:     emisorDistrictCode!,
+      departamento: emisorFexTerritory!.departamento,
+      municipio:    emisorFexTerritory!.municipio,
+      distrito:     emisorFexTerritory!.distrito,
       complemento:  issuerConfig.address_complement!,
     },
     telefono:      issuerConfig.phone!,

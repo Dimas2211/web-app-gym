@@ -26,7 +26,7 @@ vi.mock("../utils/dte-territory.resolver", () => ({
   validateDteAddressCodes: vi.fn(async () => ({ ok: true })),
   resolveDteMunicipality: vi.fn(async () => ({
     departmentCode: "06", municipalityCode: "23", districtCode: "060123",
-    districtName: "Distrito", newMunicipalityCode: null, newMunicipalityName: null,
+    districtName: "Distrito", newMunicipalityCode: "0601", newMunicipalityName: "San Salvador Centro",
   })),
 }));
 
@@ -150,9 +150,25 @@ describe("generateFexJsonForSale — FASE VI-E4A (runtime db injection)", () => 
     expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.json.identificacion.version).toBe(3);
-      expect(result.json.emisor.direccion.distrito).toBe("060123");
+      expect(result.json.emisor.direccion).toMatchObject({ departamento: "06", municipio: "01", distrito: "23" });
       expect(result.json.receptor.codPais).toBe("US");
     }
+  });
+
+  it("FEX v3: jerarquía territorial inconsistente del emisor → fail-closed antes de construir JSON", async () => {
+    const { db } = buildFakeRuntimeDb();
+    vi.mocked(resolveDteMunicipality).mockResolvedValueOnce({
+      departmentCode: "06", municipalityCode: "23", districtCode: "050623",
+      districtName: "Distrito", newMunicipalityCode: "0601", newMunicipalityName: "San Salvador Centro",
+    });
+
+    const result = await generateFexJsonForSale(
+      { tenant_id: "tenant-1", location_id: "loc-1", dte_document_id: "dte-1" },
+      db as never,
+    );
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toContain("FEX 11 v3");
   });
 
   it("sin db explícito -> usa Prisma global por defecto (comportamiento preservado)", async () => {
