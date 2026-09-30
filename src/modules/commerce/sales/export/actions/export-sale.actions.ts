@@ -25,6 +25,7 @@
 import { revalidatePath }         from "next/cache";
 import { requireAdmin }           from "@/lib/permissions/guards";
 import { isFex11Enabled, FEX11_NOT_ENABLED_ERROR }         from "../../../dte/utils/fex11-feature-guard";
+import { hasFexExportCapability }                           from "../services/sales-export-availability";
 import { searchForeignCustomers, type ForeignCustomerLookup } from "../queries/search-foreign-customers";
 import { searchExportProducts, type ExportProductLookup }     from "../queries/search-export-products";
 import { getUnitMhContext, type UnitMhContext }                from "../queries/get-unit-mh-context";
@@ -67,6 +68,14 @@ async function requireExportSession(write: boolean):
   if (!handle.context.locationId) {
     await handle.dispose();
     return { error: "La sesión no tiene una location activa." };
+  }
+
+  // Capability por organización (fiscal.dte.export) — mismo criterio que
+  // la página (resolveSalesExportAvailability). commercialContext siempre
+  // viene resuelto porque se pidió `module`.
+  if (!handle.context.commercialContext || !hasFexExportCapability(handle.context.commercialContext)) {
+    await handle.dispose();
+    return { error: FEX11_NOT_ENABLED_ERROR };
   }
 
   return handle;

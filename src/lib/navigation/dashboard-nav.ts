@@ -68,7 +68,7 @@ export const MODULE_GROUPS: ModuleGroup[] = [
       { label: "Clientes fiscales", href: "/dashboard/customers", roles: ["super_admin", "branch_admin"], moduleCode: "core.customers" },
       { label: "Compras", href: "/dashboard/purchases", roles: ["super_admin", "branch_admin"], moduleCode: "commerce.purchases" },
       { label: "Ventas", href: "/dashboard/sales", roles: ["super_admin", "branch_admin", "reception"], moduleCode: "commerce.sales" },
-      { label: "Exportaciones", href: "/dashboard/sales/export", roles: ["super_admin", "branch_admin"], moduleCode: "commerce.sales" },
+      { label: "Exportaciones", href: "/dashboard/sales/export", roles: ["super_admin", "branch_admin"], moduleCode: "fiscal.dte.export" },
       { label: "Caja", href: "/dashboard/cash", roles: ["super_admin", "branch_admin", "reception"], moduleCode: "commerce.cash" },
       { label: "DTE emitidos", href: "/dashboard/dte/outgoing", roles: ["super_admin", "branch_admin"], moduleCode: "fiscal.dte" },
       { label: "Monitoreo DTE", href: "/dashboard/dte/monitoring", roles: ["super_admin", "branch_admin"], moduleCode: "fiscal.dte" },

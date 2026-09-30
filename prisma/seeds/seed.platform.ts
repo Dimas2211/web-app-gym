@@ -114,6 +114,10 @@ export const MODULES = [
 
   // Fiscal
   { code: "fiscal.dte",         name: "DTE / Facturación electrónica", category: "INTEGRATION" as const, is_core: false, vertical_code: null },
+  // Factura de Exportación (FEX 11) — capability por organización. No se
+  // incluye en ningún plan ni en GYM_ORG_ACTIVE_MODULES: se habilita
+  // explícitamente por organización (PlatformOrganizationModule).
+  { code: "fiscal.dte.export",  name: "Factura de Exportación (FEX 11)", category: "INTEGRATION" as const, is_core: false, vertical_code: null },
 
   // Vertical GYM
   { code: "gym.memberships",  name: "Membresías",          category: "VERTICAL" as const, is_core: false, vertical_code: "GYM" },

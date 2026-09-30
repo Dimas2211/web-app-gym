@@ -11,6 +11,8 @@
 // módulo se habilita solo si el ambiente fiscal efectivo de la
 // sucursal (único DteIssuerConfig activo) tiene su flag FEX 11 activo
 // (TEST o PRODUCTION). Nunca depende de NODE_ENV.
+// FINAL-RUNTIME-CLOSURE: además exige la capability por organización
+// fiscal.dte.export (resolveSalesExportAvailability).
 // ─────────────────────────────────────────────────────────────────
 
 import { requireAdmin } from "@/lib/permissions/guards";
@@ -18,7 +20,7 @@ import { getEffectiveLocationId } from "@/lib/location/active-location";
 import { listDteCatalogItems } from "@/modules/commerce/dte/queries/list-dte-catalog-items";
 import { getCountries } from "@/modules/commerce/suppliers/queries/get-countries";
 import { ExportSalePage } from "@/modules/commerce/sales/export/components/export-sale-page";
-import { resolveFex11AvailabilityForLocation } from "@/modules/commerce/sales/export/services/export-sale.service";
+import { resolveSalesExportAvailability } from "@/modules/commerce/sales/export/services/sales-export-availability";
 import {
   resolveEffectiveTenantContext,
   resolveRuntimeFirstLocationId,
@@ -37,7 +39,7 @@ export default async function SalesExportPage({
   const { from } = await searchParams;
 
   const { context, dispose } = await resolveEffectiveTenantContext(sessionUser);
-  let availability: Awaited<ReturnType<typeof resolveFex11AvailabilityForLocation>> = {
+  let availability: Awaited<ReturnType<typeof resolveSalesExportAvailability>> = {
     enabled: false, environment: null,
   };
   try {
@@ -46,7 +48,7 @@ export default async function SalesExportPage({
       : (context.locationId ??
         (await getEffectiveLocationId(sessionUser, context.client, context.tenantId)));
     if (context.tenantId && location_id) {
-      availability = await resolveFex11AvailabilityForLocation(context.tenantId, location_id, context.client);
+      availability = await resolveSalesExportAvailability(context.tenantId, location_id, context.client);
     }
   } finally {
     await dispose();

@@ -416,7 +416,7 @@ async function runExecute() {
     await upsertUnlimitedOverrides(tx, gymOrg.id, UNLIMITED_ENTITLEMENT_CODES, entitlementIdByCode);
 
     // 4. trustme-0001 — SIN vertical, 11 módulos transversales, 4 overrides Unlimited. plan_id intocado.
-    console.log(`  → ${TARGET_ORG_CODES.TRUSTME} — módulos (11, sin gym.*)...`);
+    console.log(`  → ${TARGET_ORG_CODES.TRUSTME} — módulos (12, sin gym.*)...`);
     await upsertOrganizationModules(tx, trustmeOrg.id, TRUSTME_MODULE_CODES, moduleIdByCode);
 
     console.log(`  → ${TARGET_ORG_CODES.TRUSTME} — overrides Unlimited transitorios...`);

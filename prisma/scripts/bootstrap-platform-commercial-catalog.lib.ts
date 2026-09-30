@@ -24,9 +24,8 @@ export const TARGET_ORG_CODES = {
 
 // ── Módulos deseados por organización ──────────────────────────────
 //
-// TrustMe: los 11 módulos transversales (core.* + commerce.* + fiscal.dte).
-// Ningún gym.* — TrustMe no es vertical GYM.
-export const TRUSTME_MODULE_CODES: readonly string[] = [
+// Los 11 módulos transversales (core.* + commerce.* + fiscal.dte).
+export const TRANSVERSAL_MODULE_CODES: readonly string[] = [
   "core.users",
   "core.roles",
   "core.locations",
@@ -40,9 +39,18 @@ export const TRUSTME_MODULE_CODES: readonly string[] = [
   "fiscal.dte",
 ] as const;
 
+// TrustMe: los 11 transversales + fiscal.dte.export (Factura de
+// Exportación, habilitada solo por organización). Ningún gym.* — TrustMe
+// no es vertical GYM.
+export const TRUSTME_MODULE_CODES: readonly string[] = [
+  ...TRANSVERSAL_MODULE_CODES,
+  "fiscal.dte.export",
+] as const;
+
 // GYM: los 15 módulos operativos actuales (transversales + los 4 gym.*).
+// Sin fiscal.dte.export.
 export const GYM_MODULE_CODES: readonly string[] = [
-  ...TRUSTME_MODULE_CODES,
+  ...TRANSVERSAL_MODULE_CODES,
   "gym.memberships",
   "gym.trainers",
   "gym.classes",

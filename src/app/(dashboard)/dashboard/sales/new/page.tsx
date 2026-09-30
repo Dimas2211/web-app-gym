@@ -4,7 +4,7 @@ import { getLocationById } from "@/core/modules/locations/queries";
 import { listDteCatalogItems } from "@/modules/commerce/dte/queries/list-dte-catalog-items";
 import { getSaleDetailById } from "@/modules/commerce/sales/queries/get-sale-detail-by-id";
 import { SaleNewClient } from "@/modules/commerce/sales/components/sale-new-client";
-import { resolveFex11AvailabilityForLocation } from "@/modules/commerce/sales/export/services/export-sale.service";
+import { resolveSalesExportAvailability } from "@/modules/commerce/sales/export/services/sales-export-availability";
 import {
   resolveEffectiveTenantContext,
   resolveRuntimeFirstLocationId,
@@ -46,8 +46,9 @@ export default async function NewSalePage({
       listDteCatalogItems({ catalog_code: "CAT-017" }, context.client),
       listDteCatalogItems({ catalog_code: "CAT-018" }, context.client),
       getLocationById(location_id, tenant_id, context.client),
-      // FEX-PROD-1: flag del ambiente fiscal efectivo de la sucursal.
-      resolveFex11AvailabilityForLocation(tenant_id, location_id, context.client),
+      // FEX-PROD-1: flag del ambiente fiscal efectivo de la sucursal
+      // + capability por organización fiscal.dte.export.
+      resolveSalesExportAvailability(tenant_id, location_id, context.client),
     ]);
 
     // Si viene sale_id, cargar el borrador existente (solo si es DRAFT y pertenece al tenant/location)
