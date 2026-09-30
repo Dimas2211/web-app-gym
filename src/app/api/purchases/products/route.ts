@@ -12,7 +12,8 @@ import { getPurchaseApiContext } from "@/app/api/purchases/purchase-api-context"
 import { getProductsForPurchase } from "@/modules/commerce/purchases/queries/get-products-for-purchase";
 
 export async function GET(req: NextRequest) {
-  const ctx = await getPurchaseApiContext(req);
+  // Solo lectura: location activa runtime (RUNTIME_CLIENT tenant-wide).
+  const ctx = await getPurchaseApiContext(req, { resolveRuntimeActiveLocation: true });
   if (!ctx.ok) {
     return NextResponse.json({ error: ctx.error }, { status: ctx.status });
   }
