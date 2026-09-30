@@ -12,7 +12,7 @@ import { auth } from "@/lib/auth/auth";
 import type { SessionUser } from "@/lib/permissions/guards";
 import { getCapabilities } from "@/core/permissions/role-capabilities";
 import { getLocationById } from "@/core/modules/locations/queries";
-import { ACTIVE_LOCATION_COOKIE } from "@/lib/location/active-location";
+import { ACTIVE_LOCATION_COOKIE, getEffectiveLocationId } from "@/lib/location/active-location";
 import {
   resolveEffectiveApiContext,
   type RuntimeSessionPayload,
@@ -47,7 +47,21 @@ type DteApiContext =
     }
   | { ok: false; status: number; error: string };
 
-export async function getDteApiContext(req: NextRequest): Promise<DteApiContext> {
+// Opción opt-in SOLO para handlers GET de lectura (detalle DTE). Una
+// identidad RUNTIME_CLIENT tenant-wide (location_id null en JWT) recibe
+// locationId null de requireRuntimeOrganizationContext — por diseño,
+// nunca se inventa una branch. Con esta opción, se resuelve la location
+// activa del selector (cookie) validada contra la DB RUNTIME del tenant
+// efectivo — mismo criterio que usa /dashboard/dte/outgoing/page.tsx.
+// Los handlers de escritura (pending, issuer-config) NO la usan.
+interface DteApiContextOptions {
+  resolveRuntimeActiveLocation?: boolean;
+}
+
+export async function getDteApiContext(
+  req: NextRequest,
+  options: DteApiContextOptions = {},
+): Promise<DteApiContext> {
   const session = await auth();
   if (!session?.user) {
     return { ok: false, status: 401, error: "No autorizado." };
@@ -97,7 +111,13 @@ export async function getDteApiContext(req: NextRequest): Promise<DteApiContext>
     user,
   );
 
-  if (!context.locationId) {
+  const locationId =
+    context.locationId ??
+    (options.resolveRuntimeActiveLocation && context.runtimeMode === "RUNTIME_CLIENT"
+      ? await getEffectiveLocationId(user, context.client, context.tenantId)
+      : null);
+
+  if (!locationId) {
     await dispose();
     return {
       ok: false,
@@ -135,7 +155,7 @@ export async function getDteApiContext(req: NextRequest): Promise<DteApiContext>
     ok:          true,
     user_id:     user.id!,
     tenant_id:   context.tenantId,
-    location_id: context.locationId,
+    location_id: locationId,
     client:      context.client,
     runtime:     context.runtime,
     readOnly:    context.readOnly,

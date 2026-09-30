@@ -26,7 +26,9 @@ export async function GET(
   const { id } = await params;
 
   // Validar sesión, permisos y obtener tenantId/locationId del servidor
-  const ctx = await getDteApiContext(req);
+  // Solo lectura: resuelve la location activa del selector en Dedicated
+  // Runtime (RUNTIME_CLIENT tenant-wide), igual que la página del listado.
+  const ctx = await getDteApiContext(req, { resolveRuntimeActiveLocation: true });
   if (!ctx.ok) {
     return NextResponse.json({ ok: false, error: ctx.error }, { status: ctx.status });
   }

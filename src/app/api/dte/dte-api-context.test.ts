@@ -35,6 +35,8 @@ vi.mock("@/modules/platform/runtime/effective-tenant-context", () => ({
 }));
 
 import { getDteApiContext } from "./dte-api-context";
+import { cookies } from "next/headers";
+import { getLocationById } from "@/core/modules/locations/queries";
 
 function fakeRequest(): never {
   return {
@@ -258,6 +260,130 @@ describe("getDteApiContext — boundary runtime de lectura DTE", () => {
     });
 
     const result = await getDteApiContext(fakeRequest());
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.status).toBe(409);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────
+// DTE-OUTGOING-DEDICATED-RUNTIME-DETAIL-FIX — identidad RUNTIME_CLIENT
+// tenant-wide (location_id null): el detalle DTE (GET, opt-in
+// `resolveRuntimeActiveLocation`) resuelve la location activa del
+// selector validada contra la DB RUNTIME, igual que la página del
+// listado. Sin la opción (handlers de escritura) el guard no cambia.
+// ─────────────────────────────────────────────────────────────────
+
+describe("getDteApiContext — location activa en Dedicated Runtime (detalle DTE)", () => {
+  const runtimeClient = { __runtimeFakeClient: true };
+  const tenantWideRuntimeUser = {
+    id: "user-1",
+    role: "super_admin",
+    tenant_id: "tenant-RT",
+    location_id: null,
+    auth_scope: "RUNTIME_CLIENT",
+    organization_id: "org-1",
+  };
+
+  function runtimeContextWithoutLocation() {
+    return {
+      context: {
+        tenantId: "tenant-RT",
+        locationId: null,
+        client: runtimeClient,
+        runtime: null,
+        runtimeMode: "RUNTIME_CLIENT",
+        readOnly: false,
+        effectiveRole: "super_admin",
+      },
+      dispose: vi.fn(),
+    };
+  }
+
+  beforeEach(() => {
+    resolveEffectiveApiContextMock.mockReset();
+    authMock.mockReset();
+    vi.mocked(cookies).mockResolvedValue({
+      get: (name: string) => (name === "active_location_id" ? { value: "loc-central" } : undefined),
+    } as never);
+    // Solo la DB runtime conoce la location — Control Plane (Prisma global,
+    // llamada sin `db`) devuelve null, como ocurre en producción.
+    vi.mocked(getLocationById).mockImplementation((async (id: string, tenantId: string, db?: unknown) =>
+      db === runtimeClient && id === "loc-central" && tenantId === "tenant-RT"
+        ? { id: "loc-central", tenant_id: "tenant-RT" }
+        : null) as never);
+  });
+
+  it("con location activa válida en runtime → ok y location_id resuelta", async () => {
+    authMock.mockResolvedValue({ user: tenantWideRuntimeUser });
+    resolveEffectiveApiContextMock.mockResolvedValue(runtimeContextWithoutLocation());
+
+    const result = await getDteApiContext(fakeRequest(), { resolveRuntimeActiveLocation: true });
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.location_id).toBe("loc-central");
+      expect(result.tenant_id).toBe("tenant-RT");
+      expect(result.client).toBe(runtimeClient);
+    }
+  });
+
+  it("valida la cookie contra la DB runtime del tenant efectivo, no contra Control Plane", async () => {
+    authMock.mockResolvedValue({ user: tenantWideRuntimeUser });
+    resolveEffectiveApiContextMock.mockResolvedValue(runtimeContextWithoutLocation());
+
+    await getDteApiContext(fakeRequest(), { resolveRuntimeActiveLocation: true });
+
+    expect(vi.mocked(getLocationById)).toHaveBeenCalledWith("loc-central", "tenant-RT", runtimeClient);
+  });
+
+  it("sin cookie de location activa → mantiene el guard 409", async () => {
+    vi.mocked(cookies).mockResolvedValue({ get: () => undefined } as never);
+    authMock.mockResolvedValue({ user: tenantWideRuntimeUser });
+    resolveEffectiveApiContextMock.mockResolvedValue(runtimeContextWithoutLocation());
+
+    const result = await getDteApiContext(fakeRequest(), { resolveRuntimeActiveLocation: true });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.status).toBe(409);
+      expect(result.error).toBe("Selecciona una location activa para operar con documentos DTE.");
+    }
+  });
+
+  it("cookie con location inexistente en la DB runtime → mantiene el guard 409", async () => {
+    vi.mocked(cookies).mockResolvedValue({
+      get: () => ({ value: "loc-otro-tenant" }),
+    } as never);
+    authMock.mockResolvedValue({ user: tenantWideRuntimeUser });
+    resolveEffectiveApiContextMock.mockResolvedValue(runtimeContextWithoutLocation());
+
+    const result = await getDteApiContext(fakeRequest(), { resolveRuntimeActiveLocation: true });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.status).toBe(409);
+  });
+
+  it("sin la opción (handlers de escritura: pending, issuer-config) → comportamiento previo intacto, 409", async () => {
+    authMock.mockResolvedValue({ user: tenantWideRuntimeUser });
+    const handle = runtimeContextWithoutLocation();
+    resolveEffectiveApiContextMock.mockResolvedValue(handle);
+
+    const result = await getDteApiContext(fakeRequest());
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.status).toBe(409);
+    expect(handle.dispose).toHaveBeenCalled();
+  });
+
+  it("PLATFORM_NATIVE con la opción → no aplica fallback runtime (sin cambios)", async () => {
+    authMock.mockResolvedValue({ user: { ...tenantWideRuntimeUser, auth_scope: "PLATFORM" } });
+    resolveEffectiveApiContextMock.mockResolvedValue({
+      ...runtimeContextWithoutLocation(),
+      context: { ...runtimeContextWithoutLocation().context, runtimeMode: "PLATFORM_NATIVE" },
+    });
+
+    const result = await getDteApiContext(fakeRequest(), { resolveRuntimeActiveLocation: true });
 
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.status).toBe(409);
