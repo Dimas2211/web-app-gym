@@ -106,9 +106,9 @@ const CATALOG_ITEMS: CatalogRow[] = [
   { catalog_code: "CAT-024", item_code: "3", item_label: "Otro",                        description: "Otro motivo de invalidación",          sort_order: 3 },
 
   // ── FEX 11 — Factura de Exportación (Microfase F3-C23 / F3-C23B) ──
-  // No requeridos (BLOCKER) para todos los tenants — FEX 11 es una
-  // funcionalidad controlada por feature flag, no un módulo de plataforma.
-  // Ver REQUIRED_DTE_CATALOG_CODES arriba: no se agregan aquí a propósito.
+  // FEX 11 es un tipo DTE normal de fiscal.dte: estas filas se materializan
+  // siempre en el real run. No se agregan a REQUIRED_DTE_CATALOG_CODES
+  // (BLOCKER) para no bloquear bases que no emiten exportación.
   // Filas compartidas con el seed CLI — ver ../../../../../prisma/seeds/data/fex11-catalog-rows.ts.
   ...FEX11_CATALOG_ROWS,
 ];

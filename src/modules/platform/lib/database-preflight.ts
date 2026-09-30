@@ -60,16 +60,18 @@ const REQUIRED_DTE_CATALOGS = [
   "CAT-024",
 ] as const;
 
-// Catálogos DTE requeridos solo por FEX 11 (Factura de Exportación).
-// FEX 11 es una funcionalidad controlada por feature flag (no un módulo
-// de plataforma), por eso este check es WARNING y no BLOCKER: una base
-// sin FEX 11 activo no debe fallar el preflight general por esto.
+// Catálogos DTE usados por FEX 11 (Factura de Exportación), que vive en
+// dte_catalog_items. FEX 11 es un tipo DTE normal de fiscal.dte; el check
+// se mantiene WARNING para no bloquear bases que no emiten exportación.
+// CAT-020 (País) NO vive en dte_catalog_items — su fuente canónica es el
+// modelo Country (ver GLOBAL_COUNTRIES). CAT-014 vive en units_of_measure
+// (ver GLOBAL_UNITS_NO_MH_CODE). CAT-013 vive en Municipality.
 const FEX11_DTE_CATALOGS = [
   "CAT-015",
-  "CAT-020",
   "CAT-027",
   "CAT-028",
   "CAT-029",
+  "CAT-030",
   "CAT-031",
 ] as const;
 
@@ -114,6 +116,7 @@ async function runGlobalChecks(
   const checks: PreflightCheckItem[] = [];
 
   let unitsCount         = 0;
+  let unitsWithMhCount   = 0;
   let idTypesCount       = 0;
   let econActCount       = 0;
   let municipalityCount  = 0;
@@ -126,6 +129,7 @@ async function runGlobalChecks(
   try {
     ([
       unitsCount,
+      unitsWithMhCount,
       idTypesCount,
       econActCount,
       municipalityCount,
@@ -136,6 +140,7 @@ async function runGlobalChecks(
       gymVerticalCount,
     ] = await Promise.all([
       db.unitOfMeasure.count({ where: { status: "active" } }),
+      db.unitOfMeasure.count({ where: { status: "active", mh_unit_code: { not: null } } }),
       db.identificationType.count({ where: { status: "active" } }),
       db.economicActivity.count({ where: { status: "active" } }),
       db.municipality.count({ where: { status: "active" } }),
@@ -171,15 +176,19 @@ async function runGlobalChecks(
         ),
   );
 
-  // 2. Warning estructural — UnitOfMeasure no tiene mh_code/code
+  // 2. Unidades con código CAT-014 (UnitOfMeasure.mh_unit_code) — fuente
+  //    canónica CAT014_UNITS (prisma/seeds/data/cat014-units.ts). Requeridas
+  //    por FEX 11; WARNING para no bloquear bases sin exportación.
   checks.push(
-    warn(
-      "GLOBAL_UNITS_NO_MH_CODE",
-      "Código CAT-014 en unidades de medida",
-      "GLOBAL",
-      "UnitOfMeasure no tiene campo 'mh_code' ni 'code'. El código oficial CAT-014 queda solo en el seed, no almacenado como campo fiscal separado.",
-      "Agregar campo 'mh_code' a UnitOfMeasure en futuras migraciones si se requiere validación fiscal por código.",
-    ),
+    unitsWithMhCount >= 1
+      ? pass("GLOBAL_UNITS_NO_MH_CODE", "Código CAT-014 en unidades de medida", "WARNING", "GLOBAL")
+      : warn(
+          "GLOBAL_UNITS_NO_MH_CODE",
+          "Código CAT-014 en unidades de medida",
+          "GLOBAL",
+          "No hay unidades de medida activas con código CAT-014 (mh_unit_code). FEX 11 no podrá emitirse.",
+          "Ejecutar seed con modo 'catalogs', 'base' o 'demo' (seedUnitsOfMeasure, fuente CAT014_UNITS).",
+        ),
   );
 
   // 3. Tipos de identificación
@@ -320,7 +329,7 @@ async function runGlobalChecks(
     ));
   }
 
-  // 7b. Catálogos DTE requeridos por FEX 11 (WARNING — feature flag, no módulo)
+  // 7b. Catálogos DTE usados por FEX 11 (WARNING — no toda base emite exportación)
   try {
     const fex11CatalogCounts = await Promise.all(
       FEX11_DTE_CATALOGS.map((cat) =>
@@ -341,7 +350,7 @@ async function runGlobalChecks(
             "GLOBAL_FEX11_CATALOG_ITEMS",
             "Catálogos FEX 11 (exportación)",
             "GLOBAL",
-            `Faltan ítems activos en: ${missingFex11Catalogs.join(", ")}. Requeridos solo si FEX 11 está habilitado.`,
+            `Faltan ítems activos en: ${missingFex11Catalogs.join(", ")}. Requeridos para emitir FEX 11.`,
             "Ejecutar seedDteCatalogItems con modo 'catalogs', 'base' o 'demo'.",
           ),
     );

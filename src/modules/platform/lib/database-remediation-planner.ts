@@ -224,19 +224,19 @@ const REMEDIATION_RULES: Record<string, RemediationRule> = {
     requiresBackupInProd: false,
   },
 
-  // ── Migración estructural diferida ───────────────────────────────
+  // ── Código CAT-014 en unidades de medida ─────────────────────────
 
   GLOBAL_UNITS_NO_MH_CODE: {
-    title:                "Agregar mh_code a unidades de medida",
-    description:          "UnitOfMeasure no tiene campo 'mh_code' ni 'code'. El código CAT-014 queda solo en el seed sin campo fiscal separado.",
-    actionType:           "MIGRATION",
-    risk:                 "MEDIUM",
-    status:               "DEFERRED",
-    recommendedOrder:     60,
-    canBeAutomatedLater:  false,
+    title:                "Cargar unidades CAT-014 con código MH",
+    description:          "No hay unidades de medida activas con mh_unit_code (CAT-014). Requeridas para emitir FEX 11.",
+    actionType:           "SEED",
+    risk:                 "LOW",
+    status:               "RECOMMENDED",
+    recommendedOrder:     4,
+    canBeAutomatedLater:  true,
     requiresConfirmation: true,
-    requiresBackupInProd: true,
-    notes:                ["Diferido hasta que se requiera validación fiscal por código en UnitOfMeasure."],
+    requiresBackupInProd: false,
+    notes:                ["Fuente única CAT014_UNITS (prisma/seeds/data/cat014-units.ts) vía seedUnitsOfMeasure — upsert por symbol, no crea un segundo catálogo."],
   },
 
   // ── Tenant — configuración y datos base ──────────────────────────
