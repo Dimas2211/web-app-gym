@@ -34,7 +34,7 @@ import {
   validateDteJsonSchema,
   type DteValidationError,
 } from "./validate-dte-json-schema.service";
-import { canUseFex11InServerFlow, FEX11_NOT_ENABLED_ERROR } from "../utils/fex11-feature-guard";
+import { canUseFex11InServerFlow, FEX11_INVALID_ENVIRONMENT_ERROR } from "../utils/fex11-environment";
 
 // ── Tipos públicos ────────────────────────────────────────────────
 
@@ -105,7 +105,7 @@ export async function generateAndPersistFexJsonForDte(
   if (!canUseFex11InServerFlow({ dte_type_code: dteDoc.dte_type_code, environment: dteDoc.environment })) {
     return {
       ok:    false,
-      error: FEX11_NOT_ENABLED_ERROR,
+      error: FEX11_INVALID_ENVIRONMENT_ERROR,
     };
   }
   if (dteDoc.signed_jws) {

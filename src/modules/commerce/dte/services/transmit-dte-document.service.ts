@@ -36,7 +36,7 @@ import { Prisma }                    from "@prisma/client";
 import { resolveDteMhUrls }           from "../config/dte-mh.config";
 import { MhDteTransmissionAdapter }  from "../adapters/dte-transmission.adapter";
 import { MhAuthAdapter }             from "../adapters/dte-auth.adapter";
-import { canUseFex11InServerFlow, FEX11_NOT_ENABLED_ERROR }   from "../utils/fex11-feature-guard";
+import { canUseFex11InServerFlow, FEX11_INVALID_ENVIRONMENT_ERROR } from "../utils/fex11-environment";
 import { FEX11_SCHEMA_VERSION, fex11LegacyVersionError } from "../utils/fex11-schema-version";
 import { isMhProcessedObserved }     from "../utils/dte-mh-observations.utils";
 import { assertDteContingencyTransmissionAllowed } from "./assert-dte-contingency-transmission-allowed.service";
@@ -82,8 +82,8 @@ class TransmitDteBusinessError extends Error {
 // ── Helpers ───────────────────────────────────────────────────────
 
 // Tipos DTE con transmisión pública habilitada sin condiciones adicionales.
-// FEX 11 se evalúa aparte vía fex11-feature-guard — FEX-PROD-1: flag por
-// ambiente del documento (TEST / PRODUCTION con DTE_FEX11_PRODUCTION_ENABLED).
+// FEX 11 se evalúa aparte: ambiente fiscal válido del documento + emisor del
+// mismo ambiente — FEX11-FINAL-CLOSURE, sin feature flags.
 const SUPPORTED_TYPE_CODES = new Set(["01", "03", "05", "14"]);
 
 function dteTypeCodeToVersion(code: string): number {
@@ -189,7 +189,7 @@ export async function transmitDteDocument(
     if (dteDoc.dte_type_code === "11") {
       if (!canUseFex11InServerFlow({ dte_type_code: dteDoc.dte_type_code, environment: dteDoc.environment })) {
         throw new TransmitDteBusinessError(
-          FEX11_NOT_ENABLED_ERROR,
+          FEX11_INVALID_ENVIRONMENT_ERROR,
         );
       }
       if (dteDoc.dte_status !== "SIGNED") {
@@ -243,7 +243,7 @@ export async function transmitDteDocument(
 
     // 4. Parámetros de transmisión
     const environment   = dteDoc.environment as "TEST" | "PRODUCTION";
-    // FEX 11 se transmite solo bajo fex11-feature-guard (ver arriba), con el
+    // FEX 11 se transmite con el
     // ambiente del documento (TEST o PRODUCTION) — nunca NODE_ENV. El tipo
     // compartido DteTypeCode del adapter no incluye "11" por diseño (F3-C11B);
     // se castea localmente aquí, igual que en el script dev-only equivalente.

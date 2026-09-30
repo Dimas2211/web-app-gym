@@ -20,7 +20,7 @@ import type {
   ExternalDtePayload,
   ExternalDteResponseMH,
 } from "../types/external-dte-delivery.types";
-import { canUseFex11InServerFlow, FEX11_NOT_ENABLED_ERROR } from "../utils/fex11-feature-guard";
+import { canUseFex11InServerFlow, FEX11_INVALID_ENVIRONMENT_ERROR } from "../utils/fex11-environment";
 import { isFiscallyReceivedByMh } from "../utils/dte-fiscal-receipt.utils";
 
 // ── Forma esperada del documento cargado ─────────────────────────
@@ -51,8 +51,8 @@ export type BuildExternalDtePayloadResult =
 
 // ── Tipos DTE integrados en esta fase ─────────────────────────────
 //
-// FEX 11 se evalúa aparte vía fex11-feature-guard — FEX-PROD-1: flag por
-// ambiente del documento (TEST / PRODUCTION con DTE_FEX11_PRODUCTION_ENABLED).
+// FEX 11 se evalúa aparte: solo exige ambiente fiscal válido del documento
+// (TEST / PRODUCTION) — FEX11-FINAL-CLOSURE, sin feature flags.
 
 const SUPPORTED_TYPES = new Set(["01", "03", "05", "14"]);
 
@@ -72,7 +72,7 @@ export function buildExternalDtePayload(
     if (!canUseFex11InServerFlow({ dte_type_code: doc.dte_type_code, environment: doc.environment })) {
       return {
         ok:    false,
-        error: FEX11_NOT_ENABLED_ERROR,
+        error: FEX11_INVALID_ENVIRONMENT_ERROR,
       };
     }
   } else if (!SUPPORTED_TYPES.has(doc.dte_type_code)) {

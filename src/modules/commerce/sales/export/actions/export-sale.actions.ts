@@ -9,9 +9,9 @@
 // Reglas:
 //   - requireAdmin en toda action.
 //   - tenant_id y location_id siempre desde el contexto operacional.
-//   - Gate grueso: FEX 11 habilitada en algún ambiente (isFex11Enabled()).
-//     FEX-PROD-1: el flag del ambiente fiscal efectivo (TEST/PRODUCTION)
-//     se valida en createExportSale, antes de crear nada.
+//   - Acceso: módulo fiscal.dte de la organización (FEX 11 es un tipo
+//     DTE normal). El ambiente fiscal efectivo (TEST/PRODUCTION) sale del
+//     DteIssuerConfig activo y se valida en createExportSale.
 //   - No se firma, transmite ni entrega a MariaDB aquí — eso ocurre
 //     en las actions ya existentes (generateFexJsonForSaleAction,
 //     signDteDocumentAction, transmitDteDocumentAction,
@@ -24,8 +24,7 @@
 
 import { revalidatePath }         from "next/cache";
 import { requireAdmin }           from "@/lib/permissions/guards";
-import { isFex11Enabled, FEX11_NOT_ENABLED_ERROR }         from "../../../dte/utils/fex11-feature-guard";
-import { hasFexExportCapability }                           from "../services/sales-export-availability";
+import { hasFexAccess, FEX_NOT_AVAILABLE_ERROR }           from "../services/sales-export-availability";
 import { searchForeignCustomers, type ForeignCustomerLookup } from "../queries/search-foreign-customers";
 import { searchExportProducts, type ExportProductLookup }     from "../queries/search-export-products";
 import { getUnitMhContext, type UnitMhContext }                from "../queries/get-unit-mh-context";
@@ -51,10 +50,6 @@ import {
 // archivo (todas llaman requireExportSession antes de operar).
 async function requireExportSession(write: boolean):
   Promise<{ context: OperationalContext; dispose: () => Promise<void> } | { error: string }> {
-  if (!isFex11Enabled()) {
-    return { error: FEX11_NOT_ENABLED_ERROR };
-  }
-
   const sessionUser = await requireAdmin();
 
   let handle;
@@ -70,12 +65,12 @@ async function requireExportSession(write: boolean):
     return { error: "La sesión no tiene una location activa." };
   }
 
-  // Capability por organización (fiscal.dte.export) — mismo criterio que
-  // la página (resolveSalesExportAvailability). commercialContext siempre
-  // viene resuelto porque se pidió `module`.
-  if (!handle.context.commercialContext || !hasFexExportCapability(handle.context.commercialContext)) {
+  // FEX 11 pertenece a fiscal.dte — mismo criterio que la página
+  // (resolveSalesExportAvailability). commercialContext siempre viene
+  // resuelto porque se pidió `module`.
+  if (!handle.context.commercialContext || !hasFexAccess(handle.context.commercialContext)) {
     await handle.dispose();
-    return { error: FEX11_NOT_ENABLED_ERROR };
+    return { error: FEX_NOT_AVAILABLE_ERROR };
   }
 
   return handle;

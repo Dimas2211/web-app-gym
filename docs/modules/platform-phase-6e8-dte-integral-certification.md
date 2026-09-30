@@ -1,5 +1,7 @@
 # FASE VI-E8 — DTE Integral Dedicated-Runtime Certification
 
+> **HISTÓRICO / SUPERADO (2026-09-30, FEX11-FINAL-CLOSURE).** Las referencias a `DTE_FEX11_*`, `fiscal.dte.export`, `fex11-feature-guard.ts` y la consola `/dashboard/dte/fex11-test` ya no aplican: FEX 11 es un tipo DTE normal de `fiscal.dte`. Ver `docs/modules/fex11-standard-dte.md`.
+
 > *HISTÓRICO*: `SHARED_RUNTIME_IMPLEMENTED = NO` refleja el momento de E8.
 > Shared Runtime está implementado y en producción desde SHARED-PILOT-4A..4C
 > (ver `docs/context/shared-pilot-4c-closure.md`). El onboarding fiscal DTE

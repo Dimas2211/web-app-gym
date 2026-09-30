@@ -1,5 +1,7 @@
 # FEX 11 — Valores de catálogo usados en pruebas ACCEPTED
 
+> **HISTÓRICO / SUPERADO (2026-09-30, FEX11-FINAL-CLOSURE).** Las referencias a `DTE_FEX11_*`, `fiscal.dte.export`, `fex11-feature-guard.ts` y la consola `/dashboard/dte/fex11-test` ya no aplican: FEX 11 es un tipo DTE normal de `fiscal.dte`. Ver `docs/modules/fex11-standard-dte.md`.
+
 > Microfase F3-C20. Extracto de trazabilidad técnica, no catálogo completo. Valores confirmados contra `src/modules/commerce/dte/fex11-test/utils/fex11-test-data.ts` (caso de prueba usado por la consola `/dashboard/dte/fex11-test`) y contra el caso `FEX11_UI_TEST_20260731_105701`, `dte_status = ACCEPTED` en base local.
 >
 > **Actualización F3-C23**: estos valores ya no viven como fuente única en código

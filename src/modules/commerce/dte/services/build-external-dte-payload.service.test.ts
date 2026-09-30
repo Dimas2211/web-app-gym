@@ -100,7 +100,7 @@ describe("buildExternalDtePayload — FSE 14 (origen Purchase)", () => {
 // pura: no ejecuta MariaDB.
 // ─────────────────────────────────────────────────────────────────
 
-describe("buildExternalDtePayload — FEX 11 TEST/PRODUCTION (FEX-PROD-1)", () => {
+describe("buildExternalDtePayload — FEX 11 TEST/PRODUCTION (sin feature flags)", () => {
   function fexDoc(environment: "TEST" | "PRODUCTION", ambiente = environment === "PRODUCTION" ? "01" : "00") {
     return baseFse14Doc({
       id:             "doc-fex-1",
@@ -122,43 +122,31 @@ describe("buildExternalDtePayload — FEX 11 TEST/PRODUCTION (FEX-PROD-1)", () =
     vi.unstubAllEnvs();
   });
 
-  it("FEX PROD sin flag PROD -> bloqueado", () => {
-    vi.stubEnv("DTE_FEX11_ENABLED", "YES");
-    vi.stubEnv("DTE_FEX11_TEST_ENABLED", "YES");
-    const result = buildExternalDtePayload(fexDoc("PRODUCTION"));
-    expect(result.ok).toBe(false);
-  });
-
-  it("FEX PROD con flag PROD y estado fiscal válido -> construye payload con ambiente 01", () => {
-    vi.stubEnv("DTE_FEX11_PRODUCTION_ENABLED", "YES");
+  it("FEX PROD sin env vars y estado fiscal válido -> construye payload con ambiente 01", () => {
     const result = buildExternalDtePayload(fexDoc("PRODUCTION"));
     expect(result.ok).toBe(true);
     if (result.ok) expect(result.payload.responseMH.ambiente).toBe("01");
   });
 
-  it("FEX PROD con flag PROD pero sin sello MH -> bloqueado", () => {
-    vi.stubEnv("DTE_FEX11_PRODUCTION_ENABLED", "YES");
+  it("FEX PROD sin sello MH -> bloqueado", () => {
     const result = buildExternalDtePayload({ ...fexDoc("PRODUCTION"), reception_stamp: null });
     expect(result.ok).toBe(false);
   });
 
   it("FEX PROD con JSON ambiente 00 (mezcla) -> bloqueado", () => {
-    vi.stubEnv("DTE_FEX11_PRODUCTION_ENABLED", "YES");
     const result = buildExternalDtePayload(fexDoc("PRODUCTION", "00"));
     expect(result.ok).toBe(false);
   });
 
-  it("FEX TEST con flag TEST -> construye payload; con solo flag PROD -> bloqueado", () => {
-    vi.stubEnv("DTE_FEX11_TEST_ENABLED", "YES");
+  it("FEX TEST sin env vars -> construye payload", () => {
     expect(buildExternalDtePayload(fexDoc("TEST")).ok).toBe(true);
-
-    vi.stubEnv("DTE_FEX11_TEST_ENABLED", "");
-    vi.stubEnv("DTE_FEX11_PRODUCTION_ENABLED", "YES");
-    expect(buildExternalDtePayload(fexDoc("TEST")).ok).toBe(false);
   });
 
-  it("flags FEX no alteran FSE 14", () => {
-    vi.stubEnv("DTE_FEX11_PRODUCTION_ENABLED", "YES");
+  it("FEX con ambiente no reconocido -> bloqueado", () => {
+    expect(buildExternalDtePayload({ ...fexDoc("TEST"), environment: "STAGING" as never }).ok).toBe(false);
+  });
+
+  it("FSE 14 no se ve alterado por la normalización FEX", () => {
     expect(buildExternalDtePayload(baseFse14Doc()).ok).toBe(true);
   });
 });

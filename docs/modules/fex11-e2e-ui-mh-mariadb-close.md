@@ -1,5 +1,7 @@
 # FEX 11 — Cierre técnico end-to-end UI + MH TEST + MariaDB
 
+> **HISTÓRICO / SUPERADO (2026-09-30, FEX11-FINAL-CLOSURE).** Las referencias a `DTE_FEX11_*`, `fiscal.dte.export`, `fex11-feature-guard.ts` y la consola `/dashboard/dte/fex11-test` ya no aplican: FEX 11 es un tipo DTE normal de `fiscal.dte`. Ver `docs/modules/fex11-standard-dte.md`.
+
 > Microfase F3-C20. Documento de **cierre documental y verificación**. No se creó funcionalidad nueva, no se tocó UI, no se tocaron actions ni services, no se transmitió, no se firmó, no se creó ningún DTE nuevo, no se modificó `schema.prisma`, no se crearon migraciones. Basado en el estado confirmado en F3-C0 a F3-C19 y en una consulta read-only a la base local del último caso `FEX11_UI_TEST_*`.
 
 ## 1. Resumen ejecutivo

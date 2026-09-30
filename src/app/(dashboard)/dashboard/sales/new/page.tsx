@@ -46,8 +46,7 @@ export default async function NewSalePage({
       listDteCatalogItems({ catalog_code: "CAT-017" }, context.client),
       listDteCatalogItems({ catalog_code: "CAT-018" }, context.client),
       getLocationById(location_id, tenant_id, context.client),
-      // FEX-PROD-1: flag del ambiente fiscal efectivo de la sucursal
-      // + capability por organización fiscal.dte.export.
+      // FEX 11: fiscal.dte + emisor DTE activo único de la sucursal.
       resolveSalesExportAvailability(tenant_id, location_id, context.client),
     ]);
 

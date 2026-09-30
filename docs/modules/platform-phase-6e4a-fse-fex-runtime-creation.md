@@ -1,5 +1,7 @@
 # FASE VI-E4A — FSE14 + FEX11 runtime creation pipelines
 
+> **HISTÓRICO / SUPERADO (2026-09-30, FEX11-FINAL-CLOSURE).** Las referencias a `DTE_FEX11_*`, `fiscal.dte.export`, `fex11-feature-guard.ts` y la consola `/dashboard/dte/fex11-test` ya no aplican: FEX 11 es un tipo DTE normal de `fiscal.dte`. Ver `docs/modules/fex11-standard-dte.md`.
+
 Cerrado. HEAD anterior: `6057381` (VI-E3, FE01+CCFE03). Commit de esta fase: `fix(dte): route fse and fex creation through runtime database`.
 
 ## Objetivo

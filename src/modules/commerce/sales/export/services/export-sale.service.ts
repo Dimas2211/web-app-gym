@@ -11,10 +11,8 @@
 //
 // La creación del DteOutgoingDocument tipo 11 (reserva de correlativo
 // y numeroControl) se mantiene como flujo dedicado y separado de
-// dte-outgoing.service.ts (que es MVP-only para "01"/"03"), siguiendo
-// el mismo patrón ya usado por la consola de prueba
-// (fex11-test/utils/fex11-test-data.ts) — no se modifica ese archivo,
-// esta es una implementación propia parametrizada con datos reales.
+// dte-outgoing.service.ts (que es MVP-only para "01"/"03"),
+// parametrizada con datos reales.
 //
 // No firma, no transmite a Hacienda, no toca MariaDB — eso lo hacen
 // las actions ya existentes (generateFexJsonForSaleAction,
@@ -27,12 +25,7 @@ import { Prisma, type PrismaClient } from "@prisma/client";
 import { prisma } from "@/lib/db/prisma";
 import { createSaleDraft, addSaleItemToDraft, confirmSale } from "../../services/sale.service";
 import { reserveDteControlNumber } from "../../../dte/services/dte-correlative.service";
-import {
-  isFex11Enabled,
-  isFex11EnvironmentEnabled,
-  FEX11_NOT_ENABLED_ERROR,
-  type Fex11Environment,
-} from "../../../dte/utils/fex11-feature-guard";
+import { isFex11Environment, type Fex11Environment } from "../../../dte/utils/fex11-environment";
 import { listDteCatalogItems } from "../../../dte/queries/list-dte-catalog-items";
 import { DTE_CATALOG_CODES } from "../../../dte/types/dte-catalog.types";
 import { CAT014_UNITS } from "../../../../../../prisma/seeds/data/cat014-units";
@@ -218,25 +211,25 @@ export async function resolveEffectiveFexEnvironment(
     return { ok: false, error: "Hay más de una configuración DTE activa (TEST y PRODUCTION). Desactive una de las dos antes de emitir." };
   }
   const environment = active[0].environment;
-  if (environment !== "TEST" && environment !== "PRODUCTION") {
+  if (!isFex11Environment(environment)) {
     return { ok: false, error: "Ambiente DTE del emisor no reconocido." };
   }
   return { ok: true, environment };
 }
 
 /**
- * UI (páginas): FEX 11 disponible para la sucursal solo si el ambiente
- * fiscal efectivo existe y su flag está activo. Fail-closed.
+ * UI (páginas): FEX 11 disponible para la sucursal si existe exactamente
+ * un DteIssuerConfig activo con ambiente fiscal válido. El gate de módulo
+ * fiscal.dte lo aplica resolveSalesExportAvailability. Fail-closed.
  */
 export async function resolveFex11AvailabilityForLocation(
   tenant_id:   string,
   location_id: string,
   db: PrismaClient = prisma,
 ): Promise<{ enabled: boolean; environment: Fex11Environment | null }> {
-  if (!isFex11Enabled()) return { enabled: false, environment: null };
   const env = await resolveEffectiveFexEnvironment(tenant_id, location_id, db);
   if (!env.ok) return { enabled: false, environment: null };
-  return { enabled: isFex11EnvironmentEnabled(env.environment), environment: env.environment };
+  return { enabled: true, environment: env.environment };
 }
 
 interface ActiveIssuer {
@@ -410,10 +403,6 @@ export async function regenerateRejectedExportDte(
   dte_document_id: string,
   db: PrismaClient = prisma,
 ): Promise<RegenerateExportDteResult> {
-  if (!isFex11Enabled()) {
-    return { ok: false, error: FEX11_NOT_ENABLED_ERROR };
-  }
-
   const rejected = await db.dteOutgoingDocument.findFirst({
     where:  { id: dte_document_id, tenant_id, location_id, dte_type_code: "11" },
     select: { id: true, sale_id: true, dte_status: true, issuer_config_id: true, environment: true },
@@ -442,12 +431,12 @@ export async function regenerateRejectedExportDte(
     return { ok: false, error: "No se pudo resolver la configuración del emisor original para generar el nuevo DTE." };
   }
   // FEX-PROD-1: el nuevo DTE hereda el ambiente del original, que debe
-  // coincidir con su emisor y estar habilitado — sin mezcla TEST/PROD.
+  // coincidir con su emisor y ser válido — sin mezcla TEST/PROD.
   if (issuerConfig.environment !== rejected.environment) {
     return { ok: false, error: "El ambiente del emisor no coincide con el ambiente del documento DTE." };
   }
-  if (!isFex11EnvironmentEnabled(rejected.environment)) {
-    return { ok: false, error: FEX11_NOT_ENABLED_ERROR };
+  if (!isFex11Environment(rejected.environment)) {
+    return { ok: false, error: "Ambiente DTE del documento no reconocido." };
   }
 
   const newDteId = await createPendingExportDte(tenant_id, location_id, rejected.sale_id, {
@@ -469,10 +458,6 @@ export async function createExportSale(
   input:       CreateExportSaleInput,
   db: PrismaClient = prisma,
 ): Promise<CreateExportSaleResult> {
-  if (!isFex11Enabled()) {
-    return { ok: false, error: FEX11_NOT_ENABLED_ERROR };
-  }
-
   // 1. Cliente debe ser extranjero
   const customer = await db.customer.findFirst({
     where:  { id: input.customer_id, tenant_id, status: "active" },
@@ -529,15 +514,11 @@ export async function createExportSale(
     return { ok: false, error: "Datos de exportación no válidos.", errors: businessErrors };
   }
 
-  // 3. Resolver ambiente fiscal efectivo + emisor activo de ESE ambiente
-  //    antes de crear nada (fail fast). El flag se evalúa contra el
-  //    ambiente efectivo: DTE_FEX11_ENABLED nunca habilita PRODUCTION.
+  // 3. Resolver ambiente fiscal efectivo (DteIssuerConfig activo único)
+  //    + emisor activo de ESE ambiente antes de crear nada (fail fast).
   const envResult = await resolveEffectiveFexEnvironment(tenant_id, location_id, db);
   if (!envResult.ok) {
     return { ok: false, error: envResult.error };
-  }
-  if (!isFex11EnvironmentEnabled(envResult.environment)) {
-    return { ok: false, error: FEX11_NOT_ENABLED_ERROR };
   }
   const issuerResult = await loadActiveIssuerConfigOrError(tenant_id, location_id, envResult.environment, db);
   if (!issuerResult.ok) {

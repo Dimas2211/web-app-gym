@@ -150,13 +150,13 @@ describe("signDteDocumentAction — FASE VI-E5A", () => {
     expect(disposeMock).toHaveBeenCalledTimes(1);
   });
 
-  it("FEX 11 fuera de la ventana de feature-guard -> bloquea, signDteDocument nunca se invoca", async () => {
+  it("FEX 11 con ambiente fiscal no reconocido -> bloquea, signDteDocument nunca se invoca", async () => {
     requireOperationalContextMock.mockResolvedValue(fakeHandle());
     dteOutgoingDocumentFindFirstSpy.mockResolvedValue({
       dte_type_code: "11",
       dte_status: "SCHEMA_VALIDATED",
       signed_jws: null,
-      environment: "PRODUCTION",
+      environment: "STAGING",
     });
 
     const result = await signDteDocumentAction("dte-doc-fex");
@@ -167,10 +167,11 @@ describe("signDteDocumentAction — FASE VI-E5A", () => {
 });
 
 // ─────────────────────────────────────────────────────────────────
-// FEX-PROD-1 — el flag se evalúa contra el ambiente del documento.
+// FEX11-FINAL-CLOSURE — FEX 11 firma como cualquier DTE de fiscal.dte:
+// sin flags DTE_FEX11_*; el ambiente sale del documento.
 // ─────────────────────────────────────────────────────────────────
 
-describe("signDteDocumentAction — FEX 11 routing TEST/PRODUCTION (FEX-PROD-1)", () => {
+describe("signDteDocumentAction — FEX 11 TEST/PRODUCTION sin feature flags", () => {
   const FEX_PROD_DOC = { dte_type_code: "11", dte_status: "SCHEMA_VALIDATED", signed_jws: null, environment: "PRODUCTION" };
 
   beforeEach(() => {
@@ -182,11 +183,10 @@ describe("signDteDocumentAction — FEX 11 routing TEST/PRODUCTION (FEX-PROD-1)"
     vi.unstubAllEnvs();
   });
 
-  it("FEX PROD + DTE_FEX11_PRODUCTION_ENABLED=YES -> delega en signDteDocument con context.client", async () => {
-    vi.stubEnv("DTE_FEX11_PRODUCTION_ENABLED", "YES");
+  it.each(["PRODUCTION", "TEST"])("FEX %s sin env vars -> delega en signDteDocument con context.client", async (environment) => {
     const handle = fakeHandle();
     requireOperationalContextMock.mockResolvedValue(handle);
-    dteOutgoingDocumentFindFirstSpy.mockResolvedValue(FEX_PROD_DOC);
+    dteOutgoingDocumentFindFirstSpy.mockResolvedValue({ ...FEX_PROD_DOC, environment });
     signDteDocumentSpy.mockResolvedValue({ ok: true, dteStatus: "SIGNED" });
 
     const result = await signDteDocumentAction("dte-doc-fex");
@@ -198,22 +198,19 @@ describe("signDteDocumentAction — FEX 11 routing TEST/PRODUCTION (FEX-PROD-1)"
     );
   });
 
-  it("FEX PROD con solo DTE_FEX11_ENABLED + flag TEST -> bloquea, firmador nunca se invoca", async () => {
-    vi.stubEnv("DTE_FEX11_ENABLED", "YES");
-    vi.stubEnv("DTE_FEX11_TEST_ENABLED", "YES");
+  it("FEX no validado (GENERATED) -> bloquea, firmador nunca se invoca", async () => {
     requireOperationalContextMock.mockResolvedValue(fakeHandle());
-    dteOutgoingDocumentFindFirstSpy.mockResolvedValue(FEX_PROD_DOC);
+    dteOutgoingDocumentFindFirstSpy.mockResolvedValue({ ...FEX_PROD_DOC, dte_status: "GENERATED" });
 
     const result = await signDteDocumentAction("dte-doc-fex");
 
-    expect(result).toMatchObject({ ok: false, error: "Ventas de exportación no están habilitadas para esta organización." });
+    expect(result.ok).toBe(false);
     expect(signDteDocumentSpy).not.toHaveBeenCalled();
   });
 
-  it("FEX TEST con solo flag PROD -> bloquea", async () => {
-    vi.stubEnv("DTE_FEX11_PRODUCTION_ENABLED", "YES");
+  it("FEX ya firmado -> bloquea, firmador nunca se invoca", async () => {
     requireOperationalContextMock.mockResolvedValue(fakeHandle());
-    dteOutgoingDocumentFindFirstSpy.mockResolvedValue({ ...FEX_PROD_DOC, environment: "TEST" });
+    dteOutgoingDocumentFindFirstSpy.mockResolvedValue({ ...FEX_PROD_DOC, signed_jws: "jws" });
 
     const result = await signDteDocumentAction("dte-doc-fex");
 

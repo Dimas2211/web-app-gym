@@ -28,13 +28,14 @@ describe("assertCatalogConsistency", () => {
 });
 
 describe("TRUSTME_MODULE_CODES / GYM_MODULE_CODES", () => {
-  it("TrustMe tiene exactamente 12 módulos (11 transversales + fiscal.dte.export), ninguno gym.*", () => {
-    expect(TRUSTME_MODULE_CODES).toHaveLength(12);
-    expect(TRUSTME_MODULE_CODES).toContain("fiscal.dte.export");
+  it("TrustMe tiene exactamente los 11 transversales (FEX 11 vive en fiscal.dte), ninguno gym.*", () => {
+    expect(TRUSTME_MODULE_CODES).toHaveLength(11);
+    expect(TRUSTME_MODULE_CODES).toContain("fiscal.dte");
+    expect(TRUSTME_MODULE_CODES).not.toContain("fiscal.dte.export");
     expect(TRUSTME_MODULE_CODES.every((c) => !c.startsWith("gym."))).toBe(true);
   });
 
-  it("GYM tiene exactamente 15 módulos: los 11 transversales + los 4 gym.* (sin fiscal.dte.export)", () => {
+  it("GYM tiene exactamente 15 módulos: los 11 transversales + los 4 gym.*", () => {
     expect(GYM_MODULE_CODES).toHaveLength(15);
     for (const code of TRANSVERSAL_MODULE_CODES) {
       expect(GYM_MODULE_CODES).toContain(code);

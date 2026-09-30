@@ -7,12 +7,11 @@
 // max-width — ExportSaleWorkspace controla su propio full-bleed
 // bajo el header del dashboard.
 //
-// Guard: requireAdmin, igual que /dashboard/sales. FEX-PROD-1: el
-// módulo se habilita solo si el ambiente fiscal efectivo de la
-// sucursal (único DteIssuerConfig activo) tiene su flag FEX 11 activo
-// (TEST o PRODUCTION). Nunca depende de NODE_ENV.
-// FINAL-RUNTIME-CLOSURE: además exige la capability por organización
-// fiscal.dte.export (resolveSalesExportAvailability).
+// Guard: requireAdmin, igual que /dashboard/sales. FEX11-FINAL-CLOSURE:
+// FEX 11 es un tipo DTE normal — disponible si la organización tiene
+// fiscal.dte y la sucursal tiene un único DteIssuerConfig activo válido
+// (resolveSalesExportAvailability). El ambiente (TEST/PRODUCTION) sale
+// del emisor. Sin feature flags; nunca depende de NODE_ENV.
 // ─────────────────────────────────────────────────────────────────
 
 import { requireAdmin } from "@/lib/permissions/guards";

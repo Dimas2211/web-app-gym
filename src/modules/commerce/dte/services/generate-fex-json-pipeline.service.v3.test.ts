@@ -94,7 +94,6 @@ afterEach(() => {
 
 describe("pipeline FEX 11 v3 local (in-memory, sin MH)", () => {
   it("PENDING_GENERATION → GENERATED → AJV v3 PASS → SCHEMA_VALIDATED", async () => {
-    vi.stubEnv("DTE_FEX11_TEST_ENABLED", "YES");
     const { db, doc } = buildInMemoryDb();
 
     const result = await generateAndPersistFexJsonForDte(PARAMS, db as never);
@@ -112,7 +111,6 @@ describe("pipeline FEX 11 v3 local (in-memory, sin MH)", () => {
   });
 
   it("cliente con país legado FEX v1 → no persiste JSON, queda PENDING_GENERATION", async () => {
-    vi.stubEnv("DTE_FEX11_TEST_ENABLED", "YES");
     const { db, doc } = buildInMemoryDb({ countryCode: "9540" });
 
     const result = await generateAndPersistFexJsonForDte(PARAMS, db as never);
@@ -123,17 +121,18 @@ describe("pipeline FEX 11 v3 local (in-memory, sin MH)", () => {
     expect(doc.dte_status).toBe("PENDING_GENERATION");
   });
 
-  it("sin flag FEX 11 TEST → bloqueado antes del builder", async () => {
+  it("sin ningún DTE_FEX11_* → genera igual (FEX 11 no depende de env vars)", async () => {
+    vi.stubEnv("DTE_FEX11_TEST_ENABLED", "");
+    vi.stubEnv("DTE_FEX11_ENABLED", "");
+    vi.stubEnv("DTE_FEX11_PRODUCTION_ENABLED", "");
     const { db } = buildInMemoryDb();
 
     const result = await generateAndPersistFexJsonForDte(PARAMS, db as never);
 
-    expect(result.ok).toBe(false);
-    expect(db.sale.findFirst).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ ok: true, dte_status: "SCHEMA_VALIDATED" });
   });
 
   it("otro tenant → documento no encontrado, sin lecturas de venta", async () => {
-    vi.stubEnv("DTE_FEX11_TEST_ENABLED", "YES");
     const { db } = buildInMemoryDb();
 
     const result = await generateAndPersistFexJsonForDte({ ...PARAMS, tenant_id: "tenant-otro" }, db as never);
@@ -143,7 +142,7 @@ describe("pipeline FEX 11 v3 local (in-memory, sin MH)", () => {
   });
 });
 
-// FEX-PROD-1 — mismo pipeline en PRODUCTION, gobernado solo por el flag PROD.
+// FEX11-FINAL-CLOSURE — mismo pipeline en PRODUCTION, gobernado solo por el ambiente del documento.
 describe("pipeline FEX 11 v3 — PRODUCTION (FEX-PROD-1)", () => {
   function clearFexFlags() {
     vi.stubEnv("DTE_FEX11_TEST_ENABLED", "");
@@ -151,9 +150,8 @@ describe("pipeline FEX 11 v3 — PRODUCTION (FEX-PROD-1)", () => {
     vi.stubEnv("DTE_FEX11_PRODUCTION_ENABLED", "");
   }
 
-  it("documento PROD + flag PROD → SCHEMA_VALIDATED con ambiente 01 y AJV v3 PASS", async () => {
+  it("documento PROD sin env vars → SCHEMA_VALIDATED con ambiente 01 y AJV v3 PASS", async () => {
     clearFexFlags();
-    vi.stubEnv("DTE_FEX11_PRODUCTION_ENABLED", "YES");
     const { db, doc } = buildInMemoryDb({ environment: "PRODUCTION" });
 
     const result = await generateAndPersistFexJsonForDte(PARAMS, db as never);
@@ -165,11 +163,9 @@ describe("pipeline FEX 11 v3 — PRODUCTION (FEX-PROD-1)", () => {
     expect(validateAgainstFexV3(persisted).ok).toBe(true);
   });
 
-  it("documento PROD con solo flags TEST/comercial → bloqueado antes del builder", async () => {
+  it("documento con ambiente no reconocido → bloqueado antes del builder", async () => {
     clearFexFlags();
-    vi.stubEnv("DTE_FEX11_TEST_ENABLED", "YES");
-    vi.stubEnv("DTE_FEX11_ENABLED", "YES");
-    const { db } = buildInMemoryDb({ environment: "PRODUCTION" });
+    const { db } = buildInMemoryDb({ environment: "STAGING" as never });
 
     const result = await generateAndPersistFexJsonForDte(PARAMS, db as never);
 

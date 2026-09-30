@@ -46,7 +46,6 @@ import {
   resolveFex11AvailabilityForLocation,
 } from "./export-sale.service";
 import { FEX_GOODS_TIPO_REGIMEN_BLOCKED_ERROR } from "../../../dte/utils/fex11-v3-rules";
-import { FEX11_NOT_ENABLED_ERROR } from "../../../dte/utils/fex11-feature-guard";
 import type { CreateExportSaleInput } from "../schemas/export-sale.schemas";
 
 const TENANT_A = "tenant-trustme";
@@ -146,7 +145,7 @@ function expectNothingCreated(db: ReturnType<typeof sharedDb>["db"]) {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  // Hermético: el .env local puede traer flags FEX.
+  // Hermético: los antiguos flags FEX no deben influir (FEX11-FINAL-CLOSURE).
   vi.stubEnv("DTE_FEX11_TEST_ENABLED", "");
   vi.stubEnv("DTE_FEX11_ENABLED", "");
   vi.stubEnv("DTE_FEX11_PRODUCTION_ENABLED", "");
@@ -164,8 +163,7 @@ afterEach(() => {
 // ── Routing de ambiente ────────────────────────────────────────────
 
 describe("createExportSale — routing TEST/PRODUCTION (FEX-PROD-1)", () => {
-  it("emisor TEST + flag TEST -> DTE 11 TEST con issuer TEST; correlativo reservado en TEST", async () => {
-    vi.stubEnv("DTE_FEX11_TEST_ENABLED", "YES");
+  it("emisor TEST (sin env vars) -> DTE 11 TEST con issuer TEST; correlativo reservado en TEST", async () => {
     const { db, createdDocs } = sharedDb({ issuers: [issuer("A-test", TENANT_A, LOC_A, "TEST")] });
 
     const result = await createExportSale(TENANT_A, LOC_A, "u1", saleInput(), db as never);
@@ -177,8 +175,7 @@ describe("createExportSale — routing TEST/PRODUCTION (FEX-PROD-1)", () => {
     }));
   });
 
-  it("emisor PROD + flag PROD -> DTE 11 PRODUCTION con issuer PROD; correlativo reservado en PRODUCTION", async () => {
-    vi.stubEnv("DTE_FEX11_PRODUCTION_ENABLED", "YES");
+  it("emisor PROD (sin env vars) -> DTE 11 PRODUCTION con issuer PROD; correlativo reservado en PRODUCTION", async () => {
     const { db, createdDocs } = sharedDb({ issuers: [issuer("A-prod", TENANT_A, LOC_A, "PRODUCTION")] });
 
     const result = await createExportSale(TENANT_A, LOC_A, "u1", saleInput(), db as never);
@@ -190,39 +187,7 @@ describe("createExportSale — routing TEST/PRODUCTION (FEX-PROD-1)", () => {
     }));
   });
 
-  it("flag PROD pero solo emisor TEST -> falla, nada creado", async () => {
-    vi.stubEnv("DTE_FEX11_PRODUCTION_ENABLED", "YES");
-    const { db } = sharedDb({ issuers: [issuer("A-test", TENANT_A, LOC_A, "TEST")] });
-
-    const result = await createExportSale(TENANT_A, LOC_A, "u1", saleInput(), db as never);
-
-    expect(result).toMatchObject({ ok: false, error: FEX11_NOT_ENABLED_ERROR });
-    expectNothingCreated(db);
-  });
-
-  it("flag TEST pero solo emisor PROD -> falla, nada creado", async () => {
-    vi.stubEnv("DTE_FEX11_TEST_ENABLED", "YES");
-    const { db } = sharedDb({ issuers: [issuer("A-prod", TENANT_A, LOC_A, "PRODUCTION")] });
-
-    const result = await createExportSale(TENANT_A, LOC_A, "u1", saleInput(), db as never);
-
-    expect(result).toMatchObject({ ok: false, error: FEX11_NOT_ENABLED_ERROR });
-    expectNothingCreated(db);
-  });
-
-  it("emisor PROD + solo DTE_FEX11_ENABLED=YES -> falla (DTE_FEX11_ENABLED nunca habilita PROD)", async () => {
-    vi.stubEnv("DTE_FEX11_ENABLED", "YES");
-    const { db } = sharedDb({ issuers: [issuer("A-prod", TENANT_A, LOC_A, "PRODUCTION")] });
-
-    const result = await createExportSale(TENANT_A, LOC_A, "u1", saleInput(), db as never);
-
-    expect(result.ok).toBe(false);
-    expectNothingCreated(db);
-  });
-
   it("TEST y PRODUCTION activos a la vez -> no infiere ambiente, falla", async () => {
-    vi.stubEnv("DTE_FEX11_TEST_ENABLED", "YES");
-    vi.stubEnv("DTE_FEX11_PRODUCTION_ENABLED", "YES");
     const { db } = sharedDb({ issuers: [
       issuer("A-test", TENANT_A, LOC_A, "TEST"), issuer("A-prod", TENANT_A, LOC_A, "PRODUCTION"),
     ] });
@@ -234,7 +199,6 @@ describe("createExportSale — routing TEST/PRODUCTION (FEX-PROD-1)", () => {
   });
 
   it("emisor inactivo no cuenta como ambiente efectivo", async () => {
-    vi.stubEnv("DTE_FEX11_PRODUCTION_ENABLED", "YES");
     const { db } = sharedDb({ issuers: [issuer("A-prod", TENANT_A, LOC_A, "PRODUCTION", false)] });
 
     const result = await createExportSale(TENANT_A, LOC_A, "u1", saleInput(), db as never);
@@ -270,10 +234,8 @@ describe("loadActiveIssuerConfigOrError — ambiente exacto, sin fallback", () =
 
 describe("createExportSale — services-only (bienes/mixto fail-closed)", () => {
   for (const env of ["TEST", "PRODUCTION"] as const) {
-    const flag = env === "TEST" ? "DTE_FEX11_TEST_ENABLED" : "DTE_FEX11_PRODUCTION_ENABLED";
 
     it(`${env}: servicios (item_type_export=2) -> permitido`, async () => {
-      vi.stubEnv(flag, "YES");
       const { db, createdDocs } = sharedDb({ issuers: [issuer("A-1", TENANT_A, LOC_A, env)] });
 
       const result = await createExportSale(TENANT_A, LOC_A, "u1", saleInput(), db as never);
@@ -284,7 +246,6 @@ describe("createExportSale — services-only (bienes/mixto fail-closed)", () => 
 
     for (const [label, type] of [["bienes", 1], ["mixto", 3]] as const) {
       it(`${env}: ${label} (item_type_export=${type}) -> bloqueado antes de crear venta, correlativo o DTE`, async () => {
-        vi.stubEnv(flag, "YES");
         const { db } = sharedDb({ issuers: [issuer("A-1", TENANT_A, LOC_A, env)], productType: "PRODUCT" });
 
         const result = await createExportSale(TENANT_A, LOC_A, "u1", saleInput({
@@ -304,8 +265,6 @@ describe("createExportSale — services-only (bienes/mixto fail-closed)", () => 
 
 describe("Shared runtime — aislamiento Tenant A (TrustMe) / Tenant B (Metatraining)", () => {
   it("B sin emisor propio no puede usar el emisor de A (misma DB) -> falla, nada creado", async () => {
-    vi.stubEnv("DTE_FEX11_TEST_ENABLED", "YES");
-    vi.stubEnv("DTE_FEX11_PRODUCTION_ENABLED", "YES");
     const { db } = sharedDb({ issuers: [
       issuer("A-prod", TENANT_A, LOC_A, "PRODUCTION"),
       // Emisor de A usado con la location de B: sigue siendo de A.
@@ -322,8 +281,6 @@ describe("Shared runtime — aislamiento Tenant A (TrustMe) / Tenant B (Metatrai
   });
 
   it("A en PRODUCTION y B en TEST en la misma DB -> cada uno con su emisor/ambiente/correlativo, sin mezcla", async () => {
-    vi.stubEnv("DTE_FEX11_TEST_ENABLED", "YES");
-    vi.stubEnv("DTE_FEX11_PRODUCTION_ENABLED", "YES");
     const { db, createdDocs } = sharedDb({ issuers: [
       issuer("A-prod", TENANT_A, LOC_A, "PRODUCTION"),
       issuer("B-test", TENANT_B, LOC_B, "TEST"),
@@ -339,7 +296,6 @@ describe("Shared runtime — aislamiento Tenant A (TrustMe) / Tenant B (Metatrai
   });
 
   it("B no puede abrir/regenerar un DTE de A ni consumir su correlativo", async () => {
-    vi.stubEnv("DTE_FEX11_PRODUCTION_ENABLED", "YES");
     const { db } = sharedDb({
       issuers: [issuer("A-prod", TENANT_A, LOC_A, "PRODUCTION")],
       docs: [{
@@ -355,8 +311,7 @@ describe("Shared runtime — aislamiento Tenant A (TrustMe) / Tenant B (Metatrai
     expect(db.$transaction).not.toHaveBeenCalled();
   });
 
-  it("disponibilidad por sucursal: A (PROD habilitado) sí, B (sin emisor) no", async () => {
-    vi.stubEnv("DTE_FEX11_PRODUCTION_ENABLED", "YES");
+  it("disponibilidad por sucursal: A (emisor PROD) sí, B (sin emisor) no", async () => {
     const { db } = sharedDb({ issuers: [issuer("A-prod", TENANT_A, LOC_A, "PRODUCTION")] });
 
     expect(await resolveFex11AvailabilityForLocation(TENANT_A, LOC_A, db as never)).toEqual({ enabled: true, environment: "PRODUCTION" });
@@ -370,8 +325,7 @@ describe("regenerateRejectedExportDte — hereda ambiente del documento original
     sale_id: "sale-A", dte_status: "REJECTED", issuer_config_id: "A-prod", environment: "PRODUCTION",
   };
 
-  it("rechazado PROD + flag PROD -> nuevo DTE PROD con el mismo emisor", async () => {
-    vi.stubEnv("DTE_FEX11_PRODUCTION_ENABLED", "YES");
+  it("rechazado PROD -> nuevo DTE PROD con el mismo emisor", async () => {
     const { db, createdDocs } = sharedDb({ issuers: [issuer("A-prod", TENANT_A, LOC_A, "PRODUCTION")], docs: [REJECTED_PROD] });
 
     const result = await regenerateRejectedExportDte(TENANT_A, LOC_A, "dte-A", db as never);
@@ -380,18 +334,7 @@ describe("regenerateRejectedExportDte — hereda ambiente del documento original
     expect(createdDocs[0]).toMatchObject({ environment: "PRODUCTION", issuer_config_id: "A-prod" });
   });
 
-  it("rechazado PROD con solo flag TEST -> falla", async () => {
-    vi.stubEnv("DTE_FEX11_TEST_ENABLED", "YES");
-    const { db } = sharedDb({ issuers: [issuer("A-prod", TENANT_A, LOC_A, "PRODUCTION")], docs: [REJECTED_PROD] });
-
-    const result = await regenerateRejectedExportDte(TENANT_A, LOC_A, "dte-A", db as never);
-
-    expect(result).toMatchObject({ ok: false, error: FEX11_NOT_ENABLED_ERROR });
-    expect(reserveMock).not.toHaveBeenCalled();
-  });
-
   it("rechazado PROD apuntando a emisor TEST (mismatch) -> falla", async () => {
-    vi.stubEnv("DTE_FEX11_PRODUCTION_ENABLED", "YES");
     const { db } = sharedDb({ issuers: [issuer("A-test", TENANT_A, LOC_A, "TEST")], docs: [{ ...REJECTED_PROD, issuer_config_id: "A-test" }] });
 
     const result = await regenerateRejectedExportDte(TENANT_A, LOC_A, "dte-A", db as never);
@@ -401,24 +344,28 @@ describe("regenerateRejectedExportDte — hereda ambiente del documento original
   });
 });
 
-// DEDICATED-RUNTIME-UI-CLOSURE — diagnóstico /dashboard/sales/export: el
-// gate NO es un entitlement por organización; es flag de despliegue
-// (DTE_FEX11_*) + emisor activo único de la sucursal en la DB runtime.
+// FEX11-FINAL-CLOSURE — gate de /dashboard/sales/export a nivel de sucursal:
+// emisor activo único en la DB runtime recibida. Sin flags DTE_FEX11_*
+// (el gate de módulo fiscal.dte vive en resolveSalesExportAvailability).
 describe("resolveFex11AvailabilityForLocation — gate de /dashboard/sales/export", () => {
-  it("emisor TEST activo pero sin ningún flag DTE_FEX11_* -> deshabilitado (sin consultar la DB)", async () => {
-    const { db } = sharedDb({ issuers: [issuer("A-test", TENANT_A, LOC_A, "TEST")] });
-
-    expect(await resolveFex11AvailabilityForLocation(TENANT_A, LOC_A, db as never)).toEqual({ enabled: false, environment: null });
-    expect(db.dteIssuerConfig.findMany).not.toHaveBeenCalled();
-  });
-
-  it("emisor TEST activo + DTE_FEX11_ENABLED=YES -> habilitado en TEST, resuelto contra la DB runtime recibida", async () => {
-    vi.stubEnv("DTE_FEX11_ENABLED", "YES");
+  it("emisor TEST activo y sin ningún DTE_FEX11_* -> habilitado en TEST, resuelto contra la DB runtime recibida", async () => {
     const { db } = sharedDb({ issuers: [issuer("A-test", TENANT_A, LOC_A, "TEST")] });
 
     expect(await resolveFex11AvailabilityForLocation(TENANT_A, LOC_A, db as never)).toEqual({ enabled: true, environment: "TEST" });
     expect(db.dteIssuerConfig.findMany).toHaveBeenCalledWith(
       expect.objectContaining({ where: { tenant_id: TENANT_A, location_id: LOC_A, is_active: true } }),
     );
+  });
+
+  it("emisor PROD activo y sin ningún DTE_FEX11_* -> habilitado en PRODUCTION", async () => {
+    const { db } = sharedDb({ issuers: [issuer("A-prod", TENANT_A, LOC_A, "PRODUCTION")] });
+
+    expect(await resolveFex11AvailabilityForLocation(TENANT_A, LOC_A, db as never)).toEqual({ enabled: true, environment: "PRODUCTION" });
+  });
+
+  it("sin emisor activo -> deshabilitado", async () => {
+    const { db } = sharedDb({ issuers: [issuer("A-test", TENANT_A, LOC_A, "TEST", false)] });
+
+    expect(await resolveFex11AvailabilityForLocation(TENANT_A, LOC_A, db as never)).toEqual({ enabled: false, environment: null });
   });
 });

@@ -22,10 +22,10 @@
 // eso es un control de cliente, no de servidor — este guard cierra esa
 // brecha a nivel de action.
 //
-// F3-C17 — FEX 11 se permite únicamente bajo fex11-feature-guard.
-// FEX-PROD-1: el flag se evalúa contra el ambiente del documento (TEST
-// → DTE_FEX11_TEST_ENABLED / DTE_FEX11_ENABLED; PRODUCTION → solo
-// DTE_FEX11_PRODUCTION_ENABLED). Nunca depende de NODE_ENV.
+// FEX11-FINAL-CLOSURE — FEX 11 es un tipo DTE normal de fiscal.dte: sin
+// feature flags. Solo se exige ambiente fiscal válido del documento
+// (TEST / PRODUCTION, fijado desde DteIssuerConfig) y estado
+// SCHEMA_VALIDATED sin firma previa. Nunca depende de NODE_ENV.
 //
 // FASE VI-E5A — reemplaza requireAdmin + getEffectiveLocationId +
 // resolveCommercialEnforcementContext manual por
@@ -43,7 +43,7 @@ import {
   signDteDocument,
   type SignDteDocumentResult,
 } from "../services/sign-dte-document.service";
-import { canUseFex11InServerFlow, FEX11_NOT_ENABLED_ERROR } from "../utils/fex11-feature-guard";
+import { canUseFex11InServerFlow, FEX11_INVALID_ENVIRONMENT_ERROR } from "../utils/fex11-environment";
 import {
   requireOperationalContext,
   OperationalContextError,
@@ -52,7 +52,7 @@ import {
 export type { SignDteDocumentResult };
 
 // Tipos DTE con firma pública habilitada sin condiciones adicionales.
-// FEX 11 se evalúa aparte vía fex11-feature-guard. FSE 14 (origen Purchase)
+// FEX 11 se evalúa aparte (ambiente + estado SCHEMA_VALIDATED). FSE 14 (origen Purchase)
 // reutiliza el mismo firmador agnóstico de dte_type_code — sin condiciones
 // especiales, igual que FE/CCFE/NC.
 const SIGNABLE_TYPE_CODES = new Set(["01", "03", "05", "14"]);
@@ -88,15 +88,13 @@ export async function signDteDocumentAction(
     }
 
     if (dteDoc.dte_type_code === "11") {
-      const eligible =
-        canUseFex11InServerFlow({ dte_type_code: dteDoc.dte_type_code, environment: dteDoc.environment }) &&
-        dteDoc.dte_status === "SCHEMA_VALIDATED" &&
-        !dteDoc.signed_jws;
-
-      if (!eligible) {
+      if (!canUseFex11InServerFlow({ dte_type_code: dteDoc.dte_type_code, environment: dteDoc.environment })) {
+        return { ok: false, error: FEX11_INVALID_ENVIRONMENT_ERROR };
+      }
+      if (dteDoc.dte_status !== "SCHEMA_VALIDATED" || dteDoc.signed_jws) {
         return {
           ok:    false,
-          error: FEX11_NOT_ENABLED_ERROR,
+          error: `Solo se puede firmar una Factura de Exportación con JSON validado y sin firma previa. Estado actual: ${dteDoc.dte_status}.`,
         };
       }
     } else if (!SIGNABLE_TYPE_CODES.has(dteDoc.dte_type_code)) {

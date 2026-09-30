@@ -1,10 +1,11 @@
 // ─────────────────────────────────────────────────────────────────
 // commerce/sales/export/actions — export-actions.capability.test.ts
 //
-// FINAL-RUNTIME-CLOSURE — enforcement server-side de fiscal.dte.export
-// en los wrappers de ambas familias de actions de exportación. Una
-// organización sin capability recibe FEX11_NOT_ENABLED_ERROR ANTES de
-// cualquier query, generación, firma o transmisión.
+// FEX11-FINAL-CLOSURE — enforcement server-side de fiscal.dte en los
+// wrappers de ambas familias de actions de exportación. Una
+// organización sin fiscal.dte recibe FEX_NOT_AVAILABLE_ERROR ANTES de
+// cualquier query, generación, firma o transmisión. No existe capability
+// propia de exportación ni flags DTE_FEX11_*.
 // ─────────────────────────────────────────────────────────────────
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
@@ -35,7 +36,7 @@ vi.mock("../../../dte/actions/deliver-dte-to-external-db.action", () => ({ deliv
 
 import { searchForeignCustomersAction } from "./export-sale.actions";
 import { generateExportDteJsonAction, signExportDteAction, transmitExportDteAction } from "./export-sale-dte.actions";
-import { FEX11_NOT_ENABLED_ERROR } from "../../../dte/utils/fex11-feature-guard";
+import { FEX_NOT_AVAILABLE_ERROR } from "../services/sales-export-availability";
 
 function commercialContext(enabledCodes: string[]) {
   return {
@@ -68,30 +69,30 @@ function handle(enabledCodes: string[]) {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  // Hermético: el .env local puede traer flags FEX.
+  // Hermético: los antiguos flags FEX no deben influir en nada.
   vi.stubEnv("DTE_FEX11_TEST_ENABLED", "");
   vi.stubEnv("DTE_FEX11_PRODUCTION_ENABLED", "");
-  vi.stubEnv("DTE_FEX11_ENABLED", "YES");
+  vi.stubEnv("DTE_FEX11_ENABLED", "");
 });
 
 afterEach(() => {
   vi.unstubAllEnvs();
 });
 
-describe("actions de exportación — capability fiscal.dte.export", () => {
-  it("sin capability → error de módulo no habilitado, sin consultar datos", async () => {
-    const h = handle(["commerce.sales", "fiscal.dte"]);
+describe("actions de exportación — acceso por fiscal.dte", () => {
+  it("sin fiscal.dte → error de disponibilidad, sin consultar datos", async () => {
+    const h = handle(["commerce.sales"]);
     requireOperationalContextMock.mockResolvedValue(h.value);
 
     const result = await searchForeignCustomersAction("acme");
 
-    expect(result).toEqual({ ok: false, error: FEX11_NOT_ENABLED_ERROR });
+    expect(result).toEqual({ ok: false, error: FEX_NOT_AVAILABLE_ERROR });
     expect(searchForeignCustomersMock).not.toHaveBeenCalled();
     expect(h.dispose).toHaveBeenCalled();
   });
 
-  it("con capability → la action opera normalmente", async () => {
-    requireOperationalContextMock.mockResolvedValue(handle(["commerce.sales", "fiscal.dte", "fiscal.dte.export"]).value);
+  it("con fiscal.dte y sin ningún DTE_FEX11_* → la action opera normalmente", async () => {
+    requireOperationalContextMock.mockResolvedValue(handle(["commerce.sales", "fiscal.dte"]).value);
     searchForeignCustomersMock.mockResolvedValue([]);
 
     const result = await searchForeignCustomersAction("acme");
@@ -103,24 +104,26 @@ describe("actions de exportación — capability fiscal.dte.export", () => {
     ["generate", generateExportDteJsonAction],
     ["sign", signExportDteAction],
     ["transmit", transmitExportDteAction],
-  ])("DTE %s sin capability → bloqueado antes de generar/firmar/transmitir", async (_label, action) => {
-    requireOperationalContextMock.mockResolvedValue(handle(["commerce.sales", "fiscal.dte"]).value);
+  ])("DTE %s sin fiscal.dte → bloqueado antes de generar/firmar/transmitir", async (_label, action) => {
+    requireOperationalContextMock.mockResolvedValue(handle(["commerce.sales"]).value);
 
     const result = await action("dte-1");
 
-    expect(result).toEqual({ ok: false, error: FEX11_NOT_ENABLED_ERROR });
+    expect(result).toEqual({ ok: false, error: FEX_NOT_AVAILABLE_ERROR });
     expect(generateFexJsonMock).not.toHaveBeenCalled();
     expect(signMock).not.toHaveBeenCalled();
     expect(transmitMock).not.toHaveBeenCalled();
   });
 
-  it("capability presente pero kill switch técnico apagado → bloqueado (flag sigue siendo safety gate)", async () => {
-    vi.stubEnv("DTE_FEX11_ENABLED", "");
-    requireOperationalContextMock.mockResolvedValue(handle(["commerce.sales", "fiscal.dte", "fiscal.dte.export"]).value);
+  it("los antiguos DTE_FEX11_*=YES no sustituyen a fiscal.dte", async () => {
+    vi.stubEnv("DTE_FEX11_ENABLED", "YES");
+    vi.stubEnv("DTE_FEX11_TEST_ENABLED", "YES");
+    vi.stubEnv("DTE_FEX11_PRODUCTION_ENABLED", "YES");
+    requireOperationalContextMock.mockResolvedValue(handle(["commerce.sales"]).value);
 
     const result = await searchForeignCustomersAction("acme");
 
-    expect(result).toEqual({ ok: false, error: FEX11_NOT_ENABLED_ERROR });
-    expect(requireOperationalContextMock).not.toHaveBeenCalled();
+    expect(result).toEqual({ ok: false, error: FEX_NOT_AVAILABLE_ERROR });
+    expect(searchForeignCustomersMock).not.toHaveBeenCalled();
   });
 });

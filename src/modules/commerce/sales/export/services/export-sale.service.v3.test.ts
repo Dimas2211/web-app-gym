@@ -128,8 +128,10 @@ beforeEach(() => {
   addSaleItemToDraftMock.mockResolvedValue({ ok: true });
   confirmSaleMock.mockResolvedValue({ ok: true });
   reserveMock.mockResolvedValue({ control_number: "DTE-11-M001P001-000000000000001" });
-  // FEX-PROD-1: guard real (sin mock) con el flag TEST activo.
-  vi.stubEnv("DTE_FEX11_TEST_ENABLED", "YES");
+  // FEX11-FINAL-CLOSURE: sin flags — el ambiente sale del emisor activo.
+  vi.stubEnv("DTE_FEX11_TEST_ENABLED", "");
+  vi.stubEnv("DTE_FEX11_ENABLED", "");
+  vi.stubEnv("DTE_FEX11_PRODUCTION_ENABLED", "");
 });
 
 afterEach(() => {

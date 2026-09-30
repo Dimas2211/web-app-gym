@@ -7,9 +7,8 @@
 // en las mismas actions ya probadas para FE/CCFE/NC/FEX 11
 // (generateFexJsonForSaleAction, signDteDocumentAction,
 // transmitDteDocumentAction, deliverDteToExternalDbAction) — esta
-// capa solo agrega el guard de sesión/flag y lectura de estado
-// seguro, mismo patrón que fex11-test-console.actions.ts (no se
-// modifica ese archivo).
+// capa solo agrega el guard de sesión/fiscal.dte y lectura de estado
+// seguro.
 //
 // No devuelve signed_jws, json_document completo, mh_response
 // completo ni credenciales — solo indica presencia y metadatos
@@ -24,8 +23,7 @@
 // ─────────────────────────────────────────────────────────────────
 
 import { requireAdmin }           from "@/lib/permissions/guards";
-import { isFex11Enabled, FEX11_NOT_ENABLED_ERROR }         from "../../../dte/utils/fex11-feature-guard";
-import { hasFexExportCapability }                           from "../services/sales-export-availability";
+import { hasFexAccess, FEX_NOT_AVAILABLE_ERROR }           from "../services/sales-export-availability";
 import { generateFexJsonForSaleAction } from "../../../dte/actions/generate-fex-json-for-sale.action";
 import { signDteDocumentAction }        from "../../../dte/actions/sign-dte-document.action";
 import { transmitDteDocumentAction }    from "../../../dte/actions/transmit-dte-document.action";
@@ -65,10 +63,6 @@ export type ExportDteActionResult =
 
 async function requireExportDteSession(write: boolean):
   Promise<{ context: OperationalContext; dispose: () => Promise<void> } | { error: string }> {
-  if (!isFex11Enabled()) {
-    return { error: FEX11_NOT_ENABLED_ERROR };
-  }
-
   const sessionUser = await requireAdmin();
 
   let handle;
@@ -87,12 +81,12 @@ async function requireExportDteSession(write: boolean):
     return { error: "La sesión no tiene una location activa." };
   }
 
-  // Capability por organización (fiscal.dte.export) — mismo criterio que
-  // la página (resolveSalesExportAvailability). commercialContext siempre
-  // viene resuelto porque se pidió `module`.
-  if (!handle.context.commercialContext || !hasFexExportCapability(handle.context.commercialContext)) {
+  // FEX 11 pertenece a fiscal.dte — mismo criterio que la página
+  // (resolveSalesExportAvailability). commercialContext siempre viene
+  // resuelto porque se pidió `module`.
+  if (!handle.context.commercialContext || !hasFexAccess(handle.context.commercialContext)) {
     await handle.dispose();
-    return { error: FEX11_NOT_ENABLED_ERROR };
+    return { error: FEX_NOT_AVAILABLE_ERROR };
   }
 
   return handle;

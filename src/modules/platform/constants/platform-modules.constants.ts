@@ -22,8 +22,7 @@ export const PLATFORM_MODULE_CODES = {
   COMMERCE_CASH:      "commerce.cash",
 
   // ── Fiscal ───────────────────────────────────────────────────
-  FISCAL_DTE:        "fiscal.dte",
-  FISCAL_DTE_EXPORT: "fiscal.dte.export",
+  FISCAL_DTE: "fiscal.dte",
 
   // ── Vertical GYM ─────────────────────────────────────────────
   GYM_MEMBERSHIPS:  "gym.memberships",

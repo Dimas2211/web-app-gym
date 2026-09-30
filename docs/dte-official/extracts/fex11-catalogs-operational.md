@@ -1,5 +1,7 @@
 # FEX 11 — Integración de catálogos al sistema central
 
+> **HISTÓRICO / SUPERADO (2026-09-30, FEX11-FINAL-CLOSURE).** Las referencias a `DTE_FEX11_*`, `fiscal.dte.export`, `fex11-feature-guard.ts` y la consola `/dashboard/dte/fex11-test` ya no aplican: FEX 11 es un tipo DTE normal de `fiscal.dte`. Ver `docs/modules/fex11-standard-dte.md`.
+
 Fuente: **Catálogo - Sistema de Transmisión v1.2** — el PDF y su versión
 estructurada en Excel SÍ están en el repositorio, en
 `database/catalogs/Catálogo - Sistema de Transmisión (1).pdf` y

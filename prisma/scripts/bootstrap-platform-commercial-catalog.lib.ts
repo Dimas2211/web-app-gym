@@ -39,16 +39,13 @@ export const TRANSVERSAL_MODULE_CODES: readonly string[] = [
   "fiscal.dte",
 ] as const;
 
-// TrustMe: los 11 transversales + fiscal.dte.export (Factura de
-// Exportación, habilitada solo por organización). Ningún gym.* — TrustMe
-// no es vertical GYM.
+// TrustMe: los 11 transversales. Ningún gym.* — TrustMe no es vertical
+// GYM. Factura de Exportación (FEX 11) forma parte de fiscal.dte.
 export const TRUSTME_MODULE_CODES: readonly string[] = [
   ...TRANSVERSAL_MODULE_CODES,
-  "fiscal.dte.export",
 ] as const;
 
 // GYM: los 15 módulos operativos actuales (transversales + los 4 gym.*).
-// Sin fiscal.dte.export.
 export const GYM_MODULE_CODES: readonly string[] = [
   ...TRANSVERSAL_MODULE_CODES,
   "gym.memberships",

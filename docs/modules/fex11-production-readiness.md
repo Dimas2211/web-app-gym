@@ -1,5 +1,7 @@
 # FEX 11 — Production readiness (FEX-PROD-0 gate)
 
+> **HISTÓRICO / SUPERADO (2026-09-30, FEX11-FINAL-CLOSURE).** Las referencias a `DTE_FEX11_*`, `fiscal.dte.export`, `fex11-feature-guard.ts` y la consola `/dashboard/dte/fex11-test` ya no aplican: FEX 11 es un tipo DTE normal de `fiscal.dte`. Ver `docs/modules/fex11-standard-dte.md`.
+
 Fecha: 2026-09-25. HEAD de partida: `d15e865`.
 Alcance: certificación documental del schema FEX vigente vs implementación Zolvi.
 **Resultado del gate: `FEX_SCHEMA_PROD_COMPATIBLE = NO`. FEX-PROD-1 NO se ejecutó.**

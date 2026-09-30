@@ -1,5 +1,7 @@
 # FASE VI-E5A — DTE signing runtime awareness
 
+> **HISTÓRICO / SUPERADO (2026-09-30, FEX11-FINAL-CLOSURE).** Las referencias a `DTE_FEX11_*`, `fiscal.dte.export`, `fex11-feature-guard.ts` y la consola `/dashboard/dte/fex11-test` ya no aplican: FEX 11 es un tipo DTE normal de `fiscal.dte`. Ver `docs/modules/fex11-standard-dte.md`.
+
 Migra la **firma** de DTE (FE01, CCFE03, FSE14, FEX11, NC05) para que un
 RUNTIME_CLIENT firme íntegramente contra su propia runtime DB, siguiendo el
 mismo patrón `requireOperationalContext` / `db` explícito ya certificado en
