@@ -400,3 +400,25 @@ describe("regenerateRejectedExportDte — hereda ambiente del documento original
     expect(reserveMock).not.toHaveBeenCalled();
   });
 });
+
+// DEDICATED-RUNTIME-UI-CLOSURE — diagnóstico /dashboard/sales/export: el
+// gate NO es un entitlement por organización; es flag de despliegue
+// (DTE_FEX11_*) + emisor activo único de la sucursal en la DB runtime.
+describe("resolveFex11AvailabilityForLocation — gate de /dashboard/sales/export", () => {
+  it("emisor TEST activo pero sin ningún flag DTE_FEX11_* -> deshabilitado (sin consultar la DB)", async () => {
+    const { db } = sharedDb({ issuers: [issuer("A-test", TENANT_A, LOC_A, "TEST")] });
+
+    expect(await resolveFex11AvailabilityForLocation(TENANT_A, LOC_A, db as never)).toEqual({ enabled: false, environment: null });
+    expect(db.dteIssuerConfig.findMany).not.toHaveBeenCalled();
+  });
+
+  it("emisor TEST activo + DTE_FEX11_ENABLED=YES -> habilitado en TEST, resuelto contra la DB runtime recibida", async () => {
+    vi.stubEnv("DTE_FEX11_ENABLED", "YES");
+    const { db } = sharedDb({ issuers: [issuer("A-test", TENANT_A, LOC_A, "TEST")] });
+
+    expect(await resolveFex11AvailabilityForLocation(TENANT_A, LOC_A, db as never)).toEqual({ enabled: true, environment: "TEST" });
+    expect(db.dteIssuerConfig.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { tenant_id: TENANT_A, location_id: LOC_A, is_active: true } }),
+    );
+  });
+});

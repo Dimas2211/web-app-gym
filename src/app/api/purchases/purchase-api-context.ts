@@ -5,7 +5,7 @@ import { auth } from "@/lib/auth/auth";
 import type { SessionUser } from "@/lib/permissions/guards";
 import { getCapabilities } from "@/core/permissions/role-capabilities";
 import { getLocationById } from "@/core/modules/locations/queries";
-import { ACTIVE_LOCATION_COOKIE } from "@/lib/location/active-location";
+import { ACTIVE_LOCATION_COOKIE, getEffectiveLocationId } from "@/lib/location/active-location";
 import {
   resolveEffectiveApiContext,
   type RuntimeSessionPayload,
@@ -34,7 +34,21 @@ type PurchaseApiContext =
     }
   | { ok: false; status: number; error: string };
 
-export async function getPurchaseApiContext(req: NextRequest): Promise<PurchaseApiContext> {
+// Opción opt-in SOLO para handlers GET de lectura (listado/detalle). Una
+// identidad RUNTIME_CLIENT tenant-wide (location_id null en JWT) recibe
+// locationId null de requireRuntimeOrganizationContext — por diseño,
+// nunca se inventa una branch. Con esta opción, se resuelve la location
+// activa del selector (cookie) validada contra la DB RUNTIME del tenant
+// efectivo — mismo criterio que la página del módulo. Los handlers de
+// escritura NO la usan (mismo patrón que dte-api-context.ts).
+interface PurchaseApiContextOptions {
+  resolveRuntimeActiveLocation?: boolean;
+}
+
+export async function getPurchaseApiContext(
+  req: NextRequest,
+  options: PurchaseApiContextOptions = {},
+): Promise<PurchaseApiContext> {
   const session = await auth();
   if (!session?.user) {
     return { ok: false, status: 401, error: "No autorizado." };
@@ -97,7 +111,13 @@ export async function getPurchaseApiContext(req: NextRequest): Promise<PurchaseA
     user,
   );
 
-  if (!context.locationId) {
+  const locationId =
+    context.locationId ??
+    (options.resolveRuntimeActiveLocation && context.runtimeMode === "RUNTIME_CLIENT"
+      ? await getEffectiveLocationId(user, context.client, context.tenantId)
+      : null);
+
+  if (!locationId) {
     await dispose();
     return {
       ok: false,
@@ -135,7 +155,7 @@ export async function getPurchaseApiContext(req: NextRequest): Promise<PurchaseA
     ok:          true,
     user_id:     user.id!,
     tenant_id:   context.tenantId,
-    location_id: context.locationId,
+    location_id: locationId,
     client:      context.client,
     runtime:     context.runtime,
     dispose,

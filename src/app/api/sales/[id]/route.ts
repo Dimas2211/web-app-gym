@@ -27,7 +27,8 @@ export async function GET(
 ) {
   const { id } = await params;
 
-  const ctx = await getSaleApiContext(req);
+  // Solo lectura: location activa runtime (RUNTIME_CLIENT tenant-wide).
+  const ctx = await getSaleApiContext(req, { resolveRuntimeActiveLocation: true });
   if (!ctx.ok) {
     return NextResponse.json({ ok: false, error: ctx.error }, { status: ctx.status });
   }
