@@ -34,6 +34,17 @@ export const PLATFORM_MODULE_CODES = {
 export type PlatformModuleCode =
   (typeof PLATFORM_MODULE_CODES)[keyof typeof PLATFORM_MODULE_CODES];
 
+const RECOGNIZED_MODULE_CODES: ReadonlySet<string> = new Set(Object.values(PLATFORM_MODULE_CODES));
+
+/**
+ * ¿Algún guard de runtime lee este código? Filas PlatformModule fuera de
+ * PLATFORM_MODULE_CODES (p. ej. la antigua capability de exportación FEX) son
+ * huérfanas: habilitarlas en Platform Admin no tiene ningún efecto.
+ */
+export function isRecognizedPlatformModuleCode(code: string): boolean {
+  return RECOGNIZED_MODULE_CODES.has(code);
+}
+
 // Módulos core que no pueden desactivarse
 export const CORE_MODULE_CODES: PlatformModuleCode[] = [
   PLATFORM_MODULE_CODES.CORE_USERS,

@@ -19,7 +19,7 @@ import { getEffectiveLocationId } from "@/lib/location/active-location";
 import { listDteCatalogItems } from "@/modules/commerce/dte/queries/list-dte-catalog-items";
 import { getCountries } from "@/modules/commerce/suppliers/queries/get-countries";
 import { ExportSalePage } from "@/modules/commerce/sales/export/components/export-sale-page";
-import { resolveSalesExportAvailability } from "@/modules/commerce/sales/export/services/sales-export-availability";
+import { resolveSalesExportAvailabilityDetailed } from "@/modules/commerce/sales/export/services/sales-export-availability";
 import {
   resolveEffectiveTenantContext,
   resolveRuntimeFirstLocationId,
@@ -38,8 +38,8 @@ export default async function SalesExportPage({
   const { from } = await searchParams;
 
   const { context, dispose } = await resolveEffectiveTenantContext(sessionUser);
-  let availability: Awaited<ReturnType<typeof resolveSalesExportAvailability>> = {
-    enabled: false, environment: null,
+  let availability: Awaited<ReturnType<typeof resolveSalesExportAvailabilityDetailed>> = {
+    enabled: false, environment: null, reason: "No hay organización o sucursal activa en la sesión.",
   };
   try {
     const location_id = context.runtime
@@ -47,7 +47,7 @@ export default async function SalesExportPage({
       : (context.locationId ??
         (await getEffectiveLocationId(sessionUser, context.client, context.tenantId)));
     if (context.tenantId && location_id) {
-      availability = await resolveSalesExportAvailability(context.tenantId, location_id, context.client);
+      availability = await resolveSalesExportAvailabilityDetailed(context.tenantId, location_id, context.client);
     }
   } finally {
     await dispose();
@@ -74,6 +74,7 @@ export default async function SalesExportPage({
   return (
     <ExportSalePage
       fex11Enabled={fex11Enabled}
+      disabledReason={availability.reason}
       environment={availability.environment ?? undefined}
       catalogCAT016={cat016}
       catalogCAT017={cat017}

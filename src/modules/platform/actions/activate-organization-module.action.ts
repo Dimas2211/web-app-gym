@@ -11,6 +11,7 @@ import { revalidatePath } from "next/cache";
 import { requireSuperAdmin } from "@/lib/permissions/guards";
 import { prisma } from "@/lib/db/prisma";
 import { activateOrganizationModuleSchema } from "../schemas/activate-organization-module.schema";
+import { isRecognizedPlatformModuleCode } from "../constants/platform-modules.constants";
 
 export type PlatformActionState =
   | { errors?: Record<string, string[]>; error?: string }
@@ -40,6 +41,9 @@ export async function activateOrganizationModuleAction(
   ]);
   if (!org) return { error: "Organización no encontrada." };
   if (!mod) return { error: "Módulo no encontrado." };
+  if (!isRecognizedPlatformModuleCode(mod.code)) {
+    return { error: `El módulo "${mod.code}" está retirado: ningún guard de runtime lo lee y habilitarlo no tiene efecto.` };
+  }
 
   await prisma.$transaction(async (tx) => {
     await tx.platformOrganizationModule.upsert({

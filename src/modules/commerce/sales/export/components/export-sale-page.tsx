@@ -19,6 +19,7 @@ import type { CountryItem } from "@/modules/commerce/suppliers/types/supplier-ca
 
 interface Props {
   fex11Enabled: boolean;
+  disabledReason?: string | null;
   environment?: "TEST" | "PRODUCTION";
   catalogCAT016: DteCatalogItem[];
   catalogCAT017: DteCatalogItem[];
@@ -32,7 +33,7 @@ interface Props {
 }
 
 export function ExportSalePage({
-  fex11Enabled, environment, catalogCAT016, catalogCAT017,
+  fex11Enabled, disabledReason, environment, catalogCAT016, catalogCAT017,
   catalogCountries, catalogCAT022, catalogCAT027, catalogCAT028, catalogCAT029, catalogCAT031,
   contextNote,
 }: Props) {
@@ -49,6 +50,11 @@ export function ExportSalePage({
           <p className="text-sm text-amber-800/90 leading-relaxed">
             Ventas de exportación no están habilitadas para esta organización.
           </p>
+          {disabledReason && (
+            <p className="mt-2 text-sm text-amber-800/90 leading-relaxed">
+              Motivo: {disabledReason}
+            </p>
+          )}
         </div>
       </div>
     );

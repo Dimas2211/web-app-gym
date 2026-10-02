@@ -25,7 +25,7 @@ import {
   type CommercialEnforcementContext,
 } from "@/modules/platform/runtime/commercial-enforcement";
 import type { Fex11Environment } from "../../../dte/utils/fex11-environment";
-import { resolveFex11AvailabilityForLocation } from "./export-sale.service";
+import { resolveEffectiveFexEnvironment } from "./export-sale.service";
 
 export const FEX_ACCESS_MODULE_CODE = PLATFORM_MODULE_CODES.FISCAL_DTE;
 
@@ -48,7 +48,25 @@ export async function resolveSalesExportAvailability(
   location_id: string,
   db?: PrismaClient,
 ): Promise<{ enabled: boolean; environment: Fex11Environment | null }> {
+  const { enabled, environment } = await resolveSalesExportAvailabilityDetailed(tenant_id, location_id, db);
+  return { enabled, environment };
+}
+
+/**
+ * Mismo criterio que resolveSalesExportAvailability, pero indica POR QUÉ
+ * queda deshabilitado (módulo fiscal.dte vs emisor de la sucursal), para
+ * que la página no muestre un "no habilitado" genérico.
+ */
+export async function resolveSalesExportAvailabilityDetailed(
+  tenant_id:   string,
+  location_id: string,
+  db?: PrismaClient,
+): Promise<{ enabled: boolean; environment: Fex11Environment | null; reason: string | null }> {
   const commercialCtx = await resolveCommercialEnforcementContext(tenant_id);
-  if (!hasFexAccess(commercialCtx)) return { enabled: false, environment: null };
-  return resolveFex11AvailabilityForLocation(tenant_id, location_id, db);
+  if (!hasFexAccess(commercialCtx)) {
+    return { enabled: false, environment: null, reason: FEX_NOT_AVAILABLE_ERROR };
+  }
+  const env = await resolveEffectiveFexEnvironment(tenant_id, location_id, db);
+  if (!env.ok) return { enabled: false, environment: null, reason: env.error };
+  return { enabled: true, environment: env.environment, reason: null };
 }

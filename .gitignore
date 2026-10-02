@@ -44,3 +44,7 @@ docs/dte-official/raw/*.zip
 .env
 .env.*
 !.env.example
+
+# Local database backups / admin-only scripts
+gym_system_db_before_dte_alignment.backup
+prisma/scripts/reset-user-password.ts

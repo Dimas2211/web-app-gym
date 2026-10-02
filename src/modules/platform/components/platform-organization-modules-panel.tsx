@@ -19,6 +19,7 @@ import { activateOrganizationModuleAction }          from "../actions/activate-o
 import { deactivateOrganizationModuleAction }        from "../actions/deactivate-organization-module.action";
 import { revertOrganizationModuleToInheritAction }   from "../actions/revert-organization-module-to-inherit.action";
 
+import { isRecognizedPlatformModuleCode } from "../constants/platform-modules.constants";
 import type { EffectiveModule, PlatformModuleCategory } from "../types/platform.types";
 
 interface Props {
@@ -52,6 +53,9 @@ function ModuleRow({ organizationId, module: mod }: { organizationId: string; mo
   // resolver ya reporta VERTICAL_MISMATCH, ningún botón puede cambiar el
   // resultado (un override en este estado quedaría siempre ignorado).
   const isVerticalMismatch = mod.source === "VERTICAL_MISMATCH";
+  // Fila PlatformModule huérfana (p. ej. la antigua capability FEX): ningún guard
+  // de runtime lee su código, así que un override aquí no tendría efecto.
+  const isRetired = !isRecognizedPlatformModuleCode(mod.code);
 
   type ModuleAction = typeof activateOrganizationModuleAction;
 
@@ -73,7 +77,7 @@ function ModuleRow({ organizationId, module: mod }: { organizationId: string; mo
     <tr className="border-b border-zinc-50 last:border-b-0 hover:bg-zinc-50 transition-colors">
       <td className="px-4 py-3">
         <div className="flex items-center gap-2">
-          {mod.enabled ? (
+          {mod.enabled && !isRetired ? (
             <CheckCircle size={15} className="text-green-500 shrink-0" />
           ) : (
             <Circle size={15} className="text-zinc-300 shrink-0" />
@@ -90,6 +94,11 @@ function ModuleRow({ organizationId, module: mod }: { organizationId: string; mo
           <div className="flex items-center gap-1 text-xs text-zinc-400">
             <Lock size={12} />
             Core
+          </div>
+        ) : isRetired ? (
+          <div className="flex items-center gap-1 text-xs text-amber-600" title="Ningún guard de runtime lee este código; habilitarlo no tiene efecto. FEX 11 depende de fiscal.dte + emisor DTE activo de la sucursal.">
+            <Lock size={12} />
+            Retirado — sin efecto
           </div>
         ) : isVerticalMismatch ? (
           <div className="flex items-center gap-1 text-xs text-zinc-400" title="La vertical de esta organización no coincide con la del módulo — ningún override puede habilitarlo.">

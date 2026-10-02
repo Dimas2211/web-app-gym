@@ -29,8 +29,10 @@ import { resolveEffectiveModules } from "@/modules/platform/lib/entitlements-res
 import type { CommercialEnforcementContext } from "@/modules/platform/runtime/commercial-enforcement";
 import {
   FEX_ACCESS_MODULE_CODE,
+  FEX_NOT_AVAILABLE_ERROR,
   hasFexAccess,
   resolveSalesExportAvailability,
+  resolveSalesExportAvailabilityDetailed,
 } from "./sales-export-availability";
 
 const VERTICAL_GYM = "vertical-gym";
@@ -192,5 +194,26 @@ describe("resolveSalesExportAvailability — fiscal.dte AND emisor activo único
     }
     expect(results[0]).toEqual(results[1]);
     expect(results[0]).toEqual({ enabled: true, environment: "TEST" });
+  });
+});
+
+describe("resolveSalesExportAvailabilityDetailed — motivo visible en /dashboard/sales/export", () => {
+  it("sin fiscal.dte → motivo de módulo", async () => {
+    resolveCommercialMock.mockResolvedValue(COMMERCE_NO_DTE());
+    expect(await resolveSalesExportAvailabilityDetailed("tenant-b", "loc-1", runtimeDb([]) as never))
+      .toEqual({ enabled: false, environment: null, reason: FEX_NOT_AVAILABLE_ERROR });
+  });
+
+  it("override fiscal.dte habilitado pero sin emisor en la sucursal → motivo de emisor", async () => {
+    resolveCommercialMock.mockResolvedValue(commercialCtx({ tenantId: "t", verticalId: VERTICAL_GYM, planHasDte: false, dteOverride: true }));
+    const r = await resolveSalesExportAvailabilityDetailed("t", "loc-1", runtimeDb([]) as never);
+    expect(r.enabled).toBe(false);
+    expect(r.reason).toMatch(/configuración DTE activa/);
+  });
+
+  it("override fiscal.dte habilitado + emisor activo → disponible sin motivo", async () => {
+    resolveCommercialMock.mockResolvedValue(commercialCtx({ tenantId: "t", verticalId: VERTICAL_GYM, planHasDte: false, dteOverride: true }));
+    expect(await resolveSalesExportAvailabilityDetailed("t", "loc-1", runtimeDb([{ environment: "TEST" }]) as never))
+      .toEqual({ enabled: true, environment: "TEST", reason: null });
   });
 });
