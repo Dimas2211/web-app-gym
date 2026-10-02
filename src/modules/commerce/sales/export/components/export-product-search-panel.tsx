@@ -64,6 +64,10 @@ function ExportProductSearchPanel({ onAdd, onConfigureUnit, disabled, refreshTok
         const result = await searchExportProductsAction(query);
         if (result.ok) setResults(result.items);
         else { setSearchError(result.error); setResults([]); }
+      } catch {
+        // La action rechazó (p. ej. 500 de Server Action): error real, no "sin productos".
+        setSearchError("No se pudieron cargar los productos.");
+        setResults([]);
       } finally {
         setSelectedIndex(-1);
         setIsSearching(false);
@@ -132,10 +136,6 @@ function ExportProductSearchPanel({ onAdd, onConfigureUnit, disabled, refreshTok
         </div>
       </div>
 
-      {searchError && (
-        <p className="mx-3 mb-1.5 text-[11px] text-red-400">{searchError}</p>
-      )}
-
       {/* Grilla recorrible — carga todos los productos por defecto */}
       <div
         role="listbox"
@@ -147,6 +147,10 @@ function ExportProductSearchPanel({ onAdd, onConfigureUnit, disabled, refreshTok
           <div className="flex h-full items-center justify-center gap-2">
             <Loader2 className="h-4 w-4 animate-spin text-zinc-600" />
             <span className="text-xs text-zinc-500">Cargando productos…</span>
+          </div>
+        ) : results.length === 0 && searchError ? (
+          <div className="flex h-full items-center justify-center">
+            <span className="text-xs text-red-400">{searchError}</span>
           </div>
         ) : results.length === 0 ? (
           <div className="flex h-full items-center justify-center">

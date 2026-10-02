@@ -63,6 +63,8 @@ export function ExportCustomerModal({ onClose, onSelect, catalogCountries, catal
   const [results, setResults] = useState<ForeignCustomerLookup[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [searchedQuery, setSearchedQuery] = useState<string | null>(null);
+  // Error de búsqueda ≠ búsqueda sin resultados: se muestra solo el error.
+  const [searchError, setSearchError] = useState<string | null>(null);
 
   // Alta rápida
   const [draft, setDraft] = useState<CreateForeignCustomerInput>(() => emptyDraft());
@@ -77,11 +79,11 @@ export function ExportCustomerModal({ onClose, onSelect, catalogCountries, catal
       onChange: (state: LiveSearchState<ForeignCustomerLookup>) => {
         setIsSearching(state.status === "searching");
         if (state.status === "idle") {
-          setResults([]); setSearchedQuery(null); setError(null);
+          setResults([]); setSearchedQuery(null); setSearchError(null);
         } else if (state.status === "done") {
-          setResults(state.items); setSearchedQuery(state.query); setError(null);
+          setResults(state.items); setSearchedQuery(state.query); setSearchError(null);
         } else if (state.status === "error") {
-          setResults([]); setSearchedQuery(state.query); setError(state.error);
+          setResults([]); setSearchedQuery(state.query); setSearchError(state.error);
         }
       },
     });
@@ -195,7 +197,9 @@ export function ExportCustomerModal({ onClose, onSelect, catalogCountries, catal
             </div>
 
             <div className="max-h-56 overflow-y-auto rounded border border-zinc-800 divide-y divide-zinc-800">
-              {searchedQuery === null ? (
+              {searchError ? (
+                <p className="px-3 py-3 text-xs text-red-400">{searchError}</p>
+              ) : searchedQuery === null ? (
                 <p className="px-3 py-3 text-xs text-zinc-600">
                   {query.trim().length > 0 && query.trim().length < LIVE_SEARCH_MIN_CHARS
                     ? `Escribe al menos ${LIVE_SEARCH_MIN_CHARS} caracteres.`

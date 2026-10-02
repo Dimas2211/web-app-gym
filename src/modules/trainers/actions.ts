@@ -470,6 +470,4 @@ export async function removeAvailabilitySlotAction(
   }
 }
 
-// Helper exportado para usar en páginas
-export { requireAdmin as requireTrainerAdmin };
 export type { SessionUser };

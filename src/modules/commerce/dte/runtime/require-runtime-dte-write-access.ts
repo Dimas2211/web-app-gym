@@ -1,5 +1,3 @@
-"use server";
-
 // ─────────────────────────────────────────────────────────────────
 // commerce/dte/runtime — require-runtime-dte-write-access.ts
 //
@@ -26,6 +24,11 @@
 //   allowlist es una decisión explícita, no un efecto colateral.
 // - Nunca loguea ni devuelve credenciales, DATABASE_URL, signed_jws
 //   ni tokens.
+// - Módulo de servidor normal, NO "use server": lo consumen solo otras
+//   actions/servicios. Con "use server" exponía estas funciones como
+//   endpoints públicos y su export runtime RUNTIME_DTE_WRITE_ALLOWLIST
+//   (array) rompía en runtime toda página que alcanzara el módulo
+//   ("A 'use server' file can only export async functions, found object").
 // ─────────────────────────────────────────────────────────────────
 
 import type { PrismaClient } from "@prisma/client";
