@@ -142,14 +142,17 @@ describe("searchExportProductsAction — Dedicated Runtime", () => {
   });
 });
 
-describe("write paths — sin cambios", () => {
-  it("createExportSaleAction sigue exigiendo location del contexto (no resuelve location runtime)", async () => {
+// FEX11-RUNTIME-WRITES-FINAL-CLOSURE — los write paths se cubren en
+// export-writes.runtime.test.ts; aquí solo el fail closed de la venta.
+describe("createExportSaleAction — sin location activa runtime", () => {
+  it("falla cerrado sin crear la venta", async () => {
     requireOperationalContextMock.mockResolvedValue(runtimeHandle().value);
+    getEffectiveLocationIdMock.mockResolvedValue(null);
 
     const res = await createExportSaleAction({} as never);
 
-    expect(res).toEqual({ ok: false, error: "La sesión no tiene una location activa." });
-    expect(getEffectiveLocationIdMock).not.toHaveBeenCalled();
+    expect(res).toEqual({ ok: false, error: "Selecciona una location activa para crear la venta de exportación." });
+    expect(getEffectiveLocationIdMock).toHaveBeenCalledWith(sessionUser, runtimeClient, "tenant-RT");
     expect(createExportSaleMock).not.toHaveBeenCalled();
   });
 });

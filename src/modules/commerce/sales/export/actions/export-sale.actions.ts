@@ -48,19 +48,25 @@ import {
 } from "@/modules/platform/runtime/require-operational-context";
 
 // Alcance de location por action:
-//   - "required"       → location del contexto operacional (write paths, sin cambios).
-//   - "runtime-active" → lookups de lectura location-scoped: una identidad
-//                        RUNTIME_CLIENT tenant-wide (location_id null en JWT)
-//                        usa la location activa del selector validada contra
-//                        la DB runtime — mismo criterio que
-//                        getSaleApiContext({ resolveRuntimeActiveLocation }).
-//   - "none"           → lookups tenant-level (clientes, unidades), igual que
-//                        GET /api/customers/search: no exigen location.
+//   - "required"       → location del contexto operacional, sin resolver cookie.
+//   - "runtime-active" → operaciones location-scoped (búsqueda de productos,
+//                        crear venta): una identidad RUNTIME_CLIENT tenant-wide
+//                        (location_id null en JWT) usa la location activa del
+//                        selector validada contra la DB runtime — mismo criterio
+//                        que getSaleApiContext({ resolveRuntimeActiveLocation }).
+//   - "none"           → lecturas y escrituras tenant-level (Customer,
+//                        UnitOfMeasure), igual que GET /api/customers/search:
+//                        no exigen location. El bloqueo read-only de
+//                        requireOperationalContext({ write }) aplica igual.
 type ExportLocationScope = "required" | "runtime-active" | "none";
 
 // Bloque B — guard central único: cubre todas las actions exportadas de este
 // archivo (todas llaman requireExportSession antes de operar).
-async function requireExportSession(write: boolean, locationScope: ExportLocationScope = "required"):
+async function requireExportSession(
+  write: boolean,
+  locationScope: ExportLocationScope = "required",
+  missingLocationError = "La sesión no tiene una location activa.",
+):
   Promise<{ context: OperationalContext; dispose: () => Promise<void> } | { error: string }> {
   const sessionUser = await requireAdmin();
 
@@ -80,7 +86,7 @@ async function requireExportSession(write: boolean, locationScope: ExportLocatio
 
   if (locationScope !== "none" && !handle.context.locationId) {
     await handle.dispose();
-    return { error: "La sesión no tiene una location activa." };
+    return { error: missingLocationError };
   }
 
   // FEX 11 pertenece a fiscal.dte — mismo criterio que la página
@@ -161,7 +167,7 @@ export async function configureExportUnitMhCodeAction(
   unit_id: string,
   mh_code: string,
 ): Promise<ConfigureUnitMhCodeResult> {
-  const session = await requireExportSession(true);
+  const session = await requireExportSession(true, "none");
   if (!isSession(session)) return { ok: false, error: session.error };
   const { context, dispose } = session;
 
@@ -179,7 +185,7 @@ export async function configureExportUnitMhCodeAction(
 export async function createForeignCustomerAction(
   input: CreateForeignCustomerInput,
 ): Promise<CreateForeignCustomerResult> {
-  const session = await requireExportSession(true);
+  const session = await requireExportSession(true, "none");
   if (!isSession(session)) return { ok: false, error: session.error };
   const { context, dispose } = session;
 
@@ -210,7 +216,7 @@ export async function updateForeignCustomerCountryAction(
   customer_id:  string,
   country_code: string,
 ): Promise<UpdateForeignCustomerCountryResult> {
-  const session = await requireExportSession(true);
+  const session = await requireExportSession(true, "none");
   if (!isSession(session)) return { ok: false, error: session.error };
   const { context, dispose } = session;
 
@@ -237,7 +243,11 @@ export async function updateForeignCustomerCountryAction(
 export async function createExportSaleAction(
   input: CreateExportSaleInput,
 ): Promise<CreateExportSaleResult> {
-  const session = await requireExportSession(true);
+  const session = await requireExportSession(
+    true,
+    "runtime-active",
+    "Selecciona una location activa para crear la venta de exportación.",
+  );
   if (!isSession(session)) return { ok: false, error: session.error };
   const { context, dispose } = session;
 
