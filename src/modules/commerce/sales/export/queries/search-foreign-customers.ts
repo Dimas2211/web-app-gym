@@ -41,6 +41,7 @@ export async function searchForeignCustomers(
       ...(trimmed.length > 0 && {
         OR: [
           { name:          { contains: trimmed, mode: "insensitive" } },
+          { legal_name:    { contains: trimmed, mode: "insensitive" } },
           { customer_code: { contains: trimmed, mode: "insensitive" } },
           { nit:           { contains: trimmed, mode: "insensitive" } },
           { dui:           { contains: trimmed, mode: "insensitive" } },

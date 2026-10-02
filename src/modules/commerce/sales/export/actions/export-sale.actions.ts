@@ -24,6 +24,7 @@
 
 import { revalidatePath }         from "next/cache";
 import { requireAdmin }           from "@/lib/permissions/guards";
+import { getEffectiveLocationId } from "@/lib/location/active-location";
 import { hasFexAccess, FEX_NOT_AVAILABLE_ERROR }           from "../services/sales-export-availability";
 import { searchForeignCustomers, type ForeignCustomerLookup } from "../queries/search-foreign-customers";
 import { searchExportProducts, type ExportProductLookup }     from "../queries/search-export-products";
@@ -46,9 +47,20 @@ import {
   type OperationalContext,
 } from "@/modules/platform/runtime/require-operational-context";
 
+// Alcance de location por action:
+//   - "required"       → location del contexto operacional (write paths, sin cambios).
+//   - "runtime-active" → lookups de lectura location-scoped: una identidad
+//                        RUNTIME_CLIENT tenant-wide (location_id null en JWT)
+//                        usa la location activa del selector validada contra
+//                        la DB runtime — mismo criterio que
+//                        getSaleApiContext({ resolveRuntimeActiveLocation }).
+//   - "none"           → lookups tenant-level (clientes, unidades), igual que
+//                        GET /api/customers/search: no exigen location.
+type ExportLocationScope = "required" | "runtime-active" | "none";
+
 // Bloque B — guard central único: cubre todas las actions exportadas de este
 // archivo (todas llaman requireExportSession antes de operar).
-async function requireExportSession(write: boolean):
+async function requireExportSession(write: boolean, locationScope: ExportLocationScope = "required"):
   Promise<{ context: OperationalContext; dispose: () => Promise<void> } | { error: string }> {
   const sessionUser = await requireAdmin();
 
@@ -60,7 +72,13 @@ async function requireExportSession(write: boolean):
     throw err;
   }
 
-  if (!handle.context.locationId) {
+  if (locationScope === "runtime-active" && !handle.context.locationId &&
+      handle.context.runtimeMode === "RUNTIME_CLIENT") {
+    const locationId = await getEffectiveLocationId(sessionUser, handle.context.client, handle.context.tenantId);
+    handle = { ...handle, context: { ...handle.context, locationId } };
+  }
+
+  if (locationScope !== "none" && !handle.context.locationId) {
     await handle.dispose();
     return { error: "La sesión no tiene una location activa." };
   }
@@ -87,7 +105,7 @@ function isSession(
 export async function searchForeignCustomersAction(
   search: string,
 ): Promise<{ ok: true; items: ForeignCustomerLookup[] } | { ok: false; error: string }> {
-  const session = await requireExportSession(false);
+  const session = await requireExportSession(false, "none");
   if (!isSession(session)) return { ok: false, error: session.error };
   const { context, dispose } = session;
 
@@ -104,7 +122,7 @@ export async function searchForeignCustomersAction(
 export async function searchExportProductsAction(
   search: string,
 ): Promise<{ ok: true; items: ExportProductLookup[] } | { ok: false; error: string }> {
-  const session = await requireExportSession(false);
+  const session = await requireExportSession(false, "runtime-active");
   if (!isSession(session)) return { ok: false, error: session.error };
   const { context, dispose } = session;
 
@@ -126,7 +144,7 @@ export async function searchExportProductsAction(
 export async function getUnitMhContextAction(
   unit_id: string,
 ): Promise<{ ok: true; context: UnitMhContext } | { ok: false; error: string }> {
-  const session = await requireExportSession(false);
+  const session = await requireExportSession(false, "none");
   if (!isSession(session)) return { ok: false, error: session.error };
   const { context, dispose } = session;
 

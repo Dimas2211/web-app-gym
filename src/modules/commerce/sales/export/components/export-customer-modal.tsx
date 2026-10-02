@@ -8,7 +8,7 @@
 // en la pantalla principal (regla F3-C21B).
 // ─────────────────────────────────────────────────────────────────
 
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Loader2, Search, X, Plus, ArrowLeft } from "lucide-react";
 import {
   searchForeignCustomersAction,
@@ -20,6 +20,7 @@ import type { CreateForeignCustomerInput } from "../schemas/export-sale.schemas"
 import type { DteCatalogItem } from "@/modules/commerce/dte/types/dte-catalog.types";
 import type { CountryItem } from "@/modules/commerce/suppliers/types/supplier-catalogs.types";
 import { CatalogSearchSelect } from "./catalog-search-select";
+import { createLiveSearch, LIVE_SEARCH_MIN_CHARS, type LiveSearchState } from "../utils/live-search";
 
 interface Props {
   onClose: () => void;
@@ -57,11 +58,11 @@ export function ExportCustomerModal({ onClose, onSelect, catalogCountries, catal
   const countryItems = catalogCountries.map((c) => ({ code: c.code, label: c.name }));
   const validCountryCodes = new Set(catalogCountries.map((c) => c.code));
 
-  // Búsqueda
+  // Búsqueda en vivo (mín. 2 caracteres + debounce, igual que SaleCustomerSection)
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<ForeignCustomerLookup[]>([]);
   const [isSearching, setIsSearching] = useState(false);
-  const [hasSearched, setHasSearched] = useState(false);
+  const [searchedQuery, setSearchedQuery] = useState<string | null>(null);
 
   // Alta rápida
   const [draft, setDraft] = useState<CreateForeignCustomerInput>(() => emptyDraft());
@@ -69,17 +70,36 @@ export function ExportCustomerModal({ onClose, onSelect, catalogCountries, catal
 
   const [error, setError] = useState<string | null>(null);
 
-  async function runSearch() {
-    setIsSearching(true);
-    setError(null);
-    try {
-      const result = await searchForeignCustomersAction(query);
-      if (result.ok) setResults(result.items);
-      else { setError(result.error); setResults([]); }
-    } finally {
-      setHasSearched(true);
-      setIsSearching(false);
-    }
+  const liveSearchRef = useRef<ReturnType<typeof createLiveSearch<ForeignCustomerLookup>> | null>(null);
+  useEffect(() => {
+    const live = createLiveSearch<ForeignCustomerLookup>({
+      run: searchForeignCustomersAction,
+      onChange: (state: LiveSearchState<ForeignCustomerLookup>) => {
+        setIsSearching(state.status === "searching");
+        if (state.status === "idle") {
+          setResults([]); setSearchedQuery(null); setError(null);
+        } else if (state.status === "done") {
+          setResults(state.items); setSearchedQuery(state.query); setError(null);
+        } else if (state.status === "error") {
+          setResults([]); setSearchedQuery(state.query); setError(state.error);
+        }
+      },
+    });
+    liveSearchRef.current = live;
+    return () => live.cancel();
+  }, []);
+
+  function handleQueryChange(value: string) {
+    setQuery(value);
+    liveSearchRef.current?.update(value);
+  }
+
+  // Enter: selecciona solo si hay un único resultado seleccionable
+  // (país CAT-020 vigente) — los de país legado requieren corrección explícita.
+  function handleSearchEnter() {
+    if (isSearching || results.length !== 1) return;
+    const only = results[0]!;
+    if (validCountryCodes.has(only.country_code ?? "")) onSelect(only);
   }
 
   async function handleCreate() {
@@ -159,34 +179,30 @@ export function ExportCustomerModal({ onClose, onSelect, catalogCountries, catal
 
         {mode === "search" ? (
           <div className="px-4 py-4 space-y-3">
-            <div className="flex gap-2">
-              <div className="relative flex-1">
-                <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-zinc-500 pointer-events-none" />
-                <input
-                  className={`${inputCls} pl-8`}
-                  placeholder="Buscar por nombre, NIT, DUI…"
-                  value={query}
-                  onChange={(e) => setQuery(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && runSearch()}
-                  autoFocus
-                />
-              </div>
-              <button
-                type="button"
-                onClick={runSearch}
-                disabled={isSearching}
-                className="h-8 px-3 flex items-center gap-1 text-xs text-zinc-300 border border-zinc-700 rounded hover:border-zinc-500 disabled:opacity-40 transition-colors"
-              >
-                {isSearching ? <Loader2 className="h-3 w-3 animate-spin" /> : <Search className="h-3 w-3" />}
-                Buscar
-              </button>
+            <div className="relative">
+              <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-zinc-500 pointer-events-none" />
+              <input
+                className={`${inputCls} pl-8 pr-8`}
+                placeholder="Buscar por nombre, código, NIT, DUI…"
+                value={query}
+                onChange={(e) => handleQueryChange(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); handleSearchEnter(); } }}
+                autoFocus
+              />
+              {isSearching && (
+                <Loader2 className="absolute right-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 animate-spin text-zinc-500" />
+              )}
             </div>
 
             <div className="max-h-56 overflow-y-auto rounded border border-zinc-800 divide-y divide-zinc-800">
-              {!hasSearched ? (
-                <p className="px-3 py-3 text-xs text-zinc-600">Busca un cliente extranjero existente.</p>
+              {searchedQuery === null ? (
+                <p className="px-3 py-3 text-xs text-zinc-600">
+                  {query.trim().length > 0 && query.trim().length < LIVE_SEARCH_MIN_CHARS
+                    ? `Escribe al menos ${LIVE_SEARCH_MIN_CHARS} caracteres.`
+                    : "Busca un cliente extranjero existente."}
+                </p>
               ) : results.length === 0 ? (
-                <p className="px-3 py-3 text-xs text-zinc-500">Sin resultados para “{query}”.</p>
+                <p className="px-3 py-3 text-xs text-zinc-500">Sin resultados para “{searchedQuery}”.</p>
               ) : (
                 results.map((c) => !validCountryCodes.has(c.country_code ?? "") ? (
                   <LegacyCountryFix
