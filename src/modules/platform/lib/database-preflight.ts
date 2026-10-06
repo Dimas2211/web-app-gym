@@ -14,6 +14,12 @@
 import type { PrismaClient } from "@prisma/client";
 import { prisma } from "@/lib/db/prisma";
 import { PLATFORM_MODULE_CODES, GYM_VERTICAL_MODULES } from "../constants/platform-modules.constants";
+import {
+  auditSupabasePublicApiSecurity,
+  type SupabaseApiFindingCode,
+  type SupabaseApiFindingSeverity,
+  type SupabasePublicApiAuditResult,
+} from "./supabase-public-api-audit";
 import type {
   DatabasePreflightInput,
   DatabasePreflightResult,
@@ -834,6 +840,73 @@ async function runTenantChecks(
   return checks;
 }
 
+// ── Checks de seguridad Supabase Data API ─────────────────────────
+// SUPABASE-PUBLIC-API-HARDENING. Solo lectura (catálogos pg_*). En
+// PostgreSQL sin roles Supabase el resultado es NOT_APPLICABLE → PASS.
+
+export function buildPublicApiSecurityChecks(
+  audit: SupabasePublicApiAuditResult,
+): PreflightCheckItem[] {
+  const exposureLabel = "Exposición Supabase Data API (anon/authenticated sobre public)";
+  const defaultsLabel = "Default privileges seguros para objetos futuros";
+  const remediation =
+    "Aplicar la migración 20261006000000_harden_supabase_public_data_api a esta base (ver docs/modules/supabase-public-api-hardening.md).";
+
+  if (audit.status === "NOT_APPLICABLE") {
+    const message = "No aplica: la base no tiene roles anon/authenticated (PostgreSQL estándar).";
+    return [
+      { ...pass("PUBLIC_DATA_API_EXPOSURE", exposureLabel, "BLOCKER", "GLOBAL"), message },
+      { ...pass("UNSAFE_DEFAULT_PRIVILEGES", defaultsLabel, "BLOCKER", "GLOBAL"), message },
+    ];
+  }
+
+  const messagesOf = (codes: SupabaseApiFindingCode[], severity: SupabaseApiFindingSeverity) =>
+    audit.findings
+      .filter((f) => codes.includes(f.code) && f.severity === severity)
+      .map((f) => f.message)
+      .join(" ");
+
+  const checks: PreflightCheckItem[] = [];
+
+  const exposureCritical = messagesOf(["PUBLIC_DATA_API_EXPOSURE", "PUBLIC_SCHEMA_API_USAGE"], "CRITICAL");
+  const exposureWarning  = messagesOf(["RESIDUAL_API_OBJECT_GRANTS"], "WARNING");
+  checks.push(
+    exposureCritical
+      ? fail("PUBLIC_DATA_API_EXPOSURE", exposureLabel, "BLOCKER", "GLOBAL", exposureCritical, remediation)
+      : exposureWarning
+        ? warn("PUBLIC_DATA_API_EXPOSURE", exposureLabel, "GLOBAL", exposureWarning, remediation)
+        : pass("PUBLIC_DATA_API_EXPOSURE", exposureLabel, "BLOCKER", "GLOBAL"),
+  );
+
+  const defaultsCritical = messagesOf(["UNSAFE_DEFAULT_PRIVILEGES"], "CRITICAL");
+  const defaultsWarning  = messagesOf(["UNSAFE_DEFAULT_PRIVILEGES", "UNMANAGED_DEFAULT_PRIVILEGES"], "WARNING");
+  checks.push(
+    defaultsCritical
+      ? fail("UNSAFE_DEFAULT_PRIVILEGES", defaultsLabel, "BLOCKER", "GLOBAL", defaultsCritical, remediation)
+      : defaultsWarning
+        ? warn("UNSAFE_DEFAULT_PRIVILEGES", defaultsLabel, "GLOBAL", defaultsWarning, remediation)
+        : pass("UNSAFE_DEFAULT_PRIVILEGES", defaultsLabel, "BLOCKER", "GLOBAL"),
+  );
+
+  return checks;
+}
+
+async function runPublicApiSecurityChecks(db: PrismaClient): Promise<PreflightCheckItem[]> {
+  try {
+    return buildPublicApiSecurityChecks(await auditSupabasePublicApiSecurity(db));
+  } catch (err) {
+    return [
+      warn(
+        "PUBLIC_DATA_API_EXPOSURE",
+        "Exposición Supabase Data API (anon/authenticated sobre public)",
+        "GLOBAL",
+        `No se pudo auditar privilegios: ${extractSafeCheckError(err)}`,
+        "Ejecutar prisma/scripts/audit-supabase-public-api.ts contra esta base.",
+      ),
+    ];
+  }
+}
+
 // ── Motor principal ───────────────────────────────────────────────
 
 export async function runDatabasePreflight(
@@ -849,6 +922,9 @@ export async function runDatabasePreflight(
   // Siempre: checks globales
   const globalChecks = await runGlobalChecks(db, targetType);
   checks.push(...globalChecks);
+
+  // Siempre: superficie Supabase Data API (no aplica en PostgreSQL estándar)
+  checks.push(...(await runPublicApiSecurityChecks(db)));
 
   // Si hay tenant: checks de tenant + módulos
   if (input.tenantId) {
