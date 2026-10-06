@@ -18,6 +18,8 @@ import {
   requireOperationalContext,
   OperationalContextError,
 } from "@/modules/platform/runtime/require-operational-context";
+import { checkOperationalGrant, revokeOperationalGrants } from "@/core/security/operational-authorization/operational-authorization";
+import { OPERATIONAL_SCOPES, SALE_DRAFT_WRITE_SCOPES } from "@/core/security/operational-authorization/scopes";
 
 export type DiscardDraftSaleActionResult =
   | { ok: true }
@@ -45,12 +47,18 @@ export async function discardDraftSaleAction(
       (await getEffectiveLocationId(sessionUser, context.client, context.tenantId));
     if (!location_id) return { ok: false, error: "La sesión no tiene una location activa." };
 
+    // Autorización Operativa: solo el creador del borrador (SALE_DRAFT_OWNER); un borrador reabierto
+    // con clave se elimina desde la consulta con SALE_DELETE_DRAFT.
+    const grant = await checkOperationalGrant(context, [OPERATIONAL_SCOPES.SALE_DRAFT_OWNER], sale_id);
+    if (!grant.ok) return { ok: false, error: grant.error };
+
     const result = await discardDraftSale(sale_id, context.tenantId, location_id, context.client);
 
     if (!result.ok) {
       return { ok: false, error: result.error };
     }
 
+    await revokeOperationalGrants(SALE_DRAFT_WRITE_SCOPES, sale_id);
     revalidatePath("/dashboard/sales");
 
     return { ok: true };

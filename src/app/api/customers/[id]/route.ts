@@ -20,6 +20,8 @@ import {
   OperationalContextError,
 } from "@/modules/platform/runtime/require-operational-context";
 import { getCustomerApiContext } from "../customer-api-context";
+import { checkOperationalGrant } from "@/core/security/operational-authorization/operational-authorization";
+import { OPERATIONAL_SCOPES } from "@/core/security/operational-authorization/scopes";
 
 // ── GET — detalle ──────────────────────────────────────────────────
 
@@ -76,6 +78,13 @@ export async function PATCH(
   try {
     if (!getCapabilities(context.effectiveUser.role as UserRole).canManageStaff) {
       return NextResponse.json({ ok: false, error: "Sin permisos para esta operación." }, { status: 403 });
+    }
+
+    // Autorización Operativa: misma exigencia que las server actions de
+    // edición — grant CUSTOMER_EDIT para ESTE cliente (no es un bypass).
+    const grant = await checkOperationalGrant(context, [OPERATIONAL_SCOPES.CUSTOMER_EDIT], id);
+    if (!grant.ok) {
+      return NextResponse.json({ ok: false, error: grant.error }, { status: 403 });
     }
 
     const body = await req.json().catch(() => null);

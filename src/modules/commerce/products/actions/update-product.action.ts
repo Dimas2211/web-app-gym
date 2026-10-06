@@ -11,7 +11,8 @@
 //   - status        → se gestiona en update-product-status.action
 //   - tenant_id     → nunca cambia
 //
-// Permiso: requireAdmin (super_admin | branch_admin).
+// Permiso: requireAdmin (super_admin | branch_admin) + grant PRODUCT_EDIT
+// del producto (Clave de Supervisor, ver verify-edit-key.action).
 // ─────────────────────────────────────────────────────────────────
 
 import { revalidatePath } from "next/cache";
@@ -25,6 +26,8 @@ import {
   assertOrganizationModule,
   CommercialEnforcementError,
 } from "@/modules/platform/runtime/commercial-enforcement";
+import { checkOperationalGrant } from "@/core/security/operational-authorization/operational-authorization";
+import { OPERATIONAL_SCOPES } from "@/core/security/operational-authorization/scopes";
 
 export type ProductUpdateActionState =
   | { errors?: Record<string, string[]>; error?: string }
@@ -125,6 +128,15 @@ export async function updateProductAction(
   }
 
   const data = parsed.data;
+
+  // 2b. Autorización Operativa: grant PRODUCT_EDIT para ESTE producto
+  // (Clave de Supervisor). Haber abierto el diálogo no basta.
+  const grant = await checkOperationalGrant(
+    { tenantId, client: db, effectiveUser: { id: sessionUser.id } },
+    [OPERATIONAL_SCOPES.PRODUCT_EDIT],
+    data.id,
+  );
+  if (!grant.ok) return { error: grant.error };
 
   // 3. Verificar que el producto existe y pertenece al tenant
   const existing = await db.product.findFirst({

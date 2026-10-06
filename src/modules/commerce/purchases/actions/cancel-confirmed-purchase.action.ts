@@ -4,15 +4,18 @@
 // commerce/purchases — cancel-confirmed-purchase.action.ts
 //
 // Anula una compra en estado CONFIRMED → CANCELLED.
-// Requiere credenciales administrativas (mismo patrón que edición).
-// Genera movimientos RETURN_OUT para revertir inventario.
+// Requiere la Clave de Supervisor (PURCHASE_CANCEL_CONFIRMED, un solo
+// uso: verificada en esta misma request contra la Runtime DB efectiva).
+// Genera movimientos RETURN_OUT para revertir inventario (sin cambios).
 //
-// Permiso: requireAdmin + verifyAdminDeleteCredentials.
+// Permiso: requireAdmin + Clave de Supervisor.
 // ─────────────────────────────────────────────────────────────────
 
 import { revalidatePath } from "next/cache";
 import { requireAdmin, type SessionUser } from "@/lib/permissions/guards";
-import { verifyAdminDeleteCredentials } from "@/lib/permissions/delete-authorization";
+import { verifySupervisorPinForOperation } from "@/core/security/operational-authorization/operational-authorization";
+import { readSupervisorPin } from "@/core/security/operational-authorization/run-supervisor-authorization";
+import { OPERATIONAL_SCOPES } from "@/core/security/operational-authorization/scopes";
 import { getEffectiveLocationId } from "@/lib/location/active-location";
 import { cancelConfirmedPurchase } from "../services/purchase.service";
 import {
@@ -57,22 +60,12 @@ export async function cancelConfirmedPurchaseAction(
       return { ok: false, error: "purchase_id es requerido." };
     }
 
-    const email    = ((formData.get("auth_email")    as string) ?? "").trim();
-    const password = ((formData.get("auth_password") as string) ?? "");
-
-    if (!email || !password) {
-      return { ok: false, error: "Correo y contraseña son requeridos." };
-    }
-
-    const auth = await verifyAdminDeleteCredentials(
-      { email, password },
-      context.tenantId,
-      context.client,
+    const auth = await verifySupervisorPinForOperation(
+      context,
+      OPERATIONAL_SCOPES.PURCHASE_CANCEL_CONFIRMED,
+      readSupervisorPin(formData),
     );
-
-    if (!auth.authorized) {
-      return { ok: false, error: auth.error };
-    }
+    if (!auth.ok) return auth;
 
     const result = await cancelConfirmedPurchase(
       purchase_id,

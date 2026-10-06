@@ -2,7 +2,7 @@
 // api/sales/[id]/cancel-draft/route.ts
 //
 // DESHABILITADO — Este endpoint fue reemplazado por la server action
-// deleteDraftSaleWithAuthAction que exige credenciales administrativas.
+// deleteDraftSaleWithAuthAction que exige la Clave de Supervisor.
 // Devuelve 403 para evitar que se use como bypass de autorización.
 // ─────────────────────────────────────────────────────────────────
 

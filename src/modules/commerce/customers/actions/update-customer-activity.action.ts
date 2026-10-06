@@ -10,7 +10,8 @@
 // Enviar activity_code vacío → limpia la actividad.
 // Coherencia: si hay activity_code debe existir activity_name.
 //
-// Permiso: requireAdmin (super_admin | branch_admin).
+// Permiso: requireAdmin (super_admin | branch_admin) + grant CUSTOMER_EDIT
+//          del cliente (Clave de Supervisor).
 // Éxito:   undefined
 // Error:   { error: string }
 // ─────────────────────────────────────────────────────────────────
@@ -25,6 +26,8 @@ import {
 } from "@/modules/platform/runtime/require-operational-context";
 import { str, strNullable } from "@/lib/utils/form-data-parsers";
 import { updateCustomer } from "../services/customer.service";
+import { checkOperationalGrant } from "@/core/security/operational-authorization/operational-authorization";
+import { OPERATIONAL_SCOPES } from "@/core/security/operational-authorization/scopes";
 
 export type UpdateCustomerActivityState =
   | { error: string }
@@ -55,6 +58,10 @@ export async function updateCustomerActivityAction(
     const activity_name = strNullable(formData.get("activity_name"));
 
     if (!id) return { error: "ID del cliente requerido." };
+
+    // Autorización Operativa: grant CUSTOMER_EDIT para ESTE cliente.
+    const grant = await checkOperationalGrant(context, [OPERATIONAL_SCOPES.CUSTOMER_EDIT], id);
+    if (!grant.ok) return { error: grant.error };
 
     if (activity_code && !activity_name) {
       return { error: "Si se asigna un código de actividad, el nombre es requerido." };

@@ -6,7 +6,7 @@
 // Anula una compra en estado DRAFT → CANCELLED.
 // No genera movimientos de inventario: solo cambia el estado.
 //
-// Permiso: requireAdmin.
+// Permiso: requireAdmin + grant PURCHASE_DRAFT_OWNER.
 // purchase_id viene del form; tenant_id y location_id desde sesión.
 // ─────────────────────────────────────────────────────────────────
 
@@ -18,6 +18,8 @@ import {
   requireOperationalContext,
   OperationalContextError,
 } from "@/modules/platform/runtime/require-operational-context";
+import { checkOperationalGrant } from "@/core/security/operational-authorization/operational-authorization";
+import { OPERATIONAL_SCOPES } from "@/core/security/operational-authorization/scopes";
 
 export type CancelPurchaseState =
   | { error?: string }
@@ -59,6 +61,12 @@ export async function cancelPurchaseAction(
 
     const purchase_id = str(formData.get("purchase_id"));
     if (!purchase_id) return { error: "purchase_id es requerido." };
+
+    // Autorización Operativa: solo el creador del borrador (grant
+    // PURCHASE_DRAFT_OWNER). Un borrador ajeno se elimina con clave desde
+    // la consulta (PURCHASE_DELETE_DRAFT).
+    const grant = await checkOperationalGrant(context, [OPERATIONAL_SCOPES.PURCHASE_DRAFT_OWNER], purchase_id);
+    if (!grant.ok) return { error: grant.error };
 
     const result = await cancelPurchase(
       purchase_id,

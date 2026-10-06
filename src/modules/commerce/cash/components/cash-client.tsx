@@ -6,6 +6,8 @@
 // Orquestador visual del módulo de caja.
 // Permite seleccionar una caja, ver su estado, abrir y cerrar sesión,
 // registrar/consultar movimientos manuales y ver historial de sesiones.
+// Incluye administración mínima de cajas (crear, editar, desactivar,
+// reactivar); las inactivas se listan pero no pueden abrir sesión.
 // No integra ventas, pagos, DTE ni inventario.
 // ─────────────────────────────────────────────────────────────────
 
@@ -27,6 +29,8 @@ import { CashMovementsTable }              from "./cash-movements-table";
 import { CashSessionsHistory }             from "./cash-sessions-history";
 import { CashSessionCutPanel }             from "./cash-session-cut-panel";
 import { CashSessionCutPrintView }         from "./cash-session-cut-print-view";
+import { CashRegisterFormDialog, CashRegisterStatusDialog } from "./cash-register-dialogs";
+import type { CashRegisterAdminRecord }    from "../services/cash-register-admin.service";
 
 // ── Helper ────────────────────────────────────────────────────────
 
@@ -96,6 +100,12 @@ export function CashClient({ initialState }: CashClientProps) {
   const [cutReport, setCutReport]                   = useState<CashSessionCutReport | null>(null);
   const [cutLoading, setCutLoading]                 = useState(false);
   const [cutError, setCutError]                     = useState<string | null>(null);
+
+  // Administración de cajas: "new" = Nueva caja; registro = Editar caja
+  const [registerFormTarget, setRegisterFormTarget] =
+    useState<"new" | { id: string; code: string; name: string } | null>(null);
+  const [statusTarget, setStatusTarget] =
+    useState<{ id: string; code: string; name: string; is_active: boolean } | null>(null);
 
   // ── Computed ────────────────────────────────────────────────────
 
@@ -203,7 +213,7 @@ export function CashClient({ initialState }: CashClientProps) {
 
   // ── Acciones ────────────────────────────────────────────────────
 
-  async function refreshWorkspace(cashRegisterId?: string) {
+  async function refreshWorkspace(cashRegisterId?: string): Promise<CashWorkspaceState | null> {
     setLoading(true);
     const result = await getCashWorkspaceStateAction(
       cashRegisterId ? { selected_cash_register_id: cashRegisterId } : {},
@@ -220,6 +230,44 @@ export function CashClient({ initialState }: CashClientProps) {
       });
       if (cutResult.ok) setCutReport(cutResult.data);
     }
+    return result.ok ? result.data : null;
+  }
+
+  // ── Administración de cajas ─────────────────────────────────────
+
+  async function handleRegisterCreated(saved: CashRegisterAdminRecord) {
+    setRegisterFormTarget(null);
+    clearMessages();
+    setSuccessMessage(`Caja ${saved.code} creada. Ya puedes abrir una sesión.`);
+    setOpeningAmount("");
+    setOpeningNotes("");
+    setSelectedId(saved.id);
+    await refreshWorkspace(saved.id);
+  }
+
+  async function handleRegisterUpdated(saved: CashRegisterAdminRecord) {
+    setRegisterFormTarget(null);
+    clearMessages();
+    setSuccessMessage(`Caja ${saved.code} actualizada.`);
+    await refreshWorkspace(selectedId ?? undefined);
+  }
+
+  async function handleRegisterStatusChanged(saved: CashRegisterAdminRecord) {
+    setStatusTarget(null);
+    clearMessages();
+    setSuccessMessage(saved.is_active ? `Caja ${saved.code} reactivada.` : `Caja ${saved.code} desactivada.`);
+
+    if (saved.is_active || selectedId !== saved.id) {
+      await refreshWorkspace(selectedId ?? undefined);
+      return;
+    }
+
+    // Se desactivó la caja seleccionada: pasar a otra activa o a ninguna.
+    const data = await refreshWorkspace();
+    const next = data?.registers.find((r) => r.is_active && r.id !== saved.id)?.id ?? null;
+    setSelectedId(next);
+    setOpeningAmount("");
+    setOpeningNotes("");
   }
 
   function handleHistoryReload(filters: HistoryFilters) {
@@ -360,8 +408,18 @@ export function CashClient({ initialState }: CashClientProps) {
         {/* Panel de cajas */}
         <div className="lg:col-span-1">
           <div className="rounded-lg border border-zinc-200 bg-white">
-            <div className="border-b border-zinc-200 px-4 py-3">
+            <div className="flex items-center justify-between gap-2 border-b border-zinc-200 px-4 py-3">
               <h2 className="text-sm font-medium text-zinc-700">Cajas disponibles</h2>
+              {workspace.registers.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setRegisterFormTarget("new")}
+                  disabled={loading}
+                  className="rounded-md border border-zinc-300 px-2 py-1 text-xs font-medium text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
+                >
+                  + Nueva caja
+                </button>
+              )}
             </div>
 
             {workspace.registers.length === 0 ? (
@@ -369,9 +427,14 @@ export function CashClient({ initialState }: CashClientProps) {
                 <p className="text-sm text-zinc-500">
                   No hay cajas configuradas para esta sucursal.
                 </p>
-                <p className="mt-1 text-xs text-zinc-400">
-                  Solicita configurar una caja para esta sucursal.
-                </p>
+                <button
+                  type="button"
+                  onClick={() => setRegisterFormTarget("new")}
+                  disabled={loading}
+                  className="mt-3 rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-700 disabled:opacity-50"
+                >
+                  Crear primera caja
+                </button>
               </div>
             ) : (
               <ul className="divide-y divide-zinc-100">
@@ -400,7 +463,11 @@ export function CashClient({ initialState }: CashClientProps) {
                             <p className="text-xs text-zinc-400">{register.code}</p>
                           </div>
                           <div className="flex flex-col items-end gap-1">
-                            {hasSession ? (
+                            {!register.is_active ? (
+                              <span className="inline-flex items-center rounded-full bg-zinc-100 px-2 py-0.5 text-xs text-zinc-500">
+                                Inactiva
+                              </span>
+                            ) : hasSession ? (
                               <span className="inline-flex items-center rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700">
                                 Abierta
                               </span>
@@ -409,8 +476,8 @@ export function CashClient({ initialState }: CashClientProps) {
                                 Sin sesión
                               </span>
                             )}
-                            {!register.is_active && (
-                              <span className="text-xs text-zinc-400">Inactiva</span>
+                            {register.is_active && (
+                              <span className="text-xs text-emerald-600">Activa</span>
                             )}
                           </div>
                         </div>
@@ -444,9 +511,40 @@ export function CashClient({ initialState }: CashClientProps) {
                         {selectedRegister.name}
                       </p>
                       <p className="text-xs text-zinc-400">{selectedRegister.code}</p>
+                      <div className="mt-2 flex gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setRegisterFormTarget({
+                            id: selectedRegister.id, code: selectedRegister.code, name: selectedRegister.name,
+                          })}
+                          disabled={loading}
+                          className="rounded-md border border-zinc-300 px-2 py-1 text-xs text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
+                        >
+                          Editar
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setStatusTarget({
+                            id: selectedRegister.id, code: selectedRegister.code,
+                            name: selectedRegister.name, is_active: selectedRegister.is_active,
+                          })}
+                          disabled={loading}
+                          className={
+                            selectedRegister.is_active
+                              ? "rounded-md border border-red-200 px-2 py-1 text-xs text-red-600 hover:bg-red-50 disabled:opacity-50"
+                              : "rounded-md border border-zinc-300 px-2 py-1 text-xs text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
+                          }
+                        >
+                          {selectedRegister.is_active ? "Desactivar" : "Reactivar"}
+                        </button>
+                      </div>
                     </div>
                     <div>
-                      {openSession ? (
+                      {!selectedRegister.is_active ? (
+                        <span className="inline-flex items-center rounded-full bg-zinc-100 px-3 py-1 text-sm text-zinc-500">
+                          Inactiva
+                        </span>
+                      ) : openSession ? (
                         <span className="inline-flex items-center rounded-full bg-green-100 px-3 py-1 text-sm font-medium text-green-700">
                           Abierta
                         </span>
@@ -493,8 +591,15 @@ export function CashClient({ initialState }: CashClientProps) {
                 </div>
               </div>
 
+              {/* Caja inactiva: no admite apertura */}
+              {!selectedRegister.is_active && !openSession && (
+                <div className="rounded-lg border border-dashed border-zinc-200 px-4 py-4 text-sm text-zinc-500">
+                  Esta caja está inactiva. Reactívala para poder abrir una sesión.
+                </div>
+              )}
+
               {/* Formulario de apertura */}
-              {!openSession && (
+              {!openSession && selectedRegister.is_active && (
                 <div className="rounded-lg border border-zinc-200 bg-white">
                   <div className="border-b border-zinc-200 px-4 py-3">
                     <h2 className="text-sm font-medium text-zinc-700">Abrir caja</h2>
@@ -749,6 +854,22 @@ export function CashClient({ initialState }: CashClientProps) {
         </div>
       )}
     </div>
+
+    {registerFormTarget && (
+      <CashRegisterFormDialog
+        register={registerFormTarget === "new" ? null : registerFormTarget}
+        onCancel={() => setRegisterFormTarget(null)}
+        onSaved={registerFormTarget === "new" ? handleRegisterCreated : handleRegisterUpdated}
+      />
+    )}
+
+    {statusTarget && (
+      <CashRegisterStatusDialog
+        register={statusTarget}
+        onCancel={() => setStatusTarget(null)}
+        onSaved={handleRegisterStatusChanged}
+      />
+    )}
     </>
   );
 }

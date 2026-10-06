@@ -18,7 +18,9 @@
 //              resumen (§19). Sin doble clic para editar.
 //
 // Flujo de edición:
-//   IDLE → KEY_GUARD (clave) → EDIT_OPEN (formulario)
+//   IDLE → KEY_GUARD (Clave de Supervisor) → EDIT_OPEN (formulario)
+//   La clave emite un grant PRODUCT_EDIT server-side para el producto;
+//   updateProductAction lo exige (el estado UI no autoriza nada).
 //   El botón "Editar producto" vive en ProductSummaryPanel.
 //   No hay atajos directos ni doble clic.
 //
@@ -43,7 +45,8 @@ import { ProductSummaryPanel, ProductCostsPricesStrip } from "./product-summary-
 import { ProductTraceabilityTabs } from "./product-traceability-tabs";
 import { ProductStatusDialog } from "./product-status-dialog";
 import { NewProductDialog } from "./new-product-dialog";
-import { EditKeyGuardDialog } from "./edit-key-guard-dialog";
+import { SupervisorAuthDialog } from "@/core/components/ui/supervisor-auth-dialog";
+import { verifyEditKeyAction } from "../actions/verify-edit-key.action";
 import { EditProductDialog } from "./edit-product-dialog";
 
 import {
@@ -443,9 +446,17 @@ export function ProductsClient({
 
       {/* Portón de clave — primer paso obligatorio del flujo de edición */}
       {editFlow === "key_guard" && summary && (
-        <EditKeyGuardDialog
-          productName={summary.name}
-          productCode={summary.product_code}
+        <SupervisorAuthDialog
+          title="Editar producto"
+          description="La edición del catálogo requiere la clave de supervisor."
+          details={
+            <>
+              <p className="text-xs font-mono text-zinc-400 mb-0.5">{summary.product_code}</p>
+              <p className="text-sm font-medium text-zinc-800 leading-snug">{summary.name}</p>
+            </>
+          }
+          action={verifyEditKeyAction}
+          hiddenFields={{ entity_id: summary.id }}
           onCancel={handleKeyGuardCancel}
           onSuccess={handleKeyGuardSuccess}
         />

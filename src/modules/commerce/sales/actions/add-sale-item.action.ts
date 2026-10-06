@@ -19,6 +19,8 @@ import {
   requireOperationalContext,
   OperationalContextError,
 } from "@/modules/platform/runtime/require-operational-context";
+import { checkOperationalGrant } from "@/core/security/operational-authorization/operational-authorization";
+import { SALE_DRAFT_WRITE_SCOPES } from "@/core/security/operational-authorization/scopes";
 
 export type AddSaleItemActionResult =
   | { ok: true; item_id: string; line_number: number }
@@ -46,6 +48,10 @@ export async function addSaleItemAction(
       context.locationId ??
       (await getEffectiveLocationId(sessionUser, context.client, context.tenantId));
     if (!location_id) return { ok: false, error: "La sesión no tiene una location activa." };
+
+    // Autorización Operativa: grant de la venta (SALE_DRAFT_OWNER del creador o SALE_EDIT por clave).
+    const grant = await checkOperationalGrant(context, SALE_DRAFT_WRITE_SCOPES, sale_id);
+    if (!grant.ok) return { ok: false, error: grant.error };
 
     const parsed = addSaleItemSchema.safeParse(input);
     if (!parsed.success) {

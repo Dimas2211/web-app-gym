@@ -211,3 +211,49 @@ export const getCashSessionCutReportInputSchema = z.object({
 });
 
 export type GetCashSessionCutReportInput = z.infer<typeof getCashSessionCutReportInputSchema>;
+
+// ── Administración de cajas (CashRegister) ───────────────────────
+//
+// El browser solo envía code/name (y el id en edición/estado).
+// tenant_id, location_id, is_active inicial y auditoría los fija el
+// servidor; cualquier otra clave enviada se descarta (z.object strip).
+
+const cashRegisterCodeSchema = z
+  .string()
+  .trim()
+  .min(1, "El código es obligatorio.")
+  .max(20, "El código no puede superar 20 caracteres.")
+  .transform((v) => v.toUpperCase())
+  .pipe(
+    z
+      .string()
+      .regex(/^[A-Z0-9][A-Z0-9._-]*$/, "El código solo admite letras, números, punto, guion y guion bajo."),
+  );
+
+const cashRegisterNameSchema = z
+  .string()
+  .trim()
+  .min(1, "El nombre es obligatorio.")
+  .max(80, "El nombre no puede superar 80 caracteres.");
+
+export const createCashRegisterInputSchema = z.object({
+  code: cashRegisterCodeSchema,
+  name: cashRegisterNameSchema,
+});
+
+export type CreateCashRegisterInput = z.input<typeof createCashRegisterInputSchema>;
+
+export const updateCashRegisterInputSchema = z.object({
+  cash_register_id: z.string().uuid("cash_register_id debe ser un UUID válido"),
+  code: cashRegisterCodeSchema,
+  name: cashRegisterNameSchema,
+});
+
+export type UpdateCashRegisterInput = z.input<typeof updateCashRegisterInputSchema>;
+
+export const setCashRegisterActiveInputSchema = z.object({
+  cash_register_id: z.string().uuid("cash_register_id debe ser un UUID válido"),
+  is_active: z.boolean(),
+});
+
+export type SetCashRegisterActiveInput = z.input<typeof setCashRegisterActiveInputSchema>;

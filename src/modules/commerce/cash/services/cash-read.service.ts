@@ -68,6 +68,10 @@ export async function getOpenSessionForRegister(
 // selected_register_id, el detalle de la caja seleccionada y su
 // sesión activa. Si no se proporciona, selected_register y
 // open_session quedan en null.
+//
+// La lista incluye cajas inactivas (activas primero) para que la
+// administración pueda editarlas/reactivarlas. La operación sigue
+// protegida en servidor: openCashSession exige is_active=true.
 
 export async function getCashWorkspaceState(
   tenant_id:              string,
@@ -76,7 +80,7 @@ export async function getCashWorkspaceState(
   client: PrismaClient = prisma,
 ): Promise<CashWorkspaceState> {
   const [registers, selected_register] = await Promise.all([
-    listCashRegisters(tenant_id, location_id, false, client),
+    listCashRegisters(tenant_id, location_id, true, client),
     selected_register_id
       ? getCashRegisterById(selected_register_id, tenant_id, location_id, client)
       : Promise.resolve(null),
@@ -85,7 +89,7 @@ export async function getCashWorkspaceState(
   const open_session = selected_register?.open_session ?? null;
 
   return {
-    registers,
+    registers: [...registers].sort((a, b) => Number(b.is_active) - Number(a.is_active)),
     selected_register,
     open_session,
   };

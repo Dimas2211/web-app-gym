@@ -2,14 +2,13 @@
 // api/purchases/[id]/route.ts
 //
 // GET    /api/purchases/:id — detalle completo de una compra.
-// DELETE /api/purchases/:id — elimina una compra en DRAFT (borrado físico).
+// DELETE /api/purchases/:id — DESHABILITADO (403): usar
+//                             deleteDraftPurchaseWithAuthAction (clave).
 // Scoped por tenant_id + location_id desde sesión.
 // ─────────────────────────────────────────────────────────────────
 
 import { NextRequest, NextResponse } from "next/server";
 import { getPurchaseById } from "@/modules/commerce/purchases/queries/get-purchase-by-id";
-import { deleteDraftPurchase } from "@/modules/commerce/purchases/services/purchase.service";
-import { RUNTIME_READONLY_MESSAGE } from "@/modules/platform/runtime/runtime-session";
 import { getPurchaseApiContext } from "../purchase-api-context";
 
 export const dynamic = "force-dynamic";
@@ -42,34 +41,16 @@ export async function GET(
   }
 }
 
-// ── DELETE — eliminar borrador ────────────────────────────────────
+// ── DELETE — DESHABILITADO ────────────────────────────────────────
+// Eliminar un borrador exige la Clave de Supervisor
+// (PURCHASE_DELETE_DRAFT). Se migró a la server action
+// deleteDraftPurchaseWithAuthAction; este endpoint devuelve 403 para no
+// ser un bypass de la Autorización Operativa (mismo criterio que
+// /api/sales/[id]/cancel-draft).
 
-export async function DELETE(
-  req: NextRequest,
-  { params }: { params: Promise<{ id: string }> },
-) {
-  const { id } = await params;
-
-  const ctx = await getPurchaseApiContext(req);
-
-  if (!ctx.ok) {
-    return NextResponse.json({ error: ctx.error }, { status: ctx.status });
-  }
-
-  try {
-    // PASO 6A: bloquear escritura bajo sesión runtime "Operar como cliente"
-    if (ctx.runtime?.readOnly) {
-      return NextResponse.json({ error: RUNTIME_READONLY_MESSAGE }, { status: 403 });
-    }
-
-    const result = await deleteDraftPurchase(id, ctx.tenant_id, ctx.location_id, ctx.client);
-
-    if (!result.ok) {
-      return NextResponse.json({ error: result.error }, { status: 422 });
-    }
-
-    return NextResponse.json({ ok: true });
-  } finally {
-    await ctx.dispose();
-  }
+export async function DELETE() {
+  return NextResponse.json(
+    { error: "Este endpoint está deshabilitado. Usa la acción autorizada desde la UI." },
+    { status: 403 },
+  );
 }

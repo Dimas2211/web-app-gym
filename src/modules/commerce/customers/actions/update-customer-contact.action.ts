@@ -7,7 +7,8 @@
 // pestaña Contacto del maestro.
 // No toca identificación, actividad, dirección ni estado.
 //
-// Permiso: requireAdmin (super_admin | branch_admin).
+// Permiso: requireAdmin (super_admin | branch_admin) + grant CUSTOMER_EDIT
+//          del cliente (Clave de Supervisor).
 // Éxito:   undefined
 // Error:   { error: string }
 // ─────────────────────────────────────────────────────────────────
@@ -22,6 +23,8 @@ import {
 } from "@/modules/platform/runtime/require-operational-context";
 import { str, strNullable } from "@/lib/utils/form-data-parsers";
 import { updateCustomer } from "../services/customer.service";
+import { checkOperationalGrant } from "@/core/security/operational-authorization/operational-authorization";
+import { OPERATIONAL_SCOPES } from "@/core/security/operational-authorization/scopes";
 
 export type UpdateCustomerContactState =
   | { error: string }
@@ -54,6 +57,10 @@ export async function updateCustomerContactAction(
     const email = strNullable(formData.get("email"));
 
     if (!id) return { error: "ID del cliente requerido." };
+
+    // Autorización Operativa: grant CUSTOMER_EDIT para ESTE cliente.
+    const grant = await checkOperationalGrant(context, [OPERATIONAL_SCOPES.CUSTOMER_EDIT], id);
+    if (!grant.ok) return { error: grant.error };
 
     if (email && !EMAIL_REGEX.test(email)) {
       return { error: "El correo electrónico no tiene un formato válido." };

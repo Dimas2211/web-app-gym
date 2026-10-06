@@ -3,61 +3,42 @@
 // ─────────────────────────────────────────────────────────────────
 // commerce/products — verify-edit-key.action.ts
 //
-// Valida la clave de autorización para editar un producto.
-// La clave esperada se lee desde process.env.EDIT_CATALOG_PIN.
+// Autoriza la edición de UN producto con la Clave de Supervisor
+// tenant-level (Runtime DB efectiva). Emite un grant PRODUCT_EDIT
+// ligado a tenant + usuario + producto; updateProductAction lo exige
+// server-side.
 //
-// Supuesto aceptado: solución válida bajo modelo de una instancia
-// por cliente. Cada tenant tiene su propio proceso/deploy y su
-// propia variable de entorno. No apta para SaaS multitenancy en
-// proceso compartido — en ese caso migrar a PIN por tenant en BD.
+// EDIT_CATALOG_PIN (variable de entorno del modelo "un deploy por
+// cliente") quedó ELIMINADO: no hay fallback a .env ni clave default.
 //
-// Seguridad: el valor esperado nunca sale del servidor.
-// El cliente solo recibe { success: true } o { success: false }.
+// Seguridad: el cliente solo recibe { ok } o { ok:false, error }.
 // ─────────────────────────────────────────────────────────────────
 
 import { requireAdmin } from "@/lib/permissions/guards";
 import {
-  resolveCommercialEnforcementContext,
-  assertOrganizationModule,
-  CommercialEnforcementError,
-} from "@/modules/platform/runtime/commercial-enforcement";
-
-export type VerifyEditKeyResult =
-  | { success: true }
-  | { success: false; error: string };
+  readSupervisorPin,
+  runSupervisorAuthorization,
+} from "@/core/security/operational-authorization/run-supervisor-authorization";
+import { OPERATIONAL_SCOPES } from "@/core/security/operational-authorization/scopes";
+import type { SupervisorAuthActionState } from "@/core/security/operational-authorization/messages";
 
 export async function verifyEditKeyAction(
-  _prev: VerifyEditKeyResult | undefined,
-  formData: FormData
-): Promise<VerifyEditKeyResult> {
-  // Requiere sesión activa con rol admin — no permite verificación anónima
+  _prev: SupervisorAuthActionState,
+  formData: FormData,
+): Promise<SupervisorAuthActionState> {
   const sessionUser = await requireAdmin();
 
-  try {
-    const commercialCtx = await resolveCommercialEnforcementContext(sessionUser.tenant_id);
-    assertOrganizationModule(commercialCtx, "commerce.products");
-  } catch (err) {
-    if (err instanceof CommercialEnforcementError) return { success: false, error: err.userMessage };
-    throw err;
-  }
-
-  const key = (formData.get("key") as string | null)?.trim() ?? "";
-  const expected = process.env.EDIT_CATALOG_PIN;
-
-  if (!expected) {
-    return {
-      success: false,
-      error:
-        "La clave de edición no está configurada en el servidor. Contacte al administrador.",
-    };
-  }
-
-  if (!key || key !== expected) {
-    return {
-      success: false,
-      error: "Clave incorrecta. Intente nuevamente.",
-    };
-  }
-
-  return { success: true };
+  return runSupervisorAuthorization(sessionUser, {
+    scope: OPERATIONAL_SCOPES.PRODUCT_EDIT,
+    module: "commerce.products",
+    entityId: formData.get("entity_id") as string | null,
+    pin: readSupervisorPin(formData),
+    assertEntity: async (db, tenantId, productId) => {
+      const product = await db.product.findFirst({
+        where: { id: productId, tenant_id: tenantId },
+        select: { id: true },
+      });
+      return product ? null : "El producto no existe o no pertenece a este tenant.";
+    },
+  });
 }

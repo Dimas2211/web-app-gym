@@ -1,4 +1,8 @@
+import { redirect } from "next/navigation";
 import { requireAdmin } from "@/lib/permissions/guards";
+import { prisma } from "@/lib/db/prisma";
+import { checkOperationalGrant } from "@/core/security/operational-authorization/operational-authorization";
+import { SALE_DRAFT_WRITE_SCOPES } from "@/core/security/operational-authorization/scopes";
 import { getEffectiveLocationId } from "@/lib/location/active-location";
 import { getLocationById } from "@/core/modules/locations/queries";
 import { listDteCatalogItems } from "@/modules/commerce/dte/queries/list-dte-catalog-items";
@@ -51,8 +55,18 @@ export default async function NewSalePage({
     ]);
 
     // Si viene sale_id, cargar el borrador existente (solo si es DRAFT y pertenece al tenant/location)
+    // Autorización Operativa: exige grant de ESTA venta (SALE_EDIT por
+    // Clave de Supervisor o SALE_DRAFT_OWNER del creador). Sin grant, la
+    // URL directa NO carga el borrador editable.
     let initialDraft = undefined;
     if (sale_id) {
+      const grant = await checkOperationalGrant(
+        { tenantId: tenant_id, client: context.client ?? prisma, effectiveUser: { id: sessionUser.id } },
+        SALE_DRAFT_WRITE_SCOPES,
+        sale_id,
+        { renew: false },
+      );
+      if (!grant.ok) redirect("/dashboard/sales?auth=required");
       const sale = await getSaleDetailById(sale_id, tenant_id, location_id, context.client);
       if (sale && sale.status === "DRAFT") {
         initialDraft = sale;

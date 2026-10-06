@@ -27,6 +27,7 @@ import type { CustomerDetail } from "../types/customer.types";
 import { ActivityPicker }     from "./activity-picker";
 import { MunicipalityPicker } from "./municipality-picker";
 import { CAT022_ID_TYPE_OPTIONS } from "@/modules/commerce/shared/cat-022-identification-types";
+import { isOperationalAuthError } from "@/core/security/operational-authorization/messages";
 
 // ── Style helpers ─────────────────────────────────────────────────
 
@@ -74,11 +75,13 @@ interface EditCustomerDialogProps {
   customer:   CustomerDetail;
   onClose:    () => void;
   onSuccess?: () => void;
+  /** La autorización (grant CUSTOMER_EDIT) ya no es válida — el padre volverá a pedir la clave. */
+  onAuthorizationLost?: () => void;
 }
 
 // ── Componente ────────────────────────────────────────────────────
 
-export function EditCustomerDialog({ customer, onClose, onSuccess }: EditCustomerDialogProps) {
+export function EditCustomerDialog({ customer, onClose, onSuccess, onAuthorizationLost }: EditCustomerDialogProps) {
   const [isPending,    startTransition] = useTransition();
   const [error,        setError]        = useState<string | null>(null);
   const [fieldErrors,  setFieldErrors]  = useState<Record<string, string[]>>({});
@@ -132,6 +135,7 @@ export function EditCustomerDialog({ customer, onClose, onSuccess }: EditCustome
       } else {
         setError(result.error);
         setFieldErrors(result.errors ?? {});
+        if (isOperationalAuthError(result.error)) onAuthorizationLost?.();
       }
     });
   }

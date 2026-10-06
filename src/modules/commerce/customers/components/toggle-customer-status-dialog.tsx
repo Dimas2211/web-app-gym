@@ -4,12 +4,12 @@
 // commerce/customers — toggle-customer-status-dialog.tsx
 //
 // Diálogo de confirmación para activar o desactivar un cliente.
-// Reutiliza updateCustomerAction con el campo status.
+// Usa updateCustomerStatusAction (sin Clave de Supervisor, igual que products).
 // ─────────────────────────────────────────────────────────────────
 
 import { useTransition, useState } from "react";
 import { X } from "lucide-react";
-import { updateCustomerAction } from "../actions/update-customer.action";
+import { updateCustomerStatusAction } from "../actions/update-customer-status.action";
 import type { CustomerListItem } from "../types/customer.types";
 
 interface ToggleCustomerStatusDialogProps {
@@ -37,7 +37,7 @@ export function ToggleCustomerStatusDialog({
   function handleConfirm() {
     setError(null);
     startTransition(async () => {
-      const result = await updateCustomerAction(customer.id, { status: nextStatus });
+      const result = await updateCustomerStatusAction(customer.id, nextStatus);
       if (result.ok) {
         onSuccess?.();
         onClose();

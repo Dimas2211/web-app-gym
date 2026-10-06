@@ -8,7 +8,8 @@
 //   updatePurchaseItemAction — edita una línea existente
 //   removePurchaseItemAction — elimina una línea
 //
-// Permiso: requireAdmin.
+// Permiso: requireAdmin + grant de la compra (PURCHASE_DRAFT_OWNER del
+//          creador o PURCHASE_EDIT por Clave de Supervisor).
 // purchase_id viene del form; tenant_id y location_id desde sesión.
 // ─────────────────────────────────────────────────────────────────
 
@@ -30,6 +31,8 @@ import {
   requireOperationalContext,
   OperationalContextError,
 } from "@/modules/platform/runtime/require-operational-context";
+import { checkOperationalGrant } from "@/core/security/operational-authorization/operational-authorization";
+import { PURCHASE_DRAFT_WRITE_SCOPES } from "@/core/security/operational-authorization/scopes";
 
 async function resolveLocationId(
   context: Awaited<ReturnType<typeof requireOperationalContext>>["context"],
@@ -88,6 +91,9 @@ export async function addPurchaseItemAction(
 
     const purchase_id = str(formData.get("purchase_id"));
     if (!purchase_id) return { error: "purchase_id es requerido." };
+
+    const grant = await checkOperationalGrant(context, PURCHASE_DRAFT_WRITE_SCOPES, purchase_id);
+    if (!grant.ok) return { error: grant.error };
 
     const raw = {
       product_id: str(formData.get("product_id")),
@@ -153,6 +159,9 @@ export async function updatePurchaseItemAction(
     if (!purchase_id) return { error: "purchase_id es requerido." };
     if (!item_id)     return { error: "item_id es requerido." };
 
+    const grant = await checkOperationalGrant(context, PURCHASE_DRAFT_WRITE_SCOPES, purchase_id);
+    if (!grant.ok) return { error: grant.error };
+
     const raw = {
       quantity:   dec(formData.get("quantity")),
       unit_cost:  dec(formData.get("unit_cost")),
@@ -208,6 +217,9 @@ export async function removePurchaseItemAction(
     const item_id     = str(formData.get("item_id"));
     if (!purchase_id) return { error: "purchase_id es requerido." };
     if (!item_id)     return { error: "item_id es requerido." };
+
+    const grant = await checkOperationalGrant(context, PURCHASE_DRAFT_WRITE_SCOPES, purchase_id);
+    if (!grant.ok) return { error: grant.error };
 
     const result = await removePurchaseItem(
       item_id,

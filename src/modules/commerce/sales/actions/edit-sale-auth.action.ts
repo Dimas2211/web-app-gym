@@ -3,9 +3,14 @@
 // ─────────────────────────────────────────────────────────────────
 // commerce/sales — edit-sale-auth.action.ts
 //
-// Verifica credenciales administrativas para habilitar la edición
-// de una venta en borrador. Reutiliza verifyAdminDeleteCredentials
-// para mantener el mismo patrón de autorización del sistema.
+// Autoriza la edición de UNA venta DRAFT con la Clave de Supervisor
+// tenant-level (Runtime DB efectiva vía context.client — nunca Prisma
+// global). Emite grant SALE_EDIT ligado a tenant + usuario + venta;
+// /dashboard/sales/new?sale_id= y las mutaciones de cabecera/líneas lo
+// exigen server-side.
+//
+// Reemplaza el esquema anterior de correo + contraseña administrativa
+// (que además consultaba Prisma global por no recibir context.client).
 //
 // Retorna:
 //   { ok: true }                       — autorizado, proceder
@@ -13,51 +18,32 @@
 // ─────────────────────────────────────────────────────────────────
 
 import { requireAdmin } from "@/lib/permissions/guards";
-import { verifyAdminDeleteCredentials } from "@/lib/permissions/delete-authorization";
 import {
-  requireOperationalContext,
-  OperationalContextError,
-} from "@/modules/platform/runtime/require-operational-context";
-
-export type EditSaleAuthState =
-  | { ok: true }
-  | { ok: false; error: string }
-  | undefined;
+  readSupervisorPin,
+  runSupervisorAuthorization,
+} from "@/core/security/operational-authorization/run-supervisor-authorization";
+import { OPERATIONAL_SCOPES } from "@/core/security/operational-authorization/scopes";
+import type { SupervisorAuthActionState } from "@/core/security/operational-authorization/messages";
 
 export async function editSaleAuthAction(
-  _prev: EditSaleAuthState,
+  _prev: SupervisorAuthActionState,
   formData: FormData,
-): Promise<EditSaleAuthState> {
+): Promise<SupervisorAuthActionState> {
   const sessionUser = await requireAdmin();
 
-  let handle;
-  try {
-    handle = await requireOperationalContext(sessionUser, { module: "commerce.sales", write: true });
-  } catch (err) {
-    if (err instanceof OperationalContextError) return { ok: false, error: err.userMessage };
-    throw err;
-  }
-  const { context, dispose } = handle;
-
-  try {
-    const email    = (formData.get("auth_email")    as string ?? "").trim();
-    const password = (formData.get("auth_password") as string ?? "");
-
-    if (!email || !password) {
-      return { ok: false, error: "Correo y contraseña son requeridos." };
-    }
-
-    const result = await verifyAdminDeleteCredentials(
-      { email, password },
-      context.tenantId,
-    );
-
-    if (!result.authorized) {
-      return { ok: false, error: result.error };
-    }
-
-    return { ok: true };
-  } finally {
-    await dispose();
-  }
+  return runSupervisorAuthorization(sessionUser, {
+    scope: OPERATIONAL_SCOPES.SALE_EDIT,
+    module: "commerce.sales",
+    entityId: formData.get("entity_id") as string | null,
+    pin: readSupervisorPin(formData),
+    assertEntity: async (db, tenantId, saleId) => {
+      const sale = await db.sale.findFirst({
+        where: { id: saleId, tenant_id: tenantId },
+        select: { status: true },
+      });
+      if (!sale) return "La venta no existe o no pertenece a este tenant.";
+      if (sale.status !== "DRAFT") return "Solo las ventas en borrador pueden editarse.";
+      return null;
+    },
+  });
 }

@@ -16,7 +16,7 @@
 //   selectedDetail — detalle completo cargado al seleccionar
 // ─────────────────────────────────────────────────────────────────
 
-import { useState, useEffect, useRef, useCallback, useActionState } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Loader2, Package, FileText, ChevronDown, ChevronUp, CheckCircle2, AlertTriangle } from "lucide-react";
@@ -31,6 +31,8 @@ import {
 } from "./sales-filters-bar";
 import { editSaleAuthAction } from "../actions/edit-sale-auth.action";
 import { deleteDraftSaleWithAuthAction } from "../actions/delete-draft-sale-with-auth.action";
+import { cancelConfirmedSaleAction } from "../actions/cancel-confirmed-sale.action";
+import { SupervisorAuthDialog } from "@/core/components/ui/supervisor-auth-dialog";
 import { confirmSaleAction } from "../actions/confirm-sale.action";
 import { createPendingDteSimpleAction } from "@/modules/commerce/dte/actions/create-pending-dte-simple.action";
 import { generateFeJsonForSaleAction }   from "@/modules/commerce/dte/actions/generate-fe-json-for-sale.action";
@@ -108,18 +110,13 @@ export function SalesClient({ initialItems, initialTotal, hasOpenCashSession = f
   const [selectedDetail, setSelectedDetail] = useState<SaleDetail | null>(null);
   const [detailLoading,  setDetailLoading]  = useState(false);
 
-  // ── Estado de diálogo de autorización para editar ──────────────
-  const [editAuthOpen, setEditAuthOpen] = useState(false);
-  const [authEmail,    setAuthEmail]    = useState("");
-  const [authPassword, setAuthPassword] = useState("");
-  const [authState, authFormAction, authPending] = useActionState(editSaleAuthAction, undefined);
-
-  // ── Estado de diálogo de autorización para eliminar ────────────
-  const [deleteAuthOpen,     setDeleteAuthOpen]     = useState(false);
-  const [deleteAuthEmail,    setDeleteAuthEmail]    = useState("");
-  const [deleteAuthPassword, setDeleteAuthPassword] = useState("");
-  const [deleteAuthState, deleteAuthFormAction, deleteAuthPending] =
-    useActionState(deleteDraftSaleWithAuthAction, undefined);
+  // ── Autorización Operativa (Clave de Supervisor) ───────────────
+  // Editar → grant SALE_EDIT; Eliminar borrador → SALE_DELETE_DRAFT;
+  // Anular confirmada → SALE_CANCEL_CONFIRMED (ambos de un solo uso).
+  // La decisión vive en el servidor.
+  const [editAuthOpen,   setEditAuthOpen]   = useState(false);
+  const [deleteAuthOpen, setDeleteAuthOpen] = useState(false);
+  const [cancelAuthOpen, setCancelAuthOpen] = useState(false);
 
   // ── Estado de diálogo para aplicar inventario pendiente ───────────
   const [applyInventoryOpen,  setApplyInventoryOpen]  = useState(false);
@@ -198,13 +195,6 @@ export function SalesClient({ initialItems, initialTotal, hasOpenCashSession = f
   const filtersMount       = useRef(true);
   const detailRequestIdRef = useRef(0);
 
-  // ── Cuando autorización es exitosa → navegar a edición ─────────
-  useEffect(() => {
-    if (authState?.ok && selectedId) {
-      setEditAuthOpen(false);
-      router.push(`/dashboard/sales/new?sale_id=${selectedId}`);
-    }
-  }, [authState, selectedId, router]);
 
   // ── Fetch de lista ──────────────────────────────────────────────
 
@@ -242,14 +232,6 @@ export function SalesClient({ initialItems, initialTotal, hasOpenCashSession = f
       .catch(() => {});
   }, []);
 
-  // ── Cuando eliminación con clave es exitosa → refrescar lista ───
-  useEffect(() => {
-    if (deleteAuthState?.ok) {
-      setDeleteAuthOpen(false);
-      setSelectedId(null);
-      fetchList();
-    }
-  }, [deleteAuthState, fetchList]);
 
   // Debounce 350ms para cambios de filtro de texto
   useEffect(() => {
@@ -599,6 +581,11 @@ export function SalesClient({ initialItems, initialTotal, hasOpenCashSession = f
 
   const [showDteDetail, setShowDteDetail] = useState(false);
 
+  // Solo UX: el servidor bloquea la anulación aunque esta pista falle.
+  const dteRequiresInvalidation =
+    selectedDetail?.dte_document?.dte_status === "ACCEPTED" ||
+    selectedDetail?.dte_document?.dte_status === "OBSERVED";
+
   return (
     <div className="-mx-4 sm:-mx-6 -my-8 flex flex-col bg-zinc-950 h-[calc(100vh-3.5rem)] overflow-hidden">
 
@@ -639,18 +626,29 @@ export function SalesClient({ initialItems, initialTotal, hasOpenCashSession = f
         {selectedItem?.status === "DRAFT" && !detailLoading && (
           <>
             <button
-              onClick={() => { setAuthEmail(""); setAuthPassword(""); setEditAuthOpen(true); }}
+              onClick={() => setEditAuthOpen(true)}
               className="h-6 px-2 text-xs text-amber-400 hover:text-amber-200 border border-amber-800/50 hover:border-amber-600 rounded transition-colors"
             >
               Editar
             </button>
             <button
-              onClick={() => { setDeleteAuthEmail(""); setDeleteAuthPassword(""); setDeleteAuthOpen(true); }}
+              onClick={() => setDeleteAuthOpen(true)}
               className="h-6 px-2 text-xs text-red-400 hover:text-red-200 border border-red-800/50 hover:border-red-600 rounded transition-colors"
             >
               Eliminar borrador
             </button>
           </>
+        )}
+
+        {/* Anular venta CONFIRMED (SALE_CANCEL_CONFIRMED) */}
+        {selectedDetail?.status === "CONFIRMED" && selectedDetail.id === selectedId && !detailLoading && (
+          <button
+            onClick={() => setCancelAuthOpen(true)}
+            title={dteRequiresInvalidation ? "Primero debes invalidar el DTE aceptado por Hacienda" : undefined}
+            className="h-6 px-2 text-xs text-red-400 hover:text-red-200 border border-red-800/50 hover:border-red-600 rounded transition-colors"
+          >
+            Anular venta
+          </button>
         )}
 
         {/* Aplicar inventario */}
@@ -833,145 +831,91 @@ export function SalesClient({ initialItems, initialTotal, hasOpenCashSession = f
         )}
       </div>
 
-      {/* ── Modal de autorización para edición ────────────────────── */}
-      {editAuthOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
-          <div className="bg-zinc-900 border border-zinc-700 rounded-lg p-6 w-80 shadow-xl">
-            <h2 className="text-sm font-semibold text-zinc-100 mb-1">Autorización para editar</h2>
-            <p className="text-xs text-zinc-500 mb-4">
-              Ingresa tus credenciales de administrador para habilitar la edición de este borrador.
-            </p>
-
-            {authState && !authState.ok && (
-              <p className="mb-3 text-xs text-red-400 bg-red-900/30 border border-red-700/40 rounded px-2 py-1">
-                {authState.error}
-              </p>
-            )}
-
-            <form action={authFormAction} className="space-y-3">
-              <div>
-                <label className="block text-[10px] font-medium text-zinc-500 mb-0.5 uppercase tracking-wide">
-                  Correo
-                </label>
-                <input
-                  name="auth_email"
-                  type="email"
-                  value={authEmail}
-                  onChange={(e) => setAuthEmail(e.target.value)}
-                  autoComplete="username"
-                  className="w-full h-8 bg-zinc-800 border border-zinc-700 rounded px-2 text-xs text-zinc-100 placeholder:text-zinc-600 focus:outline-none focus:border-zinc-500"
-                  placeholder="admin@empresa.com"
-                />
-              </div>
-              <div>
-                <label className="block text-[10px] font-medium text-zinc-500 mb-0.5 uppercase tracking-wide">
-                  Contraseña
-                </label>
-                <input
-                  name="auth_password"
-                  type="password"
-                  value={authPassword}
-                  onChange={(e) => setAuthPassword(e.target.value)}
-                  autoComplete="current-password"
-                  className="w-full h-8 bg-zinc-800 border border-zinc-700 rounded px-2 text-xs text-zinc-100 placeholder:text-zinc-600 focus:outline-none focus:border-zinc-500"
-                />
-              </div>
-              <div className="flex gap-2 pt-1">
-                <button
-                  type="button"
-                  onClick={() => setEditAuthOpen(false)}
-                  disabled={authPending}
-                  className="flex-1 h-8 text-xs border border-zinc-700 rounded text-zinc-400 hover:text-zinc-100 transition-colors"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  disabled={authPending || !authEmail || !authPassword}
-                  className="flex-1 h-8 text-xs bg-amber-700 hover:bg-amber-600 text-white rounded font-medium flex items-center justify-center gap-1 disabled:opacity-50 transition-colors"
-                >
-                  {authPending && <Loader2 className="h-3 w-3 animate-spin" />}
-                  {authPending ? "Verificando…" : "Autorizar"}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
+      {/* ── Autorización para edición (SALE_EDIT) ──────────────────── */}
+      {editAuthOpen && selectedId && (
+        <SupervisorAuthDialog
+          theme="dark"
+          title="Autorización para editar"
+          description="Ingresa la clave de supervisor para habilitar la edición de este borrador."
+          details={<p className="text-xs text-zinc-500">
+                Correlativo: <span className="text-zinc-300 font-medium">{selectedItem?.sale_code ?? "—"}</span>
+                {" · "}
+                Cliente: <span className="text-zinc-300 font-medium">{selectedItem?.customer_name ?? "Consumidor final"}</span>
+              </p>}
+          action={editSaleAuthAction}
+          hiddenFields={{ entity_id: selectedId }}
+          onCancel={() => setEditAuthOpen(false)}
+          onSuccess={() => {
+            setEditAuthOpen(false);
+            router.push(`/dashboard/sales/new?sale_id=${selectedId}`);
+          }}
+        />
       )}
 
-      {/* ── Modal de autorización para eliminar borrador ─────────── */}
-      {deleteAuthOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
-          <div className="bg-zinc-900 border border-red-900/50 rounded-lg p-6 w-80 shadow-xl">
-            <h2 className="text-sm font-semibold text-red-300 mb-1">Eliminar borrador</h2>
-            <p className="text-xs text-zinc-400 mb-1">
+      {/* ── Eliminar borrador (SALE_DELETE_DRAFT) ────────────────── */}
+      {deleteAuthOpen && selectedId && (
+        <SupervisorAuthDialog
+          theme="dark"
+          tone="danger"
+          title="Eliminar borrador"
+          description={
+            <>
               Esta acción <span className="text-red-400 font-medium">eliminará físicamente</span> la venta
-              y todas sus líneas. No quedará registro ni aparecerá como anulada.
-              No se puede deshacer.
-            </p>
-            <p className="text-xs text-zinc-500 mb-4">
-              Correlativo: <span className="text-zinc-300 font-medium">{selectedItem?.sale_code ?? "—"}</span>
-              {" · "}
-              Cliente: <span className="text-zinc-300 font-medium">{selectedItem?.customer_name ?? "Consumidor final"}</span>
-            </p>
+              y todas sus líneas. No quedará registro ni aparecerá como anulada. No se puede deshacer.
+            </>
+          }
+          details={<p className="text-xs text-zinc-500">
+                Correlativo: <span className="text-zinc-300 font-medium">{selectedItem?.sale_code ?? "—"}</span>
+                {" · "}
+                Cliente: <span className="text-zinc-300 font-medium">{selectedItem?.customer_name ?? "Consumidor final"}</span>
+              </p>}
+          action={deleteDraftSaleWithAuthAction}
+          hiddenFields={{ sale_id: selectedId }}
+          confirmLabel="Eliminar borrador"
+          onCancel={() => setDeleteAuthOpen(false)}
+          onSuccess={() => {
+            setDeleteAuthOpen(false);
+            setSelectedId(null);
+            fetchList();
+          }}
+        />
+      )}
 
-            {deleteAuthState && !deleteAuthState.ok && (
-              <p className="mb-3 text-xs text-red-400 bg-red-900/30 border border-red-700/40 rounded px-2 py-1">
-                {deleteAuthState.error}
+      {/* ── Anular venta CONFIRMED (SALE_CANCEL_CONFIRMED) ────────── */}
+      {cancelAuthOpen && selectedId && (
+        <SupervisorAuthDialog
+          theme="dark"
+          tone="danger"
+          title="Anular venta"
+          description={
+            <div className="space-y-2">
+              <p>
+                Esta venta ya fue confirmada. Al anularla se conservará el registro y se
+                revertirá el inventario cuando corresponda.
               </p>
-            )}
-
-            <form action={deleteAuthFormAction} className="space-y-3">
-              <input type="hidden" name="sale_id" value={selectedId ?? ""} />
-
-              <div>
-                <label className="block text-[10px] font-medium text-zinc-500 mb-0.5 uppercase tracking-wide">
-                  Correo administrador
-                </label>
-                <input
-                  name="auth_email"
-                  type="email"
-                  value={deleteAuthEmail}
-                  onChange={(e) => setDeleteAuthEmail(e.target.value)}
-                  autoComplete="username"
-                  className="w-full h-8 bg-zinc-800 border border-zinc-700 rounded px-2 text-xs text-zinc-100 placeholder:text-zinc-600 focus:outline-none focus:border-zinc-500"
-                  placeholder="admin@empresa.com"
-                />
-              </div>
-              <div>
-                <label className="block text-[10px] font-medium text-zinc-500 mb-0.5 uppercase tracking-wide">
-                  Contraseña
-                </label>
-                <input
-                  name="auth_password"
-                  type="password"
-                  value={deleteAuthPassword}
-                  onChange={(e) => setDeleteAuthPassword(e.target.value)}
-                  autoComplete="current-password"
-                  className="w-full h-8 bg-zinc-800 border border-zinc-700 rounded px-2 text-xs text-zinc-100 placeholder:text-zinc-600 focus:outline-none focus:border-zinc-500"
-                />
-              </div>
-              <div className="flex gap-2 pt-1">
-                <button
-                  type="button"
-                  onClick={() => setDeleteAuthOpen(false)}
-                  disabled={deleteAuthPending}
-                  className="flex-1 h-8 text-xs border border-zinc-700 rounded text-zinc-400 hover:text-zinc-100 transition-colors disabled:opacity-50"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  disabled={deleteAuthPending || !deleteAuthEmail || !deleteAuthPassword}
-                  className="flex-1 h-8 text-xs bg-red-700 hover:bg-red-600 text-white rounded font-medium flex items-center justify-center gap-1 disabled:opacity-50 transition-colors"
-                >
-                  {deleteAuthPending && <Loader2 className="h-3 w-3 animate-spin" />}
-                  {deleteAuthPending ? "Verificando…" : "Eliminar borrador"}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
+              {dteRequiresInvalidation && (
+                <p className="text-amber-400">
+                  La venta tiene un DTE aceptado por Hacienda. Primero usa «Invalidar DTE»;
+                  cuando quede invalidado podrás anular la venta.
+                </p>
+              )}
+            </div>
+          }
+          details={<p className="text-xs text-zinc-500">
+                Correlativo: <span className="text-zinc-300 font-medium">{selectedItem?.sale_code ?? "—"}</span>
+                {" · "}
+                Cliente: <span className="text-zinc-300 font-medium">{selectedItem?.customer_name ?? "Consumidor final"}</span>
+              </p>}
+          action={cancelConfirmedSaleAction}
+          hiddenFields={{ sale_id: selectedId }}
+          confirmLabel="Anular venta"
+          onCancel={() => setCancelAuthOpen(false)}
+          onSuccess={() => {
+            setCancelAuthOpen(false);
+            refreshDetail();
+            fetchList();
+          }}
+        />
       )}
 
       {/* ── Modal: Aplicar inventario pendiente ──────────────────── */}

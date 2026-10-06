@@ -3,24 +3,32 @@
 // ─────────────────────────────────────────────────────────────────
 // commerce/sales — delete-draft-sale-with-auth.action.ts
 //
-// Descarta físicamente una venta DRAFT previa verificación de
-// credenciales administrativas. Sigue el mismo patrón de
-// autorización que edit-sale-auth.action.ts.
+// Descarta físicamente una venta DRAFT previa verificación de la
+// Clave de Supervisor (SALE_DELETE_DRAFT, un solo uso: verificada en
+// esta misma request contra la Runtime DB efectiva — context.client).
 //
 // Retorna:
 //   { ok: true }                       — borrador eliminado
-//   { ok: false; error: string }       — credenciales inválidas o fallo
+//   { ok: false; error: string }       — clave inválida o fallo
 // ─────────────────────────────────────────────────────────────────
 
 import { revalidatePath } from "next/cache";
 import { requireAdmin } from "@/lib/permissions/guards";
 import { getEffectiveLocationId } from "@/lib/location/active-location";
-import { verifyAdminDeleteCredentials } from "@/lib/permissions/delete-authorization";
 import { discardDraftSale } from "../services/sale.service";
 import {
   requireOperationalContext,
   OperationalContextError,
 } from "@/modules/platform/runtime/require-operational-context";
+import {
+  revokeOperationalGrants,
+  verifySupervisorPinForOperation,
+} from "@/core/security/operational-authorization/operational-authorization";
+import { readSupervisorPin } from "@/core/security/operational-authorization/run-supervisor-authorization";
+import {
+  OPERATIONAL_SCOPES,
+  SALE_DRAFT_WRITE_SCOPES,
+} from "@/core/security/operational-authorization/scopes";
 
 export type DeleteDraftSaleWithAuthState =
   | { ok: true }
@@ -48,21 +56,15 @@ export async function deleteDraftSaleWithAuthAction(
       (await getEffectiveLocationId(sessionUser, context.client, context.tenantId));
     if (!location_id) return { ok: false, error: "La sesión no tiene una location activa." };
 
-    const sale_id  = (formData.get("sale_id")      as string ?? "").trim();
-    const email    = (formData.get("auth_email")    as string ?? "").trim();
-    const password = (formData.get("auth_password") as string ?? "");
+    const sale_id = ((formData.get("sale_id") as string) ?? "").trim();
+    if (!sale_id) return { ok: false, error: "El ID de venta es requerido." };
 
-    if (!sale_id)            return { ok: false, error: "El ID de venta es requerido." };
-    if (!email || !password) return { ok: false, error: "Correo y contraseña son requeridos." };
-
-    const authResult = await verifyAdminDeleteCredentials(
-      { email, password },
-      context.tenantId,
+    const auth = await verifySupervisorPinForOperation(
+      context,
+      OPERATIONAL_SCOPES.SALE_DELETE_DRAFT,
+      readSupervisorPin(formData),
     );
-
-    if (!authResult.authorized) {
-      return { ok: false, error: authResult.error };
-    }
+    if (!auth.ok) return auth;
 
     const result = await discardDraftSale(sale_id, context.tenantId, location_id, context.client);
 
@@ -70,6 +72,7 @@ export async function deleteDraftSaleWithAuthAction(
       return { ok: false, error: result.error };
     }
 
+    await revokeOperationalGrants(SALE_DRAFT_WRITE_SCOPES, sale_id);
     revalidatePath("/dashboard/sales");
 
     return { ok: true };

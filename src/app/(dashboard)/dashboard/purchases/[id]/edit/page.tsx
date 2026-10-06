@@ -3,6 +3,9 @@
 //
 // Estación de captura para edición de una compra en DRAFT.
 // Guard: requireAdmin. Solo compras DRAFT — redirige si no.
+// Autorización Operativa: exige grant de ESTA compra (PURCHASE_EDIT por
+// Clave de Supervisor, o PURCHASE_DRAFT_OWNER del creador del borrador
+// importado). Entrar por URL directa sin grant redirige a la consulta.
 // ─────────────────────────────────────────────────────────────────
 
 import { notFound, redirect } from "next/navigation";
@@ -10,6 +13,9 @@ import { requireAdmin } from "@/lib/permissions/guards";
 import { getEffectiveLocationId } from "@/lib/location/active-location";
 import { getPurchaseById } from "@/modules/commerce/purchases/queries/get-purchase-by-id";
 import { PurchaseFormClient } from "@/modules/commerce/purchases/components/purchase-form-client";
+import { prisma } from "@/lib/db/prisma";
+import { checkOperationalGrant } from "@/core/security/operational-authorization/operational-authorization";
+import { PURCHASE_DRAFT_WRITE_SCOPES } from "@/core/security/operational-authorization/scopes";
 import type { SupplierForPurchaseLookup } from "@/modules/commerce/suppliers/types/supplier.types";
 import {
   resolveEffectiveTenantContext,
@@ -39,6 +45,14 @@ export default async function EditPurchasePage({ params }: Props) {
     const purchase = await getPurchaseById(id, context.tenantId, location_id, context.client);
     if (!purchase) notFound();
     if (purchase.status !== "DRAFT") redirect("/dashboard/purchases");
+
+    const grant = await checkOperationalGrant(
+      { tenantId: context.tenantId, client: context.client ?? prisma, effectiveUser: { id: sessionUser.id } },
+      PURCHASE_DRAFT_WRITE_SCOPES,
+      id,
+      { renew: false },
+    );
+    if (!grant.ok) redirect("/dashboard/purchases?auth=required");
 
     // Supplier lookup mínimo desde los campos disponibles en PurchaseDetail
     const initialSupplier: SupplierForPurchaseLookup = {

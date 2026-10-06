@@ -794,6 +794,12 @@ firma, transmisión, invalidación, contingencia, metering y MariaDB delivery
 - Si el proveedor no existe, purchases puede permitir alta rápida sin duplicar el módulo completo.
 - Suppliers no registra compras.
 
+### Autorización Operativa (Clave de Supervisor, core)
+- Clave por tenant en Runtime DB (`TenantSecurityConfig`, solo hash bcrypt). Se administra en Configuración → Seguridad.
+- Protege la edición de products y de commerce customers, la edición, eliminación y anulación de purchases y la edición y eliminación de sales. Usa grant firmado HttpOnly ligado a tenant, usuario, scope y entidad (10 min sin uso). Falla cerrado.
+- `EDIT_CATALOG_PIN` eliminado. Products, Purchases y Sales ya no usan correo + contraseña administrativa.
+- Ver docs/modules/operational-authorization-summary.md.
+
 ### UI
 - Grillas tipo ERP.
 - Navegación por teclado cuando aplique.

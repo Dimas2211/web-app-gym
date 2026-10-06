@@ -9,6 +9,7 @@
 //   removeSaleItemFromDraft  — elimina línea de venta DRAFT
 //   recalculateSaleTotals    — recalcula totales de la cabecera
 //   cancelDraftSale          — cancela venta DRAFT
+//   cancelConfirmedSale      — anula venta CONFIRMED (RETURN_IN + reversa de caja)
 //
 // Reglas críticas:
 //   - Solo operaciones sobre ventas en estado DRAFT.
@@ -35,7 +36,11 @@ import {
   buildSaleCode,
 } from "../utils/sale-correlative";
 import { getAnyOpenCashSessionForLocation } from "../../cash/queries/get-any-open-cash-session-for-location";
-import { isCashPayment, applyCashPaymentToSession } from "../../cash/services/cash-session-payment.service";
+import {
+  isCashPayment,
+  applyCashPaymentToSession,
+  refundCashPaymentFromSession,
+} from "../../cash/services/cash-session-payment.service";
 
 // ── Recalcular totales de la cabecera ─────────────────────────────
 
@@ -723,6 +728,8 @@ export async function confirmSale(
               inventory_moved: true,
               cash_session_id: openCashSessionId,
               updated_by:      user_id,
+              // Paso B crea el SalePayment por el total completo → la venta queda PAID.
+              ...(shouldCreatePayment ? { payment_status: "PAID" as const } : {}),
             }
           : {
               inventory_moved: true,
@@ -857,4 +864,260 @@ export async function cancelDraftSale(
   });
 
   return { ok: true };
+}
+
+// ── Anular venta CONFIRMED: CONFIRMED → CANCELLED (+ RETURN_IN) ───
+//
+// Distinto de cancelDraftSale/discardDraftSale: la venta confirmada NO se
+// borra. Queda CANCELLED con cancelled_at/cancelled_by y conserva líneas,
+// pagos, correlativo y los SALE_OUT originales.
+//
+// Reglas (todas verificadas en servidor, fail closed):
+//   1. Solo status === CONFIRMED (DRAFT se elimina; CANCELLED ya está anulada).
+//   2. DTE: sin documentos o todos INVALIDATED/NOT_REQUIRED → permitido.
+//      ACCEPTED/OBSERVED → invalidar primero con el flujo DTE existente.
+//      Cualquier otro estado (incluido REJECTED, que puede reabrirse para
+//      re-firma) → bloqueado: aún es procesable fiscalmente.
+//   3. Caja: toda sesión asociada (venta y pagos) debe seguir OPEN; una caja
+//      cerrada nunca se modifica. Pagos en efectivo → CashMovement REFUND_OUT
+//      y decremento de expected_cash_amount en la misma transacción.
+//   4. Pagos: SalePayment se conserva; payment_status → REFUNDED si hubo pago.
+//   5. Inventario: si inventory_moved, RETURN_IN por producto stockable con
+//      las cantidades agrupadas igual que confirmSale.
+//
+// Atomicidad y concurrencia: la venta se reclama con updateMany condicional
+// (status CONFIRMED + inventory_moved leído). Solo una transacción obtiene
+// count=1; cualquier fallo posterior revierte todo (estado, stock, caja).
+
+/** Estados DTE que no impiden anular la venta (documento fiscalmente inexistente). */
+const DTE_STATUSES_ALLOWING_SALE_CANCEL = new Set(["INVALIDATED", "NOT_REQUIRED"]);
+/** Estados DTE válidos ante Hacienda: requieren invalidación previa. */
+const DTE_STATUSES_REQUIRING_INVALIDATION = new Set(["ACCEPTED", "OBSERVED"]);
+
+export const SALE_CANCEL_MESSAGES = {
+  NOT_FOUND:         "La venta no existe o no pertenece a la location activa.",
+  IS_DRAFT:          "Solo se pueden anular ventas confirmadas. Un borrador se elimina con «Eliminar borrador».",
+  ALREADY_CANCELLED: "La venta ya está anulada.",
+  DTE_ACCEPTED:
+    "La venta tiene un DTE aceptado por Hacienda. Debes invalidar el DTE antes de anular la venta.",
+  DTE_IN_PROGRESS:
+    "La venta tiene un DTE en proceso fiscal que todavía puede generarse, firmarse o transmitirse. No se puede anular la venta mientras el documento siga activo.",
+  CASH_CLOSED:
+    "La venta pertenece a una caja ya cerrada. Se requiere registrar la devolución mediante el flujo de caja correspondiente antes de anularla.",
+  CASH_INSUFFICIENT:
+    "La caja abierta no tiene efectivo esperado suficiente para registrar la devolución de esta venta.",
+  STOCK_MISSING:     "No se encontró el registro de stock de un producto de la venta en esta sucursal.",
+  CONFLICT:          "La venta cambió de estado mientras se anulaba. Recarga e intenta de nuevo.",
+  UNEXPECTED:        "No se pudo anular la venta.",
+} as const;
+
+class SaleCancelError extends Error {}
+
+/**
+ * Evalúa los DteOutgoingDocument de una venta para su anulación operativa.
+ * Devuelve null si se permite, o el mensaje de bloqueo.
+ */
+export function evaluateSaleDteCancelGate(
+  documents: ReadonlyArray<{ dte_status: string }>,
+): string | null {
+  let requiresInvalidation = false;
+  for (const doc of documents) {
+    if (DTE_STATUSES_ALLOWING_SALE_CANCEL.has(doc.dte_status)) continue;
+    if (DTE_STATUSES_REQUIRING_INVALIDATION.has(doc.dte_status)) {
+      requiresInvalidation = true;
+      continue;
+    }
+    return SALE_CANCEL_MESSAGES.DTE_IN_PROGRESS;
+  }
+  return requiresInvalidation ? SALE_CANCEL_MESSAGES.DTE_ACCEPTED : null;
+}
+
+export async function cancelConfirmedSale(
+  sale_id:     string,
+  tenant_id:   string,
+  location_id: string,
+  user_id:     string,
+  db:          PrismaClient = prisma,
+): Promise<SaleResult> {
+  // 1. Cargar venta con líneas, pagos y DTE (scope tenant/location en el WHERE)
+  const sale = await db.sale.findFirst({
+    where:  { id: sale_id, tenant_id, location_id },
+    select: {
+      id:              true,
+      status:          true,
+      sale_code:       true,
+      inventory_moved: true,
+      cash_session_id: true,
+      items: {
+        select: {
+          product_id:            true,
+          quantity:              true,
+          is_stockable_snapshot: true,
+        },
+      },
+      payments: {
+        select: {
+          amount:               true,
+          payment_method_code:  true,
+          mh_payment_form_code: true,
+          cash_session_id:      true,
+        },
+      },
+      dte_documents: {
+        where:  { tenant_id },
+        select: { dte_status: true },
+      },
+    },
+  });
+
+  if (!sale) return { ok: false, error: SALE_CANCEL_MESSAGES.NOT_FOUND };
+
+  // 2. Estado
+  if (sale.status === "CANCELLED") return { ok: false, error: SALE_CANCEL_MESSAGES.ALREADY_CANCELLED };
+  if (sale.status !== "CONFIRMED") return { ok: false, error: SALE_CANCEL_MESSAGES.IS_DRAFT };
+
+  // 3. DTE (pre-chequeo; se repite dentro de la transacción)
+  const dteBlock = evaluateSaleDteCancelGate(sale.dte_documents);
+  if (dteBlock) return { ok: false, error: dteBlock };
+
+  // 4. Caja: sesiones asociadas a la venta o a sus pagos
+  const sessionIds = new Set<string>();
+  if (sale.cash_session_id) sessionIds.add(sale.cash_session_id);
+  for (const p of sale.payments) if (p.cash_session_id) sessionIds.add(p.cash_session_id);
+
+  if (sessionIds.size > 0) {
+    const sessions = await db.cashSession.findMany({
+      where:  { id: { in: [...sessionIds] }, tenant_id, location_id },
+      select: { id: true, status: true },
+    });
+    // Sesión inexistente en el scope o no OPEN → nunca tocar caja histórica.
+    if (sessions.length !== sessionIds.size || sessions.some((s) => s.status !== "OPEN")) {
+      return { ok: false, error: SALE_CANCEL_MESSAGES.CASH_CLOSED };
+    }
+  }
+
+  // Efectivo que entró a cada sesión al confirmar (applyCashPaymentToSession).
+  const cashRefundBySession = new Map<string, number>();
+  for (const p of sale.payments) {
+    if (!p.cash_session_id) continue;
+    if (!isCashPayment({ mh_payment_form_code: p.mh_payment_form_code, payment_method_code: p.payment_method_code })) continue;
+    cashRefundBySession.set(
+      p.cash_session_id,
+      (cashRefundBySession.get(p.cash_session_id) ?? 0) + Number(p.amount),
+    );
+  }
+
+  // 5. Inventario: mismo criterio de agrupación que confirmSale
+  const totalQtyByProduct = new Map<string, number>();
+  if (sale.inventory_moved) {
+    for (const item of sale.items) {
+      if (!item.is_stockable_snapshot) continue;
+      totalQtyByProduct.set(
+        item.product_id,
+        (totalQtyByProduct.get(item.product_id) ?? 0) + Number(item.quantity),
+      );
+    }
+  }
+
+  const plIdByProduct = new Map<string, string>();
+  if (totalQtyByProduct.size > 0) {
+    const productLocations = await db.productLocation.findMany({
+      where:  { tenant_id, location_id, product_id: { in: [...totalQtyByProduct.keys()] } },
+      select: { id: true, product_id: true },
+    });
+    for (const pl of productLocations) plIdByProduct.set(pl.product_id, pl.id);
+    if (plIdByProduct.size !== totalQtyByProduct.size) {
+      return { ok: false, error: SALE_CANCEL_MESSAGES.STOCK_MISSING };
+    }
+  }
+
+  // 6. Transacción atómica
+  try {
+    await db.$transaction(async (tx) => {
+      // Paso A: reclamar la venta. Solo una anulación concurrente gana.
+      const claim = await tx.sale.updateMany({
+        where: { id: sale_id, tenant_id, location_id, status: "CONFIRMED", inventory_moved: sale.inventory_moved },
+        data: {
+          status:       "CANCELLED",
+          cancelled_at: new Date(),
+          cancelled_by: user_id,
+          updated_by:   user_id,
+          ...(sale.payments.length > 0 && { payment_status: "REFUNDED" as const }),
+        },
+      });
+      if (claim.count !== 1) throw new SaleCancelError(SALE_CANCEL_MESSAGES.CONFLICT);
+
+      // Paso B: re-verificar DTE dentro de la transacción (cierra la ventana
+      // entre el pre-chequeo y el claim).
+      const docs = await tx.dteOutgoingDocument.findMany({
+        where:  { sale_id, tenant_id },
+        select: { dte_status: true },
+      });
+      const txDteBlock = evaluateSaleDteCancelGate(docs);
+      if (txDteBlock) throw new SaleCancelError(txDteBlock);
+
+      // Paso C: devolver inventario (RETURN_IN). Los SALE_OUT no se tocan.
+      for (const [productId, totalQty] of totalQtyByProduct) {
+        const plId = plIdByProduct.get(productId)!;
+        const incremented = await tx.productLocation.updateMany({
+          where: { id: plId, tenant_id, location_id, product_id: productId },
+          data:  { current_stock: { increment: totalQty }, updated_by: user_id },
+        });
+        if (incremented.count !== 1) throw new SaleCancelError(SALE_CANCEL_MESSAGES.STOCK_MISSING);
+
+        const updatedPl = await tx.productLocation.findFirst({
+          where:  { id: plId },
+          select: { current_stock: true },
+        });
+        const resulting_stock = Number(updatedPl!.current_stock);
+        const stock_before    = resulting_stock - totalQty;
+
+        await tx.inventoryMovement.create({
+          data: {
+            tenant_id,
+            location_id,
+            product_id:          productId,
+            product_location_id: plId,
+            movement_type:       "RETURN_IN",
+            quantity:            totalQty,
+            stock_before,
+            resulting_stock,
+            reference_entity:    "sale",
+            reference_id:        sale_id,
+            reference_code:      sale.sale_code,
+            performed_by:        user_id,
+          },
+        });
+      }
+
+      // Paso D: revertir efectivo en caja OPEN (REFUND_OUT). SalePayment se conserva.
+      for (const [cash_session_id, amount] of cashRefundBySession) {
+        if (amount <= 0) continue;
+        const refunded = await refundCashPaymentFromSession(tx, {
+          tenant_id,
+          location_id,
+          cash_session_id,
+          amount,
+          reason:       `Anulación de venta ${sale.sale_code}`,
+          reference:    sale.sale_code,
+          performed_by: user_id,
+        });
+        if (!refunded) {
+          const session = await tx.cashSession.findFirst({
+            where:  { id: cash_session_id, tenant_id, location_id },
+            select: { status: true },
+          });
+          throw new SaleCancelError(
+            session?.status === "OPEN" ? SALE_CANCEL_MESSAGES.CASH_INSUFFICIENT : SALE_CANCEL_MESSAGES.CASH_CLOSED,
+          );
+        }
+      }
+    });
+
+    return { ok: true };
+  } catch (e) {
+    if (e instanceof SaleCancelError) return { ok: false, error: e.message };
+    console.error("[sales] cancelConfirmedSale falló", { sale_id, name: e instanceof Error ? e.name : "unknown" });
+    return { ok: false, error: SALE_CANCEL_MESSAGES.UNEXPECTED };
+  }
 }

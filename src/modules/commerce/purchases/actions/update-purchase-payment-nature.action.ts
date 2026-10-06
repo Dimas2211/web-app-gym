@@ -21,6 +21,8 @@ import {
   requireOperationalContext,
   OperationalContextError,
 } from "@/modules/platform/runtime/require-operational-context";
+import { checkOperationalGrant } from "@/core/security/operational-authorization/operational-authorization";
+import { PURCHASE_DRAFT_WRITE_SCOPES } from "@/core/security/operational-authorization/scopes";
 
 export type UpdatePurchasePaymentNatureState =
   | { ok: true; detail: PurchaseDetail }
@@ -65,6 +67,18 @@ export async function updatePurchasePaymentNatureAction(
       return first
         ? { ok: false, field: first[0], error: first[1][0] }
         : { ok: false, error: "Datos inválidos." };
+    }
+
+    // Autorización Operativa: sobre un DRAFT es una edición más de la
+    // compra (grant requerido). Sobre CONFIRMED es parte del flujo fiscal
+    // FSE y conserva su comportamiento actual.
+    const current = await context.client.purchase.findFirst({
+      where:  { id: parsed.data.purchase_id, tenant_id: context.tenantId },
+      select: { status: true },
+    });
+    if (current?.status === "DRAFT") {
+      const grant = await checkOperationalGrant(context, PURCHASE_DRAFT_WRITE_SCOPES, parsed.data.purchase_id);
+      if (!grant.ok) return { ok: false, error: grant.error };
     }
 
     const result = await updatePurchasePaymentNature(
