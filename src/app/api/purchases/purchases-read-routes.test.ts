@@ -117,14 +117,11 @@ describe("GET /api/purchases y /api/purchases/:id — lectura en Dedicated Runti
     expect(getPurchaseByIdMock).not.toHaveBeenCalled();
   });
 
-  it("DELETE (escritura) NO solicita el fallback de location runtime", async () => {
-    getPurchaseApiContextMock.mockResolvedValue({ ok: false, status: 409, error: "x" });
+  it("DELETE deshabilitado (Autorización Operativa): 403 sin resolver contexto ni borrar", async () => {
+    const res = await detailDELETE();
 
-    const res = await detailDELETE({} as never, { params: Promise.resolve({ id: "pur-1" }) });
-
-    expect(res.status).toBe(409);
-    expect(getPurchaseApiContextMock).toHaveBeenCalledTimes(1);
-    expect(getPurchaseApiContextMock.mock.calls[0]).toHaveLength(1);
+    expect(res.status).toBe(403);
+    expect(getPurchaseApiContextMock).not.toHaveBeenCalled();
     expect(deleteDraftPurchaseMock).not.toHaveBeenCalled();
   });
 });

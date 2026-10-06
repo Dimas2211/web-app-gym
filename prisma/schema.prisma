@@ -52,6 +52,28 @@ model RuntimeProvisioningReceipt {
   @@map("runtime_provisioning_receipts")
 }
 
+// AUTORIZACIÓN OPERATIVA — configuración de seguridad tenant-level, EN LA
+// BASE RUNTIME del cliente (nunca .env ni Control Plane). Guarda la Clave
+// de Supervisor SOLO como hash bcrypt; el texto claro nunca se persiste ni
+// se devuelve. Sin FK a runtime_tenants (mismo criterio que los maestros
+// de commerce: tenant_id plano + unique). Ver
+// src/core/security/operational-authorization/.
+model TenantSecurityConfig {
+  id                             String    @id @default(uuid())
+  tenant_id                      String    @unique
+  supervisor_pin_hash            String?
+  supervisor_pin_updated_at      DateTime?
+  // Anti fuerza bruta: intentos fallidos consecutivos y bloqueo temporal.
+  supervisor_pin_failed_attempts Int       @default(0)
+  supervisor_pin_locked_until    DateTime?
+  created_at                     DateTime  @default(now())
+  updated_at                     DateTime  @updatedAt
+  created_by                     String?
+  updated_by                     String?
+
+  @@map("tenant_security_configs")
+}
+
 model Gym {
   id                    String                @id @default(uuid())
   tenant_id             String?               @unique

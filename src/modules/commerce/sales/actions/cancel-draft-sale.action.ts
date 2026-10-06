@@ -21,6 +21,8 @@ import {
   requireOperationalContext,
   OperationalContextError,
 } from "@/modules/platform/runtime/require-operational-context";
+import { checkOperationalGrant } from "@/core/security/operational-authorization/operational-authorization";
+import { OPERATIONAL_SCOPES } from "@/core/security/operational-authorization/scopes";
 
 export type CancelDraftSaleActionResult =
   | { ok: true }
@@ -47,6 +49,10 @@ export async function cancelDraftSaleAction(
       context.locationId ??
       (await getEffectiveLocationId(sessionUser, context.client, context.tenantId));
     if (!location_id) return { ok: false, error: "La sesión no tiene una location activa." };
+
+    // Autorización Operativa: solo el creador del borrador (SALE_DRAFT_OWNER).
+    const grant = await checkOperationalGrant(context, [OPERATIONAL_SCOPES.SALE_DRAFT_OWNER], sale_id);
+    if (!grant.ok) return { ok: false, error: grant.error };
 
     const result = await cancelDraftSale(sale_id, context.tenantId, location_id, context.effectiveUser.id, context.client);
 

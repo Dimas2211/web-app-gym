@@ -10,7 +10,8 @@
 // Enviar todos los campos vacíos → limpia la dirección completa.
 // Coherencia: si hay municipality_code debe existir dept_code.
 //
-// Permiso: requireAdmin (super_admin | branch_admin).
+// Permiso: requireAdmin (super_admin | branch_admin) + grant CUSTOMER_EDIT
+//          del cliente (Clave de Supervisor).
 // Éxito:   undefined
 // Error:   { error: string }
 // ─────────────────────────────────────────────────────────────────
@@ -25,6 +26,8 @@ import {
 } from "@/modules/platform/runtime/require-operational-context";
 import { str, strNullable } from "@/lib/utils/form-data-parsers";
 import { updateCustomer } from "../services/customer.service";
+import { checkOperationalGrant } from "@/core/security/operational-authorization/operational-authorization";
+import { OPERATIONAL_SCOPES } from "@/core/security/operational-authorization/scopes";
 
 export type UpdateCustomerAddressState =
   | { error: string }
@@ -56,6 +59,10 @@ export async function updateCustomerAddressAction(
     const address_complement = strNullable(formData.get("address_complement"));
 
     if (!id) return { error: "ID del cliente requerido." };
+
+    // Autorización Operativa: grant CUSTOMER_EDIT para ESTE cliente.
+    const grant = await checkOperationalGrant(context, [OPERATIONAL_SCOPES.CUSTOMER_EDIT], id);
+    if (!grant.ok) return { error: grant.error };
 
     if (municipality_code && !dept_code) {
       return { error: "Si se asigna un municipio, el departamento es requerido." };

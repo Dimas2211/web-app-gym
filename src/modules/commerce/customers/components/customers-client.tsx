@@ -34,6 +34,8 @@ import { CustomerDetailTabs }          from "./customer-detail-tabs";
 import { NewCustomerDialog }           from "./new-customer-dialog";
 import { EditCustomerDialog }          from "./edit-customer-dialog";
 import { ToggleCustomerStatusDialog }  from "./toggle-customer-status-dialog";
+import { SupervisorAuthDialog }        from "@/core/components/ui/supervisor-auth-dialog";
+import { authorizeCustomerEditAction } from "../actions/authorize-customer-edit.action";
 
 import type { CustomerListItem, CustomerDetail, CustomerTaxpayerType, CustomerStatus } from "../types/customer.types";
 import type { CustomerSort, CustomerSortField, SortDirection }                         from "./customers-table";
@@ -110,6 +112,20 @@ export function CustomersClient({
   const [showNewDialog,    setShowNewDialog]    = useState(false);
   const [showEditDialog,   setShowEditDialog]   = useState(false);
   const [showStatusDialog, setShowStatusDialog] = useState(false);
+
+  // ── Autorización Operativa (Clave de Supervisor) ──────────────
+  // authorizedCustomerId es solo conveniencia UX para no pedir la clave
+  // en cada pestaña; la autorización real es el grant CUSTOMER_EDIT que
+  // el servidor verifica en cada write.
+  const [authorizedCustomerId, setAuthorizedCustomerId] = useState<string | null>(null);
+  const [pendingEdit, setPendingEdit] = useState<{ run: () => void } | null>(null);
+
+  const requestEdit = useCallback((proceed: () => void) => {
+    if (detail && authorizedCustomerId === detail.id) { proceed(); return; }
+    setPendingEdit({ run: proceed });
+  }, [detail, authorizedCustomerId]);
+
+  const handleAuthorizationLost = useCallback(() => setAuthorizedCustomerId(null), []);
 
   // ── Sync item seleccionado tras refresh de lista ──────────────
   useEffect(() => {
@@ -321,13 +337,15 @@ export function CustomersClient({
             isLoading={isLoadingDetail}
             canManage={canManage}
             onRequestStatusChange={() => setShowStatusDialog(true)}
-            onRequestEdit={() => setShowEditDialog(true)}
+            onRequestEdit={() => requestEdit(() => setShowEditDialog(true))}
           />
         </div>
         <CustomerDetailTabs
           detail={detail}
           canManage={canManage}
           onRefresh={() => setDetailRefreshKey((k) => k + 1)}
+          onRequestEdit={requestEdit}
+          onAuthorizationLost={handleAuthorizationLost}
         />
       </div>
 
@@ -340,11 +358,34 @@ export function CustomersClient({
         />
       )}
 
+      {pendingEdit && detail && (
+        <SupervisorAuthDialog
+          title="Editar cliente"
+          description="La edición del maestro de clientes requiere la clave de supervisor."
+          details={
+            <>
+              <p className="text-xs font-mono text-zinc-400 mb-0.5">{detail.customer_code}</p>
+              <p className="text-sm font-medium text-zinc-800 leading-snug">{detail.name}</p>
+            </>
+          }
+          action={authorizeCustomerEditAction}
+          hiddenFields={{ entity_id: detail.id }}
+          onCancel={() => setPendingEdit(null)}
+          onSuccess={() => {
+            setAuthorizedCustomerId(detail.id);
+            const next = pendingEdit;
+            setPendingEdit(null);
+            next.run();
+          }}
+        />
+      )}
+
       {showEditDialog && detail && (
         <EditCustomerDialog
           customer={detail}
           onClose={() => setShowEditDialog(false)}
           onSuccess={handleEditSuccess}
+          onAuthorizationLost={handleAuthorizationLost}
         />
       )}
 

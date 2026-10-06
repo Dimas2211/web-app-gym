@@ -5,7 +5,9 @@
 //
 // Actualiza datos de un cliente existente.
 //
-// Permiso: requireAdmin (super_admin | branch_admin).
+// Permiso: requireAdmin (super_admin | branch_admin) + grant CUSTOMER_EDIT
+//          del cliente (Clave de Supervisor). El cambio de estado
+//          activo/inactivo vive en update-customer-status.action.
 // tenant_id se inyecta desde sesión — nunca del input.
 // ─────────────────────────────────────────────────────────────────
 
@@ -20,6 +22,8 @@ import {
 import { updateCustomerSchema } from "../schemas/customer.schemas";
 import { updateCustomer } from "../services/customer.service";
 import type { UpdateCustomerInput } from "../schemas/customer.schemas";
+import { checkOperationalGrant } from "@/core/security/operational-authorization/operational-authorization";
+import { OPERATIONAL_SCOPES } from "@/core/security/operational-authorization/scopes";
 
 export type UpdateCustomerActionResult =
   | { ok: true }
@@ -48,6 +52,10 @@ export async function updateCustomerAction(
     if (!getCapabilities(context.effectiveUser.role as UserRole).canManageStaff) {
       return { ok: false, error: "Sin permisos para esta operación." };
     }
+
+    // Autorización Operativa: grant CUSTOMER_EDIT para ESTE cliente.
+    const grant = await checkOperationalGrant(context, [OPERATIONAL_SCOPES.CUSTOMER_EDIT], customer_id);
+    if (!grant.ok) return { ok: false, error: grant.error };
 
     const parsed = updateCustomerSchema.safeParse(input);
     if (!parsed.success) {

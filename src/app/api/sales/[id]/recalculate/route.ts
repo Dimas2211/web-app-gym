@@ -14,6 +14,8 @@ import {
   requireOperationalContext,
   OperationalContextError,
 } from "@/modules/platform/runtime/require-operational-context";
+import { checkOperationalGrant } from "@/core/security/operational-authorization/operational-authorization";
+import { SALE_DRAFT_WRITE_SCOPES } from "@/core/security/operational-authorization/scopes";
 
 // ── POST — recalcular totales ──────────────────────────────────────
 
@@ -37,6 +39,12 @@ export async function POST(
   const { context, dispose } = handle;
 
   try {
+    // Autorización Operativa — misma exigencia que las server actions.
+    const grant = await checkOperationalGrant(context, SALE_DRAFT_WRITE_SCOPES, sale_id);
+    if (!grant.ok) {
+      return NextResponse.json({ ok: false, error: grant.error }, { status: 403 });
+    }
+
     const location_id =
       context.locationId ??
       (await getEffectiveLocationId(sessionUser, context.client, context.tenantId));

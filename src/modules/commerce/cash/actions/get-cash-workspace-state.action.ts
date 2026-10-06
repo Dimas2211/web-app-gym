@@ -3,7 +3,7 @@
 // ─────────────────────────────────────────────────────────────────
 // commerce/cash — get-cash-workspace-state.action.ts
 //
-// Carga en una sola llamada la lista de cajas activas de la location
+// Carga en una sola llamada la lista de cajas (activas e inactivas) de la location
 // efectiva y, si se indica, el detalle y sesión de la caja seleccionada.
 //
 // Permiso: requireAdmin (super_admin | branch_admin).

@@ -18,6 +18,8 @@ import {
   requireOperationalContext,
   OperationalContextError,
 } from "@/modules/platform/runtime/require-operational-context";
+import { checkOperationalGrant } from "@/core/security/operational-authorization/operational-authorization";
+import { PURCHASE_DRAFT_WRITE_SCOPES } from "@/core/security/operational-authorization/scopes";
 
 export type UpdatePurchaseHeaderState =
   | { ok: true }
@@ -52,6 +54,9 @@ export async function updatePurchaseHeaderAction(
     if (!location_id) {
       return { ok: false, error: "Sesión sin tenant o location activa." };
     }
+
+    const grant = await checkOperationalGrant(context, PURCHASE_DRAFT_WRITE_SCOPES, purchaseId);
+    if (!grant.ok) return { ok: false, error: grant.error };
 
     const supplier_id   = (formData.get("supplier_id")   as string ?? "").trim();
     const purchase_date = (formData.get("purchase_date") as string ?? "").trim();

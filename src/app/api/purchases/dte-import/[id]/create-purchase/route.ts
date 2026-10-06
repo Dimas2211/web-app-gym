@@ -21,6 +21,8 @@ import {
   requireOperationalContext,
   OperationalContextError,
 } from "@/modules/platform/runtime/require-operational-context";
+import { issueDraftOwnerGrant } from "@/core/security/operational-authorization/operational-authorization";
+import { OPERATIONAL_SCOPES } from "@/core/security/operational-authorization/scopes";
 
 export async function POST(
   req: NextRequest,
@@ -92,6 +94,10 @@ export async function POST(
         { status: result.httpStatus },
       );
     }
+
+    // La UI redirige a /dashboard/purchases/[id]/edit: el creador del
+    // borrador importado puede revisarlo/confirmarlo sin clave.
+    await issueDraftOwnerGrant(context, OPERATIONAL_SCOPES.PURCHASE_DRAFT_OWNER, result.purchase.id);
 
     return NextResponse.json(
       {

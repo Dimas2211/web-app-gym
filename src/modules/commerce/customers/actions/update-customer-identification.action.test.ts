@@ -27,6 +27,13 @@ vi.mock("@/modules/platform/runtime/require-operational-context", () => ({
   OperationalContextError: class extends Error {},
 }));
 
+// Este archivo prueba la validación CAT-022: se asume grant CUSTOMER_EDIT
+// válido. La exigencia del grant (sin grant → bloqueado) se certifica en
+// src/core/security/operational-authorization/protected-writes.test.ts.
+vi.mock("@/core/security/operational-authorization/operational-authorization", () => ({
+  checkOperationalGrant: vi.fn(async () => ({ ok: true, scope: "CUSTOMER_EDIT" })),
+}));
+
 import { updateCustomerIdentificationAction } from "./update-customer-identification.action";
 
 function fd(entries: Record<string, string>): FormData {

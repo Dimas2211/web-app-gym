@@ -4,9 +4,11 @@ import { canDeleteDirectly } from "@/lib/permissions/guards";
 import type { UserRole, PrismaClient } from "@prisma/client";
 
 // FASE VI-D4 — ETAPA Q: `db` opcional, default Prisma global SOLO para
-// compatibilidad de los otros callers de este helper compartido (Sales,
-// Purchases, Memberships, Trainers, WeeklyPlans, Clients — ninguno
-// migrado todavía). deleteUserAction (Users, VI-D4) pasa `context.client`
+// compatibilidad de los otros callers de este helper compartido
+// (Memberships, Trainers, WeeklyPlans, Clients — ninguno migrado
+// todavía). Products, Commerce Customers, Purchases y Sales YA NO lo
+// usan: migraron a la Autorización Operativa (Clave de Supervisor,
+// src/core/security/operational-authorization/). deleteUserAction (Users, VI-D4) pasa `context.client`
 // explícito para que la re-autenticación por credenciales se verifique
 // contra la DB EFECTIVA, nunca Prisma global, para RUNTIME_CLIENT.
 

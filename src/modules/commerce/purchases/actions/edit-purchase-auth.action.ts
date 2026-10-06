@@ -3,9 +3,12 @@
 // ─────────────────────────────────────────────────────────────────
 // commerce/purchases — edit-purchase-auth.action.ts
 //
-// Verifica credenciales administrativas para habilitar la edición
-// de una compra. Reutiliza verifyAdminDeleteCredentials para
-// mantener el mismo patrón de autorización del sistema.
+// Autoriza la edición de UNA compra DRAFT con la Clave de Supervisor
+// tenant-level (Runtime DB efectiva). Emite grant PURCHASE_EDIT ligado
+// a tenant + usuario + compra. /dashboard/purchases/[id]/edit y todas
+// las mutaciones de cabecera/líneas lo exigen server-side.
+//
+// Reemplaza el esquema anterior de correo + contraseña administrativa.
 //
 // Retorna:
 //   { ok: true }                       — autorizado, proceder
@@ -13,52 +16,32 @@
 // ─────────────────────────────────────────────────────────────────
 
 import { requireAdmin } from "@/lib/permissions/guards";
-import { verifyAdminDeleteCredentials } from "@/lib/permissions/delete-authorization";
 import {
-  requireOperationalContext,
-  OperationalContextError,
-} from "@/modules/platform/runtime/require-operational-context";
-
-export type EditPurchaseAuthState =
-  | { ok: true }
-  | { ok: false; error: string }
-  | undefined;
+  readSupervisorPin,
+  runSupervisorAuthorization,
+} from "@/core/security/operational-authorization/run-supervisor-authorization";
+import { OPERATIONAL_SCOPES } from "@/core/security/operational-authorization/scopes";
+import type { SupervisorAuthActionState } from "@/core/security/operational-authorization/messages";
 
 export async function editPurchaseAuthAction(
-  _prev: EditPurchaseAuthState,
+  _prev: SupervisorAuthActionState,
   formData: FormData,
-): Promise<EditPurchaseAuthState> {
+): Promise<SupervisorAuthActionState> {
   const sessionUser = await requireAdmin();
 
-  let handle;
-  try {
-    handle = await requireOperationalContext(sessionUser, { module: "commerce.purchases", write: true });
-  } catch (err) {
-    if (err instanceof OperationalContextError) return { ok: false, error: err.userMessage };
-    throw err;
-  }
-  const { context, dispose } = handle;
-
-  try {
-    const email    = (formData.get("auth_email")    as string ?? "").trim();
-    const password = (formData.get("auth_password") as string ?? "");
-
-    if (!email || !password) {
-      return { ok: false, error: "Correo y contraseña son requeridos." };
-    }
-
-    const result = await verifyAdminDeleteCredentials(
-      { email, password },
-      context.tenantId,
-      context.client,
-    );
-
-    if (!result.authorized) {
-      return { ok: false, error: result.error };
-    }
-
-    return { ok: true };
-  } finally {
-    await dispose();
-  }
+  return runSupervisorAuthorization(sessionUser, {
+    scope: OPERATIONAL_SCOPES.PURCHASE_EDIT,
+    module: "commerce.purchases",
+    entityId: formData.get("entity_id") as string | null,
+    pin: readSupervisorPin(formData),
+    assertEntity: async (db, tenantId, purchaseId) => {
+      const purchase = await db.purchase.findFirst({
+        where: { id: purchaseId, tenant_id: tenantId },
+        select: { status: true },
+      });
+      if (!purchase) return "La compra no existe o no pertenece a este tenant.";
+      if (purchase.status !== "DRAFT") return "Solo las compras en borrador pueden editarse.";
+      return null;
+    },
+  });
 }

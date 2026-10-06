@@ -62,6 +62,17 @@ El módulo de caja cubre el ciclo operativo completo para una sucursal:
 
 ## Flujo operativo
 
+### 0. Administrar cajas (CashRegister)
+
+Desde `/dashboard/cash` (sin pantalla de Settings aparte):
+
+- **Crear** (`createCashRegisterAction`): input solo `code` + `name` (trim; `code` en mayúsculas, máx. 20, `[A-Z0-9._-]`). `tenant_id`/`location_id` del contexto efectivo, `is_active=true`, auditoría del usuario efectivo. Duplicado tenant+location+code → "Ya existe una caja con ese código en esta sucursal."
+- **Editar** (`updateCashRegisterAction`): solo `code`/`name`; no consume capacidad ni toca sesiones/movimientos.
+- **Desactivar / Reactivar** (`setCashRegisterActiveAction`): desactivar exige que no haya sesión OPEN y libera cupo; reactivar consume cupo. Sin borrado físico; el historial se conserva.
+- **Capacidad** `commerce.cash_registers.max` (cuenta `is_active=true` por tenant): alta y reactivación pasan por `withCapacityCheckedTransaction` (Serializable + retry).
+- Seguridad: `requireAdmin` + `requireOperationalContext({ module: "commerce.cash", write: true })`; DB = `context.client`; Support Session read-only bloqueada.
+- El workspace lista activas e inactivas (activas primero); una caja inactiva no puede abrir sesión (validado también en `openCashSession`).
+
 ### 1. Abrir caja
 
 1. Usuario navega a `/dashboard/cash`.
@@ -223,8 +234,9 @@ src/modules/commerce/cash/
 | Índice parcial único `OPEN` en BD por `cash_register_id` | Solo validación a nivel app — riesgo bajo en bajo volumen | Baja |
 | Separar `notes` en `opening_notes` / `closing_notes` | Campo único `notes` puede sobrescribirse entre apertura y cierre | Baja |
 | Acceso rol `reception` a operaciones de caja | Actualmente solo `branch_admin`/`super_admin` pueden operar | Media (según necesidad operativa) |
-| Actualizar `payment_status` en `Sale` tras pago registrado | Actualmente `Sale.payment_status` no se actualiza automáticamente | Media |
-| Anulación de ventas confirmadas con reversión en caja | No implementado aún | Media |
+| ~~Actualizar `payment_status` en `Sale` tras pago registrado~~ | Resuelto: `confirmSale` deja `PAID` al crear el pago completo | — |
+| ~~Anulación de ventas confirmadas con reversión en caja~~ | Resuelto: `cancelConfirmedSale` (REFUND_OUT en caja OPEN; caja cerrada bloquea) | — |
+| Auto-provisionar `CAJA-01` al crear tenant/location | Hoy cada cliente crea su primera caja desde `/dashboard/cash` | Baja |
 
 ---
 

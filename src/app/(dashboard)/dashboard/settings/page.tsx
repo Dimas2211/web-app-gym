@@ -196,6 +196,26 @@ export default async function SettingsPage() {
           </div>
         </Link>
 
+        {/* Card: Seguridad / Autorización operativa — core, visible siempre */}
+        <Link
+          href="/dashboard/settings/security"
+          className="bg-white rounded-xl border border-zinc-200 shadow-sm p-5 hover:border-zinc-400 hover:shadow-md transition-all group flex flex-col justify-between"
+        >
+          <div>
+            <div className="flex items-start justify-between gap-2 mb-3">
+              <h2 className="text-sm font-semibold text-zinc-800 group-hover:text-zinc-900">
+                Seguridad
+              </h2>
+            </div>
+            <p className="text-xs text-zinc-500 leading-relaxed">
+              Autorización operativa: clave de supervisor para editar productos, clientes, compras y ventas.
+            </p>
+          </div>
+          <div className="mt-4 text-xs text-zinc-400 group-hover:text-zinc-600 transition-colors">
+            Configurar →
+          </div>
+        </Link>
+
         {/* Placeholder secciones futuras */}
         <div className="bg-zinc-50 rounded-xl border border-dashed border-zinc-200 p-5 flex items-center justify-center min-h-[140px]">
           <p className="text-xs text-zinc-400 text-center leading-relaxed">

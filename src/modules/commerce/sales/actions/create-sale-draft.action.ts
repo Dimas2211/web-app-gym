@@ -19,6 +19,8 @@ import {
   requireOperationalContext,
   OperationalContextError,
 } from "@/modules/platform/runtime/require-operational-context";
+import { issueDraftOwnerGrant } from "@/core/security/operational-authorization/operational-authorization";
+import { OPERATIONAL_SCOPES } from "@/core/security/operational-authorization/scopes";
 
 export type CreateSaleDraftActionResult =
   | { ok: true; id: string; sale_code: string }
@@ -60,6 +62,9 @@ export async function createSaleDraftAction(
         ? { ok: false, field: result.field, error: result.error }
         : { ok: false, error: result.error };
     }
+
+    // El creador puede seguir capturando su borrador sin clave.
+    await issueDraftOwnerGrant(context, OPERATIONAL_SCOPES.SALE_DRAFT_OWNER, result.id);
 
     revalidatePath("/dashboard/sales");
     revalidatePath("/dashboard/sales/new");

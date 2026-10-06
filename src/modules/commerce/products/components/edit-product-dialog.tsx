@@ -4,7 +4,8 @@
 // commerce/products — edit-product-dialog.tsx
 //
 // Formulario de edición de un producto existente del catálogo.
-// Solo se monta tras superar EditKeyGuardDialog.
+// Solo se monta tras autorizar con la Clave de Supervisor (grant
+// PRODUCT_EDIT verificado de nuevo en updateProductAction).
 //
 // Diferencias vs NewProductDialog:
 //   - Todos los inputs con defaultValue / value desde `summary`

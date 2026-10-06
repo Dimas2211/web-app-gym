@@ -17,6 +17,8 @@ import {
   requireOperationalContext,
   OperationalContextError,
 } from "@/modules/platform/runtime/require-operational-context";
+import { checkOperationalGrant } from "@/core/security/operational-authorization/operational-authorization";
+import { PURCHASE_DRAFT_WRITE_SCOPES } from "@/core/security/operational-authorization/scopes";
 
 type RouteParams = { params: Promise<{ id: string; itemId: string }> };
 
@@ -50,6 +52,12 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
     }
 
     const { id: purchase_id, itemId: item_id } = await params;
+
+    // Autorización Operativa — misma exigencia que las server actions.
+    const grant = await checkOperationalGrant(context, PURCHASE_DRAFT_WRITE_SCOPES, purchase_id);
+    if (!grant.ok) {
+      return NextResponse.json({ error: grant.error }, { status: 403 });
+    }
 
     const body = await req.json().catch(() => null);
     if (!body) {
@@ -117,6 +125,12 @@ export async function DELETE(
     }
 
     const { id: purchase_id, itemId: item_id } = await params;
+
+    // Autorización Operativa — misma exigencia que las server actions.
+    const grant = await checkOperationalGrant(context, PURCHASE_DRAFT_WRITE_SCOPES, purchase_id);
+    if (!grant.ok) {
+      return NextResponse.json({ error: grant.error }, { status: 403 });
+    }
 
     const result = await removePurchaseItem(
       item_id,

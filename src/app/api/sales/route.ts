@@ -17,6 +17,8 @@ import {
   requireOperationalContext,
   OperationalContextError,
 } from "@/modules/platform/runtime/require-operational-context";
+import { issueDraftOwnerGrant } from "@/core/security/operational-authorization/operational-authorization";
+import { OPERATIONAL_SCOPES } from "@/core/security/operational-authorization/scopes";
 import { getSaleApiContext } from "./sale-api-context";
 import type { SaleStatus, SalePaymentStatus } from "@/modules/commerce/sales/types/sale.types";
 
@@ -119,6 +121,9 @@ export async function POST(req: NextRequest) {
     if (!result.ok) {
       return NextResponse.json({ ok: false, error: result.error }, { status: 422 });
     }
+
+    // El creador puede seguir capturando su borrador sin clave.
+    await issueDraftOwnerGrant(context, OPERATIONAL_SCOPES.SALE_DRAFT_OWNER, result.id);
 
     return NextResponse.json(
       { ok: true, data: { id: result.id, sale_code: result.sale_code } },

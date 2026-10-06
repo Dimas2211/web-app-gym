@@ -23,6 +23,8 @@ import {
   requireOperationalContext,
   OperationalContextError,
 } from "@/modules/platform/runtime/require-operational-context";
+import { checkOperationalGrant, issueDraftOwnerGrant } from "@/core/security/operational-authorization/operational-authorization";
+import { OPERATIONAL_SCOPES, PURCHASE_DRAFT_WRITE_SCOPES } from "@/core/security/operational-authorization/scopes";
 
 export type SavePurchaseHeaderState =
   | { ok: true;  id: string; created: boolean }
@@ -139,6 +141,11 @@ async function savePurchaseHeaderInner(
 
   if (purchase_id) {
     // ── UPDATE existing DRAFT ────────────────────────────────────
+    // Autorización Operativa: grant de la compra (creador del borrador o
+    // PURCHASE_EDIT por Clave de Supervisor).
+    const grant = await checkOperationalGrant(context, PURCHASE_DRAFT_WRITE_SCOPES, purchase_id);
+    if (!grant.ok) return { ok: false, error: grant.error };
+
     const result = await updatePurchaseHeader(
       purchase_id,
       tenant_id,
@@ -174,6 +181,8 @@ async function savePurchaseHeaderInner(
 
     const result = await createPurchase(tenant_id, location_id, context.effectiveUser.id, parsed.data, context.client);
     if (!result.ok) return result;
+    // El creador puede seguir capturando su borrador sin clave.
+    await issueDraftOwnerGrant(context, OPERATIONAL_SCOPES.PURCHASE_DRAFT_OWNER, result.id);
     return { ok: true, id: result.id, created: true };
   }
 }

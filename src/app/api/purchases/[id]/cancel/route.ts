@@ -12,6 +12,8 @@ import {
   requireOperationalContext,
   OperationalContextError,
 } from "@/modules/platform/runtime/require-operational-context";
+import { checkOperationalGrant } from "@/core/security/operational-authorization/operational-authorization";
+import { OPERATIONAL_SCOPES } from "@/core/security/operational-authorization/scopes";
 
 export async function POST(
   _req: NextRequest,
@@ -44,6 +46,12 @@ export async function POST(
     }
 
     const { id: purchase_id } = await params;
+
+    // Autorización Operativa — misma exigencia que las server actions.
+    const grant = await checkOperationalGrant(context, [OPERATIONAL_SCOPES.PURCHASE_DRAFT_OWNER], purchase_id);
+    if (!grant.ok) {
+      return NextResponse.json({ error: grant.error }, { status: 403 });
+    }
 
     const result = await cancelPurchase(
       purchase_id,

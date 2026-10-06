@@ -34,6 +34,7 @@ import type { UpdateCustomerActivityState } from "../actions/update-customer-act
 import { updateCustomerAddressAction } from "../actions/update-customer-address.action";
 import type { UpdateCustomerAddressState } from "../actions/update-customer-address.action";
 import { updateCustomerContactAction } from "../actions/update-customer-contact.action";
+import { isOperationalAuthError } from "@/core/security/operational-authorization/messages";
 import type { UpdateCustomerContactState } from "../actions/update-customer-contact.action";
 
 import type { CustomerDetail, CustomerTaxpayerType } from "../types/customer.types";
@@ -62,6 +63,10 @@ interface CustomerDetailTabsProps {
   detail:    CustomerDetail | null;
   canManage: boolean;
   onRefresh: () => void;
+  /** Pide la Clave de Supervisor (si hace falta) antes de entrar en modo edición. */
+  onRequestEdit: (proceed: () => void) => void;
+  /** Un write devolvió error de autorización — el padre volverá a pedir la clave. */
+  onAuthorizationLost: () => void;
 }
 
 interface EconomicActivityItem {
@@ -119,10 +124,14 @@ function IdentificacionTab({
   detail,
   canManage,
   onRefresh,
+  onRequestEdit,
+  onAuthorizationLost,
 }: {
   detail:    CustomerDetail;
   canManage: boolean;
   onRefresh: () => void;
+  onRequestEdit: (proceed: () => void) => void;
+  onAuthorizationLost: () => void;
 }) {
   const [editMode, setEditMode] = useState(false);
   const [name,          setName]          = useState(detail.name);
@@ -136,6 +145,7 @@ function IdentificacionTab({
   const [state, formAction, isPending] = useActionState(
     async (prev: UpdateCustomerIdentificationState, formData: FormData) => {
       const result = await updateCustomerIdentificationAction(prev, formData);
+      if (isOperationalAuthError(result?.error)) onAuthorizationLost();
       if (result === undefined) {
         setEditMode(false);
         onRefresh();
@@ -156,7 +166,10 @@ function IdentificacionTab({
     setDui(detail.dui ?? "");
   }, [detail.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  function enterEdit() {
+  // Autorización Operativa: la clave se pide ANTES de entrar en edición.
+  function enterEdit() { onRequestEdit(doEnterEdit); }
+
+  function doEnterEdit() {
     setName(detail.name);
     setLegalName(detail.legal_name ?? "");
     setTaxpayerType(detail.taxpayer_type ?? "FINAL_CONSUMER");
@@ -362,10 +375,14 @@ function ActividadTab({
   detail,
   canManage,
   onRefresh,
+  onRequestEdit,
+  onAuthorizationLost,
 }: {
   detail:    CustomerDetail;
   canManage: boolean;
   onRefresh: () => void;
+  onRequestEdit: (proceed: () => void) => void;
+  onAuthorizationLost: () => void;
 }) {
   const [editMode,    setEditMode]    = useState(false);
   const [selected,    setSelected]    = useState<{ code: string; name: string } | null>(null);
@@ -378,6 +395,7 @@ function ActividadTab({
   const [state, formAction, isPending] = useActionState(
     async (prev: UpdateCustomerActivityState, formData: FormData) => {
       const result = await updateCustomerActivityAction(prev, formData);
+      if (isOperationalAuthError(result?.error)) onAuthorizationLost();
       if (result === undefined) {
         setEditMode(false);
         setSearch("");
@@ -420,7 +438,10 @@ function ActividadTab({
     return () => clearTimeout(t);
   }, [search, editMode]);
 
-  function enterEdit() {
+  // Autorización Operativa: la clave se pide ANTES de entrar en edición.
+  function enterEdit() { onRequestEdit(doEnterEdit); }
+
+  function doEnterEdit() {
     setSelected(
       detail.activity_code
         ? { code: detail.activity_code, name: detail.activity_name ?? "" }
@@ -606,10 +627,14 @@ function DireccionTab({
   detail,
   canManage,
   onRefresh,
+  onRequestEdit,
+  onAuthorizationLost,
 }: {
   detail:    CustomerDetail;
   canManage: boolean;
   onRefresh: () => void;
+  onRequestEdit: (proceed: () => void) => void;
+  onAuthorizationLost: () => void;
 }) {
   const [editMode, setEditMode] = useState(false);
 
@@ -627,6 +652,7 @@ function DireccionTab({
   const [state, formAction, isPending] = useActionState(
     async (prev: UpdateCustomerAddressState, formData: FormData) => {
       const result = await updateCustomerAddressAction(prev, formData);
+      if (isOperationalAuthError(result?.error)) onAuthorizationLost();
       if (result === undefined) {
         setEditMode(false);
         setMuniSearch("");
@@ -670,7 +696,10 @@ function DireccionTab({
     return () => clearTimeout(t);
   }, [muniSearch, editMode]);
 
-  function enterEdit() {
+  // Autorización Operativa: la clave se pide ANTES de entrar en edición.
+  function enterEdit() { onRequestEdit(doEnterEdit); }
+
+  function doEnterEdit() {
     // Inicializa municipio desde los códigos guardados (no hay nombres en CustomerDetail)
     setSelectedMuni(
       detail.municipality_code && detail.dept_code
@@ -923,10 +952,14 @@ function ContactoTab({
   detail,
   canManage,
   onRefresh,
+  onRequestEdit,
+  onAuthorizationLost,
 }: {
   detail:    CustomerDetail;
   canManage: boolean;
   onRefresh: () => void;
+  onRequestEdit: (proceed: () => void) => void;
+  onAuthorizationLost: () => void;
 }) {
   const [editMode, setEditMode] = useState(false);
   const [phone,    setPhone]    = useState(detail.phone ?? "");
@@ -935,6 +968,7 @@ function ContactoTab({
   const [state, formAction, isPending] = useActionState(
     async (prev: UpdateCustomerContactState, formData: FormData) => {
       const result = await updateCustomerContactAction(prev, formData);
+      if (isOperationalAuthError(result?.error)) onAuthorizationLost();
       if (result === undefined) {
         setEditMode(false);
         onRefresh();
@@ -950,7 +984,10 @@ function ContactoTab({
     setEmail(detail.email ?? "");
   }, [detail.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  function enterEdit() {
+  // Autorización Operativa: la clave se pide ANTES de entrar en edición.
+  function enterEdit() { onRequestEdit(doEnterEdit); }
+
+  function doEnterEdit() {
     setPhone(detail.phone ?? "");
     setEmail(detail.email ?? "");
     setEditMode(true);
@@ -1167,7 +1204,7 @@ function AuditoriaTab({ detail }: { detail: CustomerDetail }) {
 
 // ── Componente principal ──────────────────────────────────────────
 
-export function CustomerDetailTabs({ detail, canManage, onRefresh }: CustomerDetailTabsProps) {
+export function CustomerDetailTabs({ detail, canManage, onRefresh, onRequestEdit, onAuthorizationLost }: CustomerDetailTabsProps) {
   const [activeTab, setActiveTab] = useState<TabId>("identificacion");
 
   const tabs: { id: TabId; label: string; icon: React.ElementType }[] = [
@@ -1213,16 +1250,16 @@ export function CustomerDetailTabs({ detail, canManage, onRefresh }: CustomerDet
       {/* Contenido de la pestaña activa */}
       <div className="flex-1 overflow-auto min-h-[100px]">
         {activeTab === "identificacion" && (
-          <IdentificacionTab detail={detail} canManage={canManage} onRefresh={onRefresh} />
+          <IdentificacionTab detail={detail} canManage={canManage} onRefresh={onRefresh} onRequestEdit={onRequestEdit} onAuthorizationLost={onAuthorizationLost} />
         )}
         {activeTab === "actividad" && (
-          <ActividadTab detail={detail} canManage={canManage} onRefresh={onRefresh} />
+          <ActividadTab detail={detail} canManage={canManage} onRefresh={onRefresh} onRequestEdit={onRequestEdit} onAuthorizationLost={onAuthorizationLost} />
         )}
         {activeTab === "direccion" && (
-          <DireccionTab detail={detail} canManage={canManage} onRefresh={onRefresh} />
+          <DireccionTab detail={detail} canManage={canManage} onRefresh={onRefresh} onRequestEdit={onRequestEdit} onAuthorizationLost={onAuthorizationLost} />
         )}
         {activeTab === "contacto" && (
-          <ContactoTab detail={detail} canManage={canManage} onRefresh={onRefresh} />
+          <ContactoTab detail={detail} canManage={canManage} onRefresh={onRefresh} onRequestEdit={onRequestEdit} onAuthorizationLost={onAuthorizationLost} />
         )}
         {activeTab === "dte"       && <DteTab       detail={detail} />}
         {activeTab === "auditoria" && <AuditoriaTab detail={detail} />}

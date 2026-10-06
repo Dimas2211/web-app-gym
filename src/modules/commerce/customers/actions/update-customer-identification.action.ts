@@ -7,7 +7,8 @@
 // la pestaña Identificación del maestro.
 // No toca actividad, dirección, contacto ni estado.
 //
-// Permiso: requireAdmin (super_admin | branch_admin).
+// Permiso: requireAdmin (super_admin | branch_admin) + grant CUSTOMER_EDIT
+//          del cliente (Clave de Supervisor).
 // Éxito:   undefined
 // Error:   { error: string }
 // ─────────────────────────────────────────────────────────────────
@@ -22,6 +23,8 @@ import {
 } from "@/modules/platform/runtime/require-operational-context";
 import { str, strNullable } from "@/lib/utils/form-data-parsers";
 import { updateCustomer } from "../services/customer.service";
+import { checkOperationalGrant } from "@/core/security/operational-authorization/operational-authorization";
+import { OPERATIONAL_SCOPES } from "@/core/security/operational-authorization/scopes";
 import { isCat022IdTypeCode } from "@/modules/commerce/shared/cat-022-identification-types";
 
 export type UpdateCustomerIdentificationState =
@@ -61,6 +64,10 @@ export async function updateCustomerIdentificationAction(
     const dui           = strNullable(formData.get("dui"));
 
     if (!id)            return { error: "ID del cliente requerido." };
+
+    // Autorización Operativa: grant CUSTOMER_EDIT para ESTE cliente.
+    const grant = await checkOperationalGrant(context, [OPERATIONAL_SCOPES.CUSTOMER_EDIT], id);
+    if (!grant.ok) return { error: grant.error };
     if (!name)          return { error: "El nombre es requerido." };
     if (!taxpayer_type) return { error: "El tipo de contribuyente es requerido." };
 
