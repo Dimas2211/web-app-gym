@@ -21,7 +21,8 @@
     "db:seed:catalogs": "cross-env SEED_MODE=catalogs tsx prisma/seed.ts",
     "db:seed:purchases": "tsx prisma/seed-purchases-demo.ts",
     "db:import:catalog": "tsx prisma/importers/import-catalog.ts",
-    "db:import:catalogs-excel": "tsx prisma/importers/import-excel-catalogs.ts"
+    "db:import:catalogs-excel": "tsx prisma/importers/import-excel-catalogs.ts",
+    "dte:certify": "tsx prisma/scripts/dte-internal-certification.ts"
   },
   "dependencies": {
     "@prisma/client": "^6.5.0",
