@@ -191,3 +191,54 @@ describe("updateCoreUser / toggleCoreUserStatus — aislamiento cross-tenant", (
     expect(updateSpy).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("updateCoreUser — actualización parcial de email / password (portal de cliente)", () => {
+  it("email duplicado dentro del MISMO tenant -> rechazado, sin write", async () => {
+    const updateSpy = vi.fn();
+    const findFirst = vi
+      .fn()
+      .mockResolvedValueOnce({ id: "user-A1", role: "client", email: "old@example.test" })
+      .mockResolvedValueOnce({ id: "user-A2" });
+    const fakeDb = { user: { findFirst, update: updateSpy } } as never;
+
+    const result = await updateCoreUser("user-A1", "tenant-A", { email: "taken@example.test" }, fakeDb);
+
+    expect(result).toEqual({ success: false, errors: { email: ["Este correo ya está registrado."] } });
+    expect(updateSpy).not.toHaveBeenCalled();
+    expect(findFirst).toHaveBeenNthCalledWith(2, {
+      where: { tenant_id: "tenant-A", email: "taken@example.test", id: { not: "user-A1" } },
+      select: { id: true },
+    });
+  });
+
+  it("solo email -> el write contiene únicamente email (sin password_hash, role, status, branch)", async () => {
+    const updateSpy = vi.fn().mockResolvedValue({});
+    const findFirst = vi
+      .fn()
+      .mockResolvedValueOnce({ id: "user-A1", role: "client", email: "old@example.test" })
+      .mockResolvedValueOnce(null);
+    const fakeDb = { user: { findFirst, update: updateSpy } } as never;
+
+    const result = await updateCoreUser("user-A1", "tenant-A", { email: "new@example.test" }, fakeDb);
+
+    expect(result.success).toBe(true);
+    expect(updateSpy).toHaveBeenCalledWith({ where: { id: "user-A1" }, data: { email: "new@example.test" } });
+  });
+
+  it("solo password -> el write contiene únicamente password_hash (bcrypt), nunca texto plano", async () => {
+    const updateSpy = vi.fn().mockResolvedValue({});
+    const findFirst = vi.fn().mockResolvedValue({ id: "user-A1", role: "client", email: "a@example.test" });
+    const fakeDb = { user: { findFirst, update: updateSpy } } as never;
+
+    const result = await updateCoreUser("user-A1", "tenant-A", { password: "Synthetic-Pass-1" }, fakeDb);
+
+    expect(result.success).toBe(true);
+    // Sin email en el input -> no hay búsqueda de duplicados.
+    expect(findFirst).toHaveBeenCalledTimes(1);
+    const data = updateSpy.mock.calls[0][0].data;
+    expect(Object.keys(data)).toEqual(["password_hash"]);
+    expect(data.password_hash).not.toBe("Synthetic-Pass-1");
+    expect(await bcrypt.compare("Synthetic-Pass-1", data.password_hash)).toBe(true);
+    expect(JSON.stringify(result)).not.toContain("password_hash");
+  });
+});

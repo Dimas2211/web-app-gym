@@ -9,6 +9,7 @@ import {
   toggleClientPortalStatusAction,
 } from "@/modules/clients/actions";
 import { EnablePortalForm } from "@/components/forms/enable-portal-form";
+import { ManageClientPortalAccess } from "@/components/forms/manage-client-portal-access";
 import { StatusBadge } from "@/components/ui/status-badge";
 import {
   GENDER_LABELS,
@@ -204,6 +205,12 @@ export default async function ClientDetailPage({ params }: Props) {
                   {client.user.status === "active" ? "Portal activo" : "Portal desactivado"}
                 </span>
                 <p className="text-sm text-zinc-500">{client.user.email}</p>
+                <div className="pt-2">
+                  <ManageClientPortalAccess
+                    clientId={client.id}
+                    currentEmail={client.user.email}
+                  />
+                </div>
               </div>
               <form action={toggleClientPortalStatusAction}>
                 <input type="hidden" name="client_id" value={client.id} />

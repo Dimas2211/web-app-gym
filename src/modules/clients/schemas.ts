@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { passwordSchema } from "@/core/modules/users/schemas";
 
 const baseClientSchema = z.object({
   first_name: z.string().min(1, "El nombre es requerido").max(100),
@@ -24,3 +25,28 @@ export const updateClientSchema = baseClientSchema;
 
 export type CreateClientInput = z.infer<typeof createClientSchema>;
 export type UpdateClientInput = z.infer<typeof updateClientSchema>;
+
+// ──────────────────────────────────────────────
+// Portal del cliente: credenciales de acceso (User role=client)
+// ──────────────────────────────────────────────
+// User.email = credencial de acceso al portal; Client.email = dato de
+// contacto del expediente. Estos schemas solo gobiernan la credencial.
+
+export const updatePortalEmailSchema = z.object({
+  portal_email: z
+    .string({ required_error: "El correo es requerido" })
+    .trim()
+    .min(1, "El correo es requerido")
+    .email("Correo electrónico inválido"),
+});
+
+// Reglas de password: passwordSchema core (8–72) — no se duplican aquí.
+export const resetPortalPasswordSchema = z
+  .object({
+    new_password: passwordSchema,
+    confirm_password: z.string({ required_error: "Confirma la nueva contraseña" }),
+  })
+  .refine((data) => data.new_password === data.confirm_password, {
+    message: "Las contraseñas no coinciden",
+    path: ["confirm_password"],
+  });

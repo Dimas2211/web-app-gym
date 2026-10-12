@@ -14,11 +14,18 @@ import {
   checkDeleteAuth,
   type DeleteAuthActionState,
 } from "@/lib/permissions/delete-authorization";
-import { createClientSchema, updateClientSchema } from "./schemas";
+import {
+  createClientSchema,
+  updateClientSchema,
+  updatePortalEmailSchema,
+  resetPortalPasswordSchema,
+} from "./schemas";
+import { updateCoreUser } from "@/core/modules/users/actions";
 import { suggestNextClientCode, generateQrToken } from "@/lib/utils/operational-codes";
 import {
   requireOperationalContext,
   OperationalContextError,
+  type OperationalContext,
 } from "@/modules/platform/runtime/require-operational-context";
 
 export type ClientActionState =
@@ -326,6 +333,203 @@ export async function toggleClientPortalStatusAction(
 
     revalidatePath(`/dashboard/clients/${clientId}`);
     revalidatePath("/dashboard/clients");
+  } finally {
+    await dispose();
+  }
+}
+
+// ──────────────────────────────────────────────
+// Portal del cliente: credenciales (correo / contraseña)
+// ──────────────────────────────────────────────
+// Solo tocan User.email / User.password_hash vía updateCoreUser (core):
+// ownership por tenant, unicidad (tenant_id, email) y bcrypt viven ahí.
+// Nunca modifican Client.email (contacto del expediente) ni User.status
+// (responsabilidad de toggleClientPortalStatusAction).
+
+export type ClientPortalCredentialActionState =
+  | { success?: string; errors?: Record<string, string[]>; error?: string }
+  | undefined;
+
+type PortalUserResolution =
+  | { ok: true; userId: string; currentEmail: string }
+  | { ok: false; error: string };
+
+/**
+ * Localiza el User role=client vinculado a un Client del tenant efectivo,
+ * validando canManageClient con el ROL LIVE. Fail closed en cualquier
+ * inconsistencia. Nunca selecciona password_hash.
+ */
+async function resolveManagedPortalUser(
+  context: OperationalContext,
+  clientId: string,
+): Promise<PortalUserResolution> {
+  const client = await context.client.client.findFirst({
+    where: { id: clientId, tenant_id: context.tenantId },
+    select: { id: true, branch_id: true, user_id: true },
+  });
+  if (!client) return { ok: false, error: "Cliente no encontrado." };
+
+  const effectiveSessionUser = {
+    ...context.effectiveUser,
+    role: context.effectiveUser.role as UserRole,
+  };
+  if (!canManageClient(effectiveSessionUser, client)) {
+    return { ok: false, error: "Sin permiso para modificar este cliente." };
+  }
+  if (!client.user_id) {
+    return { ok: false, error: "Este cliente no tiene acceso al portal habilitado." };
+  }
+
+  const user = await context.client.user.findFirst({
+    where: { id: client.user_id, tenant_id: context.tenantId },
+    select: { id: true, email: true, role: true },
+  });
+  if (!user) {
+    return {
+      ok: false,
+      error: "La cuenta de acceso vinculada no existe o no pertenece a esta organización.",
+    };
+  }
+  if (user.role !== "client") {
+    return { ok: false, error: "La cuenta vinculada no es una cuenta de portal de cliente." };
+  }
+
+  return { ok: true, userId: user.id, currentEmail: user.email };
+}
+
+function isUniqueConstraintError(err: unknown): boolean {
+  return (
+    typeof err === "object" &&
+    err !== null &&
+    (err as { code?: unknown }).code === "P2002"
+  );
+}
+
+/** Cambia únicamente el correo de acceso (User.email) del portal del cliente. */
+export async function updateClientPortalEmailAction(
+  _prev: ClientPortalCredentialActionState,
+  formData: FormData
+): Promise<ClientPortalCredentialActionState> {
+  const sessionUser = await requireClientManager();
+
+  let handle;
+  try {
+    handle = await requireOperationalContext(sessionUser, { write: true });
+  } catch (err) {
+    if (err instanceof OperationalContextError) return { error: err.userMessage };
+    throw err;
+  }
+  const { context, dispose } = handle;
+
+  try {
+    const clientId = formData.get("client_id");
+    if (typeof clientId !== "string" || !clientId) {
+      return { error: "ID de cliente requerido." };
+    }
+
+    const parsed = updatePortalEmailSchema.safeParse({
+      portal_email: formData.get("portal_email"),
+    });
+    if (!parsed.success) {
+      return { errors: parsed.error.flatten().fieldErrors };
+    }
+
+    const resolved = await resolveManagedPortalUser(context, clientId);
+    if (!resolved.ok) return { error: resolved.error };
+
+    const newEmail = parsed.data.portal_email;
+    if (newEmail === resolved.currentEmail) {
+      return { success: "El correo indicado ya es el correo de acceso actual." };
+    }
+
+    let result;
+    try {
+      result = await updateCoreUser(
+        resolved.userId,
+        context.tenantId,
+        { email: newEmail },
+        context.client,
+      );
+    } catch (err) {
+      if (isUniqueConstraintError(err)) {
+        return { errors: { portal_email: ["Este correo ya está en uso por otra cuenta."] } };
+      }
+      return { error: "No se pudo actualizar el correo de acceso. Intenta nuevamente." };
+    }
+
+    if (!result.success) {
+      if (result.errors?.email) {
+        return { errors: { portal_email: result.errors.email } };
+      }
+      return { error: result.error ?? "No se pudo actualizar el correo de acceso." };
+    }
+
+    revalidatePath(`/dashboard/clients/${clientId}`);
+    revalidatePath("/dashboard/clients");
+    return { success: "Correo de acceso actualizado correctamente." };
+  } finally {
+    await dispose();
+  }
+}
+
+/**
+ * Restablecimiento administrativo de la contraseña del portal del cliente.
+ * No pide la contraseña anterior. Solo cambia User.password_hash (hash en core).
+ * No revoca sesiones existentes.
+ */
+export async function resetClientPortalPasswordAction(
+  _prev: ClientPortalCredentialActionState,
+  formData: FormData
+): Promise<ClientPortalCredentialActionState> {
+  const sessionUser = await requireClientManager();
+
+  let handle;
+  try {
+    handle = await requireOperationalContext(sessionUser, { write: true });
+  } catch (err) {
+    if (err instanceof OperationalContextError) return { error: err.userMessage };
+    throw err;
+  }
+  const { context, dispose } = handle;
+
+  try {
+    const clientId = formData.get("client_id");
+    if (typeof clientId !== "string" || !clientId) {
+      return { error: "ID de cliente requerido." };
+    }
+
+    const parsed = resetPortalPasswordSchema.safeParse({
+      new_password: formData.get("new_password"),
+      confirm_password: formData.get("confirm_password"),
+    });
+    if (!parsed.success) {
+      return { errors: parsed.error.flatten().fieldErrors };
+    }
+
+    const resolved = await resolveManagedPortalUser(context, clientId);
+    if (!resolved.ok) return { error: resolved.error };
+
+    let result;
+    try {
+      result = await updateCoreUser(
+        resolved.userId,
+        context.tenantId,
+        { password: parsed.data.new_password },
+        context.client,
+      );
+    } catch {
+      return { error: "No se pudo actualizar la contraseña. Intenta nuevamente." };
+    }
+
+    if (!result.success) {
+      if (result.errors?.password) {
+        return { errors: { new_password: result.errors.password } };
+      }
+      return { error: result.error ?? "No se pudo actualizar la contraseña." };
+    }
+
+    revalidatePath(`/dashboard/clients/${clientId}`);
+    return { success: "Contraseña actualizada correctamente." };
   } finally {
     await dispose();
   }

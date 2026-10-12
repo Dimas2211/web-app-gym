@@ -884,6 +884,7 @@ firma, transmisión, invalidación, contingencia, metering y MariaDB delivery
 ## Módulos cerrados adicionales
 - dte outgoing V1: FE 01, CCFE 03, NC 05, Invalidación, delivery externo MariaDB. Ver docs/modules/dte-v1-operational-close.md.
 - customers: cerrado. Ver docs/modules/customers-summary.md
+- gym/clients — acceso al portal del cliente: administrable desde `/dashboard/clients/[id]`. Correo de acceso (`updateClientPortalEmailAction`) y contraseña (`resetClientPortalPasswordAction`, restablecimiento administrativo) se actualizan de forma independiente vía `updateCoreUser` (unicidad por tenant, hash en core). `Client.email` (contacto) y `User.email` (credencial) siguen siendo conceptos distintos; ninguna de las dos acciones cambia el estado del portal. Support Session sigue read-only (`requireOperationalContext({ write: true })`). No revoca sesiones existentes.
 
 ## Platform — Bloque A: modelo comercial y entitlements (implementado — enforcement de runtime en Bloque B, ver abajo)
 
