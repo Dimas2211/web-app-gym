@@ -48,3 +48,6 @@ docs/dte-official/raw/*.zip
 # Local database backups / admin-only scripts
 gym_system_db_before_dte_alignment.backup
 prisma/scripts/reset-user-password.ts
+
+# DTE internal certification artifacts (generados por npm run dte:certify)
+/.certification/
