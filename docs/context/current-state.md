@@ -9,7 +9,7 @@
 - commerce/suppliers cerrado y operativo.
 - commerce/sales ciclo interno cerrado (Fase 4H-Z) — DRAFT, CONFIRMED, inventario, UI operativa.
 - commerce/customers cerrado y operativo — módulo completo con catálogos fiscales (Fase 4I-3B-1 + ajustes).
-- commerce/dte outgoing — V1 cerrado operativamente. FE 01, CCFE 03, NC 05 e Invalidación generados, validados, firmados, transmitidos a MH TEST con respuesta ACCEPTED y entregados a sistema externo MariaDB. Panel Fiscal DTE operativo en /dashboard/sales. Ver docs/modules/dte-v1-operational-close.md.
+- commerce/dte outgoing — V1 cerrado operativamente. FE 01, CCFE 03, NC 05 e Invalidación generados, validados, firmados, transmitidos a MH TEST con respuesta ACCEPTED y entregados a sistema externo MariaDB. Panel Fiscal DTE operativo en /dashboard/sales. Ver docs/modules/dte-v1-operational-close.md. *(Nota 2026-10-12: el ACCEPTED de NC 05 no tiene evidencia actual auditada suficiente → NC 05 PENDIENTE DE RECERTIFICACIÓN EXTERNA; la invalidación requiere recertificación externa tras el fix de credenciales. Ver "Estado vigente — DTE" abajo.)*
 - commerce/dte — FSE 14 (origen Purchase) cerrado: firmador dual TEST/PRODUCTION por ambiente (FIRMADOR-SERVICE :8113 / FIRMADOR-TEST-SERVICE :8114), resolveDteSignerConfig(dte.environment) como única fuente de verdad, delivery MariaDB verificado sin depender de sale_id. Ver docs/modules/dte-signer-routing-runbook.md.
 - commerce/dte — primer cierre FSE14 TEST sobre runtime multiindustria (cliente TrustMe, vía Runtime Database Router): CREATE→GENERATE→VALIDATE→SIGN→TRANSMIT→DELIVER→VERIFY completo, estado final ACCEPTED, delivery MariaDB confirmado. Solo TEST; SignerProfile por tenant/emisor/ambiente implementado (ver docs/modules/dte-signer-multitenant-block.md). Ver docs/modules/dte-trustme-fse14-test-closure.md.
 - commerce/dte — delivery externo runtime-aware desde `/dashboard/dte/outgoing` implementado (allowlist `DELIVER_EXTERNAL`, solo super_admin, confirmación explícita, auditado en PlatformDeploymentLog). Resto de acciones DTE (generar/validar/firmar/transmitir/invalidar) siguen en Prisma global — fuera de la allowlist.
@@ -19,6 +19,7 @@
 - commerce/dte — **FEX-PROD-0 (2026-09-25): gate NO**. El schema oficial vigente de MH (factura.gob.sv, 2026-08-11) es `fe-fex-v3`; Zolvi implementa FEX v1 → incompatibilidades BREAKING (version, campos renombrados/eliminados, nuevos requeridos, `codPais` CAT-020 ISO). FEX 11 sigue TEST-only; FEX-PROD-1 (routing TEST/PRODUCTION) no se ejecutó. Ver docs/modules/fex11-production-readiness.md.
 - commerce/dte — **FEX-PROD-0B (2026-09-25): código FEX 11 migrado a schema v3** (`fex-11-v3.schema.json`, copia oficial md5 `e40610cf…`; v1 solo legacy). Builder único v3, país receptor CAT-020 (`Country`) con corrección explícita de clientes legados, distrito desde `Municipality.district_code`, firma/transmisión exigen JSON v3. Solo **exportación de servicios** emitible: bienes bloqueados porque `emisor.tipoRegimen` no tiene catálogo oficial. Sin cambios Prisma. **No es FEX V3 CODE READY** — gaps abiertos: tipoRegimen (bienes), formato distrito/municipio CAT-013 v1.2, certificación MH TEST v3. `READY_FOR_FEX_PROD_1 = NO`. Ver §16 de docs/modules/fex11-production-readiness.md.
 - commerce/dte — **FEX11-FINAL-CLOSURE (2026-09-30): FEX 11 es un tipo DTE normal de `fiscal.dte`.** Acceso = módulo `fiscal.dte` + `DteIssuerConfig` activo único en la sucursal; ambiente desde `DteIssuerConfig.environment` → `DteOutgoingDocument.environment`. Retirados los flags `DTE_FEX11_TEST_ENABLED` / `DTE_FEX11_ENABLED` / `DTE_FEX11_PRODUCTION_ENABLED`, la capability `fiscal.dte.export` y la consola dev `/dashboard/dte/fex11-test`. Servicios emitibles (MH TEST PROCESADO); bienes/mixto siguen fail-closed (`tipoRegimen` sin fuente oficial). Sin cambios Prisma. Supera las notas FEX-PROD-0/0B de arriba. Ver docs/modules/fex11-standard-dte.md.
+- commerce/dte — **DTE-INTERNAL-CERTIFICATION (2026-10-12): `INTERNAL_DTE_CERTIFICATION = PASS`, `READY_FOR_EXTERNAL_MH_CERTIFICATION = YES`.** Ver "Estado vigente — DTE" abajo y docs/certification/dte-internal-certification.md.
 - commerce/cash cerrado y operativo — apertura/cierre de sesión, movimientos manuales, corte de caja, historial, exportación PDF/Excel, asociación automática venta → sesión. Ver docs/modules/cash-summary.md.
 - platform — **SUPABASE-PUBLIC-API-HARDENING (2026-10-06): CODE COMPLETE, NO aplicado en producción.** Migración `20261006000000_harden_supabase_public_data_api` cierra la Supabase Data API sobre `public` (revoca anon/authenticated y `PUBLIC` del schema, grants de objetos y default ACLs del migrador `postgres`); no-op en PostgreSQL sin roles Supabase. Preflight con checks `PUBLIC_DATA_API_EXPOSURE` / `UNSAFE_DEFAULT_PRIVILEGES`; CLI `prisma/scripts/audit-supabase-public-api.ts`. Pendiente: aplicación controlada en `vkoywmzlgygypaddxjtn` (TrustMe **+ Shared Target "Zolvi Shared 01"**). Aplicada en local. Ver docs/modules/supabase-public-api-hardening.md.
 
@@ -44,6 +45,51 @@
 - **CAT-022**: solo `02`, `03`, `13`, `36`, `37`. `00 — Consumidor final` retirado; Consumidor Final es `taxpayer_type = FINAL_CONSUMER`.
 - **DTE Shared**: onboarding fiscal **DEFERRED**. Metatraining sin `DteIssuerConfig`/`DteCredential`/`DteCorrelative`/`DteOutgoingDocument`. No emitir/transmitir DTE desde Support Session (readOnly).
 - **Deuda diferida (no bloqueante)**: onboarding fiscal Shared, credenciales MH por tenant, pruebas de volumen y concurrencia de Data Onboarding. RLS **no** es la capa de autorización de Zolvi: la Data API se cierra por privilegios (ver SUPABASE-PUBLIC-API-HARDENING).
+
+## Estado vigente — DTE (fuente rápida de verdad, 2026-10-12)
+
+> Prevalece sobre afirmaciones DTE de secciones históricas de este archivo
+> y de documentos/PDFs anteriores (que se conservan sin modificar).
+
+- `INTERNAL_DTE_CERTIFICATION = PASS` — `npm run dte:certify` (77/77 casos +
+  regresión DTE, tsc y build). Certificación **interna**: acciones/servicios
+  DTE productivos reales sobre un harness en memoria derivado del schema
+  Prisma, firmador/MH falsos a nivel `fetch`, sin MH real, sin PRODUCTION,
+  sin base de datos real ni secretos reales. Ver
+  docs/certification/dte-internal-certification.md.
+- `READY_FOR_EXTERNAL_MH_CERTIFICATION = YES` — requiere un contribuyente con
+  ambiente MH TEST vigente. TrustMe ya opera en PRODUCTION y su MH TEST no está
+  disponible: no transmitir TEST con TrustMe ni crear documentos ficticios en
+  PRODUCTION. La FE01 `VTA-2026-10-0001` (TEST + SIGNED) no se toca.
+- **Evidencia externa histórica (MH TEST, TrustMe):**
+  - FE01: ACCEPTED histórico.
+  - CCFE03: ACCEPTED histórico.
+  - FSE14: ACCEPTED histórico.
+  - FEX11 servicios: ACCEPTED histórico.
+  - Invalidación: ACCEPTED histórica — **requiere recertificación externa**
+    después del fix de credenciales (BUG-1, commit
+    `fix(dte): resolve issuer credentials for invalidation transmission`).
+  - NC05: **PENDIENTE DE RECERTIFICACIÓN EXTERNA**, aunque documentación
+    histórica anterior diga ACCEPTED — la evidencia actual auditada no es
+    suficiente.
+- **BUG-1 corregido (2026-10-12)**: la transmisión de invalidación pedía el
+  token MH sin `issuerConfigId` → nunca usaba la `DteCredential` del emisor
+  (TEST dependía del fallback `.env`; PRODUCTION fallaba siempre). Ahora
+  resuelve credenciales por emisor, igual que la transmisión de DTE.
+- **Alcance todavía NO certificado externamente**: NC05 actual; invalidación
+  después de BUG-1; FEX bienes/mixto (bloqueados, `tipoRegimen` sin fuente
+  oficial); contingencia; entrega MariaDB; reconciliación/consulta MH;
+  concurrencia real PostgreSQL; alta de Purchase completa.
+- **Restricción observada (no es regla comercial)**: una FE01 a consumidor
+  final sin documento no pudo invalidarse — restricción observada contra el
+  schema de invalidación actualmente incorporado (`anulacion-schema-v2.json`
+  exige documento del receptor); requiere validación normativa antes de
+  definir política comercial.
+- **Deuda conocida `CONTINGENCY_AUTH_ISSUER_CREDENTIAL_GAP`**: el adapter de
+  transmisión de contingencia pide el token MH sin `issuerConfigId` (mismo
+  patrón que BUG-1). Sin entry point productivo actual
+  (`CONTINGENCY_PRODUCT_ENTRYPOINT = NONE`); corregir antes de habilitar
+  contingencia.
 
 ## Platform — FASE VI-B: Runtime Identity Security Foundation (cerrada, no es cierre de FASE VI completa)
 
@@ -1158,6 +1204,7 @@ Auditoría + cierre de gaps puntuales, no construcción desde cero. Ver
 - Acceso rol reception a operaciones de caja (si requerido operativamente).
 
 ## Deuda técnica
+- `CONTINGENCY_AUTH_ISSUER_CREDENTIAL_GAP` — token MH de contingencia sin `issuerConfigId` (sin entry point productivo actual). Ver "Estado vigente — DTE".
 - tests automatizados
 - cierre visual completo de purchases
 - integración final suppliers → purchases
