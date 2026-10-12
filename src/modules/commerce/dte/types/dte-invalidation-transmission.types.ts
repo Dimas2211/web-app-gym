@@ -15,6 +15,13 @@ export type { DteMhEnvironment };
 
 export interface DteInvalidationTransmissionInput {
   environment?: DteMhEnvironment;
+  /**
+   * DteIssuerConfig.id del DTE original. Resuelve el token MH con la
+   * DteCredential de ESE emisor (igual que DteTransmissionInput). Sin él,
+   * MhAuthAdapter solo puede caer al fallback .env de TEST y en
+   * PRODUCTION no resuelve credenciales.
+   */
+  issuerConfigId?: string;
   /** JWS firmado del evento de invalidación */
   signedJws: string;
   /** version del evento — siempre 2 según spec MH anulacion-schema-v2 */

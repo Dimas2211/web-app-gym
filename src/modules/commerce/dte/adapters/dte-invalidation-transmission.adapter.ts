@@ -87,8 +87,9 @@ export class MhInvalidationTransmissionAdapter {
     const config = getDteMhConfig();
     const env    = input.environment ?? config.environment;
 
-    // 1. Obtener token MH
-    const authResult = await this.authAdapter.getCachedToken(env);
+    // 1. Obtener token MH — aislado por emisor (DteCredential del
+    // issuerConfigId), mismo criterio que dte-transmission.adapter.ts.
+    const authResult = await this.authAdapter.getCachedToken(env, input.issuerConfigId);
     if (!authResult.ok) {
       return makeError("MH_INVALIDATION_AUTH_FAILED", authResult.message);
     }
@@ -139,7 +140,7 @@ export class MhInvalidationTransmissionAdapter {
 
     // 4. Reintento único en 401
     if (raw.status === 401 && !isRetry) {
-      this.authAdapter.clearTokenCache(env);
+      this.authAdapter.clearTokenCache(env, input.issuerConfigId);
       return this._transmitWithRetry(input, true);
     }
 
