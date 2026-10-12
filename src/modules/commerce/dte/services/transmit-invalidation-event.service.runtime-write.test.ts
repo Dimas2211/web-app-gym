@@ -64,6 +64,7 @@ const ACCEPTED_DTE_DOC = {
   reception_stamp: "S".repeat(40),
   invalidated_at: null,
   environment: "TEST",
+  issuer_config_id: "issuer-1",
 };
 
 const BASE_PARAMS = {
@@ -133,6 +134,17 @@ describe("transmitInvalidationEvent — FASE VI-E6B (runtime db injection)", () 
 
     expect(mhAuthAdapterCtorSpy).toHaveBeenCalledWith({ credentialClient: db });
     expect(mhInvalidationAdapterCtorSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("DTE-INTERNAL-CERTIFICATION — transmite con issuerConfigId del DTE original (token MH con la DteCredential de ese emisor)", async () => {
+    const db = buildFakeRuntimeDb();
+    transmitAdapterSpy.mockResolvedValue({ ok: true, mhEstado: "PROCESADO", selloRecibido: "S1", httpStatus: 200, idEnvio: 1 });
+
+    await transmitInvalidationEvent(BASE_PARAMS, db as never);
+
+    expect(transmitAdapterSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ environment: "TEST", issuerConfigId: "issuer-1", version: 2 }),
+    );
   });
 
   it("MH RECHAZADO -> evento REJECTED, DTE original revertido a ACCEPTED", async () => {

@@ -123,11 +123,12 @@ export async function transmitInvalidationEvent(
         location_id: locationId,
       },
       select: {
-        id:              true,
-        dte_status:      true,
-        reception_stamp: true,
-        invalidated_at:  true,
-        environment:     true,
+        id:               true,
+        dte_status:       true,
+        reception_stamp:  true,
+        invalidated_at:   true,
+        environment:      true,
+        issuer_config_id: true,
       },
     });
 
@@ -192,8 +193,9 @@ export async function transmitInvalidationEvent(
     const adapter = new MhInvalidationTransmissionAdapter(new MhAuthAdapter({ credentialClient: db }));
     const result  = await adapter.transmit({
       environment,
-      signedJws: event.signed_jws,
-      version:   2,
+      issuerConfigId: dteDoc.issuer_config_id ?? undefined,
+      signedJws:      event.signed_jws,
+      version:        2,
     });
 
     // ── Caso: error técnico ───────────────────────────────────────
