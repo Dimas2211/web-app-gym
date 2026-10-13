@@ -1,8 +1,9 @@
 /**
  * Capa de almacenamiento de archivos (server-only).
  *
- * Avatares: Supabase Storage, bucket privado. Sin filesystem local — en
- * Vercel no persiste y /public expondría fotografías personales.
+ * Avatares: Storage Plane S3-compatible (Cloudflare R2), bucket privado.
+ * Sin filesystem local — en Vercel no persiste y /public expondría
+ * fotografías personales.
  * Configuración: docs/modules/gym-credentials.md
  */
 export {

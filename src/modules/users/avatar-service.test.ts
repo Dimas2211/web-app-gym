@@ -211,7 +211,7 @@ describe("readUserAvatar", () => {
   });
 
   it("avatar activo + fallo de descarga -> 502 genérico (no 404)", async () => {
-    storage.get.mockRejectedValue(new Error("bucket=gym-avatars secret=test-secret"));
+    storage.get.mockRejectedValue(new Error("bucket=zolvi-private secret=test-secret"));
     requireOperationalContextMock.mockResolvedValue(handle(makeDb()));
     const r = await readUserAvatar(session("super_admin"), "rec-1");
     expect(r).toEqual({ ok: false, status: 502, error: "No se pudo cargar la imagen." });

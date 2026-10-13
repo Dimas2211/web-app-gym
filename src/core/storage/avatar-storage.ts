@@ -3,7 +3,8 @@
  *
  * Contrato de almacenamiento de avatares (fotografías personales).
  *
- * Producción: Supabase Storage, bucket PRIVADO (ver supabase-storage.ts).
+ * Producción: Storage Plane S3-compatible (Cloudflare R2), bucket PRIVADO
+ * (ver s3-storage.ts).
  * No existe implementación de filesystem local: en Vercel el filesystem no
  * persiste y /public expondría fotografías personales sin autorización.
  *
@@ -20,7 +21,7 @@ if (typeof window !== "undefined") {
   throw new Error("[avatar-storage] Módulo server-only. No usar en contexto de navegador.");
 }
 
-import { createSupabaseAvatarStorage } from "./supabase-storage";
+import { createS3AvatarStorage } from "./s3-storage";
 import type { AvatarStorageAdapter } from "./storage-types";
 
 export {
@@ -38,6 +39,6 @@ let cached: AvatarStorageAdapter | null = null;
  */
 export function getAvatarStorage(): AvatarStorageAdapter {
   if (cached) return cached;
-  cached = createSupabaseAvatarStorage();
+  cached = createS3AvatarStorage();
   return cached;
 }

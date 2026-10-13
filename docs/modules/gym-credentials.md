@@ -5,7 +5,7 @@ Pantalla: `/dashboard/clients/[id]/credential` · Impresión: `/dashboard/client
 ## Alcance actual
 
 - Ver credencial (gimnasio + logo, sucursal, foto, nombre, tipo, código, estado, QR).
-- Subir/cambiar fotografía (Supabase Storage privado).
+- Subir/cambiar fotografía (Storage Plane privado S3-compatible — Cloudflare R2).
 - Guardar/cambiar código operativo.
 - Generar token QR **solo** para clientes legacy sin token (nunca regenera uno existente).
 - Imprimir / Guardar PDF solo la credencial en CR80 (85.60 × 53.98 mm).
@@ -42,20 +42,34 @@ Pantalla: `/dashboard/clients/[id]/credential` · Impresión: `/dashboard/client
 - `avatar_url` legacy (`/uploads/...` o absoluto) se sigue mostrando tal cual; al subir una foto nueva se reemplaza y el archivo legacy no se toca.
 - Sin migración: `Client.avatar_url` / `User.avatar_url` ya existían.
 
-## Configuración de Supabase Storage (manual)
+## Storage Plane — Object Storage S3-compatible (Cloudflare R2)
 
-1. En Supabase → Storage, crear el bucket **privado** `gym-avatars` (Public bucket: **desactivado**).
-2. Configurar variables **server-only**:
-   - `SUPABASE_STORAGE_URL` — URL del proyecto Supabase.
-   - `SUPABASE_STORAGE_SERVICE_ROLE_KEY` — service role key.
-   - `SUPABASE_AVATAR_BUCKET` — opcional, default `gym-avatars`.
-3. Configurar las mismas variables en Vercel (Production y Preview según corresponda).
-4. Redeploy.
-5. **Nunca** usar `NEXT_PUBLIC_` para la service role ni commitear valores reales.
+- **Storage Plane central e independiente**: separado del Control Plane y de las Runtime DB. Ningún dato de Prisma/DB vive en el bucket y ninguna credencial de DB se usa para Storage.
+- **Backend S3-compatible** (`core/storage/s3-storage.ts`, AWS SDK v3: `PutObjectCommand` / `GetObjectCommand` / `DeleteObjectCommand`). La lógica de dominio solo conoce `AvatarStorageAdapter`; el endpoint determina el proveedor, por lo que en el futuro puede apuntar a AWS S3, MinIO o Backblaze B2 sin cambiar dominio, keys ni lifecycle.
+- **Producción inicial: Cloudflare R2**, bucket **privado** `zolvi-private`.
+  - R2 *public access* **no requerido**: no habilitar `r2.dev` ni *Custom Domain*.
+  - Sin URLs públicas ni *presigned URLs*: toda lectura es navegador → `/api/avatars/{clients|users}/[id]` → autorización Zolvi → adapter S3 → R2.
+  - Sin ACL (`public-read` nunca se usa).
+  - Addressing configurable con `OBJECT_STORAGE_FORCE_PATH_STYLE` (default `false`, virtual-hosted). R2: `false`.
+- **Rutas tenant-scoped** (sin cambios): `tenants/{tenantId}/clients/{clientId}/avatars/{uuid}.webp` y `tenants/{tenantId}/users/{userId}/avatars/{uuid}.webp`.
+- Endpoint, region, bucket, object key y credenciales se resuelven **solo en servidor**; el navegador nunca los envía ni los recibe, y no se registran en logs ni errores.
 
-Sin estas variables, subir/ver avatares responde 503 ("Almacenamiento de avatares no configurado."); el resto de la credencial funciona.
+### Configuración (manual)
 
-> **Tamaño máximo soportado por Zolvi: 4 MB** (`MAX_AVATAR_UPLOAD_BYTES`, única fuente compartida por servidor y UI, igual para Client y User). Queda por debajo del límite de body de las funciones de Vercel (~4.5 MB). Flujo: navegador → servidor Zolvi → sharp → Supabase Storage.
+1. En Cloudflare → R2, crear el bucket **privado** `zolvi-private` (sin public access, sin `r2.dev`, sin custom domain).
+2. Crear un **API token R2 con permiso Object Read & Write limitado a ese bucket** (no un token de cuenta completa).
+3. Configurar variables **server-only**:
+   - `OBJECT_STORAGE_ENDPOINT` — `https://<ACCOUNT_ID>.r2.cloudflarestorage.com` (no se hardcodea ningún account id).
+   - `OBJECT_STORAGE_REGION` — `auto` para R2 (default).
+   - `OBJECT_STORAGE_ACCESS_KEY_ID` / `OBJECT_STORAGE_SECRET_ACCESS_KEY` — del token del paso 2.
+   - `OBJECT_STORAGE_BUCKET` — opcional, default `zolvi-private`.
+   - `OBJECT_STORAGE_FORCE_PATH_STYLE` — opcional, default `false` (R2: `false`). Solo el valor `true` activa path-style (p. ej. MinIO); ausente o cualquier otro valor se trata como `false` (fail-safe).
+4. Configurar las mismas variables en Vercel (Production y Preview según corresponda) y redeploy.
+5. **Nunca** usar `NEXT_PUBLIC_` para estas variables ni commitear valores reales.
+
+Sin endpoint/credenciales válidos, subir/ver avatares responde 503 ("Almacenamiento de avatares no configurado."); el resto de la credencial funciona.
+
+> **Tamaño máximo soportado por Zolvi: 4 MB** (`MAX_AVATAR_UPLOAD_BYTES`, única fuente compartida por servidor y UI, igual para Client y User). Queda por debajo del límite de body de las funciones de Vercel (~4.5 MB). Flujo: navegador → servidor Zolvi → sharp → adapter S3-compatible → Cloudflare R2 (bucket privado).
 
 ## Impresión CR80
 

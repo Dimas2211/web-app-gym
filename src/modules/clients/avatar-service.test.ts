@@ -527,7 +527,7 @@ describe("readClientAvatar — acceso privado", () => {
   it("7. avatar_url activo + fallo de descarga -> 502 genérico, NO 404", async () => {
     rows[0].avatar_url = activeUrl("client-1");
     storage.get.mockRejectedValue(
-      new Error("bucket=gym-avatars path=tenants/tenant-secret/clients/client-secret/avatars/version.webp secret=test-secret"),
+      new Error("bucket=zolvi-private path=tenants/tenant-secret/clients/client-secret/avatars/version.webp secret=test-secret"),
     );
     requireOperationalContextMock.mockResolvedValue(handle(makeDb(rows)));
     const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
@@ -536,7 +536,7 @@ describe("readClientAvatar — acceso privado", () => {
     errSpy.mockRestore();
     expect(r).toEqual({ ok: false, status: 502, error: "No se pudo cargar la imagen." });
     expect(storage.get).toHaveBeenCalledWith(versionKey("tenant-1", "client-1", OLD_V));
-    for (const leak of ["gym-avatars", "tenants/", "tenant-secret", "test-secret", OLD_V]) {
+    for (const leak of ["zolvi-private", "tenants/", "tenant-secret", "test-secret", OLD_V]) {
       expect(JSON.stringify(r)).not.toContain(leak);
       expect(logged).not.toContain(leak);
     }
@@ -574,14 +574,14 @@ describe("readClientAvatar — acceso privado", () => {
   });
 
   it("18. respuestas de error nunca incluyen bucket/key/secretos", async () => {
-    process.env.SUPABASE_STORAGE_SERVICE_ROLE_KEY = "test-secret-should-never-leak";
+    process.env.OBJECT_STORAGE_SECRET_ACCESS_KEY = "test-secret-should-never-leak";
     rows[0].avatar_url = activeUrl("client-1");
     requireOperationalContextMock.mockResolvedValue(handle(makeDb(rows)));
     const r = await readClientAvatar(session("super_admin"), "client-1");
     const serialized = JSON.stringify(r);
     expect(serialized).not.toContain("tenants/");
-    expect(serialized).not.toContain("gym-avatars");
+    expect(serialized).not.toContain("zolvi-private");
     expect(serialized).not.toContain("test-secret-should-never-leak");
-    delete process.env.SUPABASE_STORAGE_SERVICE_ROLE_KEY;
+    delete process.env.OBJECT_STORAGE_SECRET_ACCESS_KEY;
   });
 });
