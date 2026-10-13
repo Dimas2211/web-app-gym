@@ -1,18 +1,15 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { requireClientManager, canManageClient } from "@/lib/permissions/guards";
-import { getClientById } from "@/modules/clients/queries";
-import { getGym } from "@/modules/settings/queries";
+import { requireClientManager } from "@/lib/permissions/guards";
 import { CredentialCard } from "@/components/ui/credential-card";
 import { AvatarUpload } from "@/components/ui/avatar-upload";
 import { OperationalCodeForm } from "@/components/forms/operational-code-form";
+import { GenerateQrTokenForm } from "@/components/forms/generate-qr-token-form";
 import {
   updateClientOperationalCodeAction,
-  updateClientAvatarAction,
+  generateClientQrTokenAction,
 } from "@/modules/settings/actions";
-import { suggestNextClientCode } from "@/lib/utils/operational-codes";
-import { PrintButton } from "@/components/ui/print-button";
-import { resolveEffectiveTenantContext } from "@/modules/platform/runtime/effective-tenant-context";
+import { loadClientCredential } from "@/modules/clients/credential";
 import { requireEffectiveVertical } from "@/modules/platform/runtime/effective-vertical";
 
 type Props = { params: Promise<{ id: string }> };
@@ -21,88 +18,91 @@ export default async function ClientCredentialPage({ params }: Props) {
   const sessionUser = await requireClientManager();
   const { id } = await params;
 
-  // PASO 6D: tenant/PrismaClient EFECTIVOS bajo sesión runtime "Operar como
-  // cliente". La ficha (lectura) usa context.client; la columna de gestión
-  // de identidad (super_admin, escritura) se oculta por completo en runtime.
-  const { context, dispose } = await resolveEffectiveTenantContext(sessionUser);
-  const effectiveUser = context.runtime
-    ? { ...sessionUser, tenant_id: context.tenantId }
-    : sessionUser;
-
-  try {
-    // PASO 6F: "Clientes" es superficie GYM sin module code propio.
-    await requireEffectiveVertical(context.tenantId, "GYM");
-
-    const canManage = !context.runtime;
-
-    const [client, gym, nextCode] = await Promise.all([
-      getClientById(id, effectiveUser, context.client),
-      getGym(effectiveUser, context.client),
-      canManage ? suggestNextClientCode(effectiveUser.tenant_id) : Promise.resolve(""),
-    ]);
-
-    if (!client || !canManageClient(sessionUser, client)) notFound();
-
-    const isSuperAdmin = canManage && sessionUser.role === "super_admin";
-
+  // DB/tenant EFECTIVOS + canManageClient con identidad efectiva (rol LIVE
+  // en RUNTIME_CLIENT). Support Session → canEdit=false (solo lectura).
+  const result = await loadClientCredential(sessionUser, id, { withSuggestedCode: true });
+  if (!result.ok) {
+    if (result.reason === "not_found") notFound();
     return (
-    <div className="space-y-6">
+      <div className="bg-amber-50 border border-amber-200 rounded-xl p-6 text-center text-sm text-amber-800">
+        {result.message}
+      </div>
+    );
+  }
+  const { client, gym, canEdit, suggestedCode, tenantId } = result.data;
+
+  // PASO 6F: "Clientes" es superficie GYM sin module code propio.
+  await requireEffectiveVertical(tenantId, "GYM");
+
+  const fullName = `${client.first_name} ${client.last_name}`;
+
+  return (
+    <div className="space-y-6 min-w-0">
       {/* Breadcrumb */}
-      <div className="flex items-center gap-2 text-sm text-zinc-500">
+      <div className="flex flex-wrap items-center gap-2 text-sm text-zinc-500">
         <Link href="/dashboard/clients" className="hover:text-zinc-800 transition-colors">
           Clientes
         </Link>
         <span>/</span>
         <Link
           href={`/dashboard/clients/${id}`}
-          className="hover:text-zinc-800 transition-colors"
+          className="hover:text-zinc-800 transition-colors break-all"
         >
-          {client.first_name} {client.last_name}
+          {fullName}
         </Link>
         <span>/</span>
         <span className="text-zinc-800 font-medium">Credencial</span>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
-        {/* Columna izquierda — Credencial */}
-        <div className="space-y-4">
+        {/* Columna izquierda — Credencial (CR80) */}
+        <div className="space-y-4 min-w-0">
           <h2 className="text-sm font-semibold text-zinc-700">Vista de credencial</h2>
 
-          <CredentialCard
-            person={{
-              id: client.id,
-              first_name: client.first_name,
-              last_name: client.last_name,
-              operational_code: client.operational_code,
-              avatar_url: client.avatar_url,
-              qr_token: client.qr_token,
-              status: client.status,
-              typeLabel: "Cliente",
-              branchName: client.branch.name,
-            }}
-            gymName={gym?.name ?? "Gimnasio"}
-          />
+          <div className="max-w-full overflow-x-auto pb-1">
+            <CredentialCard
+              person={{
+                id: client.id,
+                first_name: client.first_name,
+                last_name: client.last_name,
+                operational_code: client.operational_code,
+                avatar_url: client.avatar_url,
+                qr_token: client.qr_token,
+                status: client.status,
+                typeLabel: "Cliente",
+                branchName: client.branchName,
+              }}
+              gymName={gym?.name ?? "Gimnasio"}
+              logoUrl={gym?.logo_url}
+            />
+          </div>
 
-          <PrintButton />
+          <a
+            href={`/dashboard/clients/${client.id}/credential/print`}
+            target="_blank"
+            rel="noopener"
+            className="block w-full max-w-[85.6mm] text-center text-sm text-zinc-600 border border-zinc-300 px-4 py-2 rounded-lg hover:border-zinc-400 hover:bg-zinc-50 transition-colors"
+          >
+            Imprimir / Guardar PDF
+          </a>
+          <p className="text-xs text-zinc-400 max-w-[85.6mm]">
+            Abre una vista con solo la credencial en tamaño CR80 (85.60 × 53.98 mm).
+          </p>
         </div>
 
-        {/* Columna derecha — Gestión de identidad (solo super_admin) */}
-        {isSuperAdmin && (
-          <div className="space-y-5">
-            {/* Foto / Avatar */}
+        {/* Columna derecha — Gestión de identidad */}
+        {canEdit ? (
+          <div className="space-y-5 min-w-0">
+            {/* Foto */}
             <div className="bg-white rounded-xl border border-zinc-200 shadow-sm p-5">
               <h3 className="text-xs font-semibold text-zinc-400 uppercase tracking-wide mb-4">
                 Foto de perfil
               </h3>
               <AvatarUpload
                 currentUrl={client.avatar_url}
-                entityId={client.id}
-                displayName={`${client.first_name} ${client.last_name}`}
-                onSaveAction={updateClientAvatarAction}
+                uploadEndpoint={`/api/avatars/clients/${client.id}`}
+                displayName={fullName}
               />
-              <p className="mt-3 text-xs text-amber-600">
-                Nota: En Vercel la subida local no persiste. Para producción configura Supabase Storage.
-              </p>
             </div>
 
             {/* Código operativo */}
@@ -117,46 +117,36 @@ export default async function ClientCredentialPage({ params }: Props) {
               <OperationalCodeForm
                 entityId={client.id}
                 currentCode={client.operational_code}
-                suggestedCode={nextCode}
+                suggestedCode={suggestedCode}
                 action={updateClientOperationalCodeAction}
               />
             </div>
 
-            {/* Token QR */}
+            {/* QR */}
             <div className="bg-white rounded-xl border border-zinc-200 shadow-sm p-5">
               <h3 className="text-xs font-semibold text-zinc-400 uppercase tracking-wide mb-1">
-                Token QR
+                QR de identificación
               </h3>
-              <p className="text-xs text-zinc-400 mb-2">
-                Identificador estable, generado una sola vez. No cambia al editar nombre o código.
-                Listo para control de acceso y asistencia.
+              <p className="text-xs text-zinc-400 mb-3">
+                Identificador estable generado una sola vez. No cambia al editar la foto, el
+                nombre ni el código.
               </p>
               {client.qr_token ? (
-                <p className="font-mono text-xs text-zinc-600 bg-zinc-50 border border-zinc-200 px-3 py-2 rounded-lg break-all">
-                  {client.qr_token}
-                </p>
+                <p className="text-xs text-emerald-700">✓ Token QR asignado.</p>
               ) : (
-                <p className="text-xs text-amber-600">
-                  Sin token QR. Edita y guarda el cliente para generar uno.
-                </p>
+                <GenerateQrTokenForm entityId={client.id} action={generateClientQrTokenAction} />
               )}
             </div>
           </div>
-        )}
-
-        {!isSuperAdmin && (
+        ) : (
           <div className="bg-zinc-50 rounded-xl border border-dashed border-zinc-200 p-5 flex items-center justify-center">
             <p className="text-sm text-zinc-400 text-center">
-              {context.runtime
-                ? "Modo \"Operar como cliente\" activo (solo lectura): la gestión de identidad está deshabilitada."
-                : "Solo el Super Admin puede editar la identidad operativa."}
+              Modo &quot;Operar como cliente&quot; activo (solo lectura): la gestión de identidad
+              está deshabilitada.
             </p>
           </div>
         )}
       </div>
     </div>
-    );
-  } finally {
-    await dispose();
-  }
+  );
 }

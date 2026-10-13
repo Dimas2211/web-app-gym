@@ -2,7 +2,15 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { requireSuperAdmin, requireAdmin } from "@/lib/permissions/guards";
+import type { UserRole } from "@prisma/client";
+import {
+  requireSuperAdmin,
+  requireAdmin,
+  requireClientManager,
+  canManageClient,
+  type SessionUser,
+} from "@/lib/permissions/guards";
+import { generateQrToken } from "@/lib/utils/operational-codes";
 import { gymSchema, sportSchema, goalSchema, gymSettingsSchema } from "./schemas";
 import {
   requireOperationalContext,
@@ -444,22 +452,37 @@ export async function updateUserOperationalCodeAction(
 }
 
 // ══════════════════════════════════════════════
-// Código operativo individual — Cliente
+// Código operativo individual — Cliente (GYM)
 // ══════════════════════════════════════════════
 
+const CLIENT_CODE_MAX = 20;
+const CLIENT_CODE_PATTERN = /^[A-Z0-9-]+$/;
+
+function isUniqueConstraintError(err: unknown): boolean {
+  return (
+    typeof err === "object" &&
+    err !== null &&
+    "code" in err &&
+    (err as { code?: unknown }).code === "P2002"
+  );
+}
+
+/**
+ * Credencial de cliente = operación cotidiana GYM: misma política que
+ * Clients (super_admin tenant; branch_admin/reception su sucursal).
+ *
+ * Orden: requireClientManager (gate JWT) → requireOperationalContext
+ * write=true (Support Session bloqueada) → Client por id + tenant efectivo
+ * → canManageClient con identidad EFECTIVA (rol LIVE en RUNTIME_CLIENT) →
+ * normalizar → duplicado dentro del mismo Gym (@@unique gym_id +
+ * operational_code) → update. Todo sobre context.client.
+ */
 export async function updateClientOperationalCodeAction(
   _prev: SettingsActionState,
   formData: FormData
 ): Promise<SettingsActionState> {
-  const sessionUser = await requireSuperAdmin();
+  const sessionUser = await requireClientManager();
 
-  // FASE VI-D7: FIX — esta acción resolvía requireOperationalContext()
-  // (arriba, en versiones previas via isRuntimeReadOnlyActive) pero seguía
-  // escribiendo el registro Client a través del Prisma GLOBAL en vez de
-  // context.client — un "half-migration" que parecía cerrado en revisión
-  // de código pero dejaba el write real fuera del enrutamiento runtime.
-  // Ahora usa context.client/context.tenantId de punta a punta, igual que
-  // updateUserOperationalCodeAction arriba.
   let handle;
   try {
     handle = await requireOperationalContext(sessionUser, { write: true });
@@ -469,90 +492,139 @@ export async function updateClientOperationalCodeAction(
   }
   const { context, dispose } = handle;
 
+  let clientId: string;
   try {
-    const id = formData.get("entity_id") as string;
-    if (!id) return { error: "ID requerido." };
+    const id = formData.get("entity_id");
+    if (typeof id !== "string" || !id) return { error: "ID requerido." };
 
-    const code = (formData.get("operational_code") as string)?.trim() || null;
+    const target = await context.client.client.findFirst({
+      where: { id, tenant_id: context.tenantId },
+      select: { id: true, gym_id: true, branch_id: true },
+    });
+    if (!target) return { error: "Cliente no encontrado." };
+
+    const effectiveSessionUser = {
+      ...context.effectiveUser,
+      role: context.effectiveUser.role as UserRole,
+    } as SessionUser;
+    if (!canManageClient(effectiveSessionUser, target)) {
+      return { error: "Sin permiso para modificar este cliente." };
+    }
+    clientId = target.id;
+
+    // El input ya se muestra en mayúsculas (CSS); se persiste igual a lo
+    // que el operador ve. Los códigos auto-generados (prefijo [A-Z0-9])
+    // ya son mayúsculas — no cambia ninguno existente salvo que se re-guarde.
+    const raw = formData.get("operational_code");
+    const code = typeof raw === "string" && raw.trim() ? raw.trim().toUpperCase() : null;
 
     if (code) {
+      if (code.length > CLIENT_CODE_MAX || !CLIENT_CODE_PATTERN.test(code)) {
+        return {
+          errors: {
+            operational_code: [
+              `Solo letras, números y guiones (máx. ${CLIENT_CODE_MAX} caracteres).`,
+            ],
+          },
+        };
+      }
+
+      // Duplicado solo dentro del mismo Gym (alcance del @@unique). Case-
+      // insensitive para no coexistir con un código legacy en minúsculas.
       const duplicate = await context.client.client.findFirst({
-        where: { tenant_id: context.tenantId, operational_code: code, id: { not: id } },
+        where: {
+          gym_id: target.gym_id,
+          operational_code: { equals: code, mode: "insensitive" },
+          id: { not: target.id },
+        },
+        select: { id: true },
       });
       if (duplicate) {
         return { errors: { operational_code: ["Este código ya está en uso por otro cliente."] } };
       }
     }
 
-    await context.client.client.update({ where: { id }, data: { operational_code: code } });
-
-    revalidatePath("/dashboard/clients");
-    revalidatePath(`/dashboard/clients/${id}`);
-    revalidatePath(`/dashboard/clients/${id}/edit`);
-    revalidatePath(`/dashboard/clients/${id}/credential`);
-    return undefined;
+    try {
+      await context.client.client.update({
+        where: { id: target.id },
+        data: { operational_code: code },
+      });
+    } catch (err) {
+      if (isUniqueConstraintError(err)) {
+        return { errors: { operational_code: ["Este código ya está en uso por otro cliente."] } };
+      }
+      throw err;
+    }
   } finally {
     await dispose();
   }
+
+  revalidatePath("/dashboard/clients");
+  revalidatePath(`/dashboard/clients/${clientId}`);
+  revalidatePath(`/dashboard/clients/${clientId}/edit`);
+  revalidatePath(`/dashboard/clients/${clientId}/credential`);
+  return undefined;
 }
 
 // ══════════════════════════════════════════════
-// Avatar — Usuario
+// Token QR — Cliente sin token (legacy)
 // ══════════════════════════════════════════════
 
-export async function updateUserAvatarAction(formData: FormData): Promise<void> {
-  // Ver nota FASE VI-D4 en updateUserOperationalCodeAction — mismo criterio.
-  const sessionUser = await requireAdmin();
+/**
+ * Genera qr_token SOLO si el Client no tiene uno. Nunca regenera ni
+ * sobrescribe un token existente: el updateMany filtra `qr_token: null`,
+ * por lo que es atómico frente a una carrera (count=0 → ya existía).
+ */
+export async function generateClientQrTokenAction(
+  _prev: SettingsActionState,
+  formData: FormData
+): Promise<SettingsActionState> {
+  const sessionUser = await requireClientManager();
 
-  let handle;
-  try {
-    handle = await requireOperationalContext(sessionUser, { module: "core.users", write: true });
-  } catch {
-    return;
-  }
-  const { context, dispose } = handle;
-
-  try {
-    if (context.effectiveUser.role !== "super_admin") return;
-
-    const id = formData.get("entity_id") as string;
-    const url = formData.get("avatar_url") as string;
-    if (!id || !url) return;
-
-    await context.client.user.update({ where: { id }, data: { avatar_url: url } });
-    revalidatePath(`/dashboard/users/${id}/edit`);
-    revalidatePath(`/dashboard/users/${id}/credential`);
-  } finally {
-    await dispose();
-  }
-}
-
-// ══════════════════════════════════════════════
-// Avatar — Cliente
-// ══════════════════════════════════════════════
-
-export async function updateClientAvatarAction(formData: FormData): Promise<void> {
-  const sessionUser = await requireSuperAdmin();
-
-  // FASE VI-D7: mismo fix que updateClientOperationalCodeAction — antes
-  // escribía Client vía Prisma global pese a estar en el archivo migrado.
   let handle;
   try {
     handle = await requireOperationalContext(sessionUser, { write: true });
-  } catch {
-    return;
+  } catch (err) {
+    if (err instanceof OperationalContextError) return { error: err.userMessage };
+    throw err;
   }
   const { context, dispose } = handle;
 
+  let clientId: string;
   try {
-    const id = formData.get("entity_id") as string;
-    const url = formData.get("avatar_url") as string;
-    if (!id || !url) return;
+    const id = formData.get("entity_id");
+    if (typeof id !== "string" || !id) return { error: "ID requerido." };
 
-    await context.client.client.update({ where: { id }, data: { avatar_url: url } });
-    revalidatePath(`/dashboard/clients/${id}`);
-    revalidatePath(`/dashboard/clients/${id}/credential`);
+    const target = await context.client.client.findFirst({
+      where: { id, tenant_id: context.tenantId },
+      select: { id: true, branch_id: true, qr_token: true },
+    });
+    if (!target) return { error: "Cliente no encontrado." };
+
+    const effectiveSessionUser = {
+      ...context.effectiveUser,
+      role: context.effectiveUser.role as UserRole,
+    } as SessionUser;
+    if (!canManageClient(effectiveSessionUser, target)) {
+      return { error: "Sin permiso para modificar este cliente." };
+    }
+    if (target.qr_token) return { error: "El cliente ya tiene un token QR." };
+    clientId = target.id;
+
+    await context.client.client.updateMany({
+      where: { id: target.id, tenant_id: context.tenantId, qr_token: null },
+      data: { qr_token: generateQrToken() },
+    });
   } finally {
     await dispose();
   }
+
+  revalidatePath(`/dashboard/clients/${clientId}`);
+  revalidatePath(`/dashboard/clients/${clientId}/credential`);
+  return undefined;
 }
+
+// Avatar (Client / User): ya no hay server actions. La subida y la
+// persistencia de avatar_url ocurren en una única operación autorizada:
+//   POST /api/avatars/clients/[id] → modules/clients/avatar-service.ts
+//   POST /api/avatars/users/[id]   → modules/users/avatar-service.ts

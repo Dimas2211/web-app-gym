@@ -109,8 +109,7 @@ export default async function ClientCredentialPage() {
             <div className="bg-zinc-50 rounded-xl border border-zinc-200 p-4">
               <p className="text-xs font-semibold text-zinc-500 mb-1">Tu código QR</p>
               <p className="text-xs text-zinc-400 leading-relaxed">
-                Muéstralo en recepción para identificarte rápidamente al ingresar o registrar
-                tu asistencia.
+                QR de identificación del cliente. Muéstralo en recepción para identificarte.
               </p>
             </div>
           )}

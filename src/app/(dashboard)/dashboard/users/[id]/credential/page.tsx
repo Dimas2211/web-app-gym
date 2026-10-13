@@ -6,10 +6,7 @@ import { getGym } from "@/modules/settings/queries";
 import { CredentialCard } from "@/components/ui/credential-card";
 import { AvatarUpload } from "@/components/ui/avatar-upload";
 import { OperationalCodeForm } from "@/components/forms/operational-code-form";
-import {
-  updateUserOperationalCodeAction,
-  updateUserAvatarAction,
-} from "@/modules/settings/actions";
+import { updateUserOperationalCodeAction } from "@/modules/settings/actions";
 import { suggestNextStaffCode } from "@/lib/utils/operational-codes";
 import { ROLE_LABELS } from "@/lib/utils/roles";
 import { PrintButton } from "@/components/ui/print-button";
@@ -99,13 +96,9 @@ export default async function UserCredentialPage({ params }: Props) {
               </h3>
               <AvatarUpload
                 currentUrl={target.avatar_url}
-                entityId={target.id}
+                uploadEndpoint={`/api/avatars/users/${target.id}`}
                 displayName={`${target.first_name} ${target.last_name}`}
-                onSaveAction={updateUserAvatarAction}
               />
-              <p className="mt-3 text-xs text-amber-600">
-                Nota: En Vercel la subida local no persiste. Para producción configura Supabase Storage.
-              </p>
             </div>
 
             {/* Código operativo */}
