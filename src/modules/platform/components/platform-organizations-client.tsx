@@ -13,9 +13,10 @@ import { Building2, Plus } from "lucide-react";
 
 import { PlatformOrganizationsTable }    from "./platform-organizations-table";
 import { NewPlatformOrganizationDialog } from "./new-platform-organization-dialog";
+import { filterPlatformOrganizations }   from "../lib/filter-platform-organizations";
 
 import type {
-  PlatformOrganizationListItem,
+  PlatformOrganizationListRow,
   PlatformOrganizationStatus,
   PlatformLicenseStatus,
   PlatformVerticalItem,
@@ -23,7 +24,7 @@ import type {
 } from "../types/platform.types";
 
 export interface PlatformOrganizationsClientProps {
-  initialItems:   PlatformOrganizationListItem[];
+  initialItems:   PlatformOrganizationListRow[];
   initialTotal:   number;
   verticals:      PlatformVerticalItem[];
   plans:          PlatformPlanItem[];
@@ -52,17 +53,14 @@ export function PlatformOrganizationsClient({
   const [showNewDialog,  setShowNewDialog] = useState(false);
 
   // Filtrado en memoria — dataset pequeño (orgs de plataforma son pocas)
-  const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    return initialItems.filter((o) => {
-      if (q && !o.name.toLowerCase().includes(q) && !o.code.toLowerCase().includes(q)) return false;
-      if (statusFilter   && o.status         !== statusFilter)   return false;
-      if (licenseFilter  && o.license_status !== licenseFilter)  return false;
-      if (verticalFilter && o.vertical?.id   !== verticalFilter) return false;
-      if (planFilter     && o.plan?.id       !== planFilter)     return false;
-      return true;
-    });
-  }, [initialItems, search, statusFilter, licenseFilter, verticalFilter, planFilter]);
+  // El filtro de licencia compara el estado CONFIGURADO, no el efectivo.
+  const filtered = useMemo(
+    () =>
+      filterPlatformOrganizations(initialItems, {
+        search, statusFilter, licenseFilter, verticalFilter, planFilter,
+      }),
+    [initialItems, search, statusFilter, licenseFilter, verticalFilter, planFilter],
+  );
 
   const hasActiveFilters =
     !!search.trim() || !!statusFilter || !!licenseFilter || !!verticalFilter || !!planFilter;

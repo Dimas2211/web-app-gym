@@ -7,6 +7,8 @@
 // string unions para evitar acoplamiento.
 // ─────────────────────────────────────────────────────────────────
 
+import type { PlatformEffectiveLicenseSummary } from "../lib/effective-license-summary";
+
 // ── Enums Platform ────────────────────────────────────────────────
 
 export type PlatformOrganizationStatus = "PENDING" | "ACTIVE" | "SUSPENDED" | "CANCELLED";
@@ -161,9 +163,20 @@ export interface PlatformOrganizationListItem {
   provisioning_status: PlatformProvisioningStatus;
   country_code:        string | null;
   timezone:            string | null;
+  trial_ends_at:       Date | null;
+  license_expires_at:  Date | null;
   vertical:            { id: string; code: string; name: string } | null;
   plan:                { id: string; code: string; name: string } | null;
   created_at:          Date;
+}
+
+/**
+ * Fila del listado de organizaciones: agrega el estado EFECTIVO de
+ * licencia derivado en servidor por la política central (nunca
+ * persistido). Ver lib/effective-license-summary.ts.
+ */
+export interface PlatformOrganizationListRow extends PlatformOrganizationListItem {
+  effective_license: PlatformEffectiveLicenseSummary;
 }
 
 export interface PlatformOrganizationDetail extends PlatformOrganizationListItem {

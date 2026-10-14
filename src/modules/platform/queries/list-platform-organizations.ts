@@ -8,9 +8,10 @@
 import { prisma } from "@/lib/db/prisma";
 import type {
   PlatformOrganizationFilters,
-  PlatformOrganizationListItem,
+  PlatformOrganizationListRow,
   PlatformListResult,
 } from "../types/platform.types";
+import { summarizeEffectiveLicense } from "../lib/effective-license-summary";
 
 const DEFAULT_PAGE_SIZE = 100;
 const MAX_PAGE_SIZE     = 500;
@@ -27,6 +28,8 @@ const ORG_LIST_SELECT = {
   provisioning_status: true,
   country_code:        true,
   timezone:            true,
+  trial_ends_at:       true,
+  license_expires_at:  true,
   created_at:          true,
   vertical: {
     select: { id: true, code: true, name: true },
@@ -51,9 +54,15 @@ function buildWhere(filters: PlatformOrganizationFilters) {
   };
 }
 
+/**
+ * `now` es inyectable solo para tests. Un único `now` por carga: todas
+ * las filas se evalúan contra el mismo instante (cada una en SU
+ * timezone, vía la política central).
+ */
 export async function listPlatformOrganizationsQuery(
   filters: PlatformOrganizationFilters = {},
-): Promise<PlatformListResult<PlatformOrganizationListItem>> {
+  now: Date = new Date(),
+): Promise<PlatformListResult<PlatformOrganizationListRow>> {
   const pageSize = Math.min(MAX_PAGE_SIZE, Math.max(1, filters.page_size ?? DEFAULT_PAGE_SIZE));
   const where    = buildWhere(filters);
 
@@ -67,18 +76,22 @@ export async function listPlatformOrganizationsQuery(
     prisma.platformOrganization.count({ where }),
   ]);
 
-  const items: PlatformOrganizationListItem[] = rows.map((r) => ({
+  const items: PlatformOrganizationListRow[] = rows.map((r) => ({
     id:                  r.id,
     code:                r.code,
     name:                r.name,
     legal_name:          r.legal_name,
     tenant_id:           r.tenant_id,
-    status:              r.status              as PlatformOrganizationListItem["status"],
-    license_status:      r.license_status      as PlatformOrganizationListItem["license_status"],
-    billing_cycle:       r.billing_cycle       as PlatformOrganizationListItem["billing_cycle"],
-    provisioning_status: r.provisioning_status as PlatformOrganizationListItem["provisioning_status"],
+    status:              r.status              as PlatformOrganizationListRow["status"],
+    license_status:      r.license_status      as PlatformOrganizationListRow["license_status"],
+    billing_cycle:       r.billing_cycle       as PlatformOrganizationListRow["billing_cycle"],
+    provisioning_status: r.provisioning_status as PlatformOrganizationListRow["provisioning_status"],
     country_code:        r.country_code,
     timezone:            r.timezone,
+    trial_ends_at:       r.trial_ends_at,
+    license_expires_at:  r.license_expires_at,
+    // Estado EFECTIVO derivado (política central) — nunca persistido.
+    effective_license:   summarizeEffectiveLicense(r, now),
     vertical:            r.vertical,
     plan:                r.plan,
     created_at:          r.created_at,

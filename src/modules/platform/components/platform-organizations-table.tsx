@@ -5,7 +5,8 @@
 // ─────────────────────────────────────────────────────────────────
 
 import Link from "next/link";
-import type { PlatformOrganizationListItem } from "../types/platform.types";
+import type { PlatformOrganizationListRow } from "../types/platform.types";
+import { EFFECTIVE_LICENSE_TONE_COLORS } from "../lib/effective-license-summary";
 
 const ORG_STATUS_COLORS: Record<string, string> = {
   PENDING:   "bg-yellow-100 text-yellow-700",
@@ -23,7 +24,7 @@ const LICENSE_STATUS_COLORS: Record<string, string> = {
 };
 
 interface PlatformOrganizationsTableProps {
-  items:     PlatformOrganizationListItem[];
+  items:     PlatformOrganizationListRow[];
   isLoading: boolean;
 }
 
@@ -57,6 +58,7 @@ export function PlatformOrganizationsTable({
           <th className="text-left px-4 py-2.5 text-xs font-semibold text-zinc-500">Plan</th>
           <th className="text-left px-4 py-2.5 text-xs font-semibold text-zinc-500">Status</th>
           <th className="text-left px-4 py-2.5 text-xs font-semibold text-zinc-500">Licencia</th>
+          <th className="text-left px-4 py-2.5 text-xs font-semibold text-zinc-500">Estado efectivo</th>
           <th className="text-left px-4 py-2.5 text-xs font-semibold text-zinc-500">País</th>
           <th className="px-4 py-2.5 text-xs font-semibold text-zinc-500 text-right">Acciones</th>
         </tr>
@@ -83,6 +85,12 @@ export function PlatformOrganizationsTable({
             <td className="px-4 py-3">
               <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${LICENSE_STATUS_COLORS[org.license_status] ?? "bg-zinc-100 text-zinc-500"}`}>
                 {org.license_status}
+              </span>
+            </td>
+            <td className="px-4 py-3">
+              {/* Derivado en servidor por la política central — mismo label/color que el detalle. */}
+              <span className={`inline-block text-xs font-semibold px-2 py-0.5 rounded-full whitespace-nowrap ${EFFECTIVE_LICENSE_TONE_COLORS[org.effective_license.tone]}`}>
+                {org.effective_license.label}
               </span>
             </td>
             <td className="px-4 py-3 text-xs text-zinc-500">{org.country_code ?? "—"}</td>
