@@ -28,6 +28,11 @@ const ORG_ACTIVE: RuntimeOrganizationLookupResult = {
   name: "TrustMe (synthetic)",
   tenant_id: "tenant-1",
   status: "ACTIVE",
+  license_status: "ACTIVE",
+  billing_cycle: "MONTHLY",
+  trial_ends_at: null,
+  license_expires_at: null,
+  timezone: "America/El_Salvador",
 };
 
 describe("resolveOrganizationByHostname", () => {

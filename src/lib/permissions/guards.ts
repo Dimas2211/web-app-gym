@@ -4,6 +4,7 @@ import type { UserRole } from "@prisma/client";
 import { isAuthScope, type CoreSessionUser } from "@/core/auth/types";
 import { getCapabilities } from "@/core/permissions/role-capabilities";
 import { canAccessPlatformAdmin } from "@/core/permissions/platform-access";
+import { enforceRuntimeOrganizationAccess } from "@/modules/platform/runtime/runtime-organization-access-gate";
 
 /**
  * Usuario de sesión autenticado en el sistema GYM.
@@ -34,12 +35,18 @@ export async function requireClient(): Promise<SessionUser> {
   return user;
 }
 
-/** Retorna el usuario de sesión o redirige a /login */
+/**
+ * Retorna el usuario de sesión o redirige a /login.
+ *
+ * RUNTIME LICENSE ENFORCEMENT — para auth_scope="RUNTIME_CLIENT" además
+ * revalida en vivo la licencia de la organización (política central) y
+ * redirige a /access-restricted si está bloqueada. PLATFORM no cambia.
+ */
 export async function getSessionOrRedirect(): Promise<SessionUser> {
   const session = await auth();
   if (!session?.user) redirect("/login");
   const u = session.user;
-  return {
+  const user: SessionUser = {
     id: u.id!,
     name: u.name,
     email: u.email,
@@ -56,6 +63,8 @@ export async function getSessionOrRedirect(): Promise<SessionUser> {
     // ocurre en requireRuntimeOrganizationContext(), no aquí.
     organization_id: typeof u.organization_id === "string" ? u.organization_id : undefined,
   };
+  await enforceRuntimeOrganizationAccess(user);
+  return user;
 }
 
 /** Requiere rol admin (super_admin o branch_admin), redirige al dashboard si no */

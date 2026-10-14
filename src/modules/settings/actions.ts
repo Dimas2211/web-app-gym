@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import type { UserRole } from "@prisma/client";
 import {
   requireSuperAdmin,
+  requireGlobalAdmin,
   requireAdmin,
   requireClientManager,
   canManageClient,
@@ -15,11 +16,47 @@ import { gymSchema, sportSchema, goalSchema, gymSettingsSchema } from "./schemas
 import {
   requireOperationalContext,
   OperationalContextError,
+  type OperationalContextHandle,
 } from "@/modules/platform/runtime/require-operational-context";
+import { getCapabilities } from "@/core/permissions/role-capabilities";
+import { requireEffectiveVertical } from "@/modules/platform/runtime/effective-vertical";
 
 export type SettingsActionState =
   | { errors?: Record<string, string[]>; error?: string }
   | undefined;
+
+// ══════════════════════════════════════════════
+// Contexto de escritura — superficies tenant-level
+// ══════════════════════════════════════════════
+
+/**
+ * Datos del gimnasio y Códigos operativos son configuración del TENANT
+ * (no Platform Admin): mismo patrón que Seguridad —
+ *   requireGlobalAdmin() (gate JWT)
+ *   → requireOperationalContext({ write: true }) (DB efectiva; Support
+ *     Session → READ_ONLY)
+ *   → rol LIVE global (effectiveUser.role) — un super_admin degradado en
+ *     runtimeDb no conserva la edición por un JWT stale.
+ * Válido para PLATFORM super_admin y RUNTIME_CLIENT super_admin. NO usar
+ * para Sports/Goals: catálogos globales sin tenant_id → Platform-only.
+ */
+async function openTenantSettingsWriteContext(): Promise<
+  { ok: true; handle: OperationalContextHandle } | { ok: false; error: string }
+> {
+  const sessionUser = await requireGlobalAdmin();
+  let handle: OperationalContextHandle;
+  try {
+    handle = await requireOperationalContext(sessionUser, { write: true });
+  } catch (err) {
+    if (err instanceof OperationalContextError) return { ok: false, error: err.userMessage };
+    throw err;
+  }
+  if (!getCapabilities(handle.context.effectiveUser.role).isGlobal) {
+    await handle.dispose();
+    return { ok: false, error: "Sin permisos para esta operación." };
+  }
+  return { ok: true, handle };
+}
 
 // ══════════════════════════════════════════════
 // GYM
@@ -29,24 +66,16 @@ export async function updateGymAction(
   _prev: SettingsActionState,
   formData: FormData
 ): Promise<SettingsActionState> {
-  const user = await requireSuperAdmin();
-
-  // FASE VI-D7: contexto operacional runtime — reemplaza
-  // isRuntimeReadOnlyActive() + Prisma global. requireSuperAdmin() ya
-  // exige auth_scope="PLATFORM" (Platform Admin), por lo que esta acción
-  // es PLATFORM_NATIVE_ONLY — RUNTIME_CLIENT nunca la alcanza — pero se
-  // enruta igual por context.client para no dejar un global.prisma
-  // reachable en el archivo y por consistencia con el resto del módulo.
-  let handle;
-  try {
-    handle = await requireOperationalContext(user, { write: true });
-  } catch (err) {
-    if (err instanceof OperationalContextError) return { error: err.userMessage };
-    throw err;
-  }
-  const { context, dispose } = handle;
+  // Runtime-aware: PLATFORM y RUNTIME_CLIENT super_admin editan SU gym
+  // efectivo sobre context.client — ver openTenantSettingsWriteContext().
+  const opened = await openTenantSettingsWriteContext();
+  if (!opened.ok) return { error: opened.error };
+  const { context, dispose } = opened.handle;
 
   try {
+    // Superficie GYM-only (PASO 6F) — también server-side en la acción.
+    await requireEffectiveVertical(context.tenantId, "GYM");
+
     const parsed = gymSchema.safeParse({
       name: formData.get("name"),
       slug: formData.get("slug"),
@@ -93,6 +122,10 @@ export async function createSportAction(
   _prev: SettingsActionState,
   formData: FormData
 ): Promise<SettingsActionState> {
+  // Sport/Goal = catálogo GLOBAL sin tenant_id: en un Shared Runtime un
+  // write de RUNTIME_CLIENT alteraría el catálogo de otros tenants. Todos
+  // los writes de Sports/Goals siguen siendo Platform Admin only
+  // (requireSuperAdmin, auth_scope=PLATFORM) — RUNTIME_CLIENT solo lee.
   const user = await requireSuperAdmin();
 
   // PASO 6F: Sport es catálogo global (sin tenant_id), pero esta superficie
@@ -351,16 +384,10 @@ export async function updateGymSettingsAction(
   _prev: SettingsActionState,
   formData: FormData
 ): Promise<SettingsActionState> {
-  const user = await requireSuperAdmin();
-
-  let handle;
-  try {
-    handle = await requireOperationalContext(user, { write: true });
-  } catch (err) {
-    if (err instanceof OperationalContextError) return { error: err.userMessage };
-    throw err;
-  }
-  const { context, dispose } = handle;
+  // Runtime-aware: GymSettings del tenant efectivo — ver openTenantSettingsWriteContext().
+  const opened = await openTenantSettingsWriteContext();
+  if (!opened.ok) return { error: opened.error };
+  const { context, dispose } = opened.handle;
 
   try {
     const parsed = gymSettingsSchema.safeParse({
@@ -407,8 +434,8 @@ export async function updateUserOperationalCodeAction(
   // explícito de rol super_admin (LIVE para RUNTIME_CLIENT) en vez de
   // requireSuperAdmin() (el gate de Platform Admin desde VI-B), que la
   // habría dejado permanentemente inalcanzable para cualquier identidad
-  // RUNTIME_CLIENT. No se toca requireSuperAdmin() en sí ni el resto de
-  // acciones de este archivo (gym/sports/goals — fuera de alcance).
+  // RUNTIME_CLIENT. No se toca requireSuperAdmin() en sí (gym/codes usan
+  // openTenantSettingsWriteContext(); sports/goals siguen Platform-only).
   const sessionUser = await requireAdmin();
 
   let handle;

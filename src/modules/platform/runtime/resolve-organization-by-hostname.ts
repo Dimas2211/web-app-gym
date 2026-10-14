@@ -39,7 +39,12 @@ if (typeof window !== "undefined") {
 
 import { controlPlanePrisma } from "./control-plane-prisma";
 import { normalizeRequestHostname } from "@/lib/http/hostname";
-import type { PlatformOrganizationStatus } from "@prisma/client";
+import type {
+  PlatformOrganizationStatus,
+  PlatformLicenseStatus,
+  PlatformBillingCycle,
+} from "@prisma/client";
+import { evaluateTechnicalOrganizationEligibility } from "./organization-access-policy";
 
 export type RuntimeOrganizationLookupErrorCode =
   | "RUNTIME_ORG_INVALID_HOSTNAME"
@@ -61,7 +66,26 @@ export interface RuntimeOrganizationLookupResult {
   name: string;
   tenant_id: string | null;
   status: PlatformOrganizationStatus;
+  // RUNTIME LICENSE ENFORCEMENT — campos comerciales para la política
+  // central evaluateOrganizationAccess() (organization-access-policy.ts).
+  license_status: PlatformLicenseStatus;
+  billing_cycle: PlatformBillingCycle;
+  trial_ends_at: Date | null;
+  license_expires_at: Date | null;
+  timezone: string | null;
 }
+
+const ORGANIZATION_LOOKUP_SELECT = {
+  id: true,
+  name: true,
+  tenant_id: true,
+  status: true,
+  license_status: true,
+  billing_cycle: true,
+  trial_ends_at: true,
+  license_expires_at: true,
+  timezone: true,
+} as const;
 
 /** Forma mínima de client inyectable — facilita tests sin mockear todo PrismaClient. */
 export interface OrganizationLookupClient {
@@ -69,7 +93,7 @@ export interface OrganizationLookupClient {
     findMany: (args: {
       where: { domain: { equals: string; mode: "insensitive" } };
       take: number;
-      select: { id: true; name: true; tenant_id: true; status: true };
+      select: typeof ORGANIZATION_LOOKUP_SELECT;
     }) => Promise<RuntimeOrganizationLookupResult[]>;
   };
 }
@@ -93,7 +117,7 @@ export async function resolveOrganizationByHostname(
   const candidates = await client.platformOrganization.findMany({
     where: { domain: { equals: normalized, mode: "insensitive" } },
     take: 2,
-    select: { id: true, name: true, tenant_id: true, status: true },
+    select: ORGANIZATION_LOOKUP_SELECT,
   });
 
   if (candidates.length === 0) {
@@ -118,9 +142,11 @@ export async function resolveOrganizationByHostname(
 //
 // Distingue elegibilidad TÉCNICA de auth (¿puede este status intentar
 // login en absoluto?) de enforcement de licencia (trial vencido, plan
-// suspendido, etc.) — esto último NO se implementa aquí: no hay
-// suficiente política comercial acordada para bloquear PENDING, y no
-// corresponde inventarla en esta fase (ver ETAPA G del prompt VI-C).
+// suspendido, etc.). RUNTIME LICENSE ENFORCEMENT: la regla técnica vive
+// ahora en organization-access-policy.ts (evaluateTechnicalOrganizationEligibility)
+// junto con la capa comercial (evaluateOrganizationAccess). Esta función
+// se conserva como atajo técnico SOLAMENTE — los puntos de acceso
+// runtime (login y revalidación live) deben usar evaluateOrganizationAccess.
 //
 // Basado únicamente en el enum real PlatformOrganizationStatus
 // (PENDING | ACTIVE | SUSPENDED | CANCELLED):
@@ -133,7 +159,5 @@ export async function resolveOrganizationByHostname(
 export function canOrganizationAuthenticate(org: {
   status: PlatformOrganizationStatus;
 }): boolean {
-  if (org.status === "SUSPENDED") return false;
-  if (org.status === "CANCELLED") return false;
-  return true;
+  return evaluateTechnicalOrganizationEligibility(org) === "OK";
 }

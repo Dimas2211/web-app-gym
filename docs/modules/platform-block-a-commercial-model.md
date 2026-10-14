@@ -2,6 +2,8 @@
 
 Estado: modelo administrativo implementado. **NO incluye enforcement de runtime todavía** (bloque posterior).
 
+> *Nota post-cierre*: el enforcement de módulos/capacidades se implementó en el Bloque B (`platform-block-b-runtime-enforcement.md`) y el de licencia (`license_status`, trial y vencimiento) en Runtime License Enforcement (`platform-runtime-license-enforcement.md`). La frase de arriba describe el estado al cierre de este bloque.
+
 Ver resumen ejecutivo también en `docs/context/current-state.md` § "Platform — Bloque A".
 
 ## Modelos nuevos

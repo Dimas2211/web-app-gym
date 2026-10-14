@@ -39,7 +39,7 @@ function baseUser(overrides: Partial<CoreSessionUser> = {}): Pick<
 }
 
 function fakeControlPlane(
-  org: { id: string; name: string; tenant_id: string | null; status: string } | null,
+  org: Record<string, unknown> | null,
 ): OrganizationContextLookupClient {
   return {
     platformOrganization: {
@@ -48,7 +48,17 @@ function fakeControlPlane(
   } as unknown as OrganizationContextLookupClient;
 }
 
-const ORG_OK = { id: "org-1", name: "Org 1", tenant_id: "tenant-1", status: "ACTIVE" };
+const ORG_OK = {
+  id: "org-1",
+  name: "Org 1",
+  tenant_id: "tenant-1",
+  status: "ACTIVE",
+  license_status: "ACTIVE",
+  billing_cycle: "MONTHLY",
+  trial_ends_at: null,
+  license_expires_at: null,
+  timezone: "America/El_Salvador",
+};
 
 describe("requireRuntimeOrganizationContext — fail closed", () => {
   it("17/18. auth_scope PLATFORM nunca puede usar este helper como cliente", async () => {
@@ -271,6 +281,79 @@ describe("requireRuntimeOrganizationContext — fail closed", () => {
         code: "RUNTIME_USER_TENANT_MISMATCH",
       });
       expect(disconnect).toHaveBeenCalledTimes(1);
+    });
+  });
+});
+
+describe("RUNTIME LICENSE ENFORCEMENT — revalidación live de licencia (sesión JWT ya abierta)", () => {
+  function okRuntimeClient() {
+    const disconnect = vi.fn().mockResolvedValue(undefined);
+    createRuntimePrismaClientMock.mockReturnValue({
+      client: {
+        user: { findUnique: vi.fn().mockResolvedValue({ status: "active", tenant_id: "tenant-1", role: "super_admin" }) },
+        branch: { findFirst: vi.fn().mockResolvedValue({ id: "branch-1" }) },
+      },
+      disconnect,
+    });
+    resolveRuntimeDatabaseProfileForOrganizationMock.mockResolvedValue({ id: "profile-1" });
+    return disconnect;
+  }
+
+  it("selecciona los campos comerciales en vivo desde Control Plane", async () => {
+    okRuntimeClient();
+    const client = fakeControlPlane(ORG_OK);
+    await requireRuntimeOrganizationContext(baseUser(), client);
+    expect(client.platformOrganization.findUnique).toHaveBeenCalledWith({
+      where: { id: "org-1" },
+      select: expect.objectContaining({
+        license_status: true,
+        billing_cycle: true,
+        trial_ends_at: true,
+        license_expires_at: true,
+        timezone: true,
+      }),
+    });
+  });
+
+  it("licencia cambiada a SUSPENDED después del login → bloquea el siguiente request (mismo JWT), sin abrir runtime DB", async () => {
+    resolveRuntimeDatabaseProfileForOrganizationMock.mockClear();
+    const client = fakeControlPlane({ ...ORG_OK, license_status: "SUSPENDED" });
+    await expect(requireRuntimeOrganizationContext(baseUser(), client)).rejects.toMatchObject({
+      code: "ORGANIZATION_ACCESS_RESTRICTED",
+      accessReason: "LICENSE_SUSPENDED",
+    });
+    expect(resolveRuntimeDatabaseProfileForOrganizationMock).not.toHaveBeenCalled();
+  });
+
+  it("trial vencido por fecha → ORGANIZATION_ACCESS_RESTRICTED / TRIAL_EXPIRED", async () => {
+    const client = fakeControlPlane({
+      ...ORG_OK,
+      license_status: "TRIAL",
+      trial_ends_at: new Date("2020-01-01"),
+    });
+    await expect(requireRuntimeOrganizationContext(baseUser(), client)).rejects.toMatchObject({
+      code: "ORGANIZATION_ACCESS_RESTRICTED",
+      accessReason: "TRIAL_EXPIRED",
+    });
+  });
+
+  it("licencia reactivada → la misma sesión vuelve a resolver sin emitir un nuevo JWT", async () => {
+    const user = baseUser();
+    await expect(
+      requireRuntimeOrganizationContext(user, fakeControlPlane({ ...ORG_OK, license_status: "EXPIRED" })),
+    ).rejects.toMatchObject({ code: "ORGANIZATION_ACCESS_RESTRICTED" });
+
+    okRuntimeClient();
+    const handle = await requireRuntimeOrganizationContext(user, fakeControlPlane(ORG_OK));
+    expect(handle.context.tenantId).toBe("tenant-1");
+    await handle.dispose();
+  });
+
+  it("organización SUSPENDED (capa técnica) conserva ORGANIZATION_NOT_ELIGIBLE", async () => {
+    const client = fakeControlPlane({ ...ORG_OK, status: "CANCELLED" });
+    await expect(requireRuntimeOrganizationContext(baseUser(), client)).rejects.toMatchObject({
+      code: "ORGANIZATION_NOT_ELIGIBLE",
+      accessReason: "ORGANIZATION_CANCELLED",
     });
   });
 });

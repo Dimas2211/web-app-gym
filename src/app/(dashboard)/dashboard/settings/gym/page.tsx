@@ -1,33 +1,53 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { requireSuperAdmin } from "@/lib/permissions/guards";
+import type { UserRole } from "@prisma/client";
+import { requireGlobalAdmin } from "@/lib/permissions/guards";
+import { getCapabilities } from "@/core/permissions/role-capabilities";
 import { getGym } from "@/modules/settings/queries";
 import { GymForm } from "@/components/forms/gym-form";
 import { updateGymAction } from "@/modules/settings/actions";
-import { resolveEffectiveTenantContext } from "@/modules/platform/runtime/effective-tenant-context";
+import {
+  requireOperationalContext,
+  OperationalContextError,
+} from "@/modules/platform/runtime/require-operational-context";
 import { requireEffectiveVertical } from "@/modules/platform/runtime/effective-vertical";
 
 export default async function GymSettingsPage() {
-  const user = await requireSuperAdmin();
+  // Configuración del TENANT (no Platform Admin) — mismo patrón que
+  // Seguridad: requireGlobalAdmin() → requireOperationalContext() → rol
+  // LIVE. PLATFORM super_admin y RUNTIME_CLIENT super_admin editan SU gym
+  // efectivo; la Server Action revalida lo mismo (updateGymAction).
+  const sessionUser = await requireGlobalAdmin();
 
-  // PASO 6F: superficie GYM-only — bloquea server-side si la organización
-  // efectiva no tiene vertical GYM (ej. TrustMe: Commerce-only), sin
-  // importar si hay o no sesión runtime (reusable cuando exista login
-  // normal como una organización Commerce-only, ver Fase 10).
-  // PASO 6E: además, página de escritura pura (edición del único registro
-  // Gym del tenant). Bajo sesión runtime "Operar como cliente" redirige
-  // ANTES de cargarlo — nunca se renderiza el formulario contra el
-  // gimnasio real del super_admin ni contra el del tenant runtime.
-  const { context, dispose } = await resolveEffectiveTenantContext(user);
-  const effectiveUser = context.runtime ? { ...user, tenant_id: context.tenantId } : user;
+  let handle;
+  try {
+    handle = await requireOperationalContext(sessionUser);
+  } catch (err) {
+    if (err instanceof OperationalContextError) {
+      return <div className="p-8 text-sm text-red-500">{err.userMessage}</div>;
+    }
+    throw err;
+  }
+  const { context, dispose } = handle;
 
   try {
+    // Rol LIVE (RUNTIME_CLIENT: leído de runtimeDb) — un super_admin
+    // degradado no conserva acceso solo por un JWT stale.
+    if (!getCapabilities(context.effectiveUser.role as UserRole).isGlobal) {
+      redirect("/dashboard");
+    }
+
+    // PASO 6F: superficie GYM-only — bloquea server-side si la organización
+    // efectiva no tiene vertical GYM (ej. TrustMe: Commerce-only).
     await requireEffectiveVertical(context.tenantId, "GYM");
 
-    if (context.runtime) {
+    // PASO 6E: Support Session ("Operar como cliente", solo lectura) no
+    // edita — redirige ANTES de cargar el registro (comportamiento previo).
+    if (context.readOnly) {
       redirect("/dashboard/settings");
     }
 
+    const effectiveUser = { ...sessionUser, tenant_id: context.tenantId };
     const gym = await getGym(effectiveUser, context.client);
     if (!gym) notFound();
 

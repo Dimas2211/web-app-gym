@@ -20,6 +20,7 @@
 - commerce/dte — **FEX-PROD-0B (2026-09-25): código FEX 11 migrado a schema v3** (`fex-11-v3.schema.json`, copia oficial md5 `e40610cf…`; v1 solo legacy). Builder único v3, país receptor CAT-020 (`Country`) con corrección explícita de clientes legados, distrito desde `Municipality.district_code`, firma/transmisión exigen JSON v3. Solo **exportación de servicios** emitible: bienes bloqueados porque `emisor.tipoRegimen` no tiene catálogo oficial. Sin cambios Prisma. **No es FEX V3 CODE READY** — gaps abiertos: tipoRegimen (bienes), formato distrito/municipio CAT-013 v1.2, certificación MH TEST v3. `READY_FOR_FEX_PROD_1 = NO`. Ver §16 de docs/modules/fex11-production-readiness.md.
 - commerce/dte — **FEX11-FINAL-CLOSURE (2026-09-30): FEX 11 es un tipo DTE normal de `fiscal.dte`.** Acceso = módulo `fiscal.dte` + `DteIssuerConfig` activo único en la sucursal; ambiente desde `DteIssuerConfig.environment` → `DteOutgoingDocument.environment`. Retirados los flags `DTE_FEX11_TEST_ENABLED` / `DTE_FEX11_ENABLED` / `DTE_FEX11_PRODUCTION_ENABLED`, la capability `fiscal.dte.export` y la consola dev `/dashboard/dte/fex11-test`. Servicios emitibles (MH TEST PROCESADO); bienes/mixto siguen fail-closed (`tipoRegimen` sin fuente oficial). Sin cambios Prisma. Supera las notas FEX-PROD-0/0B de arriba. Ver docs/modules/fex11-standard-dte.md.
 - commerce/dte — **DTE-INTERNAL-CERTIFICATION (2026-10-12): `INTERNAL_DTE_CERTIFICATION = PASS`, `READY_FOR_EXTERNAL_MH_CERTIFICATION = YES`.** Ver "Estado vigente — DTE" abajo y docs/certification/dte-internal-certification.md.
+- platform — **RUNTIME LICENSE ENFORCEMENT (2026-10-13): la licencia comercial SÍ se aplica en runtime.** Política central única `evaluateOrganizationAccess()` (capa técnica `status` + capa comercial `license_status`/fechas date-only inclusivas en el timezone de la organización), aplicada en el login runtime y revalidada en vivo por request en `requireRuntimeOrganizationContext()`. Una licencia bloqueada redirige a `/access-restricted`. PLATFORM/Support Session sin gate comercial. Settings gym/codes editables por RUNTIME_CLIENT super_admin (rol LIVE); Sports/Goals read-only sin counts cross-tenant. Sin migración. Ver docs/modules/platform-runtime-license-enforcement.md.
 - commerce/cash cerrado y operativo — apertura/cierre de sesión, movimientos manuales, corte de caja, historial, exportación PDF/Excel, asociación automática venta → sesión. Ver docs/modules/cash-summary.md.
 
 ## Identidad activa
@@ -43,6 +44,7 @@
 - **Clientes Shared**: Commerce Pilot (`commerce-pilot-0001`, COMMERCE_ONLY, certificado, aislamiento vs TrustMe PASS) y Metatraining (`meta-training`, primer cliente Shared real; primer Data Onboarding EXECUTE en PRODUCTION: `categories`, created = 1).
 - **CAT-022**: solo `02`, `03`, `13`, `36`, `37`. `00 — Consumidor final` retirado; Consumidor Final es `taxpayer_type = FINAL_CONSUMER`.
 - **DTE Shared**: onboarding fiscal **DEFERRED**. Metatraining sin `DteIssuerConfig`/`DteCredential`/`DteCorrelative`/`DteOutgoingDocument`. No emitir/transmitir DTE desde Support Session (readOnly).
+- **Licencia runtime**: enforcement real vigente — `evaluateOrganizationAccess()` en login + revalidación live por request; bloqueo → `/access-restricted`; solo afecta `RUNTIME_CLIENT`. Deuda: `provisioning-validator.ts` aún no delega en la política. Ver `docs/modules/platform-runtime-license-enforcement.md`.
 - **Deuda diferida (no bloqueante)**: onboarding fiscal Shared, credenciales MH por tenant, pruebas de volumen y concurrencia de Data Onboarding, RLS.
 
 ## Estado vigente — DTE (fuente rápida de verdad, 2026-10-12)
@@ -170,7 +172,9 @@ anterior; hoy la identidad es `User.tenant_id` / `RuntimeTenant.id`.
   duplicado), nunca elige "el primero". `canOrganizationAuthenticate()`
   deniega técnicamente solo `SUSPENDED`/`CANCELLED` — `PENDING` se permite
   (elegibilidad técnica; enforcement de licencia es otra capa, no
-  implementada aquí).
+  implementada aquí). *(HISTÓRICO / SUPERADO 2026-10-13: el enforcement de
+  licencia ya está implementado — ver
+  `docs/modules/platform-runtime-license-enforcement.md`.)*
 - **Runtime user auth** (`src/modules/platform/runtime/authenticate-runtime-user.ts`):
   reusa `withOrganizationRuntimePrisma` (runtime-database-router.ts) — nunca
   un router paralelo. Exige `user.gym_id === organization.tenant_id`

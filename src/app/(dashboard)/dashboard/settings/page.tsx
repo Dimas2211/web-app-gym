@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { requireGlobalAdmin } from "@/lib/permissions/guards";
+import { canAccessPlatformAdmin } from "@/core/permissions/platform-access";
 import { getGym, getSports, getGoals } from "@/modules/settings/queries";
 import { resolveEffectiveDashboardContext } from "@/modules/platform/runtime/resolve-effective-dashboard-context";
 
@@ -15,6 +16,11 @@ export default async function SettingsPage() {
   const { context, dispose } = await resolveEffectiveDashboardContext(user, []);
   const effectiveUser = context.runtime ? { ...user, tenant_id: context.tenantId } : user;
   const isGym = context.verticalCode === "GYM";
+  // Deportes/Metas son catálogo global sin tenant_id: solo Platform Admin
+  // (fuera de Support Session) los gestiona; el resto solo consulta. UX
+  // únicamente — el bloqueo real está en las rutas new/edit y las actions.
+  const canManageGlobalCatalogs = canAccessPlatformAdmin(user) && !context.isRuntime;
+  const catalogCta = canManageGlobalCatalogs ? "Gestionar →" : "Consultar →";
 
   const [gym, sports, goals] = await Promise.all([
     isGym ? getGym(effectiveUser, context.client) : Promise.resolve(null),
@@ -131,7 +137,7 @@ export default async function SettingsPage() {
             </div>
           </div>
           <div className="mt-4 text-xs text-zinc-400 group-hover:text-zinc-600 transition-colors">
-            Gestionar →
+            {catalogCta}
           </div>
         </Link>
         )}
@@ -168,7 +174,7 @@ export default async function SettingsPage() {
             </div>
           </div>
           <div className="mt-4 text-xs text-zinc-400 group-hover:text-zinc-600 transition-colors">
-            Gestionar →
+            {catalogCta}
           </div>
         </Link>
         )}
@@ -230,8 +236,9 @@ export default async function SettingsPage() {
       {/* Nota de alcance */}
       {isGym && (
         <p className="text-xs text-zinc-400">
-          Los cambios en catálogos globales (deportes, metas) afectan a todos los entornos del sistema.
-          Solo el Super Admin puede modificarlos.
+          {canManageGlobalCatalogs
+            ? "Los cambios en catálogos globales (deportes, metas) afectan a todos los entornos del sistema. Solo el administrador de plataforma puede modificarlos."
+            : "Deportes y metas son catálogos globales administrados por Zolvi. Disponibles en modo solo lectura."}
         </p>
       )}
     </div>

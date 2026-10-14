@@ -157,6 +157,11 @@ describe("authorizeCredentials — rama RUNTIME_CLIENT", () => {
       name: "TrustMe",
       tenant_id: "tenant-trustme",
       status: "ACTIVE",
+      license_status: "ACTIVE",
+      billing_cycle: "MONTHLY",
+      trial_ends_at: null,
+      license_expires_at: null,
+      timezone: "America/El_Salvador",
     });
     authenticateRuntimeUserMock.mockResolvedValue({
       id: "u1",
@@ -225,6 +230,11 @@ describe("authorizeCredentials — rama RUNTIME_CLIENT", () => {
       name: "Suspended Org",
       tenant_id: "tenant-x",
       status: "SUSPENDED",
+      license_status: "ACTIVE",
+      billing_cycle: "MONTHLY",
+      trial_ends_at: null,
+      license_expires_at: null,
+      timezone: "America/El_Salvador",
     });
 
     const result = await authorizeCredentials(
@@ -245,6 +255,11 @@ describe("authorizeCredentials — rama RUNTIME_CLIENT", () => {
       name: "Org Y",
       tenant_id: "tenant-y",
       status: "ACTIVE",
+      license_status: "ACTIVE",
+      billing_cycle: "MONTHLY",
+      trial_ends_at: null,
+      license_expires_at: null,
+      timezone: "America/El_Salvador",
     });
     authenticateRuntimeUserMock.mockRejectedValue(new RuntimeAuthError("RUNTIME_PROFILE_MISSING"));
 
@@ -266,6 +281,11 @@ describe("authorizeCredentials — rama RUNTIME_CLIENT", () => {
       name: "Org Z",
       tenant_id: "tenant-z",
       status: "ACTIVE",
+      license_status: "ACTIVE",
+      billing_cycle: "MONTHLY",
+      trial_ends_at: null,
+      license_expires_at: null,
+      timezone: "America/El_Salvador",
     });
     authenticateRuntimeUserMock.mockRejectedValue(new RuntimeAuthError("RUNTIME_DB_UNAVAILABLE"));
 
@@ -286,6 +306,11 @@ describe("authorizeCredentials — rama RUNTIME_CLIENT", () => {
       name: "Org W",
       tenant_id: "tenant-w",
       status: "ACTIVE",
+      license_status: "ACTIVE",
+      billing_cycle: "MONTHLY",
+      trial_ends_at: null,
+      license_expires_at: null,
+      timezone: "America/El_Salvador",
     });
     authenticateRuntimeUserMock.mockRejectedValue(new RuntimeAuthError("RUNTIME_PASSWORD_INVALID"));
 
@@ -306,6 +331,11 @@ describe("authorizeCredentials — rama RUNTIME_CLIENT", () => {
       name: "Org V",
       tenant_id: "tenant-v",
       status: "ACTIVE",
+      license_status: "ACTIVE",
+      billing_cycle: "MONTHLY",
+      trial_ends_at: null,
+      license_expires_at: null,
+      timezone: "America/El_Salvador",
     });
     authenticateRuntimeUserMock.mockRejectedValue(new RuntimeAuthError("RUNTIME_TENANT_MISMATCH"));
 
@@ -326,6 +356,11 @@ describe("authorizeCredentials — rama RUNTIME_CLIENT", () => {
       name: "Org 15",
       tenant_id: "tenant-15",
       status: "ACTIVE",
+      license_status: "ACTIVE",
+      billing_cycle: "MONTHLY",
+      trial_ends_at: null,
+      license_expires_at: null,
+      timezone: "America/El_Salvador",
     });
     authenticateRuntimeUserMock.mockResolvedValue({
       id: "u15",
@@ -353,6 +388,11 @@ describe("authorizeCredentials — rama RUNTIME_CLIENT", () => {
       name: "Org 16",
       tenant_id: "tenant-16",
       status: "ACTIVE",
+      license_status: "ACTIVE",
+      billing_cycle: "MONTHLY",
+      trial_ends_at: null,
+      license_expires_at: null,
+      timezone: "America/El_Salvador",
     });
     authenticateRuntimeUserMock.mockResolvedValue({
       id: "u16",
@@ -382,6 +422,11 @@ describe("authorizeCredentials — rama RUNTIME_CLIENT", () => {
       name: "TrustMe",
       tenant_id: "tenant-trustme",
       status: "ACTIVE",
+      license_status: "ACTIVE",
+      billing_cycle: "MONTHLY",
+      trial_ends_at: null,
+      license_expires_at: null,
+      timezone: "America/El_Salvador",
     });
     // El admin de plataforma existe en prisma global, pero authenticateRuntimeHostUser
     // nunca consulta ese cliente — solo la runtime DB de la organización resuelta.
@@ -421,6 +466,85 @@ describe("authorizeCredentials — rama RUNTIME_CLIENT", () => {
     );
 
     expect(result).toBeNull();
+    expect(resolveOrganizationByHostnameMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("RUNTIME LICENSE ENFORCEMENT — login RUNTIME_CLIENT", () => {
+  const RUNTIME_ORG = {
+    id: "org-lic",
+    name: "Org Lic",
+    tenant_id: "tenant-lic",
+    status: "ACTIVE",
+    license_status: "TRIAL",
+    billing_cycle: "MONTHLY",
+    trial_ends_at: new Date("2099-12-31"),
+    license_expires_at: null,
+    timezone: "America/El_Salvador",
+  };
+
+  function enableRuntime() {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("PLATFORM_HOSTS", "getzolvi.com");
+    vi.stubEnv("RUNTIME_HOST_AUTH_ENABLED", "true");
+  }
+
+  it("trial vencido → null, sin tocar la base runtime ni comparar password", async () => {
+    enableRuntime();
+    resolveOrganizationByHostnameMock.mockResolvedValue({ ...RUNTIME_ORG, trial_ends_at: new Date("2020-01-01") });
+
+    const result = await authorizeCredentials(
+      { email: "user@lic.test", password: PASSWORD },
+      fakeRequest("lic.getzolvi.com"),
+    );
+
+    expect(result).toBeNull();
+    expect(authenticateRuntimeUserMock).not.toHaveBeenCalled();
+  });
+
+  it.each(["SUSPENDED", "EXPIRED", "CANCELLED"])("licencia %s explícita → null", async (license_status) => {
+    enableRuntime();
+    resolveOrganizationByHostnameMock.mockResolvedValue({ ...RUNTIME_ORG, license_status });
+
+    const result = await authorizeCredentials(
+      { email: "user@lic.test", password: PASSWORD },
+      fakeRequest("lic.getzolvi.com"),
+    );
+
+    expect(result).toBeNull();
+    expect(authenticateRuntimeUserMock).not.toHaveBeenCalled();
+  });
+
+  it("trial vigente → autentica RUNTIME_CLIENT", async () => {
+    enableRuntime();
+    resolveOrganizationByHostnameMock.mockResolvedValue(RUNTIME_ORG);
+    authenticateRuntimeUserMock.mockResolvedValue({
+      id: "u-lic",
+      email: "user@lic.test",
+      name: "Lic User",
+      role: "super_admin",
+      tenantId: "tenant-lic",
+      locationId: null,
+    });
+
+    const result = await authorizeCredentials(
+      { email: "user@lic.test", password: PASSWORD },
+      fakeRequest("lic.getzolvi.com"),
+    );
+
+    expect(result).toMatchObject({ auth_scope: "RUNTIME_CLIENT", organization_id: "org-lic" });
+  });
+
+  it("PLATFORM login no evalúa licencias", async () => {
+    vi.stubEnv("NODE_ENV", "test");
+    prismaUserFindManyMock.mockResolvedValue([PLATFORM_USER_ROW()]);
+
+    const result = await authorizeCredentials(
+      { email: "admin@platform.test", password: PASSWORD },
+      fakeRequest("localhost:3000"),
+    );
+
+    expect(result).toMatchObject({ auth_scope: "PLATFORM" });
     expect(resolveOrganizationByHostnameMock).not.toHaveBeenCalled();
   });
 });

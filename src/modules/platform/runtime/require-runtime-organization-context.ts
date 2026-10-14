@@ -53,14 +53,23 @@ if (typeof window !== "undefined") {
   );
 }
 
-import type { PrismaClient, PlatformOrganizationStatus } from "@prisma/client";
+import type {
+  PrismaClient,
+  PlatformOrganizationStatus,
+  PlatformLicenseStatus,
+  PlatformBillingCycle,
+} from "@prisma/client";
 import { controlPlanePrisma } from "./control-plane-prisma";
 import {
   resolveRuntimeDatabaseProfileForOrganization,
   createRuntimePrismaClient,
 } from "./runtime-database-router";
 import { RuntimeDatabaseRouterError } from "./runtime-database-router.errors";
-import { canOrganizationAuthenticate } from "./resolve-organization-by-hostname";
+import {
+  evaluateOrganizationAccess,
+  getOrganizationAccessWarningMessage,
+  type OrganizationAccessReason,
+} from "./organization-access-policy";
 import type { CoreSessionUser } from "@/core/auth/types";
 
 export type RuntimeIdentityErrorCode =
@@ -68,6 +77,7 @@ export type RuntimeIdentityErrorCode =
   | "MISSING_ORGANIZATION_ID"
   | "ORGANIZATION_NOT_FOUND"
   | "ORGANIZATION_NOT_ELIGIBLE"
+  | "ORGANIZATION_ACCESS_RESTRICTED"
   | "ORGANIZATION_WITHOUT_TENANT"
   | "TENANT_MISMATCH"
   | "RUNTIME_PROFILE_UNAVAILABLE"
@@ -78,11 +88,19 @@ export type RuntimeIdentityErrorCode =
 
 export class RuntimeIdentityError extends Error {
   readonly code: RuntimeIdentityErrorCode;
+  /**
+   * RUNTIME LICENSE ENFORCEMENT — motivo de la política central cuando
+   * el bloqueo proviene de evaluateOrganizationAccess() (técnico o
+   * comercial). Ausente para el resto de códigos. Seguro de exponer a UX
+   * (no contiene IDs ni datos internos).
+   */
+  readonly accessReason?: OrganizationAccessReason;
 
-  constructor(code: RuntimeIdentityErrorCode, message: string) {
+  constructor(code: RuntimeIdentityErrorCode, message: string, accessReason?: OrganizationAccessReason) {
     super(message);
     this.name = "RuntimeIdentityError";
     this.code = code;
+    this.accessReason = accessReason;
   }
 }
 
@@ -107,17 +125,35 @@ export interface RuntimeOrganizationContextHandle {
   dispose: () => Promise<void>;
 }
 
+const ORGANIZATION_CONTEXT_SELECT = {
+  id: true,
+  name: true,
+  tenant_id: true,
+  status: true,
+  // RUNTIME LICENSE ENFORCEMENT — campos comerciales revalidados en vivo.
+  license_status: true,
+  billing_cycle: true,
+  trial_ends_at: true,
+  license_expires_at: true,
+  timezone: true,
+} as const;
+
 /** Forma mínima inyectable del Control Plane — facilita tests. */
 export interface OrganizationContextLookupClient {
   platformOrganization: {
     findUnique: (args: {
       where: { id: string };
-      select: { id: true; name: true; tenant_id: true; status: true };
+      select: typeof ORGANIZATION_CONTEXT_SELECT;
     }) => Promise<{
       id: string;
       name: string;
       tenant_id: string | null;
       status: PlatformOrganizationStatus;
+      license_status: PlatformLicenseStatus;
+      billing_cycle: PlatformBillingCycle;
+      trial_ends_at: Date | null;
+      license_expires_at: Date | null;
+      timezone: string | null;
     } | null>;
   };
 }
@@ -151,7 +187,7 @@ export async function requireRuntimeOrganizationContext(
 
   const organization = await client.platformOrganization.findUnique({
     where: { id: user.organization_id },
-    select: { id: true, name: true, tenant_id: true, status: true },
+    select: ORGANIZATION_CONTEXT_SELECT,
   });
 
   if (!organization) {
@@ -168,10 +204,28 @@ export async function requireRuntimeOrganizationContext(
     );
   }
 
-  if (!canOrganizationAuthenticate(organization)) {
+  // RUNTIME LICENSE ENFORCEMENT — misma política central que el login
+  // (evaluateOrganizationAccess), reaplicada EN VIVO en cada request:
+  // un cambio de licencia en Control Plane surte efecto en el siguiente
+  // request de la sesión RUNTIME_CLIENT, sin esperar la expiración del
+  // JWT (8h). La licencia nunca se lee del JWT. Support Session no pasa
+  // por aquí (resolve-runtime-session-profile.ts) — el bloqueo comercial
+  // es exclusivo de la identidad RUNTIME_CLIENT.
+  const access = evaluateOrganizationAccess(organization, new Date());
+  const accessWarning = getOrganizationAccessWarningMessage(access);
+  if (accessWarning) console.warn(accessWarning);
+  if (!access.allowed) {
+    if (access.blockedBy === "TECHNICAL") {
+      throw new RuntimeIdentityError(
+        "ORGANIZATION_NOT_ELIGIBLE",
+        `Organización ${organization.id} no está en condiciones de autenticar (status=${organization.status}).`,
+        access.reason,
+      );
+    }
     throw new RuntimeIdentityError(
-      "ORGANIZATION_NOT_ELIGIBLE",
-      `Organización ${organization.id} no está en condiciones de autenticar (status=${organization.status}).`,
+      "ORGANIZATION_ACCESS_RESTRICTED",
+      `Organización ${organization.id} con acceso comercial restringido (${access.reason}).`,
+      access.reason,
     );
   }
 

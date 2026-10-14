@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { auth, signOut } from "@/lib/auth/auth";
+import { enforceRuntimeOrganizationAccess } from "@/modules/platform/runtime/runtime-organization-access-gate";
 import { NavBar } from "@/components/ui/nav-bar";
 import { getCapabilities } from "@/core/permissions/role-capabilities";
 import { canAccessPlatformAdmin } from "@/core/permissions/platform-access";
@@ -26,6 +27,12 @@ export default async function DashboardLayout({ children }: { children: React.Re
   if (!session?.user) redirect("/login");
 
   const user = session.user;
+
+  // RUNTIME LICENSE ENFORCEMENT — RUNTIME_CLIENT con licencia bloqueada
+  // se redirige limpiamente ANTES de resolver contexto runtime (que
+  // fallaría cerrado). PLATFORM / Support Session no se ven afectados.
+  await enforceRuntimeOrganizationAccess(user);
+
   const initials = user.name
     ? user.name
         .split(" ")

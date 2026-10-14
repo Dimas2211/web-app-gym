@@ -13,6 +13,7 @@ import { ArrowLeft, RefreshCw, Pencil } from "lucide-react";
 
 import { ChangeOrganizationStatusDialog }    from "./change-organization-status-dialog";
 import { PlatformOrganizationEditForm }      from "./platform-organization-edit-form";
+import { formatStoredCalendarDate }          from "../runtime/organization-access-policy";
 import type {
   PlatformOrganizationDetail,
   PlatformOrganizationStatus,
@@ -145,8 +146,8 @@ export function PlatformOrganizationDetail({ org, verticals, plans }: Props) {
           Licencia y fechas
         </h2>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-5">
-          <InfoField label="Trial hasta"         value={formatDate(org.trial_ends_at)} />
-          <InfoField label="Licencia vence"      value={formatDate(org.license_expires_at)} />
+          <InfoField label="Trial hasta"         value={formatStoredCalendarDate(org.trial_ends_at)} />
+          <InfoField label="Licencia vence"      value={formatStoredCalendarDate(org.license_expires_at)} />
           <InfoField label="Creada"              value={formatDate(org.created_at)} />
           <InfoField label="Última actualización" value={formatDate(org.updated_at)} />
         </div>

@@ -1,30 +1,49 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { requireSuperAdmin } from "@/lib/permissions/guards";
+import type { UserRole } from "@prisma/client";
+import { requireGlobalAdmin } from "@/lib/permissions/guards";
+import { getCapabilities } from "@/core/permissions/role-capabilities";
 import { getGymSettings } from "@/modules/settings/queries";
 import { GymSettingsForm } from "@/components/forms/gym-settings-form";
 import { updateGymSettingsAction } from "@/modules/settings/actions";
 import { suggestNextStaffCode, suggestNextClientCode } from "@/lib/utils/operational-codes";
-import { resolveEffectiveTenantContext } from "@/modules/platform/runtime/effective-tenant-context";
+import {
+  requireOperationalContext,
+  OperationalContextError,
+} from "@/modules/platform/runtime/require-operational-context";
 
 export default async function CodesSettingsPage() {
-  const user = await requireSuperAdmin();
+  // Configuración del TENANT (no Platform Admin) — mismo patrón que
+  // Seguridad: requireGlobalAdmin() → requireOperationalContext() → rol
+  // LIVE. La Server Action (updateGymSettingsAction) revalida lo mismo.
+  const sessionUser = await requireGlobalAdmin();
 
-  // PASO 6E: página de escritura pura (nomenclatura de códigos del tenant).
-  // Bajo sesión runtime "Operar como cliente" redirige ANTES de cargar
-  // nada — nunca se calculan sugerencias de código contra el tenant real
-  // del super_admin ni se ofrece edición contra el tenant runtime.
-  const { context, dispose } = await resolveEffectiveTenantContext(user);
+  let handle;
+  try {
+    handle = await requireOperationalContext(sessionUser);
+  } catch (err) {
+    if (err instanceof OperationalContextError) {
+      return <div className="p-8 text-sm text-red-500">{err.userMessage}</div>;
+    }
+    throw err;
+  }
+  const { context, dispose } = handle;
 
   try {
-    if (context.runtime) {
+    if (!getCapabilities(context.effectiveUser.role as UserRole).isGlobal) {
+      redirect("/dashboard");
+    }
+
+    // PASO 6E: Support Session (solo lectura) no edita la nomenclatura —
+    // redirige ANTES de calcular sugerencias (comportamiento previo).
+    if (context.readOnly) {
       redirect("/dashboard/settings");
     }
 
     const [settings, nextStaff, nextClient] = await Promise.all([
       getGymSettings(context.tenantId, context.client),
-      suggestNextStaffCode(context.tenantId),
-      suggestNextClientCode(context.tenantId),
+      suggestNextStaffCode(context.tenantId, context.client),
+      suggestNextClientCode(context.tenantId, context.client),
     ]);
 
     return (

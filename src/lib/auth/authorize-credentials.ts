@@ -19,9 +19,12 @@ import { isPlatformHostname } from "@/lib/platform/platform-hosts";
 import { isRuntimeHostAuthEnabled } from "./runtime-host-auth-flag";
 import {
   resolveOrganizationByHostname,
-  canOrganizationAuthenticate,
   RuntimeOrganizationLookupError,
 } from "@/modules/platform/runtime/resolve-organization-by-hostname";
+import {
+  evaluateOrganizationAccess,
+  getOrganizationAccessWarningMessage,
+} from "@/modules/platform/runtime/organization-access-policy";
 import {
   authenticateRuntimeUser,
   RuntimeAuthError,
@@ -109,7 +112,16 @@ export async function authenticateRuntimeHostUser(
   }
 
   if (!organization.tenant_id) return null; // OrganizationWithoutTenant — denegado genérico
-  if (!canOrganizationAuthenticate(organization)) return null;
+
+  // RUNTIME LICENSE ENFORCEMENT — política central (técnica + comercial).
+  // Se evalúa ANTES de tocar la base runtime/credenciales: una
+  // organización bloqueada nunca autentica como RUNTIME_CLIENT, y el
+  // resultado es el mismo `null` genérico que unas credenciales
+  // inválidas (no se revela si el email/password eran correctos).
+  const access = evaluateOrganizationAccess(organization, new Date());
+  const accessWarning = getOrganizationAccessWarningMessage(access);
+  if (accessWarning) console.warn(accessWarning);
+  if (!access.allowed) return null;
 
   try {
     const runtimeUser = await authenticateRuntimeUser({

@@ -30,7 +30,7 @@ explícitos que faltaban en la matriz de tests de `authorizeCredentials`.
 | Hostname resolver | `src/lib/http/hostname.ts` (`resolveRequestHostname`, lee `x-forwarded-host`/`host`) + `src/lib/platform/platform-hosts.ts` (`isPlatformHostname`, allowlist `PLATFORM_HOSTS`) | Sí |
 | Feature flag | `src/lib/auth/runtime-host-auth-flag.ts` — `RUNTIME_HOST_AUTH_ENABLED`, fail-closed, default `false` | Sí |
 | Auth.js config | `src/lib/auth/auth.config.ts` + `auth.ts`, provider `Credentials` único → `authorizeCredentials()` | Sí |
-| Organization resolution | `src/modules/platform/runtime/resolve-organization-by-hostname.ts` — busca por `PlatformOrganization.domain`, fail-closed en 0 o 2+ matches, valida `status` | Sí |
+| Organization resolution | `src/modules/platform/runtime/resolve-organization-by-hostname.ts` — busca por `PlatformOrganization.domain`, fail-closed en 0 o 2+ matches, valida `status` *(post-cierre: la limitación "solo `organization.status`" quedó superada por Runtime License Enforcement — ver `platform-runtime-license-enforcement.md`)* | Sí |
 | DatabaseProfile resolution | `runtime-database-router.ts` — `resolveRuntimeDatabaseProfileForOrganization()`, prioriza PRODUCTION>STAGING>SANDBOX>TEST>LOCAL | Sí |
 | Runtime Prisma client | `runtime-database-router.ts` — `createRuntimePrismaClient()` por request, sin caching (perf TODO documentado, no bloqueante) | Sí |
 | Runtime user auth | `src/modules/platform/runtime/authenticate-runtime-user.ts` — busca `User` SOLO en la runtime DB de la organización, bcrypt, valida tenant match | Sí |

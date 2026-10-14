@@ -1,13 +1,24 @@
 import Link from "next/link";
-import { requireSuperAdmin } from "@/lib/permissions/guards";
+import { redirect } from "next/navigation";
+import { requireGlobalAdmin } from "@/lib/permissions/guards";
+import { canAccessPlatformAdmin } from "@/core/permissions/platform-access";
+import { getCapabilities } from "@/core/permissions/role-capabilities";
 import { getSports } from "@/modules/settings/queries";
 import { toggleSportStatusAction } from "@/modules/settings/actions";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { requireEffectiveVertical } from "@/modules/platform/runtime/effective-vertical";
 import { resolveEffectiveTenantContext } from "@/modules/platform/runtime/effective-tenant-context";
 
+const GLOBAL_CATALOG_READONLY_NOTICE =
+  "Catálogo global administrado por Zolvi. Disponible en modo solo lectura.";
+
 export default async function SportsPage() {
-  const user = await requireSuperAdmin();
+  // Lectura: cualquier admin global del tenant (PLATFORM o RUNTIME_CLIENT).
+  // Gestión (Nuevo/Editar/Activar/Desactivar): SOLO Platform Admin fuera
+  // de Support Session — catálogo global sin tenant_id, compartido por
+  // todos los tenants de la base física. Las rutas new/edit y las Server
+  // Actions siguen protegidas con requireSuperAdmin() (Platform-only).
+  const user = await requireGlobalAdmin();
 
   // PASO 6F: superficie GYM-only (catálogo global de almacenamiento, pero
   // funcionalidad GYM) — bloquea server-side si la vertical efectiva no
@@ -16,10 +27,19 @@ export default async function SportsPage() {
   const { context, dispose } = await resolveEffectiveTenantContext(user);
 
   try {
+    // Rol LIVE para RUNTIME_CLIENT (JWT para PLATFORM).
+    if (!getCapabilities(context.effectiveRole).isGlobal) {
+      redirect("/dashboard");
+    }
+
     await requireEffectiveVertical(context.tenantId, "GYM");
 
     const sports = await getSports(context.client);
-    const canManage = !context.runtime;
+    const canManage = canAccessPlatformAdmin(user) && context.runtimeMode === "PLATFORM_NATIVE";
+    const isRuntimeClient = context.runtimeMode === "RUNTIME_CLIENT";
+    // Conteos de clientes/plantillas = agregados cross-tenant: mismo
+    // criterio que la gestión (Platform Admin nativo, sin Support Session).
+    const showGlobalCounts = canManage;
 
     return (
     <div className="space-y-6">
@@ -48,6 +68,12 @@ export default async function SportsPage() {
         )}
       </div>
 
+      {isRuntimeClient && (
+        <div className="bg-zinc-50 border border-zinc-200 rounded-xl px-4 py-3">
+          <p className="text-xs text-zinc-600">{GLOBAL_CATALOG_READONLY_NOTICE}</p>
+        </div>
+      )}
+
       {/* Tabla */}
       {sports.length === 0 ? (
         <div className="bg-white rounded-xl border border-zinc-200 p-10 text-center">
@@ -65,12 +91,19 @@ export default async function SportsPage() {
                   <th className="text-left px-4 py-3 text-xs font-semibold text-zinc-500 uppercase tracking-wide hidden md:table-cell">
                     Descripción
                   </th>
-                  <th className="text-center px-4 py-3 text-xs font-semibold text-zinc-500 uppercase tracking-wide hidden sm:table-cell">
-                    Clientes
-                  </th>
-                  <th className="text-center px-4 py-3 text-xs font-semibold text-zinc-500 uppercase tracking-wide hidden sm:table-cell">
-                    Plantillas
-                  </th>
+                  {/* Conteos agregan relaciones de TODOS los tenants de la base
+                      física (Sport/Goal sin tenant_id): solo Platform Admin
+                      nativo. Nunca se renderizan en RUNTIME_CLIENT ni Support. */}
+                  {showGlobalCounts && (
+                    <>
+                      <th className="text-center px-4 py-3 text-xs font-semibold text-zinc-500 uppercase tracking-wide hidden sm:table-cell">
+                        Clientes
+                      </th>
+                      <th className="text-center px-4 py-3 text-xs font-semibold text-zinc-500 uppercase tracking-wide hidden sm:table-cell">
+                        Plantillas
+                      </th>
+                    </>
+                  )}
                   <th className="text-left px-4 py-3 text-xs font-semibold text-zinc-500 uppercase tracking-wide">
                     Estado
                   </th>
@@ -86,14 +119,18 @@ export default async function SportsPage() {
                     <td className="px-4 py-3 text-zinc-500 hidden md:table-cell max-w-xs">
                       <span className="line-clamp-1">{sport.description ?? "—"}</span>
                     </td>
-                    <td className="px-4 py-3 text-center hidden sm:table-cell">
-                      <span className="text-zinc-600 font-medium">{sport._count.clients}</span>
-                    </td>
-                    <td className="px-4 py-3 text-center hidden sm:table-cell">
-                      <span className="text-zinc-600 font-medium">
-                        {sport._count.weekly_plan_templates}
-                      </span>
-                    </td>
+                    {showGlobalCounts && (
+                      <>
+                        <td className="px-4 py-3 text-center hidden sm:table-cell">
+                          <span className="text-zinc-600 font-medium">{sport._count.clients}</span>
+                        </td>
+                        <td className="px-4 py-3 text-center hidden sm:table-cell">
+                          <span className="text-zinc-600 font-medium">
+                            {sport._count.weekly_plan_templates}
+                          </span>
+                        </td>
+                      </>
+                    )}
                     <td className="px-4 py-3">
                       <StatusBadge status={sport.status} />
                     </td>
@@ -101,25 +138,25 @@ export default async function SportsPage() {
                       <div className="flex items-center justify-end gap-2">
                         {canManage ? (
                           <>
-                            <Link
-                              href={`/dashboard/settings/sports/${sport.id}/edit`}
-                              className="text-xs text-zinc-600 hover:text-zinc-900 px-2.5 py-1 rounded border border-zinc-200 hover:border-zinc-400 transition-colors"
-                            >
-                              Editar
-                            </Link>
-                            <form action={toggleSportStatusAction}>
-                              <input type="hidden" name="id" value={sport.id} />
-                              <button
-                                type="submit"
-                                className={`text-xs px-2.5 py-1 rounded border transition-colors ${
-                                  sport.status === "active"
-                                    ? "text-amber-700 border-amber-200 hover:bg-amber-50"
-                                    : "text-emerald-700 border-emerald-200 hover:bg-emerald-50"
-                                }`}
+                              <Link
+                                href={`/dashboard/settings/sports/${sport.id}/edit`}
+                                className="text-xs text-zinc-600 hover:text-zinc-900 px-2.5 py-1 rounded border border-zinc-200 hover:border-zinc-400 transition-colors"
                               >
-                                {sport.status === "active" ? "Desactivar" : "Activar"}
-                              </button>
-                            </form>
+                                Editar
+                              </Link>
+                              <form action={toggleSportStatusAction}>
+                                <input type="hidden" name="id" value={sport.id} />
+                                <button
+                                  type="submit"
+                                  className={`text-xs px-2.5 py-1 rounded border transition-colors ${
+                                    sport.status === "active"
+                                      ? "text-amber-700 border-amber-200 hover:bg-amber-50"
+                                      : "text-emerald-700 border-emerald-200 hover:bg-emerald-50"
+                                  }`}
+                                >
+                                  {sport.status === "active" ? "Desactivar" : "Activar"}
+                                </button>
+                              </form>
                           </>
                         ) : (
                           <span className="text-xs text-zinc-300">Solo lectura</span>
