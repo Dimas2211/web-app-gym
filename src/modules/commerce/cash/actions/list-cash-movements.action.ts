@@ -6,11 +6,12 @@
 // Lista los movimientos manuales de una CashSession dentro del
 // tenant/location efectivos del usuario autenticado.
 //
-// Permiso: requireAdmin (super_admin | branch_admin).
+// Permiso: requireCommerceOperator + rol LIVE (super_admin | branch_admin | reception).
 // tenant_id y location_id se inyectan desde sesión — nunca del input.
 // ─────────────────────────────────────────────────────────────────
 
-import { requireAdmin } from "@/lib/permissions/guards";
+import { requireCommerceOperator } from "@/lib/permissions/guards";
+import { assertCommerceOperatorLive } from "@/modules/commerce/shared/require-commerce-operator-context";
 import { getEffectiveLocationId } from "@/lib/location/active-location";
 import {
   resolveEffectiveTenantContext,
@@ -33,12 +34,16 @@ export type ListCashMovementsActionResult =
 export async function listCashMovementsAction(
   input: ListCashMovementsInput
 ): Promise<ListCashMovementsActionResult> {
-  const sessionUser = await requireAdmin();
+  const sessionUser = await requireCommerceOperator();
 
   const { context, dispose } = await resolveEffectiveTenantContext(sessionUser);
   const { tenantId: tenant_id, client } = context;
 
   try {
+    // Rol LIVE (RUNTIME_CLIENT) + sucursal fija vigente (User.branch_id) para roles no globales.
+    const denied = await assertCommerceOperatorLive(context, sessionUser.id);
+    if (denied) return { ok: false, error: denied };
+
     const location_id = context.runtime
       ? await resolveRuntimeFirstLocationId(context)
       : (context.locationId ??

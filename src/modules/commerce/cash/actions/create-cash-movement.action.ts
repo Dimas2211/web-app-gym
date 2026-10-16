@@ -5,22 +5,20 @@
 //
 // Registra un movimiento manual dentro de una CashSession OPEN.
 //
-// Permiso: requireAdmin (super_admin | branch_admin).
+// Permiso: requireCommerceOperator + rol LIVE (super_admin | branch_admin | reception).
 // tenant_id, location_id, cash_register_id, direction y performed_by
 // se inyectan desde sesión — nunca del input del cliente.
 // ─────────────────────────────────────────────────────────────────
 
-import { requireAdmin, type SessionUser } from "@/lib/permissions/guards";
+import { requireCommerceOperator, type SessionUser } from "@/lib/permissions/guards";
 import type { UserRole } from "@prisma/client";
 import { getEffectiveLocationId } from "@/lib/location/active-location";
 import { createCashMovementInputSchema } from "../schemas/cash.schemas";
 import { recordCashMovement }           from "../services/cash-movement.service";
 import type { CreateCashMovementInput } from "../schemas/cash.schemas";
 import type { CashMovementCreateResult } from "../types/cash.types";
-import {
-  requireOperationalContext,
-  OperationalContextError,
-} from "@/modules/platform/runtime/require-operational-context";
+import { OperationalContextError } from "@/modules/platform/runtime/require-operational-context";
+import { requireCommerceOperatorContext } from "@/modules/commerce/shared/require-commerce-operator-context";
 
 export type CreateCashMovementActionResult =
   | { ok: true;  data: CashMovementCreateResult }
@@ -29,11 +27,11 @@ export type CreateCashMovementActionResult =
 export async function createCashMovementAction(
   input: CreateCashMovementInput,
 ): Promise<CreateCashMovementActionResult> {
-  const sessionUser = await requireAdmin();
+  const sessionUser = await requireCommerceOperator();
 
   let handle;
   try {
-    handle = await requireOperationalContext(sessionUser, { module: "commerce.cash", write: true });
+    handle = await requireCommerceOperatorContext(sessionUser, { module: "commerce.cash", write: true });
   } catch (err) {
     if (err instanceof OperationalContextError) return { ok: false, error: err.userMessage };
     throw err;

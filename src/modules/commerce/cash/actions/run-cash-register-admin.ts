@@ -5,7 +5,8 @@
 // (crear / editar / activar-desactivar). Server-only, sin "use server":
 // solo lo importan las actions delgadas de este módulo.
 //
-//   1. requireAdmin()
+//   1. requireAdmin() — administración de cajas NO se abre a reception
+//      (canOperateCommerce no basta); además rol LIVE canAdministerCommerce.
 //   2. requireOperationalContext(module "commerce.cash", write=true):
 //      Support Session read-only bloqueada, RUNTIME_CLIENT fail closed,
 //      módulo comercial exigido y commercialContext resuelto.
@@ -17,6 +18,8 @@
 import type { PrismaClient, UserRole } from "@prisma/client";
 import { requireAdmin, type SessionUser } from "@/lib/permissions/guards";
 import { getEffectiveLocationId } from "@/lib/location/active-location";
+import { canAdministerCommerce, COMMERCE_ACCESS_MESSAGES } from "@/core/permissions/commerce-access";
+import { assertCommerceOperatorAccess } from "@/modules/commerce/shared/require-commerce-operator-context";
 import {
   requireOperationalContext,
   OperationalContextError,
@@ -49,6 +52,23 @@ export async function runCashRegisterAdmin<T extends { ok: boolean }>(
   const { context, dispose } = handle;
 
   try {
+    // Rol LIVE (RUNTIME_CLIENT): un admin degradado a reception pierde la
+    // administración aunque su JWT aún diga branch_admin.
+    if (!canAdministerCommerce(context.effectiveUser.role)) {
+      return { ok: false, error: COMMERCE_ACCESS_MESSAGES.ROLE };
+    }
+
+    // branch_admin: su sucursal de sesión debe seguir siendo la asignada
+    // (User.branch_id). No amplía permisos: solo puede denegar.
+    const denied = await assertCommerceOperatorAccess({
+      db: context.client,
+      tenantId: context.tenantId,
+      userId: context.effectiveUser.id,
+      role: context.effectiveUser.role,
+      locationId: context.locationId,
+    });
+    if (denied) return { ok: false, error: denied };
+
     // module pasado → commercialContext siempre resuelto; si no, fail closed.
     if (!context.commercialContext) {
       return { ok: false, error: "No se pudo verificar el plan comercial de la organización." };

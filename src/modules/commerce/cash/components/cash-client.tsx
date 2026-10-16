@@ -18,7 +18,10 @@ import type {
   CashSessionHistoryItem,
   CashSessionCutReport,
 } from "../types/cash.types";
-import { getCashWorkspaceStateAction }     from "../actions/get-cash-workspace-state.action";
+import {
+  getCashWorkspaceStateAction,
+  type CashWorkspacePermissions,
+} from "../actions/get-cash-workspace-state.action";
 import { openCashSessionAction }           from "../actions/open-cash-session.action";
 import { closeCashSessionAction }          from "../actions/close-cash-session.action";
 import { listCashMovementsAction }         from "../actions/list-cash-movements.action";
@@ -56,11 +59,14 @@ function formatDate(value: Date | string | null | undefined): string {
 
 interface CashClientProps {
   initialState: CashWorkspaceState;
+  /** Permisos efectivos resueltos en servidor (rol LIVE). Solo UI — el servidor revalida. */
+  permissions: CashWorkspacePermissions;
 }
 
 // ── Componente ────────────────────────────────────────────────────
 
-export function CashClient({ initialState }: CashClientProps) {
+export function CashClient({ initialState, permissions }: CashClientProps) {
+  const canAdminister = permissions.canAdministerRegisters;
   const [workspace, setWorkspace]     = useState<CashWorkspaceState>(initialState);
   const [selectedId, setSelectedId]   = useState<string | null>(
     initialState.selected_register?.id ?? null,
@@ -410,7 +416,7 @@ export function CashClient({ initialState }: CashClientProps) {
           <div className="rounded-lg border border-zinc-200 bg-white">
             <div className="flex items-center justify-between gap-2 border-b border-zinc-200 px-4 py-3">
               <h2 className="text-sm font-medium text-zinc-700">Cajas disponibles</h2>
-              {workspace.registers.length > 0 && (
+              {canAdminister && workspace.registers.length > 0 && (
                 <button
                   type="button"
                   onClick={() => setRegisterFormTarget("new")}
@@ -427,14 +433,20 @@ export function CashClient({ initialState }: CashClientProps) {
                 <p className="text-sm text-zinc-500">
                   No hay cajas configuradas para esta sucursal.
                 </p>
-                <button
-                  type="button"
-                  onClick={() => setRegisterFormTarget("new")}
-                  disabled={loading}
-                  className="mt-3 rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-700 disabled:opacity-50"
-                >
-                  Crear primera caja
-                </button>
+                {canAdminister ? (
+                  <button
+                    type="button"
+                    onClick={() => setRegisterFormTarget("new")}
+                    disabled={loading}
+                    className="mt-3 rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-700 disabled:opacity-50"
+                  >
+                    Crear primera caja
+                  </button>
+                ) : (
+                  <p className="mt-2 text-xs text-zinc-400">
+                    Solicita a un administrador que configure una caja.
+                  </p>
+                )}
               </div>
             ) : (
               <ul className="divide-y divide-zinc-100">
@@ -511,6 +523,7 @@ export function CashClient({ initialState }: CashClientProps) {
                         {selectedRegister.name}
                       </p>
                       <p className="text-xs text-zinc-400">{selectedRegister.code}</p>
+                      {canAdminister && (
                       <div className="mt-2 flex gap-2">
                         <button
                           type="button"
@@ -538,6 +551,7 @@ export function CashClient({ initialState }: CashClientProps) {
                           {selectedRegister.is_active ? "Desactivar" : "Reactivar"}
                         </button>
                       </div>
+                      )}
                     </div>
                     <div>
                       {!selectedRegister.is_active ? (
@@ -855,7 +869,7 @@ export function CashClient({ initialState }: CashClientProps) {
       )}
     </div>
 
-    {registerFormTarget && (
+    {canAdminister && registerFormTarget && (
       <CashRegisterFormDialog
         register={registerFormTarget === "new" ? null : registerFormTarget}
         onCancel={() => setRegisterFormTarget(null)}
@@ -863,7 +877,7 @@ export function CashClient({ initialState }: CashClientProps) {
       />
     )}
 
-    {statusTarget && (
+    {canAdminister && statusTarget && (
       <CashRegisterStatusDialog
         register={statusTarget}
         onCancel={() => setStatusTarget(null)}

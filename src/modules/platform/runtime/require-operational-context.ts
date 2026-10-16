@@ -113,7 +113,9 @@ export interface OperationalContextHandle {
 export type OperationalContextErrorCode =
   | "RUNTIME_UNAVAILABLE"
   | "READ_ONLY"
-  | "MODULE_DISABLED";
+  | "MODULE_DISABLED"
+  /** Capability/alcance denegado por un wrapper de módulo (ej. requireCommerceOperatorContext). */
+  | "FORBIDDEN";
 
 /**
  * Error de autorización/resolución de contexto operacional. Los

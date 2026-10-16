@@ -5,18 +5,16 @@
 //
 // Elimina una línea de una venta en estado DRAFT.
 //
-// Permiso: requireAdmin (super_admin | branch_admin).
+// Permiso: requireCommerceOperator + rol LIVE (super_admin | branch_admin | reception).
 // tenant_id y location_id se inyectan desde sesión — nunca del input.
 // ─────────────────────────────────────────────────────────────────
 
 import { revalidatePath } from "next/cache";
-import { requireAdmin } from "@/lib/permissions/guards";
+import { requireCommerceOperator } from "@/lib/permissions/guards";
 import { getEffectiveLocationId } from "@/lib/location/active-location";
 import { removeSaleItemFromDraft } from "../services/sale.service";
-import {
-  requireOperationalContext,
-  OperationalContextError,
-} from "@/modules/platform/runtime/require-operational-context";
+import { OperationalContextError } from "@/modules/platform/runtime/require-operational-context";
+import { requireCommerceOperatorContext } from "@/modules/commerce/shared/require-commerce-operator-context";
 import { checkOperationalGrant } from "@/core/security/operational-authorization/operational-authorization";
 import { SALE_DRAFT_WRITE_SCOPES } from "@/core/security/operational-authorization/scopes";
 
@@ -28,14 +26,14 @@ export async function removeSaleItemAction(
   item_id: string,
   sale_id: string,
 ): Promise<RemoveSaleItemActionResult> {
-  const sessionUser = await requireAdmin();
+  const sessionUser = await requireCommerceOperator();
 
   if (!sale_id?.trim()) return { ok: false, error: "El ID de venta es requerido." };
   if (!item_id?.trim()) return { ok: false, error: "El ID de línea es requerido." };
 
   let handle;
   try {
-    handle = await requireOperationalContext(sessionUser, { module: "commerce.sales", write: true });
+    handle = await requireCommerceOperatorContext(sessionUser, { module: "commerce.sales", write: true });
   } catch (err) {
     if (err instanceof OperationalContextError) return { ok: false, error: err.userMessage };
     throw err;

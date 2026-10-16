@@ -6,22 +6,20 @@
 // Cierra una CashSession actualmente OPEN dentro del tenant/location
 // efectivos del usuario autenticado.
 //
-// Permiso: requireAdmin (super_admin | branch_admin).
+// Permiso: requireCommerceOperator + rol LIVE (super_admin | branch_admin | reception).
 // tenant_id, location_id, closed_by, closed_at y status vienen del
 // servidor — nunca del input del cliente.
 // ─────────────────────────────────────────────────────────────────
 
-import { requireAdmin, type SessionUser } from "@/lib/permissions/guards";
+import { requireCommerceOperator, type SessionUser } from "@/lib/permissions/guards";
 import type { UserRole } from "@prisma/client";
 import { getEffectiveLocationId }  from "@/lib/location/active-location";
 import { closeCashSessionInputSchema } from "../schemas/cash.schemas";
 import { closeCashSession }            from "../services/cash-session.service";
 import type { CloseCashSessionInput }  from "../schemas/cash.schemas";
 import type { CashOpenSessionInfo }    from "../types/cash.types";
-import {
-  requireOperationalContext,
-  OperationalContextError,
-} from "@/modules/platform/runtime/require-operational-context";
+import { OperationalContextError } from "@/modules/platform/runtime/require-operational-context";
+import { requireCommerceOperatorContext } from "@/modules/commerce/shared/require-commerce-operator-context";
 
 export type CloseCashSessionActionResult =
   | { ok: true;  data: CashOpenSessionInfo }
@@ -30,11 +28,11 @@ export type CloseCashSessionActionResult =
 export async function closeCashSessionAction(
   input: CloseCashSessionInput,
 ): Promise<CloseCashSessionActionResult> {
-  const sessionUser = await requireAdmin();
+  const sessionUser = await requireCommerceOperator();
 
   let handle;
   try {
-    handle = await requireOperationalContext(sessionUser, { module: "commerce.cash", write: true });
+    handle = await requireCommerceOperatorContext(sessionUser, { module: "commerce.cash", write: true });
   } catch (err) {
     if (err instanceof OperationalContextError) return { ok: false, error: err.userMessage };
     throw err;

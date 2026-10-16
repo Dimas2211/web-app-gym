@@ -13,13 +13,11 @@
 // ─────────────────────────────────────────────────────────────────
 
 import { revalidatePath } from "next/cache";
-import { requireAdmin } from "@/lib/permissions/guards";
+import { requireCommerceOperator } from "@/lib/permissions/guards";
 import { getEffectiveLocationId } from "@/lib/location/active-location";
 import { discardDraftSale } from "../services/sale.service";
-import {
-  requireOperationalContext,
-  OperationalContextError,
-} from "@/modules/platform/runtime/require-operational-context";
+import { OperationalContextError } from "@/modules/platform/runtime/require-operational-context";
+import { requireCommerceOperatorContext } from "@/modules/commerce/shared/require-commerce-operator-context";
 import {
   revokeOperationalGrants,
   verifySupervisorPinForOperation,
@@ -39,11 +37,11 @@ export async function deleteDraftSaleWithAuthAction(
   _prev: DeleteDraftSaleWithAuthState,
   formData: FormData,
 ): Promise<DeleteDraftSaleWithAuthState> {
-  const sessionUser = await requireAdmin();
+  const sessionUser = await requireCommerceOperator();
 
   let handle;
   try {
-    handle = await requireOperationalContext(sessionUser, { module: "commerce.sales", write: true });
+    handle = await requireCommerceOperatorContext(sessionUser, { module: "commerce.sales", write: true });
   } catch (err) {
     if (err instanceof OperationalContextError) return { ok: false, error: err.userMessage };
     throw err;

@@ -7,21 +7,19 @@
 // El scope tenant/location se valida en el service — nunca confiar
 // solo en el cash_register_id recibido del cliente.
 //
-// Permiso: requireAdmin (super_admin | branch_admin).
+// Permiso: requireCommerceOperator + rol LIVE (super_admin | branch_admin | reception).
 // tenant_id y location_id se inyectan desde sesión — nunca del input.
 // ─────────────────────────────────────────────────────────────────
 
-import { requireAdmin, type SessionUser } from "@/lib/permissions/guards";
+import { requireCommerceOperator, type SessionUser } from "@/lib/permissions/guards";
 import type { UserRole } from "@prisma/client";
 import { getEffectiveLocationId } from "@/lib/location/active-location";
 import { getCashRegisterInputSchema } from "../schemas/cash.schemas";
 import { ensureCashRegisterInScope } from "../services/cash-read.service";
 import type { CashRegisterDetail } from "../types/cash.types";
 import type { GetCashRegisterInput } from "../schemas/cash.schemas";
-import {
-  requireOperationalContext,
-  OperationalContextError,
-} from "@/modules/platform/runtime/require-operational-context";
+import { OperationalContextError } from "@/modules/platform/runtime/require-operational-context";
+import { requireCommerceOperatorContext } from "@/modules/commerce/shared/require-commerce-operator-context";
 
 export type GetCashRegisterDetailResult =
   | { ok: true; data: CashRegisterDetail }
@@ -30,11 +28,11 @@ export type GetCashRegisterDetailResult =
 export async function getCashRegisterDetailAction(
   input: GetCashRegisterInput
 ): Promise<GetCashRegisterDetailResult> {
-  const sessionUser = await requireAdmin();
+  const sessionUser = await requireCommerceOperator();
 
   let handle;
   try {
-    handle = await requireOperationalContext(sessionUser, { module: "commerce.cash" });
+    handle = await requireCommerceOperatorContext(sessionUser, { module: "commerce.cash" });
   } catch (err) {
     if (err instanceof OperationalContextError) return { ok: false, error: err.userMessage };
     throw err;

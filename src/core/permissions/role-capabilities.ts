@@ -50,6 +50,15 @@ export type RoleCapabilities = {
   canViewReports: boolean;
 
   /**
+   * Puede OPERAR los módulos transversales de Commerce (ventas, caja)
+   * dentro de su alcance: capturar/confirmar ventas, abrir/cerrar sesión
+   * de caja, registrar movimientos. NO implica administración (crear
+   * cajas, exportaciones, DTE, personal) — eso sigue en canManageStaff.
+   * Ver @/core/permissions/commerce-access.
+   */
+  canOperateCommerce: boolean;
+
+  /**
    * Alcance de acceso a datos:
    * - "global"   → ve todo el tenant (super_admin)
    * - "location" → ve solo su sucursal (branch_admin, reception, trainer)
@@ -73,6 +82,7 @@ const GYM_ROLE_CAPABILITIES: Record<string, RoleCapabilities> = {
     canManageMembers: true,
     canViewOperations: true,
     canViewReports: true,
+    canOperateCommerce: true,
     scopeType: "global",
   },
   branch_admin: {
@@ -82,6 +92,7 @@ const GYM_ROLE_CAPABILITIES: Record<string, RoleCapabilities> = {
     canManageMembers: true,
     canViewOperations: true,
     canViewReports: true,
+    canOperateCommerce: true,
     scopeType: "location",
   },
   reception: {
@@ -91,6 +102,7 @@ const GYM_ROLE_CAPABILITIES: Record<string, RoleCapabilities> = {
     canManageMembers: true,
     canViewOperations: true,
     canViewReports: false,
+    canOperateCommerce: true,
     scopeType: "location",
   },
   trainer: {
@@ -100,6 +112,7 @@ const GYM_ROLE_CAPABILITIES: Record<string, RoleCapabilities> = {
     canManageMembers: false,
     canViewOperations: true,
     canViewReports: false,
+    canOperateCommerce: false,
     scopeType: "location",
   },
   client: {
@@ -109,6 +122,7 @@ const GYM_ROLE_CAPABILITIES: Record<string, RoleCapabilities> = {
     canManageMembers: false,
     canViewOperations: false,
     canViewReports: false,
+    canOperateCommerce: false,
     scopeType: "own_data",
   },
 };
@@ -122,6 +136,7 @@ const NO_CAPABILITIES: RoleCapabilities = {
   canManageMembers: false,
   canViewOperations: false,
   canViewReports: false,
+  canOperateCommerce: false,
   scopeType: "own_data",
 };
 

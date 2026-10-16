@@ -6,11 +6,12 @@
 // ─────────────────────────────────────────────────────────────────
 
 import type { NextRequest } from "next/server";
-import type { PrismaClient, UserRole } from "@prisma/client";
+import type { PrismaClient } from "@prisma/client";
 import { cookies } from "next/headers";
 import { auth } from "@/lib/auth/auth";
 import type { SessionUser } from "@/lib/permissions/guards";
-import { getCapabilities } from "@/core/permissions/role-capabilities";
+import { evaluateCommerceOperatorAccess } from "@/core/permissions/commerce-access";
+import { assertCommerceOperatorAccess } from "@/modules/commerce/shared/require-commerce-operator-context";
 import { getLocationById } from "@/core/modules/locations/queries";
 import { ACTIVE_LOCATION_COOKIE, getEffectiveLocationId } from "@/lib/location/active-location";
 import {
@@ -62,9 +63,11 @@ export async function getSaleApiContext(
   }
   const user = session.user as SessionUser;
 
-  const role = user.role as UserRole;
-  if (!getCapabilities(role).canManageStaff) {
-    return { ok: false, status: 403, error: "Sin permisos para esta operación." };
+  // Operar ventas (super_admin | branch_admin | reception) — NO canManageStaff.
+  // Puerta del JWT; el rol LIVE se rechequea abajo tras resolver el contexto.
+  const jwtAccess = evaluateCommerceOperatorAccess({ role: user.role, locationId: user.location_id });
+  if (!jwtAccess.ok) {
+    return { ok: false, status: 403, error: jwtAccess.message };
   }
 
   const tenant_id = user.tenant_id;
@@ -107,6 +110,32 @@ export async function getSaleApiContext(
     user,
   );
 
+  // Rechequeo con ROL LIVE (context.effectiveRole) — para RUNTIME_CLIENT es
+  // el rol vigente en runtimeDb.user, no el del JWT (hasta 8h de antigüedad).
+  // Para PLATFORM_NATIVE/SUPPORT_RUNTIME, effectiveRole es el mismo valor de
+  // JWT ya chequeado arriba — el rechequeo es redundante pero inofensivo.
+  // Se evalúa ANTES de resolver la location por cookie: un rol no global
+  // sin sucursal fija se deniega y nunca elige sucursal vía selector.
+  // Roles no globales: la sucursal de la sesión debe seguir siendo su
+  // asignación actual (User.branch_id) en la DB efectiva.
+  let liveDenied: string | null;
+  try {
+    liveDenied = await assertCommerceOperatorAccess({
+      db: context.client,
+      tenantId: context.tenantId,
+      userId: user.id,
+      role: context.effectiveRole,
+      locationId: context.locationId,
+    });
+  } catch (err) {
+    await dispose();
+    throw err;
+  }
+  if (liveDenied) {
+    await dispose();
+    return { ok: false, status: 403, error: liveDenied };
+  }
+
   const locationId =
     context.locationId ??
     (options.resolveRuntimeActiveLocation && context.runtimeMode === "RUNTIME_CLIENT"
@@ -122,15 +151,6 @@ export async function getSaleApiContext(
         ? "El tenant runtime no tiene sucursales activas configuradas."
         : "Selecciona una location activa para operar con ventas.",
     };
-  }
-
-  // Rechequeo con ROL LIVE (context.effectiveRole) — para RUNTIME_CLIENT es
-  // el rol vigente en runtimeDb.user, no el del JWT (hasta 8h de antigüedad).
-  // Para PLATFORM_NATIVE/SUPPORT_RUNTIME, effectiveRole es el mismo valor de
-  // JWT ya chequeado arriba — el rechequeo es redundante pero inofensivo.
-  if (!getCapabilities(context.effectiveRole as UserRole).canManageStaff) {
-    await dispose();
-    return { ok: false, status: 403, error: "Sin permisos para esta operación." };
   }
 
   // Bloque B — guard central único: cubre automáticamente todos los

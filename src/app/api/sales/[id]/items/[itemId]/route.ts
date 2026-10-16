@@ -8,17 +8,15 @@
 export const dynamic = "force-dynamic";
 
 import { NextRequest, NextResponse } from "next/server";
-import { requireAdmin } from "@/lib/permissions/guards";
+import { requireCommerceOperator } from "@/lib/permissions/guards";
 import { getEffectiveLocationId } from "@/lib/location/active-location";
 import { updateSaleItemSchema } from "@/modules/commerce/sales/schemas/sale.schemas";
 import {
   updateSaleItemInDraft,
   removeSaleItemFromDraft,
 } from "@/modules/commerce/sales/services/sale.service";
-import {
-  requireOperationalContext,
-  OperationalContextError,
-} from "@/modules/platform/runtime/require-operational-context";
+import { OperationalContextError } from "@/modules/platform/runtime/require-operational-context";
+import { requireCommerceOperatorContext } from "@/modules/commerce/shared/require-commerce-operator-context";
 import { checkOperationalGrant } from "@/core/security/operational-authorization/operational-authorization";
 import { SALE_DRAFT_WRITE_SCOPES } from "@/core/security/operational-authorization/scopes";
 
@@ -29,11 +27,11 @@ type RouteParams = { params: Promise<{ id: string; itemId: string }> };
 export async function PATCH(req: NextRequest, { params }: RouteParams) {
   const { id: sale_id, itemId: item_id } = await params;
 
-  const sessionUser = await requireAdmin();
+  const sessionUser = await requireCommerceOperator();
 
   let handle;
   try {
-    handle = await requireOperationalContext(sessionUser, { module: "commerce.sales", write: true });
+    handle = await requireCommerceOperatorContext(sessionUser, { module: "commerce.sales", write: true });
   } catch (err) {
     if (err instanceof OperationalContextError) {
       return NextResponse.json({ ok: false, error: err.userMessage }, { status: err.httpStatus });
@@ -86,11 +84,11 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
 export async function DELETE(_req: NextRequest, { params }: RouteParams) {
   const { id: sale_id, itemId: item_id } = await params;
 
-  const sessionUser = await requireAdmin();
+  const sessionUser = await requireCommerceOperator();
 
   let handle;
   try {
-    handle = await requireOperationalContext(sessionUser, { module: "commerce.sales", write: true });
+    handle = await requireCommerceOperatorContext(sessionUser, { module: "commerce.sales", write: true });
   } catch (err) {
     if (err instanceof OperationalContextError) {
       return NextResponse.json({ ok: false, error: err.userMessage }, { status: err.httpStatus });

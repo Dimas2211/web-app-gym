@@ -6,21 +6,19 @@
 // Lista las cajas de la location efectiva del usuario.
 // Por defecto devuelve solo cajas activas.
 //
-// Permiso: requireAdmin (super_admin | branch_admin).
+// Permiso: requireCommerceOperator + rol LIVE (super_admin | branch_admin | reception).
 // tenant_id y location_id se inyectan desde sesión — nunca del input.
 // ─────────────────────────────────────────────────────────────────
 
-import { requireAdmin, type SessionUser } from "@/lib/permissions/guards";
+import { requireCommerceOperator, type SessionUser } from "@/lib/permissions/guards";
 import type { UserRole } from "@prisma/client";
 import { getEffectiveLocationId } from "@/lib/location/active-location";
 import { listCashRegistersActionSchema } from "../schemas/cash.schemas";
 import { listCashRegisters } from "../queries/list-cash-registers";
 import type { CashRegisterListItem } from "../types/cash.types";
 import type { ListCashRegistersActionInput } from "../schemas/cash.schemas";
-import {
-  requireOperationalContext,
-  OperationalContextError,
-} from "@/modules/platform/runtime/require-operational-context";
+import { OperationalContextError } from "@/modules/platform/runtime/require-operational-context";
+import { requireCommerceOperatorContext } from "@/modules/commerce/shared/require-commerce-operator-context";
 
 export type ListCashRegistersResult =
   | { ok: true; data: CashRegisterListItem[] }
@@ -29,11 +27,11 @@ export type ListCashRegistersResult =
 export async function listCashRegistersAction(
   input: ListCashRegistersActionInput = { include_inactive: false }
 ): Promise<ListCashRegistersResult> {
-  const sessionUser = await requireAdmin();
+  const sessionUser = await requireCommerceOperator();
 
   let handle;
   try {
-    handle = await requireOperationalContext(sessionUser, { module: "commerce.cash" });
+    handle = await requireCommerceOperatorContext(sessionUser, { module: "commerce.cash" });
   } catch (err) {
     if (err instanceof OperationalContextError) return { ok: false, error: err.userMessage };
     throw err;
