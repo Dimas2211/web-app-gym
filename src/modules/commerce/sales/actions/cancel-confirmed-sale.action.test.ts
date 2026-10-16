@@ -12,6 +12,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("@/lib/permissions/guards", () => ({
   requireAdmin: vi.fn(async () => ({ id: "u1", tenant_id: "tenant-1", location_id: "loc-1", role: "super_admin" })),
+  requireCommerceOperator: vi.fn(async () => ({ id: "u1", tenant_id: "tenant-1", location_id: "loc-1", role: "super_admin" })),
 }));
 vi.mock("@/lib/location/active-location", () => ({ getEffectiveLocationId: vi.fn(async () => "loc-1") }));
 

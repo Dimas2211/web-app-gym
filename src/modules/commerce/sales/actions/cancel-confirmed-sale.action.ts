@@ -19,13 +19,11 @@
 // ─────────────────────────────────────────────────────────────────
 
 import { revalidatePath } from "next/cache";
-import { requireAdmin } from "@/lib/permissions/guards";
+import { requireCommerceOperator } from "@/lib/permissions/guards";
 import { getEffectiveLocationId } from "@/lib/location/active-location";
 import { cancelConfirmedSale } from "../services/sale.service";
-import {
-  requireOperationalContext,
-  OperationalContextError,
-} from "@/modules/platform/runtime/require-operational-context";
+import { OperationalContextError } from "@/modules/platform/runtime/require-operational-context";
+import { requireCommerceOperatorContext } from "@/modules/commerce/shared/require-commerce-operator-context";
 import { verifySupervisorPinForOperation } from "@/core/security/operational-authorization/operational-authorization";
 import { readSupervisorPin } from "@/core/security/operational-authorization/run-supervisor-authorization";
 import { OPERATIONAL_SCOPES } from "@/core/security/operational-authorization/scopes";
@@ -39,11 +37,11 @@ export async function cancelConfirmedSaleAction(
   _prev: CancelConfirmedSaleState,
   formData: FormData,
 ): Promise<CancelConfirmedSaleState> {
-  const sessionUser = await requireAdmin();
+  const sessionUser = await requireCommerceOperator();
 
   let handle;
   try {
-    handle = await requireOperationalContext(sessionUser, { module: "commerce.sales", write: true });
+    handle = await requireCommerceOperatorContext(sessionUser, { module: "commerce.sales", write: true });
   } catch (err) {
     if (err instanceof OperationalContextError) return { ok: false, error: err.userMessage };
     throw err;

@@ -83,6 +83,7 @@ const SESSION_USER = { id: "user-A", tenant_id: "tenant-A", location_id: "loc-1"
 vi.mock("@/lib/auth/auth", () => ({ auth: vi.fn(async () => ({ user: SESSION_USER })) }));
 vi.mock("@/lib/permissions/guards", () => ({
   requireAdmin: vi.fn(async () => SESSION_USER),
+  requireCommerceOperator: vi.fn(async () => SESSION_USER),
   requireGlobalAdmin: vi.fn(async () => SESSION_USER),
   getSessionOrRedirect: vi.fn(async () => SESSION_USER),
 }));
@@ -115,6 +116,7 @@ vi.mock("@/modules/platform/runtime/runtime-session", () => ({ RUNTIME_READONLY_
 vi.mock("@/modules/platform/runtime/commercial-enforcement", () => ({
   resolveCommercialEnforcementContext: vi.fn(async () => ({})),
   assertOrganizationModule: vi.fn(),
+  requireOrganizationModule: vi.fn(async () => ({})),
   CommercialEnforcementError: class extends Error {},
 }));
 vi.mock("@/modules/commerce/customers/services/customer.service", () => ({ updateCustomer: h.svc.updateCustomer }));
@@ -642,7 +644,8 @@ describe("SALES — mutaciones de borrador", () => {
   it("(19) editSaleAuthAction valida la clave contra context.client (Runtime DB), nunca Prisma global", async () => {
     const r = await editSaleAuthAction(undefined, form({ entity_id: UUID.saleA, supervisor_pin: "123456" }));
     expect(r).toEqual({ ok: true });
-    expect(runtime.sale.findFirst).toHaveBeenCalledWith({ where: { id: UUID.saleA, tenant_id: "tenant-A" }, select: { status: true } });
+    // SALE_EDIT es location-scoped: la venta se valida en la sucursal efectiva del contexto.
+    expect(runtime.sale.findFirst).toHaveBeenCalledWith({ where: { id: UUID.saleA, tenant_id: "tenant-A", location_id: "loc-1" }, select: { status: true } });
     expect(security.calls.findUnique).toBeGreaterThan(0);
     expect(h.jar.has(`zoa_sale_edit_${UUID.saleA}`)).toBe(true);
   });

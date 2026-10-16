@@ -8,15 +8,13 @@
 export const dynamic = "force-dynamic";
 
 import { NextRequest, NextResponse } from "next/server";
-import { requireAdmin } from "@/lib/permissions/guards";
+import { requireCommerceOperator } from "@/lib/permissions/guards";
 import { getEffectiveLocationId } from "@/lib/location/active-location";
 import { listSales } from "@/modules/commerce/sales/queries/list-sales";
 import { createSaleDraftSchema } from "@/modules/commerce/sales/schemas/sale.schemas";
 import { createSaleDraft } from "@/modules/commerce/sales/services/sale.service";
-import {
-  requireOperationalContext,
-  OperationalContextError,
-} from "@/modules/platform/runtime/require-operational-context";
+import { OperationalContextError } from "@/modules/platform/runtime/require-operational-context";
+import { requireCommerceOperatorContext } from "@/modules/commerce/shared/require-commerce-operator-context";
 import { issueDraftOwnerGrant } from "@/core/security/operational-authorization/operational-authorization";
 import { OPERATIONAL_SCOPES } from "@/core/security/operational-authorization/scopes";
 import { getSaleApiContext } from "./sale-api-context";
@@ -82,11 +80,11 @@ export async function GET(req: NextRequest) {
 // ── POST — crear venta DRAFT ───────────────────────────────────────
 
 export async function POST(req: NextRequest) {
-  const sessionUser = await requireAdmin();
+  const sessionUser = await requireCommerceOperator();
 
   let handle;
   try {
-    handle = await requireOperationalContext(sessionUser, { module: "commerce.sales", write: true });
+    handle = await requireCommerceOperatorContext(sessionUser, { module: "commerce.sales", write: true });
   } catch (err) {
     if (err instanceof OperationalContextError) {
       return NextResponse.json({ ok: false, error: err.userMessage }, { status: err.httpStatus });

@@ -246,3 +246,167 @@ describe("getSaleApiContext — location activa en Dedicated Runtime (lectura de
     if (result.ok) expect(result.location_id).toBe("loc-jwt");
   });
 });
+
+// ─────────────────────────────────────────────────────────────────
+// Permisos operativos de recepción — getSaleApiContext usa la política
+// de OPERACIÓN de Commerce (canOperateCommerce), no canManageStaff.
+// Cubre GET /api/sales, GET /api/sales/:id y /api/products/search-for-sale.
+// ─────────────────────────────────────────────────────────────────
+
+describe("getSaleApiContext — reception opera ventas en su sucursal", () => {
+  // Asignación ACTUAL en la DB runtime (User.branch_id).
+  let assignedBranch: string | null = "loc-REC";
+  const userFindFirst = vi.fn(async ({ where }: { where: { id: string; tenant_id: string } }) =>
+    where.id === "user-rec" && where.tenant_id === "tenant-A" ? { branch_id: assignedBranch } : null,
+  );
+  const runtimeClient = { __runtimeFakeClient: true, user: { findFirst: userFindFirst } };
+
+  function receptionUser(overrides: Record<string, unknown> = {}) {
+    return {
+      id: "user-rec",
+      role: "reception",
+      tenant_id: "tenant-A",
+      location_id: "loc-REC",
+      auth_scope: "RUNTIME_CLIENT",
+      organization_id: "org-1",
+      ...overrides,
+    };
+  }
+
+  function ctx(overrides: Record<string, unknown> = {}) {
+    return {
+      context: {
+        tenantId: "tenant-A",
+        locationId: "loc-REC",
+        client: runtimeClient,
+        runtime: null,
+        runtimeMode: "RUNTIME_CLIENT",
+        readOnly: false,
+        effectiveRole: "reception",
+        ...overrides,
+      },
+      dispose: vi.fn(),
+    };
+  }
+
+  beforeEach(() => {
+    resolveEffectiveApiContextMock.mockReset();
+    authMock.mockReset();
+    vi.mocked(cookies).mockResolvedValue({
+      // Cookie apuntando a OTRA sucursal: nunca debe usarse para reception.
+      get: (name: string) => (name === "active_location_id" ? { value: "loc-OTRA" } : undefined),
+    } as never);
+    vi.mocked(getLocationById).mockReset();
+    vi.mocked(getLocationById).mockResolvedValue({ id: "loc-OTRA", tenant_id: "tenant-A" } as never);
+    assignedBranch = "loc-REC";
+    userFindFirst.mockClear();
+  });
+
+  it("reception reasignada en DB a otra sucursal (JWT conserva la anterior) → 403", async () => {
+    authMock.mockResolvedValue({ user: receptionUser() });
+    const handle = ctx();
+    resolveEffectiveApiContextMock.mockResolvedValue(handle);
+    assignedBranch = "loc-B";
+
+    const result = await getSaleApiContext(fakeRequest(), { resolveRuntimeActiveLocation: true });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.status).toBe(403);
+      expect(result.error).toMatch(/sucursal asignada cambió/);
+    }
+    expect(handle.dispose).toHaveBeenCalled();
+    expect(userFindFirst).toHaveBeenCalledWith({
+      where: { id: "user-rec", tenant_id: "tenant-A" },
+      select: { branch_id: true },
+    });
+  });
+
+  it("branch_admin reasignado → 403", async () => {
+    authMock.mockResolvedValue({ user: receptionUser({ role: "branch_admin" }) });
+    resolveEffectiveApiContextMock.mockResolvedValue(ctx({ effectiveRole: "branch_admin" }));
+    assignedBranch = "loc-B";
+
+    const result = await getSaleApiContext(fakeRequest());
+
+    expect(result.ok).toBe(false);
+  });
+
+  it("cuenta sin sucursal asignada en DB → 403", async () => {
+    authMock.mockResolvedValue({ user: receptionUser() });
+    resolveEffectiveApiContextMock.mockResolvedValue(ctx());
+    assignedBranch = null;
+
+    const result = await getSaleApiContext(fakeRequest());
+
+    expect(result.ok).toBe(false);
+  });
+
+  it("reception con sucursal → ok, location de su identidad y client runtime", async () => {
+    authMock.mockResolvedValue({ user: receptionUser() });
+    resolveEffectiveApiContextMock.mockResolvedValue(ctx());
+
+    const result = await getSaleApiContext(fakeRequest(), { resolveRuntimeActiveLocation: true });
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.location_id).toBe("loc-REC");
+      expect(result.tenant_id).toBe("tenant-A");
+      expect(result.client).toBe(runtimeClient);
+    }
+    expect(vi.mocked(getLocationById)).not.toHaveBeenCalled();
+  });
+
+  it("reception sin sucursal (JWT) → 403 antes de resolver contexto o cookie", async () => {
+    authMock.mockResolvedValue({ user: receptionUser({ location_id: null }) });
+
+    const result = await getSaleApiContext(fakeRequest(), { resolveRuntimeActiveLocation: true });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.status).toBe(403);
+    expect(resolveEffectiveApiContextMock).not.toHaveBeenCalled();
+  });
+
+  it("rol LIVE reception sin location efectiva → 403, nunca elige sucursal por cookie", async () => {
+    authMock.mockResolvedValue({ user: receptionUser() });
+    const handle = ctx({ locationId: null });
+    resolveEffectiveApiContextMock.mockResolvedValue(handle);
+
+    const result = await getSaleApiContext(fakeRequest(), { resolveRuntimeActiveLocation: true });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.status).toBe(403);
+    expect(handle.dispose).toHaveBeenCalled();
+  });
+
+  it.each(["trainer", "client", "desconocido"])("JWT %s → 403", async (role) => {
+    authMock.mockResolvedValue({ user: receptionUser({ role }) });
+
+    const result = await getSaleApiContext(fakeRequest());
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.status).toBe(403);
+    expect(resolveEffectiveApiContextMock).not.toHaveBeenCalled();
+  });
+
+  it("JWT reception con rol LIVE trainer → 403 (cambio de rol revoca)", async () => {
+    authMock.mockResolvedValue({ user: receptionUser() });
+    const handle = ctx({ effectiveRole: "trainer" });
+    resolveEffectiveApiContextMock.mockResolvedValue(handle);
+
+    const result = await getSaleApiContext(fakeRequest());
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.status).toBe(403);
+    expect(handle.dispose).toHaveBeenCalled();
+  });
+
+  it("branch_admin conserva acceso", async () => {
+    authMock.mockResolvedValue({ user: receptionUser({ role: "branch_admin" }) });
+    resolveEffectiveApiContextMock.mockResolvedValue(ctx({ effectiveRole: "branch_admin" }));
+
+    const result = await getSaleApiContext(fakeRequest());
+
+    expect(result.ok).toBe(true);
+  });
+});

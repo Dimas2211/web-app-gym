@@ -14,7 +14,8 @@ import { getCustomerApiContext } from "../customer-api-context";
 // ── GET — búsqueda ─────────────────────────────────────────────────
 
 export async function GET(req: NextRequest) {
-  const ctx = await getCustomerApiContext();
+  // Lookup del selector de Ventas: operadores de Commerce (incl. reception).
+  const ctx = await getCustomerApiContext({ allowCommerceOperator: true });
   if (!ctx.ok) {
     return NextResponse.json({ ok: false, error: ctx.error }, { status: ctx.status });
   }

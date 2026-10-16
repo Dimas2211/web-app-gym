@@ -78,6 +78,12 @@ export interface SalesClientProps {
   initialItems: SaleListItem[];
   initialTotal: number;
   hasOpenCashSession?: boolean;
+  /**
+   * Permiso efectivo (rol LIVE) para acciones fiscales DTE: generar, firmar,
+   * transmitir, NC, invalidación y entrega externa. Resuelto en servidor;
+   * solo oculta controles — las actions DTE revalidan con requireAdmin.
+   */
+  canManageFiscalDte?: boolean;
 }
 
 // ── Normalización de fechas desde API (JSON → Date) ───────────────
@@ -97,7 +103,12 @@ function normalizeListItem(item: ApiSaleListItem): SaleListItem {
 
 // ── Componente ────────────────────────────────────────────────────
 
-export function SalesClient({ initialItems, initialTotal, hasOpenCashSession = false }: SalesClientProps) {
+export function SalesClient({
+  initialItems,
+  initialTotal,
+  hasOpenCashSession = false,
+  canManageFiscalDte = false,
+}: SalesClientProps) {
   const router = useRouter();
 
   const [items,   setItems]   = useState<SaleListItem[]>(initialItems);
@@ -662,132 +673,137 @@ export function SalesClient({ initialItems, initialTotal, hasOpenCashSession = f
           </button>
         )}
 
-        {/* Generar DTE */}
-        {selectedDetail?.status === "CONFIRMED"
-          && selectedDetail.inventory_moved
-          && (selectedDetail.primary_dte_type_code === "01" || selectedDetail.primary_dte_type_code === "03")
-          && !selectedDetail.dte_document
-          && !detailLoading && (
-          <button
-            onClick={() => { setDteError(null); setDteDialogOpen(true); }}
-            className="h-6 px-2 text-xs text-emerald-400 hover:text-emerald-200 border border-emerald-800/50 hover:border-emerald-600 rounded flex items-center gap-1 transition-colors"
-          >
-            <FileText className="h-3 w-3" />
-            Generar DTE
-          </button>
-        )}
+        {/* Acciones fiscales DTE — solo con permiso administrativo efectivo */}
+        {canManageFiscalDte && (
+          <>
+          {/* Generar DTE */}
+          {selectedDetail?.status === "CONFIRMED"
+            && selectedDetail.inventory_moved
+            && (selectedDetail.primary_dte_type_code === "01" || selectedDetail.primary_dte_type_code === "03")
+            && !selectedDetail.dte_document
+            && !detailLoading && (
+            <button
+              onClick={() => { setDteError(null); setDteDialogOpen(true); }}
+              className="h-6 px-2 text-xs text-emerald-400 hover:text-emerald-200 border border-emerald-800/50 hover:border-emerald-600 rounded flex items-center gap-1 transition-colors"
+            >
+              <FileText className="h-3 w-3" />
+              Generar DTE
+            </button>
+          )}
 
-        {/* Generar JSON FE 01 */}
-        {selectedDetail?.dte_document?.dte_status === "PENDING_GENERATION"
-          && selectedDetail.dte_document.dte_type_code === "01"
-          && !detailLoading && (
-          <button
-            onClick={() => { setFeJsonError(null); setFeJsonDialogOpen(true); }}
-            className="h-6 px-2 text-xs text-sky-400 hover:text-sky-200 border border-sky-800/50 hover:border-sky-600 rounded flex items-center gap-1 transition-colors"
-          >
-            <FileText className="h-3 w-3" />
-            Generar JSON FE
-          </button>
-        )}
+          {/* Generar JSON FE 01 */}
+          {selectedDetail?.dte_document?.dte_status === "PENDING_GENERATION"
+            && selectedDetail.dte_document.dte_type_code === "01"
+            && !detailLoading && (
+            <button
+              onClick={() => { setFeJsonError(null); setFeJsonDialogOpen(true); }}
+              className="h-6 px-2 text-xs text-sky-400 hover:text-sky-200 border border-sky-800/50 hover:border-sky-600 rounded flex items-center gap-1 transition-colors"
+            >
+              <FileText className="h-3 w-3" />
+              Generar JSON FE
+            </button>
+          )}
 
-        {/* Generar JSON CCFE 03 */}
-        {selectedDetail?.dte_document?.dte_status === "PENDING_GENERATION"
-          && selectedDetail.dte_document.dte_type_code === "03"
-          && !detailLoading && (
-          <button
-            onClick={() => { setCcfeJsonError(null); setCcfeJsonDialogOpen(true); }}
-            className="h-6 px-2 text-xs text-violet-400 hover:text-violet-200 border border-violet-800/50 hover:border-violet-600 rounded flex items-center gap-1 transition-colors"
-          >
-            <FileText className="h-3 w-3" />
-            Generar JSON CCFE
-          </button>
-        )}
+          {/* Generar JSON CCFE 03 */}
+          {selectedDetail?.dte_document?.dte_status === "PENDING_GENERATION"
+            && selectedDetail.dte_document.dte_type_code === "03"
+            && !detailLoading && (
+            <button
+              onClick={() => { setCcfeJsonError(null); setCcfeJsonDialogOpen(true); }}
+              className="h-6 px-2 text-xs text-violet-400 hover:text-violet-200 border border-violet-800/50 hover:border-violet-600 rounded flex items-center gap-1 transition-colors"
+            >
+              <FileText className="h-3 w-3" />
+              Generar JSON CCFE
+            </button>
+          )}
 
-        {/* Validar JSON Schema */}
-        {selectedDetail?.dte_document?.dte_status === "GENERATED"
-          && (selectedDetail.dte_document.dte_type_code === "01" || selectedDetail.dte_document.dte_type_code === "03")
-          && !detailLoading && (
-          <button
-            onClick={() => { setSchemaValidateResult(null); setSchemaValidateDialogOpen(true); }}
-            className="h-6 px-2 text-xs text-teal-400 hover:text-teal-200 border border-teal-800/50 hover:border-teal-600 rounded flex items-center gap-1 transition-colors"
-          >
-            <FileText className="h-3 w-3" />
-            Validar JSON
-          </button>
-        )}
+          {/* Validar JSON Schema */}
+          {selectedDetail?.dte_document?.dte_status === "GENERATED"
+            && (selectedDetail.dte_document.dte_type_code === "01" || selectedDetail.dte_document.dte_type_code === "03")
+            && !detailLoading && (
+            <button
+              onClick={() => { setSchemaValidateResult(null); setSchemaValidateDialogOpen(true); }}
+              className="h-6 px-2 text-xs text-teal-400 hover:text-teal-200 border border-teal-800/50 hover:border-teal-600 rounded flex items-center gap-1 transition-colors"
+            >
+              <FileText className="h-3 w-3" />
+              Validar JSON
+            </button>
+          )}
 
-        {/* Firmar DTE */}
-        {selectedDetail?.dte_document?.dte_status === "SCHEMA_VALIDATED"
-          && (selectedDetail.dte_document.dte_type_code === "01" || selectedDetail.dte_document.dte_type_code === "03")
-          && !detailLoading && (
-          <button
-            onClick={() => { setSignDteError(null); setSignDteSuccess(null); setSignDteDialogOpen(true); }}
-            className="h-6 px-2 text-xs text-orange-400 hover:text-orange-200 border border-orange-800/50 hover:border-orange-600 rounded flex items-center gap-1 transition-colors"
-          >
-            <FileText className="h-3 w-3" />
-            Firmar DTE
-          </button>
-        )}
+          {/* Firmar DTE */}
+          {selectedDetail?.dte_document?.dte_status === "SCHEMA_VALIDATED"
+            && (selectedDetail.dte_document.dte_type_code === "01" || selectedDetail.dte_document.dte_type_code === "03")
+            && !detailLoading && (
+            <button
+              onClick={() => { setSignDteError(null); setSignDteSuccess(null); setSignDteDialogOpen(true); }}
+              className="h-6 px-2 text-xs text-orange-400 hover:text-orange-200 border border-orange-800/50 hover:border-orange-600 rounded flex items-center gap-1 transition-colors"
+            >
+              <FileText className="h-3 w-3" />
+              Firmar DTE
+            </button>
+          )}
 
-        {/* Reintentar firma — solo REJECTED por MH 802 (firma no válida) */}
-        {selectedDetail?.dte_document?.dte_status === "REJECTED"
-          && selectedDetail.dte_document.can_retry_signature
-          && !detailLoading && (
-          <button
-            onClick={() => { setRetrySignError(null); setRetrySignSuccess(null); setRetrySignDialogOpen(true); }}
-            className="h-6 px-2 text-xs text-amber-400 hover:text-amber-200 border border-amber-800/50 hover:border-amber-600 rounded flex items-center gap-1 transition-colors"
-          >
-            <FileText className="h-3 w-3" />
-            Reintentar firma
-          </button>
-        )}
+          {/* Reintentar firma — solo REJECTED por MH 802 (firma no válida) */}
+          {selectedDetail?.dte_document?.dte_status === "REJECTED"
+            && selectedDetail.dte_document.can_retry_signature
+            && !detailLoading && (
+            <button
+              onClick={() => { setRetrySignError(null); setRetrySignSuccess(null); setRetrySignDialogOpen(true); }}
+              className="h-6 px-2 text-xs text-amber-400 hover:text-amber-200 border border-amber-800/50 hover:border-amber-600 rounded flex items-center gap-1 transition-colors"
+            >
+              <FileText className="h-3 w-3" />
+              Reintentar firma
+            </button>
+          )}
 
-        {/* Transmitir a Hacienda */}
-        {selectedDetail?.dte_document?.dte_status === "SIGNED"
-          && (selectedDetail.dte_document.dte_type_code === "01" || selectedDetail.dte_document.dte_type_code === "03")
-          && !detailLoading && (
-          <button
-            onClick={() => { setTransmitDteResult(null); setTransmitDteError(null); setTransmitDteDialogOpen(true); }}
-            className="h-6 px-2 text-xs text-indigo-400 hover:text-indigo-200 border border-indigo-800/50 hover:border-indigo-600 rounded flex items-center gap-1 transition-colors"
-          >
-            <FileText className="h-3 w-3" />
-            Transmitir a Hacienda
-          </button>
-        )}
+          {/* Transmitir a Hacienda */}
+          {selectedDetail?.dte_document?.dte_status === "SIGNED"
+            && (selectedDetail.dte_document.dte_type_code === "01" || selectedDetail.dte_document.dte_type_code === "03")
+            && !detailLoading && (
+            <button
+              onClick={() => { setTransmitDteResult(null); setTransmitDteError(null); setTransmitDteDialogOpen(true); }}
+              className="h-6 px-2 text-xs text-indigo-400 hover:text-indigo-200 border border-indigo-800/50 hover:border-indigo-600 rounded flex items-center gap-1 transition-colors"
+            >
+              <FileText className="h-3 w-3" />
+              Transmitir a Hacienda
+            </button>
+          )}
 
-        {/* Crear Nota de Crédito */}
-        {selectedDetail?.dte_document?.dte_status === "ACCEPTED"
-          && selectedDetail.dte_document.dte_type_code === "03"
-          && !hasActiveNc(selectedDetail.dte_related_nc)
-          && !hasActiveInvalidation(selectedDetail.dte_invalidation_events ?? [])
-          && !detailLoading && (
-          <button
-            onClick={() => { setNcResult(null); setNcReason(""); setNcDialogOpen(true); }}
-            className="h-6 px-2 text-xs text-purple-400 hover:text-purple-200 border border-purple-800/50 hover:border-purple-600 rounded flex items-center gap-1 transition-colors"
-          >
-            <FileText className="h-3 w-3" />
-            Crear Nota de Crédito
-          </button>
-        )}
+          {/* Crear Nota de Crédito */}
+          {selectedDetail?.dte_document?.dte_status === "ACCEPTED"
+            && selectedDetail.dte_document.dte_type_code === "03"
+            && !hasActiveNc(selectedDetail.dte_related_nc)
+            && !hasActiveInvalidation(selectedDetail.dte_invalidation_events ?? [])
+            && !detailLoading && (
+            <button
+              onClick={() => { setNcResult(null); setNcReason(""); setNcDialogOpen(true); }}
+              className="h-6 px-2 text-xs text-purple-400 hover:text-purple-200 border border-purple-800/50 hover:border-purple-600 rounded flex items-center gap-1 transition-colors"
+            >
+              <FileText className="h-3 w-3" />
+              Crear Nota de Crédito
+            </button>
+          )}
 
-        {/* Invalidar DTE */}
-        {selectedDetail?.dte_document?.dte_status === "ACCEPTED"
-          && !hasActiveInvalidation(selectedDetail.dte_invalidation_events ?? [])
-          && selectedDetail.dte_related_nc?.dte_status !== "ACCEPTED"
-          && !detailLoading && (
-          <button
-            onClick={() => {
-              setInvalidationResult(null);
-              setInvReason(""); setInvResponsableNombre(""); setInvResponsableTipoDoc("36");
-              setInvResponsableNumDoc(""); setInvSolicitaNombre(""); setInvSolicitaTipoDoc("36");
-              setInvSolicitaNumDoc("");
-              setInvalidationDialogOpen(true);
-            }}
-            className="h-6 px-2 text-xs text-red-400 hover:text-red-200 border border-red-800/50 hover:border-red-600 rounded flex items-center gap-1 transition-colors"
-          >
-            <FileText className="h-3 w-3" />
-            Invalidar DTE
-          </button>
+          {/* Invalidar DTE */}
+          {selectedDetail?.dte_document?.dte_status === "ACCEPTED"
+            && !hasActiveInvalidation(selectedDetail.dte_invalidation_events ?? [])
+            && selectedDetail.dte_related_nc?.dte_status !== "ACCEPTED"
+            && !detailLoading && (
+            <button
+              onClick={() => {
+                setInvalidationResult(null);
+                setInvReason(""); setInvResponsableNombre(""); setInvResponsableTipoDoc("36");
+                setInvResponsableNumDoc(""); setInvSolicitaNombre(""); setInvSolicitaTipoDoc("36");
+                setInvSolicitaNumDoc("");
+                setInvalidationDialogOpen(true);
+              }}
+              className="h-6 px-2 text-xs text-red-400 hover:text-red-200 border border-red-800/50 hover:border-red-600 rounded flex items-center gap-1 transition-colors"
+            >
+              <FileText className="h-3 w-3" />
+              Invalidar DTE
+            </button>
+          )}
+          </>
         )}
 
       </div>
@@ -802,14 +818,14 @@ export function SalesClient({ initialItems, initialTotal, hasOpenCashSession = f
       <SaleDteFiscalPanel
         detail={selectedDetail}
         showTabs={showDteDetail}
-        onDeliverExternal={() => {
+        onDeliverExternal={canManageFiscalDte ? () => {
           setExternalDeliveryResult(null);
           setExternalDeliveryDialogOpen(true);
-        }}
-        onDeliverExternalInvalidation={() => {
+        } : undefined}
+        onDeliverExternalInvalidation={canManageFiscalDte ? () => {
           setExternalInvDeliveryResult(null);
           setExternalInvDeliveryDialogOpen(true);
-        }}
+        } : undefined}
       />
 
       {/* ── Toggle: detalle complementario ───────────────────────── */}

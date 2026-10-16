@@ -4,7 +4,9 @@
 // Pantalla principal de consulta de ventas.
 // Estructura de 4 zonas fijas (A barra / B resumen / C grilla / D líneas).
 //
-// Guard: requireAdmin (super_admin | branch_admin).
+// Guard: requireCommerceOperator + rol LIVE (super_admin | branch_admin | reception).
+// Acciones fiscales DTE: solo visibles con canAdministerCommerce (rol LIVE);
+// sus server actions siguen detrás de requireAdmin.
 // Carga inicial: 100 ventas ordenadas por fecha desc de la location activa.
 //
 // PASO 6A (corrección de alcance): página runtime-aware. Con sesión
@@ -13,7 +15,10 @@
 // efectiva es la primera sucursal activa del tenant runtime.
 // ─────────────────────────────────────────────────────────────────
 
-import { requireAdmin } from "@/lib/permissions/guards";
+import { redirect } from "next/navigation";
+import { requireCommerceOperator } from "@/lib/permissions/guards";
+import { canAdministerCommerce } from "@/core/permissions/commerce-access";
+import { assertCommerceOperatorLive } from "@/modules/commerce/shared/require-commerce-operator-context";
 import { getEffectiveLocationId } from "@/lib/location/active-location";
 import {
   resolveEffectiveTenantContext,
@@ -29,12 +34,14 @@ export const metadata = {
 };
 
 export default async function SalesPage() {
-  const sessionUser = await requireAdmin();
+  const sessionUser = await requireCommerceOperator();
 
   const { context, dispose } = await resolveEffectiveTenantContext(sessionUser);
   const { tenantId: tenant_id, client } = context;
 
   try {
+    // Rol LIVE (RUNTIME_CLIENT) + sucursal fija vigente (User.branch_id) para roles no globales.
+    if (await assertCommerceOperatorLive(context, sessionUser.id)) redirect("/dashboard");
     await requireOrganizationModule(tenant_id, "commerce.sales");
 
     const location_id = context.runtime
@@ -72,6 +79,7 @@ export default async function SalesPage() {
         initialItems={items}
         initialTotal={total}
         hasOpenCashSession={hasOpenCashSession}
+        canManageFiscalDte={canAdministerCommerce(context.effectiveRole)}
       />
     );
   } finally {

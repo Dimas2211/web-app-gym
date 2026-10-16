@@ -1,5 +1,7 @@
 import { redirect } from "next/navigation";
-import { requireAdmin } from "@/lib/permissions/guards";
+import { requireCommerceOperator } from "@/lib/permissions/guards";
+import { assertCommerceOperatorLive } from "@/modules/commerce/shared/require-commerce-operator-context";
+import { requireOrganizationModule } from "@/modules/platform/runtime/commercial-enforcement";
 import { prisma } from "@/lib/db/prisma";
 import { checkOperationalGrant } from "@/core/security/operational-authorization/operational-authorization";
 import { SALE_DRAFT_WRITE_SCOPES } from "@/core/security/operational-authorization/scopes";
@@ -23,11 +25,17 @@ export default async function NewSalePage({
 }) {
   const { sale_id } = await searchParams;
 
-  const sessionUser = await requireAdmin();
+  const sessionUser = await requireCommerceOperator();
   const { context, dispose } = await resolveEffectiveTenantContext(sessionUser);
   const tenant_id = context.tenantId;
 
   try {
+    // Rol LIVE (RUNTIME_CLIENT) + sucursal fija vigente (User.branch_id) para roles no globales.
+    if (await assertCommerceOperatorLive(context, sessionUser.id)) redirect("/dashboard");
+    // Mismo enforcement comercial que /dashboard/sales: la URL directa de
+    // captura no salta el módulo commerce.sales deshabilitado.
+    if (tenant_id) await requireOrganizationModule(tenant_id, "commerce.sales");
+
     const location_id = context.runtime
       ? await resolveRuntimeFirstLocationId(context)
       : (context.locationId ??

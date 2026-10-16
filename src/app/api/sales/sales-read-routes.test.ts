@@ -31,7 +31,7 @@ vi.mock("@/modules/commerce/sales/services/sale.service", () => ({
   updateSaleDraft: (...args: unknown[]) => updateSaleDraftMock(...args),
 }));
 
-vi.mock("@/lib/permissions/guards", () => ({ requireAdmin: vi.fn() }));
+vi.mock("@/lib/permissions/guards", () => ({ requireAdmin: vi.fn(), requireCommerceOperator: vi.fn() }));
 vi.mock("@/modules/platform/runtime/require-operational-context", () => ({
   requireOperationalContext: vi.fn(),
   OperationalContextError: class extends Error {},

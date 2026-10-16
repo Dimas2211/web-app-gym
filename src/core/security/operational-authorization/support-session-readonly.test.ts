@@ -29,6 +29,7 @@ vi.mock("@/lib/db/prisma", () => ({
 const SUPER_ADMIN = { id: "platform-admin", tenant_id: "platform-tenant", location_id: null, role: "super_admin", auth_scope: "PLATFORM" };
 vi.mock("@/lib/permissions/guards", () => ({
   requireAdmin: vi.fn(async () => SUPER_ADMIN),
+  requireCommerceOperator: vi.fn(async () => SUPER_ADMIN),
   requireGlobalAdmin: vi.fn(async () => SUPER_ADMIN),
 }));
 vi.mock("@/lib/location/active-location", () => ({ getEffectiveLocationId: vi.fn(async () => "loc-1") }));

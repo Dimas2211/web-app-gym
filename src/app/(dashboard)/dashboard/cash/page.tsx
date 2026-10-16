@@ -2,7 +2,9 @@
 // cash — page.tsx
 //
 // Pantalla principal del módulo de caja.
-// Guard: requireAdmin (super_admin | branch_admin).
+// Guard: requireCommerceOperator + rol LIVE (super_admin | branch_admin | reception),
+// aplicado dentro de getCashWorkspaceStateAction. La administración de
+// cajas se habilita solo con permissions.canAdministerRegisters.
 // Carga inicial: workspace de caja de la location efectiva.
 // ─────────────────────────────────────────────────────────────────
 
@@ -25,6 +27,6 @@ export default async function CashPage() {
   }
 
   return (
-    <CashClient initialState={result.data} />
+    <CashClient initialState={result.data} permissions={result.permissions} />
   );
 }

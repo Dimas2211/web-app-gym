@@ -4,6 +4,7 @@ import type { UserRole } from "@prisma/client";
 import { isAuthScope, type CoreSessionUser } from "@/core/auth/types";
 import { getCapabilities } from "@/core/permissions/role-capabilities";
 import { canAccessPlatformAdmin } from "@/core/permissions/platform-access";
+import { evaluateCommerceOperatorAccess } from "@/core/permissions/commerce-access";
 import { enforceRuntimeOrganizationAccess } from "@/modules/platform/runtime/runtime-organization-access-gate";
 
 /**
@@ -71,6 +72,22 @@ export async function getSessionOrRedirect(): Promise<SessionUser> {
 export async function requireAdmin(): Promise<SessionUser> {
   const user = await getSessionOrRedirect();
   if (!getCapabilities(user.role).canManageStaff) redirect("/dashboard");
+  return user;
+}
+
+/**
+ * Requiere rol que puede OPERAR Commerce — ventas y caja
+ * (super_admin, branch_admin, reception). NO implica administración:
+ * crear cajas, exportaciones y DTE siguen detrás de requireAdmin().
+ *
+ * Esta es la puerta del JWT. Los entry points DEBEN además revalidar el
+ * rol LIVE y la sucursal fija tras resolver el contexto operacional —
+ * ver requireCommerceOperatorContext() / assertCommerceOperatorLive().
+ */
+export async function requireCommerceOperator(): Promise<SessionUser> {
+  const user = await getSessionOrRedirect();
+  const decision = evaluateCommerceOperatorAccess({ role: user.role, locationId: user.location_id });
+  if (!decision.ok) redirect("/dashboard");
   return user;
 }
 
