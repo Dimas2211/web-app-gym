@@ -106,4 +106,7 @@ export interface InventoryMovementFilters {
 
   // ── Tamaño de resultado ───────────────────────────────────────
   page_size?: number;
+
+  /** Página 1-based (offset = (page - 1) * page_size). Default 1. */
+  page?: number;
 }

@@ -8,10 +8,17 @@
 // Las acciones (movimiento, activar/desactivar) disparan callbacks
 // hacia el orquestador padre (inventory-client.tsx, Bloque 9).
 //
+// "Ver movimientos" (consulta, solo lectura) es visible para todo rol
+// con acceso de lectura; "Registrar movimiento" (modifica stock) sigue
+// limitado a canManage. Abre Commerce → Consultas y reportes →
+// Movimientos por producto con el product_id real; la sucursal la
+// resuelve el servidor (sucursal efectiva).
+//
 // Layout: dos bloques verticales — identidad/clasificación | stock/ubicación
 // ─────────────────────────────────────────────────────────────────
 
-import { PackageSearch, Warehouse, ArrowUpDown, Power } from "lucide-react";
+import Link from "next/link";
+import { PackageSearch, Warehouse, ArrowUpDown, Power, History } from "lucide-react";
 import type { ProductLocationDetail, StockAlertLevel } from "../types/inventory.types";
 
 // ── Props ─────────────────────────────────────────────────────────
@@ -216,8 +223,20 @@ export function InventorySummaryPanel({
       </div>
 
       {/* ── Footer: acciones ─────────────────────────────────────── */}
+      <div className="px-4 py-3 border-t border-zinc-100 shrink-0 space-y-2">
+        {/* Ver movimientos — consulta de solo lectura */}
+        <Link
+          href={`/dashboard/reports/commerce/inventory-movements?product_id=${detail.product_id}`}
+          className="w-full flex items-center justify-center gap-2 px-3 py-2 text-xs font-medium
+                     rounded-lg border border-zinc-300 text-zinc-700
+                     hover:border-zinc-500 hover:bg-zinc-50 transition-colors"
+        >
+          <History size={13} />
+          Ver movimientos
+        </Link>
+
       {canManage && (
-        <div className="px-4 py-3 border-t border-zinc-100 shrink-0 space-y-2">
+        <>
           {/* Registrar movimiento — solo si el registro está activo */}
           <button
             type="button"
@@ -243,8 +262,9 @@ export function InventorySummaryPanel({
             <Power size={13} />
             {detail.is_active ? "Desactivar registro" : "Activar registro"}
           </button>
-        </div>
+        </>
       )}
+      </div>
     </div>
   );
 }

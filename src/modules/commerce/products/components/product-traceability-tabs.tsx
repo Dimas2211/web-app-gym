@@ -6,16 +6,19 @@
 // Pestañas de trazabilidad del producto seleccionado.
 // - Ventas: historial real vía GET /api/products/[id]/sales-history
 // - Compras / Entradas: historial real vía GET /api/products/[id]/purchase-history
-// - Movimientos: historial real vía GET /api/inventory/movements
+// - Movimientos: últimos movimientos vía GET /api/inventory/movements +
+//   acceso a la consulta completa de Commerce (Movimientos por producto)
 // - Grupos muestra la jerarquía del catálogo del producto.
 // ─────────────────────────────────────────────────────────────────
 
 import { useState, useEffect } from "react";
-import { ShoppingCart, ShoppingBag, BarChart2, Layers, FileText } from "lucide-react";
+import Link from "next/link";
+import { ShoppingCart, ShoppingBag, BarChart2, Layers, FileText, ExternalLink } from "lucide-react";
 import type { ProductSummary } from "../types/product-summary.types";
 import type { ProductPurchaseHistoryRow } from "../queries/get-product-purchase-history";
 import type { ProductSalesHistoryRow } from "../queries/get-product-sales-history";
 import type { InventoryMovementItem } from "../../inventory/types/inventory-movement.types";
+import { ProductMovementsTable } from "../../inventory/components/product-movements-table";
 
 type TabId = "resumen" | "ventas" | "compras" | "movimientos" | "grupos";
 
@@ -229,40 +232,49 @@ function VentasTab({ productId }: { productId: string }) {
 }
 
 // ── Pestaña Movimientos ───────────────────────────────────────────
+//
+// Vista rápida: últimos movimientos del producto en la sucursal activa
+// (más recientes primero) con la misma tabla y el mismo mapeo
+// Documento/Correlativo que la consulta completa de Commerce.
+// "Ver movimientos completos" abre la consulta con el producto ya
+// seleccionado (historial cronológico paginado + Excel/PDF).
 
-const MOVEMENT_TYPE_LABEL: Record<string, string> = {
-  INITIAL_LOAD:    "Carga inicial",
-  MANUAL_IN:       "Entrada manual",
-  MANUAL_OUT:      "Salida manual",
-  ADJUSTMENT_UP:   "Ajuste positivo",
-  ADJUSTMENT_DOWN: "Ajuste negativo",
-  PURCHASE_IN:     "Entrada por compra",
-  SALE_OUT:        "Salida por venta",
-  TRANSFER_IN:     "Transf. entrada",
-  TRANSFER_OUT:    "Transf. salida",
-  RETURN_IN:       "Devolución entrada",
-  RETURN_OUT:      "Devolución salida",
-};
+const MOVEMENTS_PREVIEW_SIZE = 100;
+const FULL_MOVEMENTS_PATH = "/dashboard/reports/commerce/inventory-movements";
 
 function MovimientosTab({ productId }: { productId: string }) {
   const [items, setItems]   = useState<InventoryMovementItem[] | null>(null);
+  const [total, setTotal]   = useState(0);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
     setItems(null);
+    setTotal(0);
 
-    fetch(`/api/inventory/movements?product_id=${productId}&page_size=100`)
-      .then((r) => (r.ok ? r.json() : { items: [] }))
-      .then((data: { items: InventoryMovementItem[] }) => {
-        if (!cancelled) setItems(data.items ?? []);
+    fetch(`/api/inventory/movements?product_id=${productId}&page_size=${MOVEMENTS_PREVIEW_SIZE}`)
+      .then((r) => (r.ok ? r.json() : { items: [], total: 0 }))
+      .then((data: { items: InventoryMovementItem[]; total?: number }) => {
+        if (cancelled) return;
+        setItems(data.items ?? []);
+        setTotal(data.total ?? data.items?.length ?? 0);
       })
       .catch(() => { if (!cancelled) setItems([]); })
       .finally(() => { if (!cancelled) setLoading(false); });
 
     return () => { cancelled = true; };
   }, [productId]);
+
+  const fullLink = (
+    <Link
+      href={`${FULL_MOVEMENTS_PATH}?product_id=${productId}`}
+      className="inline-flex items-center gap-1 rounded-md border border-zinc-300 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-700 hover:border-zinc-500 hover:bg-zinc-50"
+    >
+      <ExternalLink size={12} />
+      Ver movimientos completos
+    </Link>
+  );
 
   if (loading) {
     return (
@@ -274,64 +286,25 @@ function MovimientosTab({ productId }: { productId: string }) {
 
   if (!items || items.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center py-8 text-center text-zinc-400">
-        <BarChart2 size={28} className="mb-2 opacity-25" />
+      <div className="flex flex-col items-center justify-center gap-3 py-8 text-center text-zinc-400">
+        <BarChart2 size={28} className="opacity-25" />
         <p className="text-sm">Este producto todavía no tiene movimientos de inventario registrados.</p>
+        {fullLink}
       </div>
     );
   }
 
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-xs">
-        <thead>
-          <tr className="border-b border-zinc-100 text-zinc-400 font-medium">
-            <th className="text-left px-3 py-2 whitespace-nowrap">Fecha</th>
-            <th className="text-left px-3 py-2 whitespace-nowrap">Tipo</th>
-            <th className="text-left px-3 py-2 whitespace-nowrap">Dirección</th>
-            <th className="text-right px-3 py-2 whitespace-nowrap">Cantidad</th>
-            <th className="text-right px-3 py-2 whitespace-nowrap">Stock ant.</th>
-            <th className="text-right px-3 py-2 whitespace-nowrap">Stock result.</th>
-            <th className="text-right px-3 py-2 whitespace-nowrap">Costo unit.</th>
-            <th className="text-left px-3 py-2 whitespace-nowrap">Referencia</th>
-            <th className="text-left px-3 py-2 whitespace-nowrap">Notas</th>
-            <th className="text-left px-3 py-2 whitespace-nowrap">Usuario</th>
-          </tr>
-        </thead>
-        <tbody>
-          {items.map((m) => {
-            const isAdditive = m.movement_direction === "ADDITIVE";
-            return (
-              <tr key={m.id} className="border-b border-zinc-50 hover:bg-zinc-50">
-                <td className="px-3 py-1.5 whitespace-nowrap text-zinc-500">{m.created_at_label}</td>
-                <td className="px-3 py-1.5 whitespace-nowrap text-zinc-700">
-                  {MOVEMENT_TYPE_LABEL[m.movement_type] ?? m.movement_type}
-                </td>
-                <td className="px-3 py-1.5 whitespace-nowrap">
-                  <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${isAdditive ? "bg-green-50 text-green-700" : "bg-red-50 text-red-500"}`}>
-                    {isAdditive ? "Entrada" : "Salida"}
-                  </span>
-                </td>
-                <td className="px-3 py-1.5 text-right font-medium text-zinc-800">{fmtAmount(m.quantity)}</td>
-                <td className="px-3 py-1.5 text-right text-zinc-500">{fmtAmount(m.stock_before)}</td>
-                <td className="px-3 py-1.5 text-right text-zinc-700">{fmtAmount(m.resulting_stock)}</td>
-                <td className="px-3 py-1.5 text-right text-zinc-500">
-                  {m.unit_cost != null ? fmtAmount(m.unit_cost) : "—"}
-                </td>
-                <td className="px-3 py-1.5 whitespace-nowrap font-mono text-zinc-500">
-                  {m.reference_code ?? "—"}
-                </td>
-                <td className="px-3 py-1.5 text-zinc-500 max-w-[160px] truncate">
-                  {m.notes ?? "—"}
-                </td>
-                <td className="px-3 py-1.5 whitespace-nowrap text-zinc-500">
-                  {m.performed_by_name ?? "—"}
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
+    <div>
+      <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 border-b border-zinc-100">
+        <p className="text-[11px] text-zinc-400">
+          {total > items.length
+            ? `Últimos ${items.length} de ${total} movimientos (más recientes primero).`
+            : `${total} movimiento${total !== 1 ? "s" : ""} (más recientes primero).`}
+        </p>
+        {fullLink}
+      </div>
+      <ProductMovementsTable items={items} variant="compact" />
     </div>
   );
 }

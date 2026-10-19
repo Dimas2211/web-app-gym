@@ -15,6 +15,7 @@ import {
   OperationalContextError,
 } from "@/modules/platform/runtime/require-operational-context";
 import { getInventoryMovements } from "@/modules/commerce/inventory/queries/get-inventory-movements";
+import { resolveInventoryReadContext } from "@/modules/commerce/inventory/server/resolve-inventory-read-context";
 import { recordInventoryMovement } from "@/modules/commerce/inventory/services/inventory-movement.service";
 import { ACTIVE_MOVEMENT_TYPES } from "@/modules/commerce/inventory/schemas/record-movement.schema";
 import type {
@@ -24,7 +25,6 @@ import type {
 } from "@/modules/commerce/inventory/types/inventory-filters.types";
 import type { MovementType } from "@/modules/commerce/inventory/types/inventory-movement.types";
 
-const VIEWER_ROLES = ["super_admin", "branch_admin", "reception"];
 const ADMIN_ROLES  = ["super_admin", "branch_admin"];
 
 // Schema de validación para el body del POST
@@ -46,45 +46,12 @@ const movementBodySchema = z.object({
 // ── GET /api/inventory/movements ──────────────────────────────────
 
 export async function GET(req: NextRequest) {
-  const session = await auth();
-  if (!session?.user) {
-    return NextResponse.json({ error: "No autorizado" }, { status: 401 });
-  }
-  const user = session.user as SessionUser;
-
-  let handle;
-  try {
-    handle = await requireOperationalContext(user, { module: "commerce.inventory" });
-  } catch (err) {
-    if (err instanceof OperationalContextError) {
-      return NextResponse.json({ error: err.userMessage }, { status: err.httpStatus });
-    }
-    throw err;
-  }
-  const { context, dispose } = handle;
-
-  if (!VIEWER_ROLES.includes(context.effectiveUser.role)) {
-    await dispose();
-    return NextResponse.json({ error: "Acceso denegado" }, { status: 403 });
-  }
-
-  // location: la del usuario runtime (LIVE-validada) o, para identidades
-  // tenant-wide, la seleccionada vía cookie — validada contra la DB EFECTIVA.
-  const locationId =
-    context.locationId ??
-    (await getEffectiveLocationId(
-      { ...context.effectiveUser, role: context.effectiveUser.role as SessionUser["role"] } as SessionUser,
-      context.client,
-      context.tenantId,
-    ));
-
-  if (!locationId) {
-    await dispose();
-    return NextResponse.json(
-      { error: "La sesión no tiene tenant o location activos." },
-      { status: 400 },
-    );
-  }
+  // Contexto de lectura compartido con la consulta de movimientos por
+  // producto (tenant efectivo, DB operacional, roles de lectura, sucursal
+  // efectiva incluida la Support Session read-only).
+  const ctx = await resolveInventoryReadContext();
+  if (!ctx.ok) return ctx.response;
+  const { context, locationId, dispose } = ctx;
 
   const { searchParams } = req.nextUrl;
 

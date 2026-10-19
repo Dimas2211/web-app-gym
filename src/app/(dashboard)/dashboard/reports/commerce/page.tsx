@@ -9,6 +9,7 @@
 
 import { requireAdmin } from "@/lib/permissions/guards";
 import { CommerceReportsClient } from "@/modules/commerce/reports/components/commerce-reports-client";
+import { CommerceReportsTabs } from "@/modules/commerce/reports/components/commerce-reports-tabs";
 
 export const metadata = {
   title: "Reportes Comerciales",
@@ -25,6 +26,8 @@ export default async function CommerceReportsPage() {
           Análisis de ventas y compras confirmadas por período y location activa.
         </p>
       </div>
+
+      <CommerceReportsTabs active="dashboard" />
 
       <CommerceReportsClient />
     </main>
