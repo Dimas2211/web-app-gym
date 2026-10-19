@@ -80,6 +80,8 @@ function buildWhere(filters: InventoryMovementFilters) {
     tenant_id,
     location_id,
     ...(product_id          && { product_id }),
+    ...(filters.product_search && { product: { OR: [ { product_code: { contains: filters.product_search, mode: "insensitive" as const } }, { name: { contains: filters.product_search, mode: "insensitive" as const } } ] } }),
+    ...(filters.reference_search && { reference_code: { contains: filters.reference_search, mode: "insensitive" as const } }),
     ...(product_location_id && { product_location_id }),
     ...(movement_type       && { movement_type }),
     ...(performed_by        && { performed_by }),

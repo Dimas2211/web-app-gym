@@ -42,6 +42,18 @@ const REPORT_SECTIONS: ReportSection[] = [
     ],
   },
   {
+    title: "Inventario",
+    icon: "M3 7h18M3 12h18M3 17h18",
+    reports: [
+      {
+        href: "/dashboard/reports/inventory/movements",
+        label: "Movimientos de inventario",
+        description: "Entradas, salidas, ajustes y saldos por movimiento en la sucursal activa.",
+        roles: ["super_admin", "branch_admin", "reception"],
+      },
+    ],
+  },
+  {
     title: "Membresías",
     icon: "M15 5v2m0 4v2m0 4v2M5 5a2 2 0 00-2 2v3a2 2 0 110 4v3a2 2 0 002 2h14a2 2 0 002-2v-3a2 2 0 110-4V7a2 2 0 00-2-2H5z",
     requiredVerticalCode: "GYM",

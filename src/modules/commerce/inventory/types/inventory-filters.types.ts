@@ -79,6 +79,12 @@ export interface InventoryMovementFilters {
   /** Acotar al historial de un producto específico */
   product_id?: string;
 
+  /** Buscar por código o nombre de producto */
+  product_search?: string;
+
+  /** Buscar por código de documento de referencia */
+  reference_search?: string;
+
   /** Acotar al historial de un registro product_location específico */
   product_location_id?: string;
 

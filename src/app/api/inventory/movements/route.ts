@@ -94,6 +94,11 @@ export async function GET(req: NextRequest) {
     location_id: locationId,
   };
 
+  const productSearch = searchParams.get("product_search");
+  if (productSearch?.trim()) filters.product_search = productSearch.trim().slice(0, 120);
+  const referenceSearch = searchParams.get("reference_search");
+  if (referenceSearch?.trim()) filters.reference_search = referenceSearch.trim().slice(0, 120);
+
   const productId = searchParams.get("product_id");
   if (productId) filters.product_id = productId;
 
