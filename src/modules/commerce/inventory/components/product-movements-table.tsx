@@ -77,6 +77,11 @@ export function ProductMovementsTable({
                 </td>
                 <td className={`${cell} whitespace-nowrap font-mono`} title={r.document ?? "Sin documento"}>
                   {r.document ?? dash}
+                  {r.document_status && (
+                    <span className="ml-1.5 rounded bg-amber-50 px-1 py-0.5 font-sans text-[10px] font-medium text-amber-700">
+                      {r.document_status}
+                    </span>
+                  )}
                 </td>
                 <td className={`${cell} whitespace-nowrap font-mono text-zinc-500`}>{r.correlative ?? dash}</td>
                 <td className={`${cell} text-right whitespace-nowrap font-mono text-green-700`}>

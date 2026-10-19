@@ -16,7 +16,7 @@
 
 import type { ProductMovementReport } from "../queries/get-product-movement-report";
 import type { InventoryMovementItem } from "../types/inventory-movement.types";
-import { getMovementDirectionLabel, getMovementTypeLabel } from "./inventory-movement-labels";
+import { DOCUMENT_STATUS_LABELS, getMovementDirectionLabel, getMovementTypeLabel } from "./inventory-movement-labels";
 
 export const MOVEMENT_REPORT_COLUMNS = [
   "Fecha y hora",
@@ -38,6 +38,8 @@ export interface MovementExportRow {
   type: string;
   direction: string;
   document: string | null;
+  /** "Invalidado" / "Invalidación en curso"; null = documento vigente o sin documento. */
+  document_status: string | null;
   correlative: string | null;
   qty_in: number | null;
   qty_out: number | null;
@@ -56,6 +58,7 @@ export function toMovementExportRow(item: InventoryMovementItem): MovementExport
     type:            getMovementTypeLabel(item.movement_type),
     direction:       getMovementDirectionLabel(item.movement_direction),
     document:        item.document_number,
+    document_status: item.document_status ? DOCUMENT_STATUS_LABELS[item.document_status] : null,
     correlative:     item.correlative,
     qty_in:          additive ? item.quantity : null,
     qty_out:         additive ? null : item.quantity,
@@ -65,6 +68,12 @@ export function toMovementExportRow(item: InventoryMovementItem): MovementExport
     user:            item.performed_by_name,
     notes:           item.notes,
   };
+}
+
+/** Documento con su estado fiscal, tal como se imprime en Excel/PDF. */
+export function formatMovementDocument(row: Pick<MovementExportRow, "document" | "document_status">): string | null {
+  if (!row.document) return null;
+  return row.document_status ? `${row.document} (${row.document_status})` : row.document;
 }
 
 // ── Formato numérico El Salvador (1,234.56) ─────────────────────
@@ -126,10 +135,11 @@ function assertComplete(report: ProductMovementReport): void {
 
 // ── Excel ────────────────────────────────────────────────────────
 
-export async function exportProductMovementsExcel(
+/** Construye el libro Excel (sin descargar) — reutilizado por la descarga y la verificación. */
+export async function buildProductMovementsWorkbook(
   report: ProductMovementReport,
   typeFilterLabel: string | null,
-): Promise<void> {
+) {
   assertComplete(report);
   const XLSX = await import("xlsx");
 
@@ -145,7 +155,7 @@ export async function exportProductMovementsExcel(
       r.date,
       r.type,
       r.direction,
-      safeText(r.document ?? "—"),
+      safeText(formatMovementDocument(r) ?? "—"),
       safeText(r.correlative ?? "—"),
       r.qty_in,
       r.qty_out,
@@ -174,6 +184,14 @@ export async function exportProductMovementsExcel(
 
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, "Movimientos");
+  return wb;
+}
+
+export async function exportProductMovementsExcel(
+  report: ProductMovementReport,
+  typeFilterLabel: string | null,
+): Promise<void> {
+  const [XLSX, wb] = await Promise.all([import("xlsx"), buildProductMovementsWorkbook(report, typeFilterLabel)]);
   XLSX.writeFile(wb, filename(report, "xlsx"));
 }
 
@@ -184,10 +202,11 @@ export async function exportProductMovementsExcel(
 // Fuente estándar Helvetica (WinAnsi): soporta acentos y ñ. Se evita
 // el guion largo "—" (fuera de WinAnsi en jsPDF) usando "-".
 
-export async function exportProductMovementsPdf(
+/** Construye el PDF (sin descargar) — reutilizado por la descarga y la verificación. */
+export async function buildProductMovementsPdf(
   report: ProductMovementReport,
   typeFilterLabel: string | null,
-): Promise<void> {
+) {
   assertComplete(report);
   const [{ default: jsPDF }, { autoTable }] = await Promise.all([
     import("jspdf"),
@@ -232,7 +251,7 @@ export async function exportProductMovementsPdf(
     r.date,
     r.type,
     r.direction,
-    r.document ?? "-",
+    formatMovementDocument(r) ?? "-",
     r.correlative ?? "-",
     formatMovementQty(r.qty_in),
     formatMovementQty(r.qty_out),
@@ -254,18 +273,26 @@ export async function exportProductMovementsPdf(
     headStyles: { fillColor: [39, 48, 62], textColor: 255, fontStyle: "bold", fontSize: 7 },
     alternateRowStyles: { fillColor: [246, 247, 249] },
     columnStyles: {
-      0:  { cellWidth: 23 },
-      1:  { cellWidth: 27 },
-      2:  { cellWidth: 14 },
-      3:  { cellWidth: 30 },
-      4:  { cellWidth: 19 },
-      5:  { cellWidth: 15, halign: "right" },
-      6:  { cellWidth: 15, halign: "right" },
-      7:  { cellWidth: 18, halign: "right" },
-      8:  { cellWidth: 19, halign: "right" },
-      9:  { cellWidth: 16, halign: "right" },
-      10: { cellWidth: 27 },
+      // Documento ancho para números de control DTE (31 caracteres) y
+      // Correlativo para códigos de venta (VTA-aaaa-mm-nnnn) sin cortes.
+      0:  { cellWidth: 24 },
+      1:  { cellWidth: 25 },
+      2:  { cellWidth: 15 },
+      3:  { cellWidth: 44, fontSize: 6.5 },
+      4:  { cellWidth: 24 },
+      5:  { cellWidth: 14, halign: "right" },
+      6:  { cellWidth: 14, halign: "right" },
+      7:  { cellWidth: 17, halign: "right" },
+      8:  { cellWidth: 18, halign: "right" },
+      9:  { cellWidth: 15, halign: "right" },
+      10: { cellWidth: 25 },
       11: { cellWidth: "auto" },
+    },
+    // Títulos de columnas numéricas alineados con sus valores
+    didParseCell: (data) => {
+      if (data.section === "head" && data.column.index >= 5 && data.column.index <= 9) {
+        data.cell.styles.halign = "right";
+      }
     },
     didDrawPage: (data) => {
       if (data.pageNumber > 1) {
@@ -292,5 +319,13 @@ export async function exportProductMovementsPdf(
     doc.text(`Página ${i} de ${pageCount}`, pageWidth - marginX, pageHeight - 6, { align: "right" });
   }
 
+  return doc;
+}
+
+export async function exportProductMovementsPdf(
+  report: ProductMovementReport,
+  typeFilterLabel: string | null,
+): Promise<void> {
+  const doc = await buildProductMovementsPdf(report, typeFilterLabel);
   doc.save(filename(report, "pdf"));
 }

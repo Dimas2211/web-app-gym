@@ -7,11 +7,16 @@
 // ─────────────────────────────────────────────────────────────────
 
 import { describe, it, expect, vi } from "vitest";
-import { formatPurchaseDocument, resolveMovementDocuments } from "./resolve-movement-documents";
+import { formatPurchaseDocument, pickSaleFiscalDocument, resolveMovementDocuments } from "./resolve-movement-documents";
+
+type DteRow = { control_number: string | null; dte_status: string; reception_stamp: string | null };
+
+const dte = (control_number: string | null, dte_status: string, reception_stamp: string | null = "SELLO-MH"): DteRow =>
+  ({ control_number, dte_status, reception_stamp });
 
 function fakeClient(opts: {
   purchases?: { id: string; purchase_code: string; document_number: string | null; document_series: string | null }[];
-  sales?: { id: string; sale_code: string; dte_documents: { control_number: string | null }[] }[];
+  sales?: { id: string; sale_code: string; dte_documents: DteRow[] }[];
 }) {
   return {
     purchase: { findMany: vi.fn().mockResolvedValue(opts.purchases ?? []) },
@@ -29,7 +34,7 @@ describe("resolveMovementDocuments — compras", () => {
       "tenant-A",
       client as never,
     );
-    expect(map.get("mv-1")).toEqual({ document_number: "FAC-2026-125", correlative: "3" });
+    expect(map.get("mv-1")).toEqual({ document_number: "FAC-2026-125", correlative: "3", document_status: null });
   });
 
   it("4. compra sin document_number → Documento null (no se sustituye por purchase_code)", async () => {
@@ -41,7 +46,7 @@ describe("resolveMovementDocuments — compras", () => {
       "tenant-A",
       client as never,
     );
-    expect(map.get("mv-2")).toEqual({ document_number: null, correlative: "7" });
+    expect(map.get("mv-2")).toEqual({ document_number: null, correlative: "7", document_status: null });
   });
 
   it("anulación de compra resuelve los datos documentales de la compra original", async () => {
@@ -53,7 +58,7 @@ describe("resolveMovementDocuments — compras", () => {
       "tenant-A",
       client as never,
     );
-    expect(map.get("mv-3")).toEqual({ document_number: "FAC-125", correlative: "12" });
+    expect(map.get("mv-3")).toEqual({ document_number: "FAC-125", correlative: "12", document_status: null });
   });
 
   it("consulta por lote filtrando tenant_id — una sola consulta para N movimientos", async () => {
@@ -86,9 +91,9 @@ describe("resolveMovementDocuments — compras", () => {
 });
 
 describe("resolveMovementDocuments — ventas y otros", () => {
-  it("venta: Documento = número de control DTE, Correlativo = sale_code", async () => {
+  it("venta: Documento = número de control del DTE aceptado, Correlativo = sale_code", async () => {
     const client = fakeClient({
-      sales: [{ id: "sale-1", sale_code: "V-2026-10-0001", dte_documents: [{ control_number: "DTE-01-M001P001-000000000000045" }] }],
+      sales: [{ id: "sale-1", sale_code: "V-2026-10-0001", dte_documents: [dte("DTE-01-M001P001-000000000000045", "ACCEPTED")] }],
     });
     const map = await resolveMovementDocuments(
       [{ id: "mv-s", reference_entity: "sale", reference_id: "sale-1", reference_code: "V-2026-10-0001" }],
@@ -98,10 +103,16 @@ describe("resolveMovementDocuments — ventas y otros", () => {
     expect(map.get("mv-s")).toEqual({
       document_number: "DTE-01-M001P001-000000000000045",
       correlative: "V-2026-10-0001",
+      document_status: null,
     });
-    // Excluye NC 05 y DTE sin número de control
+    // Solo DTE originales de venta (sin NC 05), estados con aceptación previa de MH y con número de control
     const where = client.sale.findMany.mock.calls[0][0].select.dte_documents.where;
-    expect(where).toMatchObject({ tenant_id: "tenant-A", dte_type_code: { not: "05" }, control_number: { not: null } });
+    expect(where).toEqual({
+      tenant_id: "tenant-A",
+      dte_type_code: { in: ["01", "03", "11"] },
+      dte_status: { in: ["ACCEPTED", "OBSERVED", "INVALIDATION_PENDING", "INVALIDATED"] },
+      control_number: { not: null },
+    });
   });
 
   it("venta sin DTE: sale_code nunca se usa como documento fiscal", async () => {
@@ -111,7 +122,7 @@ describe("resolveMovementDocuments — ventas y otros", () => {
       "tenant-A",
       client as never,
     );
-    expect(map.get("mv-s2")).toEqual({ document_number: null, correlative: "V-2026-10-0002" });
+    expect(map.get("mv-s2")).toEqual({ document_number: null, correlative: "V-2026-10-0002", document_status: null });
   });
 
   it("carga inicial por onboarding: sin documento ni correlativo inventados", async () => {
@@ -120,7 +131,7 @@ describe("resolveMovementDocuments — ventas y otros", () => {
       "tenant-A",
       fakeClient({}) as never,
     );
-    expect(map.get("mv-o")).toEqual({ document_number: null, correlative: null });
+    expect(map.get("mv-o")).toEqual({ document_number: null, correlative: null, document_status: null });
   });
 
   it("movimiento manual: solo la referencia escrita por el usuario", async () => {
@@ -132,8 +143,67 @@ describe("resolveMovementDocuments — ventas y otros", () => {
       "tenant-A",
       fakeClient({}) as never,
     );
-    expect(map.get("m1")).toEqual({ document_number: "ACTA-12", correlative: null });
-    expect(map.get("m2")).toEqual({ document_number: null, correlative: null });
+    expect(map.get("m1")).toEqual({ document_number: "ACTA-12", correlative: null, document_status: null });
+    expect(map.get("m2")).toEqual({ document_number: null, correlative: null, document_status: null });
+  });
+});
+
+describe("pickSaleFiscalDocument — estados DTE reales", () => {
+  it("ACCEPTED con sello → documento vigente", () => {
+    expect(pickSaleFiscalDocument([dte("DTE-A", "ACCEPTED")])).toEqual({ document_number: "DTE-A", document_status: null });
+  });
+
+  it("OBSERVED con sello (recibido con observaciones) → documento vigente", () => {
+    expect(pickSaleFiscalDocument([dte("DTE-O", "OBSERVED")])).toEqual({ document_number: "DTE-O", document_status: null });
+  });
+
+  it("REJECTED nunca se presenta como documento fiscal", () => {
+    expect(pickSaleFiscalDocument([dte("DTE-R", "REJECTED")])).toBeNull();
+  });
+
+  it("estados previos a la aceptación (generado, firmado, enviado, contingencia) no son documento", () => {
+    for (const st of ["NOT_REQUIRED", "PENDING_GENERATION", "GENERATED", "SCHEMA_VALIDATED", "SIGNED", "SENT", "CONTINGENCY_PENDING"]) {
+      expect(pickSaleFiscalDocument([dte("DTE-X", st, null)])).toBeNull();
+    }
+  });
+
+  it("ACCEPTED sin sello de recepción no se presenta como recibido por Hacienda", () => {
+    expect(pickSaleFiscalDocument([dte("DTE-A", "ACCEPTED", null)])).toBeNull();
+  });
+
+  it("rechazado más reciente + aceptado anterior → se elige el aceptado", () => {
+    expect(pickSaleFiscalDocument([dte("DTE-R2", "REJECTED"), dte("DTE-A1", "ACCEPTED")]))
+      .toEqual({ document_number: "DTE-A1", document_status: null });
+  });
+
+  it("aceptado y luego invalidado → conserva trazabilidad con estado INVALIDATED", () => {
+    expect(pickSaleFiscalDocument([dte("DTE-I", "INVALIDATED")])).toEqual({ document_number: "DTE-I", document_status: "INVALIDATED" });
+  });
+
+  it("invalidación en curso → conserva el número con su estado", () => {
+    expect(pickSaleFiscalDocument([dte("DTE-P", "INVALIDATION_PENDING")]))
+      .toEqual({ document_number: "DTE-P", document_status: "INVALIDATION_PENDING" });
+  });
+
+  it("invalidado sin sello (nunca fue aceptado) no se presenta", () => {
+    expect(pickSaleFiscalDocument([dte("DTE-I", "INVALIDATED", null)])).toBeNull();
+  });
+
+  it("documento vigente tiene prioridad sobre uno invalidado", () => {
+    expect(pickSaleFiscalDocument([dte("DTE-I", "INVALIDATED"), dte("DTE-A", "ACCEPTED")]))
+      .toEqual({ document_number: "DTE-A", document_status: null });
+  });
+
+  it("venta con DTE invalidado: el movimiento muestra el número con su estado", async () => {
+    const client = fakeClient({
+      sales: [{ id: "sale-9", sale_code: "V-9", dte_documents: [dte("DTE-01-INV", "INVALIDATED")] }],
+    });
+    const map = await resolveMovementDocuments(
+      [{ id: "mv-9", reference_entity: "sale", reference_id: "sale-9", reference_code: "V-9" }],
+      "tenant-A",
+      client as never,
+    );
+    expect(map.get("mv-9")).toEqual({ document_number: "DTE-01-INV", correlative: "V-9", document_status: "INVALIDATED" });
   });
 });
 

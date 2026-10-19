@@ -137,7 +137,7 @@ function buildOrderBy(filters: InventoryMovementFilters): any {
     : [primary, { id: d }];
 }
 
-const NO_DOCUMENT: MovementDocumentInfo = { document_number: null, correlative: null };
+const NO_DOCUMENT: MovementDocumentInfo = { document_number: null, correlative: null, document_status: null };
 
 function mapToInventoryMovementItem(
   row: NonNullable<RawMovementRow>,
@@ -167,6 +167,7 @@ function mapToInventoryMovementItem(
     reference_code:      row.reference_code,
     document_number:     doc.document_number,
     correlative:         doc.correlative,
+    document_status:     doc.document_status,
     notes:               row.notes,
     performed_by:        row.performed_by,
     performed_by_name:   performedByName,

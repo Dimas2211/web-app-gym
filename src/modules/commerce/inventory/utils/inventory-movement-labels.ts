@@ -45,6 +45,12 @@ export const MOVEMENT_TYPE_OPTIONS: { value: MovementType; label: string }[] = (
   ] as MovementType[]
 ).map((value) => ({ value, label: MOVEMENT_TYPE_LABELS[value] }));
 
+/** Estado fiscal advertido junto al Documento (DTE aceptado luego invalidado). */
+export const DOCUMENT_STATUS_LABELS: Record<"INVALIDATION_PENDING" | "INVALIDATED", string> = {
+  INVALIDATION_PENDING: "Invalidación en curso",
+  INVALIDATED:          "Invalidado",
+};
+
 export const ALL_MOVEMENT_TYPES = Object.keys(MOVEMENT_TYPE_LABELS) as MovementType[];
 
 export function getMovementTypeLabel(type: MovementType | string): string {

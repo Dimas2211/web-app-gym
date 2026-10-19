@@ -18,8 +18,16 @@
 //     Correlativo = purchase_code
 //     Sin document_number → Documento null (NUNCA se sustituye por purchase_code)
 //   sale (SALE_OUT y RETURN_IN por anulación; reference_id = Sale.id)
-//     Documento   = número de control del DTE principal de la venta
-//                   (FE 01 / CCFE 03 / FEX 11; se excluye la NC 05)
+//     Documento   = número de control del DTE ORIGINAL de la venta
+//                   (FE 01 / CCFE 03 / FEX 11 — nunca la NC 05), elegido
+//                   por pickSaleFiscalDocument:
+//                     1. recibido por Hacienda (isFiscallyReceivedByMh:
+//                        ACCEPTED/OBSERVED con sello de recepción)
+//                     2. aceptado y luego en invalidación o invalidado
+//                        (con sello) → se conserva con document_status
+//                     REJECTED y estados previos a la aceptación (GENERATED,
+//                     SIGNED, SENT, CONTINGENCY_PENDING, ...) nunca se
+//                     presentan como documento.
 //     Correlativo = sale_code (correlativo interno, NO es documento fiscal)
 //   DATA_ONBOARDING (carga inicial por importación)
 //     Sin documento ni correlativo (reference_code es un marcador técnico)
@@ -32,6 +40,7 @@
 // ─────────────────────────────────────────────────────────────────
 
 import type { PrismaClient } from "@prisma/client";
+import { isFiscallyReceivedByMh } from "@/modules/commerce/dte/utils/dte-fiscal-receipt.utils";
 
 export interface MovementReferenceInput {
   id: string;
@@ -45,12 +54,28 @@ export interface MovementDocumentInfo {
   document_number: string | null;
   /** Correlativo interno de la operación (purchase_code / sale_code). */
   correlative: string | null;
+  /**
+   * Estado fiscal a advertir junto al documento. null = documento vigente
+   * (o sin documento). Solo aplica a DTE aceptados luego invalidados.
+   */
+  document_status: MovementDocumentStatus | null;
+}
+
+export type MovementDocumentStatus = "INVALIDATION_PENDING" | "INVALIDATED";
+
+export interface SaleDteCandidate {
+  control_number: string | null;
+  dte_status: string;
+  reception_stamp: string | null;
 }
 
 const PURCHASE_ENTITIES = new Set(["purchase", "purchase_cancellation"]);
 const SALE_ENTITIES = new Set(["sale"]);
 const TECHNICAL_ENTITIES = new Set(["DATA_ONBOARDING"]);
-const CREDIT_NOTE_DTE = "05";
+/** DTE que documentan la venta original (CAT-002). La NC 05 no aplica. */
+const SALE_ORIGINAL_DTE_TYPES = ["01", "03", "11"];
+const INVALIDATION_STATUSES = new Set<MovementDocumentStatus>(["INVALIDATION_PENDING", "INVALIDATED"]);
+const ELIGIBLE_SALE_DTE_STATUSES = ["ACCEPTED", "OBSERVED", "INVALIDATION_PENDING", "INVALIDATED"] as const;
 
 type DocumentsClient = Pick<PrismaClient, "purchase" | "sale">;
 
@@ -69,6 +94,32 @@ export function formatPurchaseDocument(
   const s = clean(series);
   if (!s || n.toUpperCase().startsWith(s.toUpperCase())) return n;
   return `${s}-${n}`;
+}
+
+/**
+ * Elige el DTE que documenta fiscalmente una venta.
+ * `docs` debe venir ordenado del más reciente al más antiguo.
+ */
+export function pickSaleFiscalDocument(
+  docs: SaleDteCandidate[],
+): { document_number: string; document_status: MovementDocumentStatus | null } | null {
+  const withNumber = docs.filter((d) => clean(d.control_number));
+  const received = withNumber.find((d) => isFiscallyReceivedByMh(d.dte_status, d.reception_stamp));
+  if (received) return { document_number: clean(received.control_number)!, document_status: null };
+
+  // Aceptado por Hacienda y luego invalidado (o invalidación en curso):
+  // el sello de recepción prueba que fue documento fiscal; se conserva
+  // la trazabilidad con su estado.
+  const invalidated = withNumber.find(
+    (d) => INVALIDATION_STATUSES.has(d.dte_status as MovementDocumentStatus) && clean(d.reception_stamp),
+  );
+  if (invalidated) {
+    return {
+      document_number: clean(invalidated.control_number)!,
+      document_status: invalidated.dte_status as MovementDocumentStatus,
+    };
+  }
+  return null;
 }
 
 export async function resolveMovementDocuments(
@@ -101,12 +152,12 @@ export async function resolveMovementDocuments(
             dte_documents: {
               where: {
                 tenant_id: tenantId,
-                dte_type_code: { not: CREDIT_NOTE_DTE },
+                dte_type_code: { in: SALE_ORIGINAL_DTE_TYPES },
+                dte_status: { in: [...ELIGIBLE_SALE_DTE_STATUSES] },
                 control_number: { not: null },
               },
-              orderBy: { created_at: "desc" },
-              take: 1,
-              select: { control_number: true },
+              orderBy: [{ created_at: "desc" }, { id: "desc" }],
+              select: { control_number: true, dte_status: true, reception_stamp: true },
             },
           },
         })
@@ -127,26 +178,29 @@ export async function resolveMovementDocuments(
         document_number: p ? formatPurchaseDocument(p.document_series, p.document_number) : null,
         // reference_code de compras = snapshot de purchase_code al confirmar/anular
         correlative: p ? p.purchase_code : clean(r.reference_code),
+        document_status: null,
       });
       continue;
     }
 
     if (entity && SALE_ENTITIES.has(entity)) {
       const s = r.reference_id ? saleById.get(r.reference_id) : undefined;
+      const fiscal = s ? pickSaleFiscalDocument(s.dte_documents) : null;
       result.set(r.id, {
-        document_number: clean(s?.dte_documents[0]?.control_number),
+        document_number: fiscal?.document_number ?? null,
         correlative: s ? s.sale_code : clean(r.reference_code),
+        document_status: fiscal?.document_status ?? null,
       });
       continue;
     }
 
     if (entity && TECHNICAL_ENTITIES.has(entity)) {
-      result.set(r.id, { document_number: null, correlative: null });
+      result.set(r.id, { document_number: null, correlative: null, document_status: null });
       continue;
     }
 
     // Movimiento manual: solo la referencia que el usuario escribió.
-    result.set(r.id, { document_number: clean(r.reference_code), correlative: null });
+    result.set(r.id, { document_number: clean(r.reference_code), correlative: null, document_status: null });
   }
 
   return result;

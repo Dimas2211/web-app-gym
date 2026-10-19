@@ -11,6 +11,7 @@ import {
   buildMovementReportHeader,
   describeMovementPeriod,
   formatMovementCost,
+  formatMovementDocument,
   formatMovementQty,
   toMovementExportRow,
 } from "./export-inventory-movement-report";
@@ -26,7 +27,7 @@ function item(over: Partial<InventoryMovementItem> = {}): InventoryMovementItem 
     movement_type: "PURCHASE_IN", movement_direction: "ADDITIVE",
     quantity: 25, unit_cost: 0.5, stock_before: 10, resulting_stock: 35,
     reference_entity: "purchase", reference_id: "pur-1", reference_code: "3",
-    document_number: "FAC-2026-125", correlative: "3",
+    document_number: "FAC-2026-125", correlative: "3", document_status: null,
     notes: null, performed_by: "u1", performed_by_name: "Ana López",
     created_at: new Date("2026-10-01T15:00:00Z"), created_at_label: "01/10/2026 09:00",
     ...over,
@@ -70,6 +71,16 @@ describe("toMovementExportRow", () => {
   it("venta: salida numérica y dirección Salida (no SUBTRACTIVE)", () => {
     const r = toMovementExportRow(item({ movement_type: "SALE_OUT", movement_direction: "SUBTRACTIVE", quantity: 2, document_number: null, correlative: "V-1" }));
     expect(r).toMatchObject({ type: "Salida por venta", direction: "Salida", qty_in: null, qty_out: 2, document: null, correlative: "V-1" });
+  });
+
+  it("DTE invalidado: Excel/PDF muestran el número con su estado en español", () => {
+    const r = toMovementExportRow(item({
+      movement_type: "SALE_OUT", movement_direction: "SUBTRACTIVE",
+      document_number: "DTE-01-X", document_status: "INVALIDATED", correlative: "V-2",
+    }));
+    expect(r.document_status).toBe("Invalidado");
+    expect(formatMovementDocument(r)).toBe("DTE-01-X (Invalidado)");
+    expect(formatMovementDocument({ document: null, document_status: null })).toBeNull();
   });
 
   it("12 columnas en el orden de la consulta", () => {

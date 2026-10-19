@@ -74,6 +74,8 @@ export interface InventoryMovementItem {
   // el correlativo interno como sustituto del documento.
   document_number: string | null;
   correlative: string | null;
+  /** DTE aceptado luego invalidado / en invalidación; null = vigente o sin documento. */
+  document_status: "INVALIDATION_PENDING" | "INVALIDATED" | null;
 
   // Observaciones
   notes: string | null;

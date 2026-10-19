@@ -19,6 +19,7 @@ import type { ProductPurchaseHistoryRow } from "../queries/get-product-purchase-
 import type { ProductSalesHistoryRow } from "../queries/get-product-sales-history";
 import type { InventoryMovementItem } from "../../inventory/types/inventory-movement.types";
 import { ProductMovementsTable } from "../../inventory/components/product-movements-table";
+import { formatPurchaseDocument } from "../../inventory/queries/resolve-movement-documents";
 
 type TabId = "resumen" | "ventas" | "compras" | "movimientos" | "grupos";
 
@@ -95,6 +96,7 @@ function ComprasTab({ productId }: { productId: string }) {
           <tr className="border-b border-zinc-100 text-zinc-400 font-medium">
             <th className="text-left px-3 py-2 whitespace-nowrap">Fecha</th>
             <th className="text-left px-3 py-2 whitespace-nowrap">Documento</th>
+            <th className="text-left px-3 py-2 whitespace-nowrap">Correlativo</th>
             <th className="text-left px-3 py-2 whitespace-nowrap">Proveedor</th>
             <th className="text-right px-3 py-2 whitespace-nowrap">Cantidad</th>
             <th className="text-right px-3 py-2 whitespace-nowrap">Costo unit.</th>
@@ -106,12 +108,17 @@ function ComprasTab({ productId }: { productId: string }) {
         </thead>
         <tbody>
           {rows.map((r) => {
-            const doc = r.document_number ?? r.purchase_code;
+            // Documento del proveedor y correlativo interno son conceptos
+            // distintos: sin documento se muestra "—", nunca purchase_code.
+            const doc = formatPurchaseDocument(r.document_series, r.document_number);
             const stCls = STATUS_CLS[r.status] ?? "bg-zinc-100 text-zinc-500";
             return (
               <tr key={r.purchase_item_id} className="border-b border-zinc-50 hover:bg-zinc-50">
                 <td className="px-3 py-1.5 whitespace-nowrap text-zinc-600">{fmtDate(r.purchase_date)}</td>
-                <td className="px-3 py-1.5 whitespace-nowrap font-mono text-zinc-600">{doc}</td>
+                <td className="px-3 py-1.5 whitespace-nowrap font-mono text-zinc-600" title={doc ?? "Sin documento"}>
+                  {doc ?? <span className="text-zinc-300">—</span>}
+                </td>
+                <td className="px-3 py-1.5 whitespace-nowrap font-mono text-zinc-500">{r.purchase_code}</td>
                 <td className="px-3 py-1.5 whitespace-nowrap text-zinc-700">{r.supplier_name}</td>
                 <td className="px-3 py-1.5 text-right text-zinc-700">{fmtAmount(r.quantity)}</td>
                 <td className="px-3 py-1.5 text-right text-zinc-600">{fmtAmount(r.unit_cost)}</td>
