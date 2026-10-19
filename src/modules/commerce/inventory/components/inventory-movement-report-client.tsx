@@ -10,6 +10,8 @@ export function InventoryMovementReportClient() {
   const [from,setFrom]=useState("");
   const [to,setTo]=useState("");
   const [type,setType]=useState("");
+  const [product,setProduct]=useState("");
+  const [reference,setReference]=useState("");
   const [result,setResult]=useState<ReportResponse|null>(null);
   const [loading,setLoading]=useState(false);
   const [error,setError]=useState("");
@@ -21,6 +23,8 @@ export function InventoryMovementReportClient() {
       if(from)q.set("date_from",new Date(from+"T00:00:00").toISOString());
       if(to)q.set("date_to",new Date(to+"T23:59:59.999").toISOString());
       if(type)q.set("movement_type",type);
+      if(product.trim())q.set("product_search",product.trim());
+      if(reference.trim())q.set("reference_search",reference.trim());
       const response=await fetch("/api/inventory/movements?"+q,{cache:"no-store"});
       const data=await response.json() as ReportResponse;
       if(!response.ok)throw new Error(data.error??"Error consultando movimientos");
@@ -43,6 +47,8 @@ export function InventoryMovementReportClient() {
     <div className="flex flex-wrap items-end gap-3 rounded-lg border border-zinc-800 bg-zinc-900 p-4">
       <label className="text-sm">Desde<input className="block bg-zinc-950 border border-zinc-700 rounded p-2" type="date" value={from} onChange={e=>setFrom(e.target.value)}/></label>
       <label className="text-sm">Hasta<input className="block bg-zinc-950 border border-zinc-700 rounded p-2" type="date" value={to} onChange={e=>setTo(e.target.value)}/></label>
+      <label className="text-sm">Producto<input className="block bg-zinc-950 border border-zinc-700 rounded p-2" placeholder="Código o nombre" value={product} onChange={e=>setProduct(e.target.value)}/></label>
+      <label className="text-sm">Documento<input className="block bg-zinc-950 border border-zinc-700 rounded p-2" placeholder="Referencia" value={reference} onChange={e=>setReference(e.target.value)}/></label>
       <label className="text-sm">Movimiento<select className="block bg-zinc-950 border border-zinc-700 rounded p-2" value={type} onChange={e=>setType(e.target.value)}>
         <option value="">Todos</option>{movementTypes.map(t=><option key={t} value={t}>{t}</option>)}
       </select></label>
