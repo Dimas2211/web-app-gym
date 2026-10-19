@@ -22,7 +22,8 @@
 // ─────────────────────────────────────────────────────────────────
 
 import { useState, useEffect, useRef, useCallback } from "react";
-import { Boxes, Filter } from "lucide-react";
+import Link from "next/link";
+import { Boxes, Filter, History } from "lucide-react";
 
 import { ProductLocationsTable }        from "./product-locations-table";
 import { InventorySummaryPanel }        from "./inventory-summary-panel";
@@ -254,6 +255,20 @@ export function InventoryClient({
               : `${total} registro${total !== 1 ? "s" : ""} en esta ubicación`}
           </p>
         </div>
+        <Link
+          href={selectedItem
+            ? `/dashboard/reports/commerce/inventory-movements?product_id=${selectedItem.product_id}`
+            : "/dashboard/reports/commerce/inventory-movements"}
+          className="flex items-center gap-2 rounded-lg border border-zinc-300 bg-white
+                     px-4 py-2 text-sm font-semibold text-zinc-800
+                     hover:border-zinc-500 hover:bg-zinc-50 transition-colors"
+          title={selectedItem
+            ? `Consultar movimientos de ${selectedItem.product_code} — ${selectedItem.product_name}`
+            : "Abrir consulta y seleccionar un producto"}
+        >
+          <History size={15} />
+          Movimientos por producto
+        </Link>
       </div>
 
       {/* ── Toolbar: búsqueda + filtros ───────────────────────── */}
