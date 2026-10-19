@@ -35,7 +35,8 @@
 // ─────────────────────────────────────────────────────────────────
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Package, Plus } from "lucide-react";
+import Link from "next/link";
+import { History, Package, Plus } from "lucide-react";
 
 import { ProductSearchBar } from "./product-search-bar";
 import { ProductFilters } from "./product-filters";
@@ -312,6 +313,24 @@ export function ProductsClient({
             </p>
           </div>
 
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Consulta transversal Commerce siempre visible. Si ya se seleccionó
+                un producto, se abre directamente su historial individual. */}
+            <Link
+              href={selectedProduct
+                ? `/dashboard/reports/commerce/inventory-movements?product_id=${selectedProduct.id}`
+                : "/dashboard/reports/commerce/inventory-movements"}
+              className="flex items-center gap-2 rounded-lg border border-zinc-300 bg-white
+                         px-4 py-2 text-sm font-semibold text-zinc-800
+                         hover:border-zinc-500 hover:bg-zinc-50 transition-colors"
+              title={selectedProduct
+                ? `Consultar movimientos de ${selectedProduct.product_code} — ${selectedProduct.name}`
+                : "Abrir consulta y seleccionar un producto"}
+            >
+              <History size={15} />
+              Movimientos por producto
+            </Link>
+
           {canManage && (
             <button
               type="button"
@@ -323,6 +342,7 @@ export function ProductsClient({
               Nuevo producto
             </button>
           )}
+          </div>
         </div>
 
         {/* ── Barra de búsqueda + ordenamiento ─────────────────── */}
