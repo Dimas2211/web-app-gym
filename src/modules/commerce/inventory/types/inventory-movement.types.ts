@@ -69,6 +69,14 @@ export interface InventoryMovementItem {
   reference_id: string | null;
   reference_code: string | null;
 
+  // Datos documentales resueltos (resolve-movement-documents.ts).
+  // Documento y Correlativo son conceptos distintos: nunca se usa
+  // el correlativo interno como sustituto del documento.
+  document_number: string | null;
+  correlative: string | null;
+  /** DTE aceptado luego invalidado / en invalidación; null = vigente o sin documento. */
+  document_status: "INVALIDATION_PENDING" | "INVALIDATED" | null;
+
   // Observaciones
   notes: string | null;
 
@@ -76,7 +84,7 @@ export interface InventoryMovementItem {
   performed_by: string | null;
   performed_by_name: string | null; // desnormalizado desde User
   created_at: Date;
-  /** String preformateado en el servidor. Evita hydration mismatch por Intl locale-sensitive. */
+  /** dd/mm/aaaa HH:mm en hora de El Salvador, preformateado en el servidor. */
   created_at_label: string;
 }
 

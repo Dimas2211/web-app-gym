@@ -29,6 +29,14 @@ Controla stock real por location.
 - La salida de stock deberá registrarse como `SALE_OUT` u equivalente, en el momento de emisión/confirmación del documento.
 - No mover stock hasta que el evento de confirmación de venta esté definido.
 
+## Consulta de movimientos por producto (Kardex)
+
+- Ruta canónica: `/dashboard/reports/commerce/inventory-movements?product_id=` (Commerce → Consultas y reportes → Movimientos por producto). No pertenece al índice de reportes GYM; `/dashboard/reports/inventory/movements` solo redirige.
+- Puntos de entrada: menú de Commerce, Productos → pestaña Movimientos → "Ver movimientos completos", Inventario → "Ver movimientos" (solo lectura, distinto de "Registrar movimiento").
+- API: `GET /api/inventory/product-movements` (pantalla paginada, `mode=export` = todas las filas hasta 5000; si excede → 422, nunca archivo parcial) y `GET /api/inventory/product-movements/products?q=`. Tenant, DB operacional y sucursal se resuelven en servidor (`resolve-inventory-read-context.ts`, incluida Support Session read-only).
+- Fuente única de filas: `get-inventory-movements.ts` + `resolve-movement-documents.ts` (por lote, filtrado por tenant). Orden determinista `created_at, id`. Fechas en hora de El Salvador (`sv-datetime.ts`). Etiquetas en español: `inventory-movement-labels.ts`.
+- Documento ≠ Correlativo: `reference_code` guarda el correlativo interno (`purchase_code` / `sale_code`). Documento de compra = `[document_series-]document_number`; de venta = número de control del DTE original (FE 01 / CCFE 03 / FEX 11, nunca NC 05) recibido por Hacienda (`isFiscallyReceivedByMh`: ACCEPTED/OBSERVED con sello); si fue aceptado y luego invalidado se conserva con estado "Invalidado" / "Invalidación en curso"; REJECTED y estados previos a la aceptación nunca se muestran como documento. Sin documento → "—"; nunca se sustituye por el correlativo. La pestaña Compras / Entradas de Productos aplica la misma separación Documento / Correlativo.
+
 ## Estado
 
 Cerrado y operativo.
