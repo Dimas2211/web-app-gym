@@ -25,6 +25,12 @@ model RuntimeTenant {
 
   provisioning_receipt RuntimeProvisioningReceipt?
 
+  // GYM-BOOKINGS 2A — modelos nuevos de la vertical con tenant_id NOT NULL.
+  gym_class_series     ClassSeries[]
+  gym_trainer_time_off TrainerTimeOff[]
+  gym_activities       GymActivity[]
+  gym_booking_operations GymBookingOperation[]
+
   @@map("runtime_tenants")
 }
 
@@ -122,11 +128,20 @@ model Branch {
   membership_plans      MembershipPlan[]
   scheduled_classes     ScheduledClass[]
   trainer_availability  TrainerAvailability[]
-  trainers              Trainer[]
+  trainers              Trainer[]             @relation("TrainerBranch")
   users                 User[]
   weekly_plan_templates WeeklyPlanTemplate[]
   provisioning_receipt  RuntimeProvisioningReceipt?
+  // GYM-BOOKINGS 2A — Branch es la entidad "location" de los modelos nuevos.
+  gym_class_series      ClassSeries[]          @relation("ClassSeriesLocation")
+  gym_trainer_time_off  TrainerTimeOff[]       @relation("TrainerTimeOffLocation")
+  gym_activities        GymActivity[]          @relation("GymActivityLocation")
+  gym_booking_operations GymBookingOperation[] @relation("GymBookingOperationLocation")
+  // FK compuesta NOT VALID (trainers.branch_id, tenant_id): ver Trainer.branch_tenant.
+  gym_trainers_by_tenant Trainer[]             @relation("TrainerBranchTenant")
 
+  // GYM-BOOKINGS 2A — destino de FKs compuestas por tenant (aditivo; id ya es PK).
+  @@unique([id, tenant_id])
   @@index([gym_id])
   @@index([tenant_id])
   @@map("branches")
@@ -248,6 +263,10 @@ model MembershipPlan {
   access_type        AccessType         @default(full)
   is_recurring       Boolean            @default(false)
   status             Status             @default(active)
+  // GYM-BOOKINGS 2A — modalidad que cubre el plan. Se copia como snapshot a
+  // ClientMembership al vender. sessions_limit (existente) = total de
+  // sesiones durante la vigencia; null = ilimitado.
+  modality           GymClientModality  @default(NORMAL)
   created_at         DateTime           @default(now())
   updated_at         DateTime           @updatedAt
   client_memberships ClientMembership[]
@@ -256,6 +275,7 @@ model MembershipPlan {
 
   @@index([gym_id])
   @@index([branch_id])
+  @@index([tenant_id, modality, status])
   @@map("membership_plans")
 }
 
@@ -284,12 +304,17 @@ model Client {
   operational_code        String?
   avatar_url              String?
   qr_token                String?            @unique
+  // GYM-BOOKINGS 2A — la modalidad por sí sola NUNCA habilita reservas:
+  // exige además una membresía vigente y compatible.
+  modality                GymClientModality  @default(NORMAL)
+  modality_changed_at     DateTime?
   created_at              DateTime           @default(now())
   updated_at              DateTime           @updatedAt
   class_attendance        ClassAttendance[]
   class_bookings          ClassBooking[]
   memberships             ClientMembership[]
   weekly_plans            ClientWeeklyPlan[]
+  modality_changes        ClientModalityChange[]
   assigned_trainer        User?              @relation("ClientTrainer", fields: [assigned_trainer_id], references: [id])
   branch                  Branch             @relation(fields: [branch_id], references: [id])
   goal                    Goal?              @relation(fields: [goal_id], references: [id])
@@ -303,6 +328,9 @@ model Client {
   @@index([email])
   @@index([user_id])
   @@index([assigned_trainer_id])
+  @@index([tenant_id, modality])
+  // GYM-BOOKINGS 2A — destino de FKs compuestas por tenant (aditivo; id ya es PK).
+  @@unique([id, tenant_id])
   @@map("clients")
 }
 
@@ -323,6 +351,15 @@ model ClientMembership {
   status             MembershipStatus @default(active)
   sold_by_user_id    String?
   notes              String?
+  // GYM-BOOKINGS 2A — snapshot al vender (cambiar el plan no altera esto).
+  // sessions_total: null = ilimitado. sessions_used: lo mantiene
+  // EXCLUSIVAMENTE el trigger gym_class_bookings_counters (cuenta reservas
+  // con consumption = CONSUMED). Ver docs/modules/gym-bookings-summary.md.
+  modality            GymClientModality @default(NORMAL)
+  sessions_total      Int?
+  sessions_used       Int               @default(0)
+  // Entrenador autorizado (PERSONALIZED). No reemplaza Client.assigned_trainer_id.
+  assigned_trainer_id String?
   created_at         DateTime         @default(now())
   updated_at         DateTime         @updatedAt
   branch             Branch           @relation(fields: [branch_id], references: [id])
@@ -330,12 +367,21 @@ model ClientMembership {
   gym                Gym              @relation(fields: [gym_id], references: [id])
   membership_plan    MembershipPlan   @relation(fields: [membership_plan_id], references: [id])
   sold_by            User?            @relation("MembershipSales", fields: [sold_by_user_id], references: [id])
+  assigned_trainer   Trainer?         @relation("MembershipAssignedTrainer", fields: [assigned_trainer_id, tenant_id], references: [id, tenant_id], onDelete: Restrict, onUpdate: Restrict)
+  bookings           ClassBooking[]
+  booking_events     ClassBookingEvent[] @relation("ClassBookingEventMembership")
 
   @@index([gym_id])
   @@index([branch_id])
   @@index([client_id])
   @@index([membership_plan_id])
   @@index([end_date])
+  @@index([client_id, status, end_date])
+  @@index([assigned_trainer_id])
+  // GYM-BOOKINGS 2A — destino de la FK compuesta (membresía ↔ cliente de la reserva).
+  @@unique([id, client_id])
+  // GYM-BOOKINGS 2A — destino de la FK compuesta del evento (tenant + cliente).
+  @@unique([id, tenant_id, client_id])
   @@map("client_memberships")
 }
 
@@ -353,18 +399,30 @@ model Trainer {
   specialty           String?
   notes               String?
   status              Status                @default(active)
+  // GYM-BOOKINGS 2A — override de cupo PERSONALIZED; null = usar
+  // GymSettings.personalized_default_capacity. La sesión puede sobrescribirlo.
+  personalized_capacity Int?
   created_at          DateTime              @default(now())
   updated_at          DateTime              @updatedAt
   client_weekly_plans ClientWeeklyPlan[]
   scheduled_classes   ScheduledClass[]
   availability        TrainerAvailability[]
-  branch              Branch                @relation(fields: [branch_id], references: [id])
+  assigned_memberships ClientMembership[]   @relation("MembershipAssignedTrainer")
+  time_off            TrainerTimeOff[]
+  class_series        ClassSeries[]
+  branch              Branch                @relation("TrainerBranch", fields: [branch_id], references: [id])
+  // GYM-BOOKINGS 2A (H02) — la sede del entrenador es de su mismo tenant.
+  // En BD es NOT VALID (no revalida historial heredado); MATCH SIMPLE: con
+  // tenant_id NULL no se evalúa. Solo lectura: escribir vía branch / tenant_id.
+  branch_tenant       Branch?               @relation("TrainerBranchTenant", fields: [branch_id, tenant_id], references: [id, tenant_id], onDelete: Restrict, onUpdate: Restrict)
   gym                 Gym                   @relation(fields: [gym_id], references: [id])
   user                User?                 @relation("TrainerUserLink", fields: [user_id], references: [id])
 
   @@index([gym_id])
   @@index([branch_id])
   @@index([user_id])
+  // GYM-BOOKINGS 2A — destino de FKs compuestas por tenant (aditivo; id ya es PK).
+  @@unique([id, tenant_id])
   @@map("trainers")
 }
 
@@ -405,8 +463,11 @@ model ClassType {
   updated_at               DateTime         @updatedAt
   gym                      Gym              @relation(fields: [gym_id], references: [id])
   scheduled_classes        ScheduledClass[]
+  class_series             ClassSeries[]
 
   @@index([gym_id])
+  // GYM-BOOKINGS 2A — destino de FKs compuestas por tenant (aditivo; id ya es PK).
+  @@unique([id, tenant_id])
   @@map("class_types")
 }
 
@@ -424,10 +485,27 @@ model ScheduledClass {
   end_time        String
   capacity        Int
   room_name       String?
+  // Campo heredado (solo visual). NO se reclasifica a session_kind.
   is_personalized Boolean           @default(false)
   status          ClassStatus       @default(scheduled)
   notes           String?
   created_by      String?
+  // GYM-BOOKINGS 2A — una sola entidad de sesión para las tres modalidades.
+  // Clases heredadas quedan OPEN (comportamiento actual).
+  session_kind         GymSessionKind @default(OPEN)
+  series_id            String?
+  // Instante absoluto (calculado con GymSettings.timezone). null en clases
+  // heredadas hasta el backfill por tenant (Etapa 3).
+  starts_at            DateTime?      @db.Timestamptz(3)
+  ends_at              DateTime?      @db.Timestamptz(3)
+  // Reservas confirmadas. Lo mantiene EXCLUSIVAMENTE el trigger
+  // gym_class_bookings_counters; la aplicación nunca lo escribe.
+  booked_count         Int            @default(0)
+  cancelled_at         DateTime?
+  cancelled_by_user_id String?
+  cancel_reason        String?
+  completed_at         DateTime?
+  completed_by_user_id String?
   created_at      DateTime          @default(now())
   updated_at      DateTime          @updatedAt
   attendance      ClassAttendance[]
@@ -437,12 +515,20 @@ model ScheduledClass {
   creator         User?             @relation("ClassCreator", fields: [created_by], references: [id])
   gym             Gym               @relation(fields: [gym_id], references: [id])
   trainer         Trainer           @relation(fields: [trainer_id], references: [id])
+  series          ClassSeries?      @relation(fields: [series_id, tenant_id], references: [id, tenant_id], onDelete: Restrict, onUpdate: Restrict)
+  activities      ScheduledClassActivity[]
 
+  @@unique([series_id, class_date])
+  // GYM-BOOKINGS 2A — destino de FKs compuestas por tenant (aditivo; id ya es PK).
+  @@unique([id, tenant_id])
   @@index([gym_id])
   @@index([branch_id])
   @@index([class_type_id])
   @@index([trainer_id])
   @@index([class_date])
+  @@index([tenant_id, branch_id, class_date])
+  @@index([tenant_id, session_kind, starts_at])
+  @@index([trainer_id, starts_at])
   @@map("scheduled_classes")
 }
 
@@ -453,14 +539,33 @@ model ClassBooking {
   booking_status     BookingStatus  @default(confirmed)
   booked_at          DateTime       @default(now())
   notes              String?
+  // GYM-BOOKINGS 2A — tenant_id: si llega null lo deriva el trigger
+  // gym_class_bookings_integrity desde scheduled_classes; si no coincide
+  // con la sesión, el cliente o la membresía, la escritura se rechaza.
+  tenant_id            String?
+  client_membership_id String?
+  channel              GymBookingChannel?          // null en reservas heredadas
+  booked_by_user_id    String?
+  consumption          GymSessionConsumption      @default(NOT_APPLICABLE)
+  cancelled_at         DateTime?
+  cancelled_by_user_id String?
+  cancellation_type    GymBookingCancellationType?
+  cancel_reason        String?
   created_at         DateTime       @default(now())
   updated_at         DateTime       @updatedAt
   client             Client         @relation(fields: [client_id], references: [id])
   scheduled_class    ScheduledClass @relation(fields: [scheduled_class_id], references: [id])
+  client_membership  ClientMembership? @relation(fields: [client_membership_id, client_id], references: [id, client_id], onDelete: Restrict, onUpdate: Restrict)
+  events             ClassBookingEvent[]
+  attendance         ClassAttendance?
 
   @@unique([scheduled_class_id, client_id])
   @@index([scheduled_class_id])
   @@index([client_id])
+  @@index([tenant_id, client_id, booking_status])
+  @@index([client_membership_id])
+  // GYM-BOOKINGS 2A — destino de la FK compuesta de class_booking_events.
+  @@unique([id, tenant_id, scheduled_class_id, client_id])
   @@map("class_bookings")
 }
 
@@ -470,15 +575,28 @@ model ClassAttendance {
   client_id          String
   attendance_status  AttendanceStatus @default(attended)
   checked_in_at      DateTime?
+  // Nota operativa heredada (recepción/check-in).
   notes              String?
+  // GYM-BOOKINGS 2A
+  tenant_id           String?
+  booking_id          String?          @unique
+  recorded_by_user_id String?
+  recorded_at         DateTime?
+  // PROTEGIDA: nota interna del entrenador. Nunca se selecciona en
+  // consultas del portal alumno ni de recepción (v1).
+  training_notes      String?          @db.Text
   created_at         DateTime         @default(now())
   updated_at         DateTime         @updatedAt
   client             Client           @relation(fields: [client_id], references: [id])
   scheduled_class    ScheduledClass   @relation(fields: [scheduled_class_id], references: [id])
+  booking            ClassBooking?    @relation(fields: [booking_id], references: [id], onDelete: SetNull)
+  activities         ClassAttendanceActivity[]
 
   @@unique([scheduled_class_id, client_id])
   @@index([scheduled_class_id])
   @@index([client_id])
+  // GYM-BOOKINGS 2A — destino de FKs compuestas por tenant (aditivo; id ya es PK).
+  @@unique([id, tenant_id])
   @@map("class_attendance")
 }
 
@@ -591,11 +709,261 @@ model GymSettings {
   client_code_prefix String   @default("C")
   client_code_digits Int      @default(4)
   client_code_start  Int      @default(1010)
+  // GYM-BOOKINGS 2A — política de reservas. Si no existe la fila, se usan
+  // los mismos defaults (resolveGymBookingPolicy). PERSONALIZED y GROUP
+  // fallan cerrados sin timezone válido o con su flag apagado.
+  timezone                      String?  // IANA, ej. "America/El_Salvador"
+  personalized_booking_enabled  Boolean  @default(false)
+  group_booking_enabled         Boolean  @default(false)
+  personalized_default_capacity Int      @default(1)
+  booking_horizon_days          Int      @default(14)
+  booking_min_lead_minutes      Int      @default(0)
+  cancel_min_lead_minutes       Int      @default(120)
+  late_cancel_consumes_session  Boolean  @default(true)
+  // false = OPEN/NORMAL conserva sus reglas heredadas (sin horizonte ni
+  // ventana de cancelación nuevas).
+  apply_policy_to_open          Boolean  @default(false)
+  attendance_edit_window_hours  Int      @default(48)
+  series_generation_weeks       Int      @default(4)
   created_at         DateTime @default(now())
   updated_at         DateTime @updatedAt
   gym                Gym      @relation(fields: [gym_id], references: [id])
 
   @@map("gym_settings")
+}
+
+// ═════════════════════════════════════════════════════════════════
+// GYM — Reservas y seguimiento de entrenamientos (Etapa 2A, fundación)
+// Contratos: docs/modules/gym-bookings-summary.md
+// Modelos nuevos: tenant_id NOT NULL, location_id → branches (Branch es
+// la entidad location). Sin borrado físico: status / append-only.
+//
+// Aislamiento tenant (remediación B): toda referencia desde un modelo nuevo
+// es una FK COMPUESTA que incluye tenant_id contra un @@unique([id, tenant_id])
+// del padre. Como el tenant_id del hijo es NOT NULL, el padre debe existir
+// con ESE tenant; un padre heredado con tenant_id NULL no es referenciable
+// (fallo cerrado para datos nuevos, sin afectar filas heredadas).
+// Reglas de sede que no caben en una FK se validan por trigger.
+// onDelete/onUpdate: Restrict (nunca SetNull: anularía tenant_id).
+// ═════════════════════════════════════════════════════════════════
+
+// Plantilla recurrente. Genera ScheduledClass idempotentes vía
+// @@unique([series_id, class_date]) en scheduled_classes (Etapa 3).
+// Trigger: trainer.branch_id = location_id.
+model ClassSeries {
+  id              String         @id @default(uuid())
+  tenant_id       String
+  location_id     String
+  class_type_id   String
+  trainer_id      String
+  session_kind    GymSessionKind
+  title           String
+  weekday         Int            // 0–6, igual que TrainerAvailability.day_of_week
+  start_time      String         // HH:mm hora local del gimnasio
+  end_time        String
+  capacity        Int?           // null = cupo efectivo por tipo (R19)
+  room_name       String?
+  valid_from      DateTime       @db.Date
+  valid_until     DateTime?      @db.Date
+  generated_until DateTime?      @db.Date
+  status          Status         @default(active)
+  created_by      String?
+  updated_by      String?
+  created_at      DateTime       @default(now())
+  updated_at      DateTime       @updatedAt
+  runtime_tenant  RuntimeTenant  @relation(fields: [tenant_id], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  location        Branch         @relation("ClassSeriesLocation", fields: [location_id, tenant_id], references: [id, tenant_id], onDelete: Restrict, onUpdate: Restrict)
+  class_type      ClassType      @relation(fields: [class_type_id, tenant_id], references: [id, tenant_id], onDelete: Restrict, onUpdate: Restrict)
+  trainer         Trainer        @relation(fields: [trainer_id, tenant_id], references: [id, tenant_id], onDelete: Restrict, onUpdate: Restrict)
+  sessions        ScheduledClass[]
+
+  @@unique([id, tenant_id])
+  @@index([tenant_id, location_id, status])
+  @@index([trainer_id, weekday])
+  @@index([class_type_id])
+  @@map("class_series")
+}
+
+// Ausencias / excepciones del entrenador (hora local del gimnasio).
+// Trigger: trainer.branch_id = location_id.
+model TrainerTimeOff {
+  id             String        @id @default(uuid())
+  tenant_id      String
+  location_id    String
+  trainer_id     String
+  starts_on      DateTime      @db.Date
+  ends_on        DateTime      @db.Date
+  start_time     String?       // null = día completo
+  end_time       String?
+  reason         String?
+  status         Status        @default(active)
+  created_by     String?
+  updated_by     String?
+  created_at     DateTime      @default(now())
+  updated_at     DateTime      @updatedAt
+  runtime_tenant RuntimeTenant @relation(fields: [tenant_id], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  location       Branch        @relation("TrainerTimeOffLocation", fields: [location_id, tenant_id], references: [id, tenant_id], onDelete: Restrict, onUpdate: Restrict)
+  trainer        Trainer       @relation(fields: [trainer_id, tenant_id], references: [id, tenant_id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@index([trainer_id, starts_on, ends_on])
+  @@index([tenant_id, location_id])
+  @@map("trainer_time_off")
+}
+
+// Catálogo de actividades del tenant (location_id null = todas las sedes).
+model GymActivity {
+  id                    String                    @id @default(uuid())
+  tenant_id             String
+  location_id           String?
+  code                  String?
+  name                  String
+  description           String?
+  status                Status                    @default(active)
+  sort_order            Int                       @default(0)
+  created_by            String?
+  updated_by            String?
+  created_at            DateTime                  @default(now())
+  updated_at            DateTime                  @updatedAt
+  runtime_tenant        RuntimeTenant             @relation(fields: [tenant_id], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  location              Branch?                   @relation("GymActivityLocation", fields: [location_id, tenant_id], references: [id, tenant_id], onDelete: Restrict, onUpdate: Restrict)
+  session_activities    ScheduledClassActivity[]
+  attendance_activities ClassAttendanceActivity[]
+
+  @@unique([id, tenant_id])
+  @@unique([tenant_id, code])
+  @@unique([tenant_id, name])
+  @@index([tenant_id, status, sort_order])
+  @@index([location_id])
+  @@map("gym_activities")
+}
+
+// Actividades comunes de la sesión (GROUP): se capturan una vez.
+// Trigger: activity.location_id NULL o = sesión.branch_id.
+model ScheduledClassActivity {
+  id                 String         @id @default(uuid())
+  tenant_id          String
+  scheduled_class_id String
+  activity_id        String
+  activity_name      String         // snapshot histórico
+  notes              String?
+  created_by         String?
+  created_at         DateTime       @default(now())
+  scheduled_class    ScheduledClass @relation(fields: [scheduled_class_id, tenant_id], references: [id, tenant_id], onDelete: Restrict, onUpdate: Restrict)
+  activity           GymActivity    @relation(fields: [activity_id, tenant_id], references: [id, tenant_id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([scheduled_class_id, activity_id])
+  @@index([tenant_id, activity_id])
+  @@map("scheduled_class_activities")
+}
+
+// Actividades individuales adicionales por alumno.
+// Trigger: activity.location_id NULL o = branch de la sesión de la asistencia.
+model ClassAttendanceActivity {
+  id            String          @id @default(uuid())
+  tenant_id     String
+  attendance_id String
+  activity_id   String
+  activity_name String          // snapshot histórico
+  notes         String?
+  created_by    String?
+  created_at    DateTime        @default(now())
+  attendance    ClassAttendance @relation(fields: [attendance_id, tenant_id], references: [id, tenant_id], onDelete: Restrict, onUpdate: Restrict)
+  activity      GymActivity     @relation(fields: [activity_id, tenant_id], references: [id, tenant_id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([attendance_id, activity_id])
+  @@index([tenant_id, activity_id])
+  @@map("class_attendance_activities")
+}
+
+// Historial de cambios de modalidad. Append-only (trigger en BD).
+model ClientModalityChange {
+  id                 String            @id @default(uuid())
+  tenant_id          String
+  client_id          String
+  from_modality      GymClientModality
+  to_modality        GymClientModality
+  reason             String
+  changed_by_user_id String?
+  changed_at         DateTime          @default(now())
+  client             Client            @relation(fields: [client_id, tenant_id], references: [id, tenant_id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@index([client_id, changed_at])
+  @@index([tenant_id, changed_at])
+  @@map("client_modality_changes")
+}
+
+// Idempotencia A NIVEL DE COMANDO (remediación D). Una fila por orden
+// lógica (bookSession / cancelBooking / cancelSession / recordAttendance)
+// ejecutada con éxito. idempotency_key es la clave de la ORDEN del cliente;
+// id es el identificador de la OPERACIÓN; cada efecto por reserva es un
+// ClassBookingEvent distinto que referencia operation_id.
+//  - misma key + mismo request_fingerprint → replay de `result` sin efectos;
+//  - misma key + fingerprint distinto      → IDEMPOTENCY_KEY_REUSED;
+//  - la unicidad es por tenant: dos tenants pueden usar la misma key.
+// La fila se inserta PRIMERO en la transacción del comando (ver
+// GYM_BOOKING_LOCK_ORDER): un reintento concurrente espera en el índice
+// único y luego ve la operación confirmada. Append-only.
+model GymBookingOperation {
+  id                  String              @id @default(uuid())
+  tenant_id           String
+  location_id         String?
+  command             GymBookingCommand
+  idempotency_key     String
+  request_fingerprint String              // sha256 hex del comando canónico
+  target_id           String              // sesión o reserva objetivo
+  actor_user_id       String?
+  channel             GymBookingChannel?
+  result              Json
+  created_at          DateTime            @default(now())
+  runtime_tenant      RuntimeTenant       @relation(fields: [tenant_id], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  // Sede del contexto que ejecutó la orden (H03): FK compuesta, nunca de otro tenant.
+  location            Branch?             @relation("GymBookingOperationLocation", fields: [location_id, tenant_id], references: [id, tenant_id], onDelete: Restrict, onUpdate: Restrict)
+  events              ClassBookingEvent[]
+
+  @@unique([tenant_id, idempotency_key])
+  @@unique([id, tenant_id])
+  @@index([tenant_id, created_at])
+  @@index([location_id, tenant_id])
+  @@map("gym_booking_operations")
+}
+
+// Bitácora de reservas. Append-only (trigger en BD rechaza UPDATE/DELETE).
+// Un evento por reserva afectada y por operación: cancelar una sesión con
+// N reservas = 1 GymBookingOperation + N eventos (@@unique operation/booking).
+// FK compuesta a la reserva incluye tenant, sesión y cliente: el evento no
+// puede contradecir la reserva ni cruzar tenants.
+model ClassBookingEvent {
+  id                   String                      @id @default(uuid())
+  tenant_id            String
+  operation_id         String
+  booking_id           String
+  scheduled_class_id   String
+  client_id            String
+  client_membership_id String?
+  event_type           GymBookingEventType
+  from_status          BookingStatus?
+  to_status            BookingStatus?
+  consumption_before   GymSessionConsumption?
+  consumption_after    GymSessionConsumption?
+  cancellation_type    GymBookingCancellationType?
+  channel              GymBookingChannel?
+  actor_user_id        String?
+  reason               String?
+  metadata             Json?
+  occurred_at          DateTime                    @default(now())
+  operation            GymBookingOperation         @relation(fields: [operation_id, tenant_id], references: [id, tenant_id], onDelete: Restrict, onUpdate: Restrict)
+  booking              ClassBooking                @relation(fields: [booking_id, tenant_id, scheduled_class_id, client_id], references: [id, tenant_id, scheduled_class_id, client_id], onDelete: Restrict, onUpdate: Restrict)
+  // Membresía afectada por el evento (H03): hecho histórico con FK real
+  // RESTRICT (las membresías no se borran físicamente); incluye tenant y
+  // cliente, así no puede apuntar a otro tenant ni a otro alumno.
+  client_membership    ClientMembership?           @relation("ClassBookingEventMembership", fields: [client_membership_id, tenant_id, client_id], references: [id, tenant_id, client_id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([operation_id, booking_id])
+  @@index([booking_id, occurred_at])
+  @@index([tenant_id, occurred_at])
+  @@index([tenant_id, client_id, occurred_at])
+  @@index([client_membership_id])
+  @@map("class_booking_events")
 }
 
 // ── Configuración fiscal reusable del tenant ──────────────────────
@@ -693,6 +1061,59 @@ enum ExecutionStatus {
 enum AssignmentType {
   individual
   segmented
+}
+
+// ── Enums GYM-BOOKINGS (Etapa 2A) ────────────────────────────────
+
+enum GymClientModality {
+  NORMAL
+  PERSONALIZED
+  GROUP
+}
+
+// OPEN = comportamiento heredado (cliente NORMAL con membresía vigente).
+enum GymSessionKind {
+  OPEN
+  GROUP
+  PERSONALIZED
+}
+
+enum GymBookingChannel {
+  STAFF
+  PORTAL
+  TRAINER
+  SYSTEM
+}
+
+enum GymBookingCancellationType {
+  CLIENT_IN_POLICY
+  CLIENT_LATE
+  STAFF
+  SESSION_CANCELLED
+}
+
+// NOT_APPLICABLE: reservas heredadas y sesiones OPEN (no consumen).
+enum GymSessionConsumption {
+  NOT_APPLICABLE
+  CONSUMED
+  RELEASED
+}
+
+// Comandos del servicio único (idempotencia a nivel de comando).
+enum GymBookingCommand {
+  BOOK_SESSION
+  CANCEL_BOOKING
+  CANCEL_SESSION
+  RECORD_ATTENDANCE
+}
+
+enum GymBookingEventType {
+  BOOKED
+  REACTIVATED
+  CANCELLED
+  SESSION_CANCELLED
+  ATTENDANCE_RECORDED
+  ATTENDANCE_UPDATED
 }
 
 // ═════════════════════════════════════════════════════════════════
