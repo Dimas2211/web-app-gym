@@ -148,7 +148,7 @@ export default async function ClasesPage({ searchParams }: { searchParams: Searc
             <p className="text-zinc-500">No hay sesiones disponibles para ti en esta semana.</p>
           </div>
         ) : view === "semana" ? (
-          <div className="grid gap-3 md:grid-cols-7">
+          <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7 xl:gap-4">
             {schedule.days.map((day) => {
               const isToday = day.date === today;
               return (
