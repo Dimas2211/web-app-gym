@@ -91,18 +91,18 @@ export function SessionTile({ session, isToday }: { session: PortalSessionView; 
   const muted = evaluation.state === "CANCELLED" || evaluation.state === "FINISHED";
   return (
     <div
-      className={`rounded-lg border p-2.5 space-y-1 ${
+      className={`min-w-0 rounded-lg border p-2.5 space-y-1 ${
         evaluation.state === "BOOKED" ? "border-blue-300 bg-blue-50/40" : isToday ? "border-zinc-300 bg-white" : "border-zinc-200 bg-white"
       } ${muted ? "opacity-70" : ""}`}
     >
-      <div className="flex items-center justify-between gap-1">
+      <div className="flex flex-wrap items-center justify-between gap-1.5">
         <p className="text-xs font-bold text-zinc-800">
           {session.start}
           <span className="font-normal text-zinc-400"> – {session.end}</span>
         </p>
         <StateBadge state={evaluation.state} />
       </div>
-      <p className={`text-sm font-medium text-zinc-800 leading-tight ${evaluation.state === "CANCELLED" ? "line-through" : ""}`}>
+      <p className={`text-sm font-medium text-zinc-800 leading-tight break-words ${evaluation.state === "CANCELLED" ? "line-through" : ""}`}>
         {session.title}
       </p>
       <div className="flex flex-wrap gap-1">
