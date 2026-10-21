@@ -16,7 +16,7 @@ import { loadGymBookingPolicy } from "@/modules/classes/booking/booking-service"
 import { gymBookingErrorMessage } from "@/modules/classes/booking/booking-messages";
 import { sessionKindReadiness, type GymBookingPolicy } from "@/modules/classes/booking/booking-policy";
 import { SESSION_KIND_FOR_MODALITY } from "@/modules/classes/booking/booking-rules";
-import { dateOnly, localDate, type MembershipCandidate } from "@/modules/classes/booking/booking-eligibility";
+import { dateOnly, localDate, membershipIneligibility, type MembershipCandidate } from "@/modules/classes/booking/booking-eligibility";
 import {
   dateColumn,
   evaluatePortalSession,
@@ -395,19 +395,39 @@ function candidatesFor(base: EvaluationBase, own: PortalOwnBooking | null): Memb
   return base.memberships.filter((m) => m.status === "active" || m.id === own?.client_membership_id);
 }
 
+export interface PersonalizedWindow {
+  trainerId: string;
+  /** Fechas de sesión cubiertas por la membresía ("YYYY-MM-DD", inclusivas). */
+  from: string;
+  to: string;
+}
+
 /**
- * Entrenadores PERSONALIZED autorizados: ClientMembership.assigned_trainer_id
- * (→ Trainer) de membresías PERSONALIZED activas y no vencidas. Nunca el
- * campo heredado Client.assigned_trainer_id (→ User).
+ * Ventanas PERSONALIZED autorizadas (auditoría externa 3B, H01): por cada
+ * membresía que el motor aceptaría para las fechas que cubre
+ * (membershipIneligibility = null: activa, pagada, no vencida hoy, snapshot
+ * PERSONALIZED), su entrenador —ClientMembership.assigned_trainer_id
+ * (→ Trainer), nunca el heredado Client.assigned_trainer_id (→ User)— y su
+ * vigencia [start_date, end_date]. Una membresía futura válida autoriza sus
+ * fechas futuras, como en bookSession. El saldo no se exige aquí: una
+ * membresía agotada sigue mostrando sus sesiones como NO ELEGIBLE.
  */
-export function authorizedPersonalizedTrainerIds(memberships: readonly MembershipCandidate[], today: string): string[] {
-  const ids = new Set<string>();
+export function authorizedPersonalizedWindows(memberships: readonly MembershipCandidate[], today: string): PersonalizedWindow[] {
+  const windows: PersonalizedWindow[] = [];
   for (const m of memberships) {
-    if (m.modality === "PERSONALIZED" && m.status === "active" && m.assigned_trainer_id && dateOnly(m.end_date) >= today) {
-      ids.add(m.assigned_trainer_id);
-    }
+    if (!m.assigned_trainer_id) continue;
+    const from = dateOnly(m.start_date);
+    const why = membershipIneligibility(m, {
+      clientModality: "PERSONALIZED",
+      sessionKind: "PERSONALIZED",
+      sessionTrainerId: m.assigned_trainer_id,
+      sessionDate: from,
+      today,
+      legacyDates: null,
+    });
+    if (why === null) windows.push({ trainerId: m.assigned_trainer_id, from, to: dateOnly(m.end_date) });
   }
-  return [...ids].sort();
+  return windows.sort((a, b) => a.trainerId.localeCompare(b.trainerId) || a.from.localeCompare(b.from));
 }
 
 function toView(
@@ -452,8 +472,10 @@ export interface PortalSchedule {
  *
  * Visibilidad (además de tenant_id = contexto):
  *  - NORMAL → OPEN de su sede; GROUP → GROUP de su sede;
- *  - PERSONALIZED → PERSONALIZED de su sede SOLO con entrenadores autorizados
- *    por su membresía (no se divulgan sesiones privadas ajenas);
+ *  - PERSONALIZED → PERSONALIZED de su sede SOLO con el entrenador de una
+ *    membresía activa y pagada, y dentro de las fechas que esa membresía
+ *    cubre (authorizedPersonalizedWindows); el filtro va en la consulta, no
+ *    solo en el botón;
  *  - modalidad no habilitada (R18) → ninguna sesión nueva;
  *  - siempre: las sesiones donde el alumno tiene reserva (historial propio),
  *    sin conceder por ello nuevas reservas.
@@ -479,11 +501,17 @@ export async function loadPortalSchedule(input: {
   if (!readiness.ok) {
     notices.push(gymBookingErrorMessage(readiness.code, "portal"));
   } else if (allowedKind === "PERSONALIZED") {
-    const trainerIds = authorizedPersonalizedTrainerIds(base.memberships, base.today);
-    if (trainerIds.length === 0) {
+    const windows = authorizedPersonalizedWindows(base.memberships, base.today);
+    if (windows.length === 0) {
       notices.push("No tienes un entrenador personalizado asignado en una membresía vigente. Acércate a recepción.");
-    } else {
-      visibility.push({ session_kind: "PERSONALIZED", branch_id: client.branch_id, trainer_id: { in: trainerIds } });
+    }
+    for (const w of windows) {
+      visibility.push({
+        session_kind: "PERSONALIZED",
+        branch_id: client.branch_id,
+        trainer_id: w.trainerId,
+        class_date: { gte: dateColumn(w.from), lte: dateColumn(w.to) },
+      });
     }
   } else {
     visibility.push({ session_kind: allowedKind, branch_id: client.branch_id });

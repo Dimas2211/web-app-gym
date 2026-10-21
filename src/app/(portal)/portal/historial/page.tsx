@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { requireClient } from "@/lib/permissions/guards";
 import { getMyAttendance, loadPortalBookings, type PortalBookingView } from "@/modules/client-portal/queries";
 import { openPortalContext } from "@/modules/client-portal/portal-context";
@@ -9,10 +10,13 @@ import {
 } from "@/modules/client-portal/portal-schedule";
 import { loadGymBookingPolicy } from "@/modules/classes/booking/booking-service";
 import { PortalAccessNotice } from "../portal-access-notice";
+import { BookClassButton } from "../clases/book-class-button";
 
 // GYM-BOOKINGS 3B — historial del alumno: reservas pasadas, canceladas y
-// asistencia. Solo lectura y solo campos autorizados (sin training_notes,
-// notas internas, motivo de cancelación del staff ni datos de otros alumnos).
+// asistencia. Solo campos autorizados (sin training_notes, notas internas,
+// motivo de cancelación del staff ni datos de otros alumnos). Única acción:
+// «Cancelar» cuando cancelBooking la aceptaría (OPEN heredado en una sesión
+// completed del mismo día; auditoría externa 3B, H02).
 
 const ATTENDANCE_STATUS_LABELS: Record<string, string> = {
   attended: "Asistió",
@@ -37,6 +41,7 @@ function pastStatus(b: PortalBookingView): string {
 }
 
 function BookingTable({ rows, cancelled }: { rows: PortalBookingView[]; cancelled: boolean }) {
+  const withActions = !cancelled && rows.some((b) => b.evaluation.canCancel);
   return (
     <div className="overflow-x-auto">
       <table className="w-full text-sm">
@@ -49,6 +54,7 @@ function BookingTable({ rows, cancelled }: { rows: PortalBookingView[]; cancelle
             <th className="text-left text-xs text-zinc-400 font-semibold pb-2 pr-4">Sucursal</th>
             <th className="text-left text-xs text-zinc-400 font-semibold pb-2 pr-4">Estado</th>
             {!cancelled && <th className="text-left text-xs text-zinc-400 font-semibold pb-2">Asistencia</th>}
+            {withActions && <th className="pb-2" />}
           </tr>
         </thead>
         <tbody className="divide-y divide-zinc-50">
@@ -75,6 +81,21 @@ function BookingTable({ rows, cancelled }: { rows: PortalBookingView[]; cancelle
                     </span>
                   ) : (
                     <span className="text-xs text-zinc-400">Sin registro</span>
+                  )}
+                </td>
+              )}
+              {withActions && (
+                <td className="py-2.5 pl-4 text-right">
+                  {b.evaluation.canCancel && (
+                    <BookClassButton
+                      classId={b.id}
+                      bookKey={randomUUID()}
+                      cancelKey={randomUUID()}
+                      bookingId={b.ownBookingId}
+                      canBook={false}
+                      canCancel
+                      cancelWarning={b.evaluation.cancelWarning}
+                    />
                   )}
                 </td>
               )}

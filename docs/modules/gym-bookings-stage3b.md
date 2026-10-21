@@ -204,3 +204,52 @@ Ninguna. `GYM_3B_SCHEMA_MIGRATION_REQUIRED = NO`: el modelo de 2A/2B/3A ya tiene
 - Decisión sobre la reactivación tras cancelación del staff.
 - 2B/3A/3B integrados en `main` y desplegados según su plan (§11.9 del resumen).
 - Política configurada en el gimnasio piloto por decisión del cliente (flags y timezone), nunca desde el código.
+
+## 21. AUDITORÍA EXTERNA — H01 Y H02
+
+Remediación puntual sobre `24733a1`. Sin cambios en `GymBookingService`, `schema.prisma` ni migraciones.
+
+### H01 — Visibilidad PERSONALIZED con membresías no pagadas o fuera de vigencia
+
+- **Problema reproducido** (`stage3b.integration.test.ts` F/H01, antes de la corrección): A (pago `pending` con entrenador asignado), B (vigencia que empieza después de la sesión), C (membresía vigente hoy que vence antes de la sesión) y E (sesión anterior al inicio de una membresía futura) **divulgaban** las sesiones PERSONALIZED del entrenador en el calendario. El motor rechazaba la reserva, pero la información ya era visible.
+- **Causa**: `authorizedPersonalizedTrainerIds` solo miraba modalidad, `status = active`, entrenador presente y `end_date ≥ hoy`; ni `payment_status` ni la cobertura `[start_date, end_date]` respecto a la fecha de cada sesión.
+- **Corrección** (`queries.ts`): `authorizedPersonalizedWindows` reutiliza `membershipIneligibility` del motor (activa, pagada `paid`/`partial`, no vencida hoy, snapshot PERSONALIZED, entrenador de `ClientMembership`) y devuelve, por membresía, `{ trainerId, from: start_date, to: end_date }`. `loadPortalSchedule` construye una cláusula por ventana (`trainer_id` + `class_date` dentro de la vigencia + sede), así que la selección autorizada ocurre **en la consulta**, antes de construir la respuesta. Sin permisos nuevos.
+- **Compatibilidad**: membresía futura válida autoriza sus fechas futuras (E, contrato de `bookSession`); una membresía agotada sigue mostrando sus sesiones como NO ELEGIBLE (C2); las reservas propias siguen visibles en calendario e historial aunque la membresía venza después (F); GROUP y NORMAL sin cambios; tenant y sede siguen en la consulta (D).
+
+### H02 — Cancelación OPEN heredada en sesión `completed` del mismo día
+
+- **Problema reproducido** (F/H02, antes): cliente NORMAL, OPEN, `apply_policy_to_open = false`, reserva confirmada `NOT_APPLICABLE`, sesión `completed` hoy → la vista daba `canCancel: false`, mientras `cancelBookingAction → GymBookingService.cancelBooking` la acepta.
+- **Causa**: `evaluatePortalSession` devolvía FINALIZADO sin acciones antes de evaluar `evaluateCancellation`, que ya espejaba la excepción del motor.
+- **Corrección** (`portal-schedule.ts`): con reserva propia confirmada se evalúa siempre la cancelación; el estado visible sigue siendo FINALIZADO, pero `canCancel` sale de la regla real de `cancelBooking`. La reserva cae en «Reservas pasadas»: `/portal/historial` muestra «Cancelar» (mismo `BookClassButton`) solo en las filas donde `canCancel = true`; el calendario semanal ya mostraba la acción por la evaluación.
+- **Controles negativos** (UI y motor coinciden): OPEN del día anterior (A), PERSONALIZED `completed` (B), GROUP `completed` (C), OPEN con política activa (D), OPEN con consumo `CONSUMED` (E) → bloqueados; sesión cancelada administrativamente (F) → CANCELADO sin acciones.
+
+### Privacidad de agenda PERSONALIZED
+
+- El modelo actual es **A: horarios del entrenador compartidos**. Una `ScheduledClass` PERSONALIZED no tiene destinatario; no existe relación Client–ScheduledClass fuera de la reserva. Varios alumnos con membresía vigente del mismo entrenador ven las mismas sesiones de ese entrenador.
+- Lo que ve otro alumno autorizado: título, tipo, entrenador, sede, sala, fecha/hora y el contador `booked_count / capacity` (p. ej. COMPLETO 1/1). **No** ve nombre, id de cliente, usuario ni id de reserva del alumno que reservó (prueba «privacidad»: el JSON de la vista no contiene ninguno). `loadPortalSchedule` solo carga reservas del propio alumno.
+- No hay exposición de datos personales explícitos: no se cambió el modelo. Si el negocio requiere citas privadas exclusivas, hace falta un contrato previo (fuera de alcance).
+
+### Pruebas
+
+| Suite | Resultado |
+| --- | --- |
+| `portal-schedule.test.ts` (+10: H02 OPEN/PERSONALIZED/GROUP/cancelada, ventanas H01) | 41/41 |
+| `stage3b.integration.test.ts` F (H01-A…F, privacidad, H02 y H02-A…F) — PostgreSQL 18 desechable 127.0.0.1:55439 | 37/37 (antes de la corrección: 5 fallas = H01-A, B, C, E y H02) |
+| `npx vitest run --hookTimeout=180000` completo con integración | 252 archivos, 2741/2741, 0 omitidas |
+| `npx tsc --noEmit`, `npm run lint`, `npm run build`, `npx prisma validate` | PASS |
+
+Mutaciones de control (fallan y se restauraron): ventana sin `class_date` → H01-B/C/E; aceptar `UNPAID` → H01-A; FINALIZADO sin `canCancel` → H02 (unit e integración).
+
+### Impacto en bases de datos y sincronización local/remota
+
+- **Bases tocadas**: solo bases desechables `zolvi_it2b_*` del clúster temporal del scratchpad (127.0.0.1:55439).
+- **Bases no tocadas**: `DATABASE_URL`, `DIRECT_URL`, Control Plane, runtimes, Supabase.
+- **Sincronización**: nada que alinear; sin cambios de `schema.prisma` ni migraciones.
+
+### Riesgos residuales
+
+- La ventana PERSONALIZED usa la vigencia completa de la membresía; los días pasados de la semana actual dentro de esa vigencia siguen visibles como FINALIZADO (sin acción).
+- Disponibilidad compartida del entrenador entre sus alumnos (modelo A) por diseño; citas privadas requieren contrato nuevo.
+- La reserva OPEN cancelable tras `completed` aparece en «Reservas pasadas», no en «Mis próximas reservas».
+- §18 «Más estricto en la UI que el servidor en un caso» queda **resuelto** por H02.
+- Validación visual: PENDING.

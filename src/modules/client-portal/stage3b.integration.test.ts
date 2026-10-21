@@ -148,7 +148,7 @@ describe.skipIf(!IT_ENABLED)("GYM-3B portal del alumno — integración PostgreS
   const newSession = (input: Parameters<typeof createSession>[1]) => createSession(db, { id: randomUUID(), ...input });
 
   /** Registra el contexto del alumno (tenant efectivo, rol LIVE y conexión). */
-  function register(m: Member, opts: { tenant?: string; role?: string; db?: PrismaClient } = {}) {
+  function register<M extends Member>(m: M, opts: { tenant?: string; role?: string; db?: PrismaClient } = {}): M {
     const tenant = opts.tenant ?? T1;
     h.registry.set(m.userId!, { tenantId: tenant, gymId: tenant, role: opts.role ?? "client", db: opts.db ?? db });
     return m;
@@ -588,6 +588,200 @@ describe.skipIf(!IT_ENABLED)("GYM-3B portal del alumno — integración PostgreS
       const v = find(await schedule(m, dayOffset(0)), todaySession)!;
       expect(v.evaluation).toMatchObject({ state: "BOOKED", canCancel: true });
       expect(await cancel(m, v.ownBookingId!)).toEqual({ success: true });
+    });
+  });
+
+  // ── F. Auditoría externa 3B: H01 (visibilidad PERSONALIZED) y H02 (OPEN heredado) ──
+
+  describe("F. auditoría externa H01/H02", () => {
+    const day = dayOffset(2);
+
+    /** Membresía PERSONALIZED del alumno (fechas relativas a hoy). */
+    async function pMember(opts: { payment?: "paid" | "pending"; startOffsetDays?: number; endOffsetDays?: number; trainerId?: string } = {}) {
+      return register(
+        await createMember(db, {
+          withUser: true,
+          modality: "PERSONALIZED",
+          sessionsTotal: 4,
+          trainerId: opts.trainerId ?? TRAINER_C,
+          payment: opts.payment,
+          startOffsetDays: opts.startOffsetDays,
+          endOffsetDays: opts.endOffsetDays,
+        })
+      );
+    }
+    const pSession = (date: string, start: string, extra: Partial<Parameters<typeof createSession>[1]> = {}) =>
+      newSession({ date, start, end: `${String(Number(start.slice(0, 2)) + 1).padStart(2, "0")}:00`, kind: "PERSONALIZED", capacity: 1, trainer: TRAINER_C, ...extra });
+
+    it("H01-A pago pending con entrenador asignado → no se divulgan sesiones PERSONALIZED; el motor rechaza", async () => {
+      const m = await pMember({ payment: "pending" });
+      const s = await pSession(day, "06:00");
+      const view = await schedule(m, day);
+      expect(allIds(view)).not.toContain(s);
+      expect(view.notices.join(" ")).toMatch(/entrenador/);
+      expect(await book(m, s)).toHaveProperty("error");
+    });
+
+    it("H01-B vigencia que comienza después de la sesión → no se divulga", async () => {
+      const m = await pMember({ startOffsetDays: 10, endOffsetDays: 40 });
+      const s = await pSession(day, "07:00");
+      expect(allIds(await schedule(m, day))).not.toContain(s);
+      expect(await book(m, s)).toHaveProperty("error");
+    });
+
+    it("H01-C membresía que vence antes de la sesión (aunque siga vigente hoy) → no se divulga", async () => {
+      const m = await pMember({ startOffsetDays: -5, endOffsetDays: 1 });
+      const s = await pSession(dayOffset(3), "08:00");
+      expect(allIds(await schedule(m, dayOffset(3)))).not.toContain(s);
+      expect(await book(m, s)).toHaveProperty("error");
+    });
+
+    it("H01-D pagada, entrenador correcto y cobertura → visible y reservable; otra sede / otro entrenador / otro tenant → no", async () => {
+      const m = await pMember();
+      const s = await pSession(day, "09:00");
+      const otherBranch = await pSession(day, "09:00", { branch: B1B });
+      const otherTrainer = await pSession(day, "09:00", { trainer: TRAINER_A });
+      const v = await schedule(m, day);
+      expect(find(v, s)!.evaluation).toMatchObject({ state: "AVAILABLE", canBook: true });
+      expect(allIds(v)).not.toContain(otherBranch);
+      expect(allIds(v)).not.toContain(otherTrainer);
+      const crossed = await loadPortalSchedule({ db, tenantId: T2, client: await clientRef(m), week: weekStart(day) });
+      expect(allIds(crossed)).not.toContain(s);
+      expect(await book(m, s)).toEqual({ success: true });
+    });
+
+    it("H01-E membresía futura válida que cubre una sesión futura → visible y reservable (contrato del motor)", async () => {
+      const m = await pMember({ startOffsetDays: 3, endOffsetDays: 30 });
+      const before = await pSession(dayOffset(2), "10:00");
+      const covered = await pSession(dayOffset(4), "10:00");
+      expect(allIds(await schedule(m, dayOffset(2)))).not.toContain(before);
+      expect(find(await schedule(m, dayOffset(4)), covered)!.evaluation).toMatchObject({ state: "AVAILABLE", canBook: true });
+      expect(await book(m, covered)).toEqual({ success: true });
+    });
+
+    it("H01-F reserva propia sigue visible (calendario e historial) tras vencer la membresía; sesiones nuevas no", async () => {
+      const m = await pMember();
+      const s = await pSession(day, "11:00");
+      const other = await pSession(day, "12:00");
+      expect(await book(m, s)).toEqual({ success: true });
+      await db.clientMembership.update({ where: { id: m.membershipId }, data: { end_date: new Date(`${dayOffset(-1)}T00:00:00.000Z`) } });
+      const v = await schedule(m, day);
+      expect(find(v, s)!.evaluation.state).toBe("BOOKED");
+      expect(allIds(v)).not.toContain(other);
+      const history = await loadPortalBookings({ db, tenantId: T1, client: await clientRef(m) });
+      expect([...history.upcoming, ...history.past].map((b) => b.id)).toContain(s);
+    });
+
+    it("privacidad: otro alumno del mismo entrenador ve la disponibilidad (COMPLETO) sin datos del alumno que reservó", async () => {
+      const x = await pMember();
+      const y = await pMember();
+      const s = await pSession(day, "13:00");
+      expect(await book(x, s)).toEqual({ success: true });
+      const xBooking = await bookingIdOf(s, x.clientId);
+      const yView = find(await schedule(y, day), s)!;
+      expect(yView).toMatchObject({ ownBookingId: null, booked: 1, capacity: 1 });
+      expect(yView.evaluation.state).toBe("FULL");
+      const json = JSON.stringify(yView);
+      expect(json).not.toContain(x.clientId);
+      expect(json).not.toContain(x.userId!);
+      expect(json).not.toContain(xBooking);
+    });
+
+    // ── H02: cancelación OPEN heredada en sesión completed del mismo día ──
+
+    const today = dayOffset(0);
+    const markCompleted = (sessionId: string) => db.scheduledClass.update({ where: { id: sessionId }, data: { status: "completed" } });
+    const bookingView = async (m: Member, sessionId: string) => {
+      const b = await loadPortalBookings({ db, tenantId: T1, client: await clientRef(m) });
+      return [...b.upcoming, ...b.past].find((v) => v.id === sessionId)!;
+    };
+    const statusOf = async (bookingId: string) => (await db.classBooking.findUniqueOrThrow({ where: { id: bookingId } })).booking_status;
+
+    it("H02 OPEN sin política, NOT_APPLICABLE, completed hoy → FINALIZADO con «Cancelar» (calendario e historial) y el motor cancela", async () => {
+      const m = register(await createMember(db, { withUser: true }));
+      const s = await newSession({ date: today, start: "00:00", end: "00:15" });
+      expect(await book(m, s)).toEqual({ success: true });
+      const bookingId = await bookingIdOf(s, m.clientId);
+      expect((await db.classBooking.findUniqueOrThrow({ where: { id: bookingId } })).consumption).toBe("NOT_APPLICABLE");
+      await markCompleted(s);
+
+      const tile = find(await schedule(m, today), s)!;
+      expect(tile.evaluation).toMatchObject({ state: "FINISHED", canCancel: true, canBook: false });
+      const row = await bookingView(m, s);
+      expect(row.evaluation).toMatchObject({ state: "FINISHED", canCancel: true });
+      expect(row.ownBookingId).toBe(bookingId);
+
+      expect(await cancel(m, bookingId)).toEqual({ success: true });
+      expect(await statusOf(bookingId)).toBe("cancelled");
+    });
+
+    it("H02-A OPEN completed del día anterior → sin «Cancelar»; el motor también lo bloquea", async () => {
+      const m = register(await createMember(db, { withUser: true }));
+      const s = await newSession({ date: dayOffset(-1), start: "07:00", end: "08:00", status: "completed" });
+      const b = await db.classBooking.create({ data: { scheduled_class_id: s, client_id: m.clientId, tenant_id: T1, booking_status: "confirmed" } });
+      expect((await bookingView(m, s)).evaluation).toMatchObject({ state: "FINISHED", canCancel: false });
+      expect(await cancel(m, b.id)).toHaveProperty("error");
+      expect(await statusOf(b.id)).toBe("confirmed");
+    });
+
+    it("H02-B/C PERSONALIZED y GROUP completed → sin «Cancelar»; el motor también lo bloquea", async () => {
+      const p = await pMember();
+      const ps = await pSession(day, "14:00");
+      const g = register(await createMember(db, { withUser: true, modality: "GROUP", sessionsTotal: 4 }));
+      const gs = await newSession({ date: day, start: "14:00", end: "15:00", kind: "GROUP", capacity: 4 });
+      expect(await book(p, ps)).toEqual({ success: true });
+      expect(await book(g, gs)).toEqual({ success: true });
+      for (const [m, s] of [[p, ps], [g, gs]] as const) {
+        await markCompleted(s);
+        const v = await bookingView(m, s);
+        expect(v.evaluation).toMatchObject({ state: "FINISHED", canCancel: false });
+        expect(find(await schedule(m, day), s)!.evaluation.canCancel).toBe(false);
+        expect(await cancel(m, v.ownBookingId!)).toEqual({ error: "La clase ya fue cerrada; no se pueden cancelar reservas." });
+        expect(await statusOf(v.ownBookingId!)).toBe("confirmed");
+      }
+    });
+
+    it("H02-D OPEN completed con apply_policy_to_open = true → contrato del motor (bloqueado), sin excepción heredada", async () => {
+      const m = register(await createMember(db, { withUser: true }));
+      const s = await newSession({ date: today, start: "00:00", end: "00:15" });
+      expect(await book(m, s)).toEqual({ success: true });
+      const bookingId = await bookingIdOf(s, m.clientId);
+      await markCompleted(s);
+      await setPolicy(db, T1, { apply_policy_to_open: true });
+      try {
+        expect((await bookingView(m, s)).evaluation).toMatchObject({ state: "FINISHED", canCancel: false });
+        expect(await cancel(m, bookingId)).toHaveProperty("error");
+        expect(await statusOf(bookingId)).toBe("confirmed");
+      } finally {
+        await setPolicy(db, T1, { apply_policy_to_open: false });
+      }
+    });
+
+    it("H02-E OPEN completed hoy con consumo CONSUMED (incompatible con la excepción) → bloqueado en UI y motor", async () => {
+      const m = register(await createMember(db, { withUser: true }));
+      const s = await newSession({ date: today, start: "00:00", end: "00:15", status: "completed" });
+      const b = await db.classBooking.create({
+        data: { scheduled_class_id: s, client_id: m.clientId, tenant_id: T1, booking_status: "confirmed", consumption: "CONSUMED", client_membership_id: m.membershipId },
+      });
+      expect((await bookingView(m, s)).evaluation).toMatchObject({ state: "FINISHED", canCancel: false });
+      expect(await cancel(m, b.id)).toEqual({ error: "La clase ya fue cerrada; no se pueden cancelar reservas." });
+      expect(await statusOf(b.id)).toBe("confirmed");
+    });
+
+    it("H02-F sesión cancelada administrativamente → CANCELADO, sin reservar ni cancelar", async () => {
+      const m = register(await createMember(db, { withUser: true }));
+      const s = await newSession({ date: today, start: "00:00", end: "00:15" });
+      expect(await book(m, s)).toEqual({ success: true });
+      const bookingId = await bookingIdOf(s, m.clientId);
+      await db.scheduledClass.update({ where: { id: s }, data: { status: "cancelled" } });
+      const v = find(await schedule(m, today), s)!;
+      expect(v.evaluation).toMatchObject({ state: "CANCELLED", canBook: false, canCancel: false });
+      const all = await loadPortalBookings({ db, tenantId: T1, client: await clientRef(m) });
+      const row = [...all.upcoming, ...all.past, ...all.cancelled].find((r) => r.id === s)!;
+      expect(row.evaluation).toMatchObject({ state: "CANCELLED", canBook: false, canCancel: false });
+      // Restaura un estado coherente para los invariantes globales.
+      await db.scheduledClass.update({ where: { id: s }, data: { status: "scheduled" } });
+      expect(await cancel(m, bookingId)).toEqual({ success: true });
     });
   });
 

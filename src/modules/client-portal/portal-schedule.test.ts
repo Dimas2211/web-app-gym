@@ -19,7 +19,7 @@ import {
   type PortalOwnBooking,
   type PortalSessionInput,
 } from "./portal-schedule";
-import { authorizedPersonalizedTrainerIds } from "./queries";
+import { authorizedPersonalizedWindows } from "./queries";
 
 const TZ = "America/El_Salvador";
 // 2026-10-20 10:00 local (16:00Z)
@@ -150,6 +150,31 @@ describe("evaluatePortalSession — NORMAL / OPEN heredado", () => {
     expect(r).toMatchObject({ state: "BOOKED", canBook: false, canCancel: true, cancelWarning: null });
   });
 
+  it("H02: OPEN sin política, NOT_APPLICABLE, completed hoy → FINALIZADO con cancelación (excepción de cancelBooking)", () => {
+    const today = session({ class_date: D("2026-10-20"), status: "completed" });
+    expect(evaluate({ session: today, own: confirmed() })).toMatchObject({ state: "FINISHED", block: null, canBook: false, canCancel: true });
+  });
+
+  it.each([
+    ["día anterior", { session: session({ class_date: D("2026-10-19"), status: "completed" }), own: confirmed() }],
+    ["día anterior sin cerrar", { session: session({ class_date: D("2026-10-19") }), own: confirmed() }],
+    ["consumo CONSUMED", { session: session({ class_date: D("2026-10-20"), status: "completed" }), own: confirmed({ consumption: "CONSUMED", client_membership_id: "m1" }) }],
+    [
+      "apply_policy_to_open = true",
+      { session: session({ class_date: D("2026-10-20"), status: "completed" }), own: confirmed(), policy: { ...ON, applyPolicyToOpen: true } },
+    ],
+  ])("H02: OPEN completed/pasada con %s → FINALIZADO sin cancelación", (_label, opts) => {
+    expect(evaluate(opts)).toMatchObject({ state: "FINISHED", canCancel: false });
+  });
+
+  it("H02: sesión cancelada con reserva confirmada → CANCELADO sin acciones", () => {
+    expect(evaluate({ session: session({ class_date: D("2026-10-20"), status: "cancelled" }), own: confirmed() })).toMatchObject({
+      state: "CANCELLED",
+      canBook: false,
+      canCancel: false,
+    });
+  });
+
   it("reserva propia cancelada → reservar de nuevo (reactivación de bookSession)", () => {
     const r = evaluate({ own: confirmed({ booking_status: "cancelled", cancellation_type: "CLIENT_IN_POLICY" }) });
     expect(r).toMatchObject({ state: "AVAILABLE", canBook: true, isReactivation: true });
@@ -246,6 +271,12 @@ describe("evaluatePortalSession — PERSONALIZED", () => {
     expect(r.block?.code).toBe("CANCEL_WINDOW_CLOSED");
   });
 
+  it("H02: PERSONALIZED completed → FINALIZADO sin cancelación", () => {
+    const own = confirmed({ consumption: "CONSUMED", client_membership_id: "m1" });
+    const r = evaluate({ session: pSession({ status: "completed", booked_count: 1 }), client: P_CLIENT, policy: ON, memberships: [pMem()], own });
+    expect(r).toMatchObject({ state: "FINISHED", canCancel: false });
+  });
+
   it("reactivación de una reserva todavía CONSUMED (tardía) exige la misma membresía, sin saldo nuevo", () => {
     const own = confirmed({ booking_status: "cancelled", consumption: "CONSUMED", client_membership_id: "m1", cancellation_type: "CLIENT_LATE" });
     const r = evaluate({ session: pSession(), client: P_CLIENT, policy: ON, memberships: [pMem({ sessions_used: 4 })], own });
@@ -270,21 +301,46 @@ describe("evaluatePortalSession — GROUP", () => {
   it("8/8 → COMPLETO", () => {
     expect(evaluate({ session: { ...gSession, booked_count: 8 }, client: G, policy: ON, memberships: [gMem] }).state).toBe("FULL");
   });
+
+  it("H02: GROUP completed → FINALIZADO sin cancelación", () => {
+    const own = confirmed({ consumption: "CONSUMED", client_membership_id: "m1" });
+    expect(evaluate({ session: { ...gSession, status: "completed" }, client: G, policy: ON, memberships: [gMem], own })).toMatchObject({
+      state: "FINISHED",
+      canCancel: false,
+    });
+  });
 });
 
-describe("authorizedPersonalizedTrainerIds", () => {
-  it("solo membresías PERSONALIZED activas, no vencidas y con entrenador (nunca Client.assigned_trainer_id)", () => {
-    const ids = authorizedPersonalizedTrainerIds(
+describe("authorizedPersonalizedWindows (H01)", () => {
+  const p = (over: Partial<MembershipCandidate>) => membership({ modality: "PERSONALIZED", assigned_trainer_id: "tA", ...over });
+
+  it("solo membresías que el motor aceptaría: activas, pagadas, no vencidas hoy, PERSONALIZED, con entrenador (nunca Client.assigned_trainer_id)", () => {
+    const windows = authorizedPersonalizedWindows(
       [
-        membership({ id: "a", modality: "PERSONALIZED", assigned_trainer_id: "tA" }),
-        membership({ id: "b", modality: "PERSONALIZED", assigned_trainer_id: "tB", end_date: D("2026-10-19") }),
-        membership({ id: "c", modality: "PERSONALIZED", assigned_trainer_id: "tC", status: "suspended" }),
+        p({ id: "a" }),
+        p({ id: "b", assigned_trainer_id: "tB", end_date: D("2026-10-19") }),
+        p({ id: "c", assigned_trainer_id: "tC", status: "suspended" }),
         membership({ id: "d", modality: "GROUP", assigned_trainer_id: "tD" }),
-        membership({ id: "e", modality: "PERSONALIZED", assigned_trainer_id: null }),
+        p({ id: "e", assigned_trainer_id: null }),
+        p({ id: "f", assigned_trainer_id: "tF", payment_status: "pending" }),
+        p({ id: "g", assigned_trainer_id: "tG", payment_status: "partial" }),
       ],
       "2026-10-20"
     );
-    expect(ids).toEqual(["tA"]);
+    expect(windows).toEqual([
+      { trainerId: "tA", from: "2026-10-01", to: "2026-10-31" },
+      { trainerId: "tG", from: "2026-10-01", to: "2026-10-31" },
+    ]);
+  });
+
+  it("la ventana es la vigencia de la membresía; una membresía futura válida autoriza sus fechas futuras", () => {
+    expect(authorizedPersonalizedWindows([p({ start_date: D("2026-10-25"), end_date: D("2026-11-25") })], "2026-10-20")).toEqual([
+      { trainerId: "tA", from: "2026-10-25", to: "2026-11-25" },
+    ]);
+  });
+
+  it("una membresía agotada conserva su ventana (las sesiones se muestran NO ELEGIBLE, no ocultas)", () => {
+    expect(authorizedPersonalizedWindows([p({ sessions_total: 4, sessions_used: 4 })], "2026-10-20")).toHaveLength(1);
   });
 });
 

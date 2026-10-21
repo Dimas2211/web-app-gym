@@ -153,9 +153,12 @@ export function evaluatePortalSession(input: {
   if (session.status === "cancelled") return { ...none, state: "CANCELLED", block: null };
 
   // ── Reserva propia confirmada: solo cancelar (cancelBooking) ──
+  // La acción la decide la regla real de cancelBooking aunque la sesión se
+  // muestre FINALIZADA: OPEN sin política y sin consumo sigue cancelable en
+  // una sesión completed del mismo día (auditoría externa 3B, H02).
   if (ownBooking?.booking_status === "confirmed") {
-    if (finished) return { ...none, state: "FINISHED", block: null };
     const cancel = evaluateCancellation({ session, policy, now, applies, today, sessionDate, startsAt, booking: ownBooking });
+    if (finished) return { ...none, state: "FINISHED", block: null, canCancel: cancel.ok, cancelWarning: cancel.warning };
     return { ...none, state: "BOOKED", block: cancel.block, canCancel: cancel.ok, cancelWarning: cancel.warning };
   }
 
