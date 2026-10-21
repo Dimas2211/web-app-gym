@@ -467,3 +467,14 @@ Detalle completo: `docs/modules/gym-bookings-stage3a.md`. **Sin cambios en `sche
 - Series: `/dashboard/classes/series`. La generación es explícita e idempotente (`generateSeriesSessions`: trainers → class_series FOR UPDATE), con ventana `series_generation_weeks` y DST por fecha.
 - Actividades: `/dashboard/classes/activities`. CRUD lógico; global solo SA; unicidad por tenant.
 - Pruebas: `stage3a.integration.test.ts` (43, PostgreSQL real), unitarias nuevas (39), 2B sin regresión (206) y suite completa 2639/2639.
+
+## 13. Etapa 3B — portal del alumno multimodalidad (resumen)
+
+Detalle completo: `docs/modules/gym-bookings-stage3b.md`. **Sin cambios en `schema.prisma` ni migraciones**; el motor 2B y la administración 3A no se modificaron.
+
+- Lecturas del portal con `openPortalContext`: runtime efectivo, módulo (`gym.classes` en clases e historial, `gym.memberships` en membresía; secciones opcionales con fail closed en el inicio), rol LIVE client y Client resuelto desde la sesión con el tenant del contexto.
+- `/portal/clases`: calendario semanal y agenda por fecha local del gimnasio. Visibilidad por modalidad (NORMAL → OPEN, GROUP → GROUP, PERSONALIZED → solo entrenadores autorizados por la membresía), `tenant_id` explícito, cupo desde `booked_count`. Estado y botón con `evaluatePortalSession`, que reutiliza las reglas del motor en el orden de `bookSession`/`cancelBooking`.
+- Reservar/cancelar/reactivar siguen siendo `bookClassAction` / `cancelBookingAction` → `GymBookingService`. Confirmación de cancelación con aviso de cancelación tardía.
+- Membresía: vigentes, relevante, próximas e historial con saldo (`sessions_total` / `sessions_used`) y entrenador PERSONALIZED. Historial: pasadas, canceladas y asistencia, sin notas internas.
+- `getAvailableClasses` y `getMyBookings` eliminadas (reemplazadas).
+- Pruebas: unitarias (42 nuevas), `stage3b.integration.test.ts` (24, PostgreSQL real), regresión 2B+3A+portal 408/408 y suite completa 2718/2718. Validación visual pendiente.

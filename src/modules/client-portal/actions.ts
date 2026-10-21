@@ -40,6 +40,13 @@ function portalActor(context: Parameters<typeof bookingActorFromContext>[0]) {
 // El alumno SIEMPRE se resuelve desde sessionUser.id; el servicio vuelve a
 // verificar client.user_id = actor bajo bloqueo.
 
+/** GYM-BOOKINGS 3B: calendario, inicio (próximas) e historial reflejan el resultado. */
+function revalidatePortalBookingViews() {
+  revalidatePath("/portal/clases");
+  revalidatePath("/portal/historial");
+  revalidatePath("/portal");
+}
+
 // ============================================================
 // RESERVAR CLASE
 // ============================================================
@@ -65,8 +72,8 @@ export async function bookClassAction(
 
     const { class_id } = parsed.data;
 
-    // Obtener el perfil del cliente
-    const client = await getClientByUserId(sessionUser.id, context.client);
+    // Perfil del cliente: desde la sesión y el tenant del contexto (3B).
+    const client = await getClientByUserId(sessionUser.id, context.client, { tenantId: context.tenantId, gymId: context.gymId });
     if (!client) return { error: "No tienes un perfil de cliente vinculado." };
 
     const actor = portalActor(context);
@@ -84,7 +91,7 @@ export async function bookClassAction(
     });
     if (!result.ok) return { error: gymBookingErrorMessage(result.code, "portal", result.message) };
 
-    revalidatePath("/portal/clases");
+    revalidatePortalBookingViews();
     return { success: true };
   } finally {
     await dispose();
@@ -116,7 +123,7 @@ export async function cancelBookingAction(
 
     const { booking_id } = parsed.data;
 
-    const client = await getClientByUserId(sessionUser.id, context.client);
+    const client = await getClientByUserId(sessionUser.id, context.client, { tenantId: context.tenantId, gymId: context.gymId });
     if (!client) return { error: "No tienes un perfil de cliente vinculado." };
 
     const actor = portalActor(context);
@@ -133,7 +140,7 @@ export async function cancelBookingAction(
     });
     if (!result.ok) return { error: gymBookingErrorMessage(result.code, "portal", result.message) };
 
-    revalidatePath("/portal/clases");
+    revalidatePortalBookingViews();
     return { success: true };
   } finally {
     await dispose();

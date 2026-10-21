@@ -1,15 +1,16 @@
 import Link from "next/link";
 import { requireClient } from "@/lib/permissions/guards";
 import {
-  getClientByUserId,
-  getMyActiveMembership,
   getMyActivePlan,
-  getMyBookings,
   getMyGeneralTemplates,
   getLastExpiredMembership,
+  loadPortalBookings,
+  loadPortalMembershipSummary,
 } from "@/modules/client-portal/queries";
 import { MembershipAlertBanner } from "@/components/ui/membership-alert-banner";
-import { resolveEffectiveTenantContext } from "@/modules/platform/runtime/effective-tenant-context";
+import { openPortalContext } from "@/modules/client-portal/portal-context";
+import { formatCalendarDate, MODALITY_LABELS } from "@/modules/client-portal/portal-schedule";
+import { PortalAccessNotice } from "./portal-access-notice";
 
 /**
  * Cuenta días hábiles (lun–vie) transcurridos desde `date` hasta hoy,
@@ -53,13 +54,13 @@ export default async function PortalHomePage() {
   // FASE VI-D7: tenant/PrismaClient EFECTIVOS bajo sesión runtime — el
   // Client Portal es la superficie más expuesta (usuarios finales reales
   // de un tenant hosteado), nunca debe leer desde el prisma singleton.
-  const { context, dispose } = await resolveEffectiveTenantContext(sessionUser);
+  // GYM-BOOKINGS 3B: además rol LIVE client, Client por tenant del contexto
+  // y secciones de reservas/membresía solo con su módulo habilitado.
+  const access = await openPortalContext(sessionUser, { optionalModules: ["gym.classes", "gym.memberships"] });
 
-  try {
-    const client = await getClientByUserId(sessionUser.id, context.client);
-
-    if (!client) {
-      return (
+  if (!access.ok) {
+    if (access.reason !== "NO_PROFILE") return <PortalAccessNotice title="Inicio" denied={access} />;
+    return (
         <div className="space-y-6">
           <h1 className="text-2xl font-bold text-zinc-800">
             Bienvenido, {sessionUser.name?.split(" ")[0]}
@@ -72,14 +73,22 @@ export default async function PortalHomePage() {
           </div>
         </div>
       );
-    }
+  }
+  const { context, client, modules, dispose } = access;
 
-    const [activeMembership, activePlan, allBookings, generalTemplates] = await Promise.all([
-      getMyActiveMembership(client.id, context.client),
+  try {
+    const ref = { id: client.id, branch_id: client.branch_id, modality: client.modality, status: client.status };
+    const [membershipSummary, activePlan, portalBookings, generalTemplates] = await Promise.all([
+      modules["gym.memberships"]
+        ? loadPortalMembershipSummary({ db: context.client, tenantId: context.tenantId, client: ref })
+        : Promise.resolve(null),
       getMyActivePlan(client.id, context.client),
-      getMyBookings(client.id, context.client),
+      modules["gym.classes"]
+        ? loadPortalBookings({ db: context.client, tenantId: context.tenantId, client: ref })
+        : Promise.resolve(null),
       getMyGeneralTemplates(client, context.client),
     ]);
+    const activeMembership = membershipSummary?.primary ?? null;
 
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -93,20 +102,20 @@ export default async function PortalHomePage() {
   let membershipAlert: AlertBannerProps = null;
   let plansVisible = true;
 
-  if (activeMembership) {
-    const endDate = new Date(activeMembership.end_date);
-    endDate.setHours(0, 0, 0, 0);
+  if (activeMembership && membershipSummary) {
+    // Fechas de calendario del gimnasio (GymSettings.timezone), no la zona del servidor.
     const daysRemaining = Math.round(
-      (endDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24)
+      (Date.parse(`${activeMembership.endDate}T00:00:00Z`) - Date.parse(`${membershipSummary.today}T00:00:00Z`)) /
+        (1000 * 60 * 60 * 24)
     );
     if (daysRemaining <= 7) {
       membershipAlert = {
         type: "expiring_soon",
         daysRemaining,
-        expirationDate: formatDate(activeMembership.end_date),
+        expirationDate: formatCalendarDate(activeMembership.endDate, { day: "2-digit", month: "short", year: "numeric" }),
       };
     }
-  } else {
+  } else if (membershipSummary) {
     const lastExpired = await getLastExpiredMembership(client.id, context.client);
     if (lastExpired) {
       membershipAlert = {
@@ -119,13 +128,7 @@ export default async function PortalHomePage() {
   }
   // ─────────────────────────────────────────────────────────────
 
-  const upcomingBookings = allBookings
-    .filter(
-      (b) =>
-        b.booking_status === "confirmed" &&
-        new Date(b.scheduled_class.class_date) >= today
-    )
-    .slice(0, 3);
+  const upcomingBookings = portalBookings?.upcoming.slice(0, 3) ?? [];
 
   const todayWeekday = today.getDay();
   const todayPlanDay = activePlan?.days.find((d) => d.weekday === todayWeekday);
@@ -159,6 +162,7 @@ export default async function PortalHomePage() {
       </div>
 
       {/* Estado de membresía */}
+      {membershipSummary && (
       <div
         className={`rounded-xl border p-5 ${
           activeMembership
@@ -174,12 +178,23 @@ export default async function PortalHomePage() {
             {activeMembership ? (
               <>
                 <p className="text-lg font-bold text-zinc-800 mt-1">
-                  {activeMembership.membership_plan.name}
+                  {activeMembership.planName}
                 </p>
                 <p className="text-sm text-zinc-600 mt-0.5">
-                  {ACCESS_TYPE_LABELS[activeMembership.membership_plan.access_type]} ·{" "}
-                  Vence el {formatDate(activeMembership.end_date)}
+                  {ACCESS_TYPE_LABELS[activeMembership.accessType]} ·{" "}
+                  {MODALITY_LABELS[activeMembership.modality]} ·{" "}
+                  Vence el {formatCalendarDate(activeMembership.endDate, { day: "2-digit", month: "short", year: "numeric" })}
                 </p>
+                {activeMembership.sessionsTotal != null && (
+                  <p className="text-sm text-zinc-600 mt-0.5">
+                    Sesiones disponibles: {activeMembership.sessionsRemaining} de {activeMembership.sessionsTotal}
+                  </p>
+                )}
+                {activeMembership.modality === "PERSONALIZED" && (
+                  <p className="text-sm text-zinc-600 mt-0.5">
+                    Entrenador personalizado: {activeMembership.trainerName ?? "sin asignar"}
+                  </p>
+                )}
               </>
             ) : (
               <>
@@ -198,6 +213,7 @@ export default async function PortalHomePage() {
           </Link>
         </div>
       </div>
+      )}
 
       {/* Actividad de hoy */}
       {activePlan && plansVisible && (
@@ -248,6 +264,7 @@ export default async function PortalHomePage() {
       )}
 
       {/* Próximas clases reservadas */}
+      {portalBookings && (
       <div className="bg-white rounded-xl border border-zinc-200 shadow-sm p-5">
         <div className="flex items-center justify-between mb-3">
           <p className="text-xs font-semibold text-zinc-400 uppercase tracking-wide">
@@ -260,15 +277,14 @@ export default async function PortalHomePage() {
         {upcomingBookings.length > 0 ? (
           <ul className="divide-y divide-zinc-100">
             {upcomingBookings.map((booking) => (
-              <li key={booking.id} className="py-2.5 flex items-center justify-between gap-2">
+              <li key={booking.ownBookingId} className="py-2.5 flex items-center justify-between gap-2">
                 <div>
                   <p className="text-sm font-medium text-zinc-800">
-                    {booking.scheduled_class.class_type.name}
+                    {booking.typeName}
                   </p>
                   <p className="text-xs text-zinc-500">
-                    {formatDate(booking.scheduled_class.class_date)} ·{" "}
-                    {booking.scheduled_class.start_time} –{" "}
-                    {booking.scheduled_class.end_time}
+                    {formatCalendarDate(booking.date, { day: "2-digit", month: "short", year: "numeric" })} ·{" "}
+                    {booking.start} – {booking.end} · {booking.trainerName}
                   </p>
                 </div>
                 <span className="text-xs bg-emerald-100 text-emerald-700 font-medium px-2 py-0.5 rounded-full shrink-0">
@@ -286,6 +302,7 @@ export default async function PortalHomePage() {
           </p>
         )}
       </div>
+      )}
 
       {/* Resumen del plan semanal personalizado */}
       {activePlan && plansVisible && (

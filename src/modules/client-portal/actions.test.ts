@@ -17,7 +17,8 @@
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
+const { revalidatePathMock } = vi.hoisted(() => ({ revalidatePathMock: vi.fn() }));
+vi.mock("next/cache", () => ({ revalidatePath: revalidatePathMock }));
 
 vi.mock("@/lib/permissions/guards", () => ({
   requireClient: vi.fn(async () => ({ id: "u1", tenant_id: "tenant-1", location_id: "loc-1", role: "client" })),
@@ -88,6 +89,7 @@ function fakeHandle(role = "client") {
     context: {
       effectiveUser: { id: "u1", role, location_id: "loc-1" },
       tenantId: "tenant-1",
+      gymId: "gym-1",
       locationId: "loc-1",
       client: runtimeClient,
     },
@@ -126,7 +128,8 @@ describe('bookClassAction — sesión runtime "Operar como cliente" activa bloqu
     const result = await bookClassAction(undefined, fd({ class_id: CLASS_ID, idempotency_key: KEY }));
 
     expect(requireOperationalContextMock).toHaveBeenCalledWith(expect.anything(), { module: "gym.classes", write: true });
-    expect(getClientByUserIdMock).toHaveBeenCalledWith("u1", runtimeClient);
+    // GYM-BOOKINGS 3B: el Client se resuelve además por el tenant del contexto.
+    expect(getClientByUserIdMock).toHaveBeenCalledWith("u1", runtimeClient, { tenantId: "tenant-1", gymId: "gym-1" });
     expect(createServiceMock).toHaveBeenCalledWith(runtimeClient);
     expect(service.bookSession).toHaveBeenCalledWith({
       scope: { tenantId: "tenant-1", locationId: "loc-1" },
@@ -195,5 +198,24 @@ describe("bookClassAction / cancelBookingAction — GYM-BOOKINGS 2B", () => {
   it("validación de formulario intacta", async () => {
     expect(await bookClassAction(undefined, fd({ class_id: "x" }))).toEqual({ error: "ID de clase inválido" });
     expect(service.bookSession).not.toHaveBeenCalled();
+  });
+});
+
+describe("bookClassAction / cancelBookingAction — GYM-BOOKINGS 3B", () => {
+  it("el perfil se resuelve con el tenant del contexto, nunca con datos del formulario", async () => {
+    service.cancelBooking.mockResolvedValue({ ok: true, value: { bookingId: BOOKING_ID }, operationId: "op", replayed: false });
+    await cancelBookingAction(undefined, fd({ booking_id: BOOKING_ID, idempotency_key: KEY, client_id: "otro", tenant_id: "otro" }));
+    expect(getClientByUserIdMock).toHaveBeenCalledWith("u1", runtimeClient, { tenantId: "tenant-1", gymId: "gym-1" });
+    expect(service.cancelBooking.mock.calls[0][0].scope).toEqual({ tenantId: "tenant-1", locationId: "loc-1" });
+  });
+
+  it("tras reservar o cancelar se revalidan calendario, historial e inicio; un rechazo no revalida", async () => {
+    service.bookSession.mockResolvedValueOnce({ ok: true, value: { bookingId: "b1" }, operationId: "op", replayed: false });
+    await bookClassAction(undefined, fd({ class_id: CLASS_ID, idempotency_key: KEY }));
+    expect(revalidatePathMock.mock.calls.map((c) => c[0]).sort()).toEqual(["/portal", "/portal/clases", "/portal/historial"]);
+    revalidatePathMock.mockClear();
+    service.bookSession.mockResolvedValueOnce({ ok: false, code: "SESSION_FULL" });
+    await bookClassAction(undefined, fd({ class_id: CLASS_ID, idempotency_key: KEY }));
+    expect(revalidatePathMock).not.toHaveBeenCalled();
   });
 });
