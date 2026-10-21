@@ -10,14 +10,18 @@
 // Reglas:
 //  - Una operación = una transacción READ COMMITTED de context.client.
 //  - Locks en GYM_BOOKING_LOCK_ORDER, todos FOR SHARE (no escriben al padre):
-//      común      scheduled_classes → gym_activities → INSERT
-//      individual scheduled_classes → class_bookings → class_attendance → gym_activities → INSERT
+//      común      [trainers] → scheduled_classes → gym_activities → INSERT
+//      individual [trainers] → scheduled_classes → class_bookings → class_attendance → gym_activities → INSERT
+//    [trainers] solo en canal TRAINER (auditoría H04): el Trainer asignado
+//    no puede desactivarse ni cambiar de usuario en medio de la escritura.
 //    Los triggers de 2A vuelven a tomar FOR SHARE sobre los mismos padres:
 //    sin escalamiento. recordAttendance / cancelBooking / edición de sesión
 //    toman FOR UPDATE de la sesión y se serializan con esta operación.
 //  - Autorización bajo el lock de la sesión (checkSessionOperator): entrenador
 //    activo asignado (TRAINER) o SA/BA de su alcance (STAFF). Recepción no.
-//  - Ventana R32 (checkAttendanceAccess) igual que la asistencia.
+//  - Ventana (checkTrainingRecordAccess, auditoría H03): nunca antes del
+//    inicio real por ningún canal; luego R32 igual que la asistencia. La
+//    excepción STAFF de OPEN heredado es solo del check-in, no se hereda.
 //  - Actividad: del tenant, ACTIVA y global o de la sede de la sesión. El
 //    nombre se copia como snapshot (activity_name) y no se reescribe después.
 //  - Idempotencia por clave natural: unique (sesión|asistencia, actividad) +
@@ -35,8 +39,8 @@ import {
   type GymBookingErrorCode,
   type GymBookingScope,
 } from "./booking-contracts";
-import { checkAttendanceAccess, checkSessionOperator, normalizeReason, resolveSessionInstants } from "./booking-eligibility";
-import { GymBookingRejection, loadGymBookingPolicy, mapServiceError } from "./booking-service";
+import { checkSessionOperator, checkTrainingRecordAccess, normalizeReason, resolveSessionInstants } from "./booking-eligibility";
+import { GymBookingRejection, loadGymBookingPolicy, lockAssignedTrainerShared, mapServiceError } from "./booking-service";
 
 type Tx = Prisma.TransactionClient;
 
@@ -88,6 +92,7 @@ const SESSION_SELECT = {
   end_time: true,
   starts_at: true,
   ends_at: true,
+  trainer_id: true,
   trainer: { select: { user_id: true, status: true } },
 } satisfies Prisma.ScheduledClassSelect;
 
@@ -98,6 +103,20 @@ async function lockSessionShared(tx: Tx, sessionId: string, tenantId: string): P
     SELECT "id" FROM "scheduled_classes" WHERE "id" = ${sessionId} AND "tenant_id" = ${tenantId} FOR SHARE`;
   if (rows.length !== 1) return null;
   return tx.scheduledClass.findUniqueOrThrow({ where: { id: sessionId }, select: SESSION_SELECT });
+}
+
+/**
+ * H04: canal TRAINER → bloquea el Trainer asignado ANTES de la sesión (orden
+ * global). Devuelve el id bloqueado, o undefined en canal STAFF (sin lock).
+ */
+async function lockTrainerForChannel(tx: Tx, channel: GymBookingChannel, sessionId: string, tenantId: string) {
+  if (channel !== "TRAINER") return undefined;
+  return lockAssignedTrainerShared(tx, sessionId, tenantId);
+}
+
+/** Bajo el lock de la sesión: la asignación no cambió desde que se bloqueó el Trainer. */
+function assertTrainerStillLocked(lockedTrainerId: string | null | undefined, session: SessionRow) {
+  if (lockedTrainerId !== undefined && session.trainer_id !== lockedTrainerId) reject("SESSION_CHANGED_RETRY");
 }
 
 /** Autorización, estado y ventana R32 sobre la sesión ya bloqueada. */
@@ -120,8 +139,8 @@ async function assertSessionWritable(
   if (session.status === "cancelled") reject("SESSION_NOT_BOOKABLE", "La clase está cancelada.");
   const policy = await loadGymBookingPolicy(tx, cmd.scope.tenantId);
   const { startsAt, endsAt } = resolveSessionInstants(session, policy.timezone);
-  const access = checkAttendanceAccess({
-    kind: session.session_kind,
+  // H03: nunca antes del inicio real; sin la excepción STAFF de OPEN heredado.
+  const access = checkTrainingRecordAccess({
     policy,
     now,
     startsAt,
@@ -172,8 +191,10 @@ export function createSessionActivityService(db: PrismaClient): SessionActivityS
   async function addSessionActivity(cmd: AddSessionActivityCommand): Promise<SessionActivityResult> {
     return run(async (tx, now) => {
       const { tenantId } = cmd.scope;
+      const lockedTrainerId = await lockTrainerForChannel(tx, cmd.channel, cmd.sessionId, tenantId);
       const session = await lockSessionShared(tx, cmd.sessionId, tenantId);
       if (!session) reject("NOT_FOUND", "Clase no encontrada.");
+      assertTrainerStillLocked(lockedTrainerId, session);
       await assertSessionWritable(tx, cmd, session, now);
       const activity = await lockActivity(tx, tenantId, cmd.activityId, session.branch_id);
 
@@ -210,8 +231,10 @@ export function createSessionActivityService(db: PrismaClient): SessionActivityS
       });
       if (!before) reject("NOT_FOUND", "Asistencia no encontrada.");
 
+      const lockedTrainerId = await lockTrainerForChannel(tx, cmd.channel, before.scheduled_class_id, tenantId);
       const session = await lockSessionShared(tx, before.scheduled_class_id, tenantId);
       if (!session) reject("SESSION_CHANGED_RETRY");
+      assertTrainerStillLocked(lockedTrainerId, session);
       await assertSessionWritable(tx, cmd, session, now);
 
       // class_bookings → class_attendance (FOR SHARE) en el orden global.

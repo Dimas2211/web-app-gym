@@ -12,7 +12,11 @@ import {
   saveTrainingNotesAction,
   trainerRecordAttendanceAction,
 } from "@/modules/classes/trainer-actions";
-import { checkAttendanceAccess, resolveSessionInstants } from "@/modules/classes/booking/booking-eligibility";
+import {
+  checkAttendanceAccess,
+  checkTrainingRecordAccess,
+  resolveSessionInstants,
+} from "@/modules/classes/booking/booking-eligibility";
 import type { SessionTrainingDetail } from "@/modules/classes/trainer/trainer-queries";
 
 export const TRAINER_ATTENDANCE_LABELS = {
@@ -35,7 +39,12 @@ export type TrainingWindow =
   | { state: "open"; closesAt: Date | null; administrativeCorrection: boolean }
   | { state: "cancelled" | "not_started" | "closed" | "incomplete"; opensAt: Date | null };
 
-/** Estado de la ventana R32 para la UI (la autoridad final es el motor). */
+/**
+ * Estado de la ventana R32 para la UI (la autoridad final es el motor).
+ * TRAINER: la de la asistencia (sus botones viven en este panel). STAFF: el
+ * panel administrativo solo muestra actividades y notas, así que usa la
+ * regla de actividades (H03: sin la excepción de OPEN heredado).
+ */
 export function trainingWindow(
   detail: SessionTrainingDetail,
   channel: GymBookingChannel,
@@ -45,16 +54,11 @@ export function trainingWindow(
   const { session, policy } = detail;
   const { startsAt, endsAt } = resolveSessionInstants(session, policy.timezone);
   if (session.status === "cancelled") return { state: "cancelled", opensAt: startsAt };
-  const access = checkAttendanceAccess({
-    kind: session.session_kind,
-    policy,
-    now,
-    startsAt,
-    endsAt,
-    sessionStatus: session.status,
-    channel,
-    role,
-  });
+  const input = { policy, now, startsAt, endsAt, sessionStatus: session.status, channel, role };
+  const access =
+    channel === "STAFF"
+      ? checkTrainingRecordAccess(input)
+      : checkAttendanceAccess({ ...input, kind: session.session_kind });
   if (access.ok) {
     const anchor = endsAt ?? startsAt;
     const closesAt =
@@ -99,7 +103,10 @@ export function WindowBanner({ win, timeZone }: { win: TrainingWindow; timeZone:
         ? `El registro se habilita al inicio de la clase${win.opensAt ? `: ${formatInstant(win.opensAt, timeZone)}` : "."}`
         : win.state === "closed"
           ? "Cerró el plazo para registrar o editar esta clase. Solo un administrador puede corregirla."
-          : "La clase no tiene horario completo o el gimnasio no tiene zona horaria configurada. Contacta al administrador.";
+          : timeZone
+            ? "La clase no tiene horario completo. Contacta al administrador."
+            : // H02: OPEN heredado sin starts_at necesita la zona del gimnasio (R32 no cambia).
+              "El gimnasio no tiene una zona horaria válida configurada y esta clase no tiene horario absoluto: no se puede registrar hasta que un super administrador la configure en Ajustes › Reservas.";
   return <div className="bg-zinc-50 border border-zinc-200 text-zinc-700 text-sm px-4 py-3 rounded-lg">{text}</div>;
 }
 

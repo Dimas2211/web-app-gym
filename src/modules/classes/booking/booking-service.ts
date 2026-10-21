@@ -246,6 +246,28 @@ async function lockMembershipsById(tx: Tx, ids: string[]): Promise<Set<string>> 
   return new Set(rows.map((r) => r.id));
 }
 
+/**
+ * Auditoría GYM-4 H04 — canal TRAINER: el Trainer asignado a la sesión,
+ * FOR SHARE, en la posición `trainers` de GYM_BOOKING_LOCK_ORDER (antes de
+ * clients y scheduled_classes). Serializa la escritura del entrenador con su
+ * desactivación o con el cambio de Trainer.user_id (UPDATE de la fila): o la
+ * revocación espera a que la escritura confirme, o la escritura la ve ya
+ * confirmada y se rechaza. Devuelve el trainer_id bloqueado (null si la
+ * sesión no existe en el tenant); el llamador lo revalida bajo el lock de la
+ * sesión (si cambió la asignación → SESSION_CHANGED_RETRY). Lectura previa
+ * sin lock: el trainer_id definitivo se comprueba después.
+ */
+export async function lockAssignedTrainerShared(tx: Tx, sessionId: string, tenantId: string): Promise<string | null> {
+  const pre = await tx.scheduledClass.findFirst({
+    where: { id: sessionId, tenant_id: tenantId },
+    select: { trainer_id: true },
+  });
+  if (!pre) return null;
+  await tx.$queryRaw`
+    SELECT "id" FROM "trainers" WHERE "id" = ${pre.trainer_id} AND "tenant_id" = ${tenantId} FOR SHARE`;
+  return pre.trainer_id;
+}
+
 async function lockSession(tx: Tx, sessionId: string, tenantId: string): Promise<boolean> {
   const rows = await tx.$queryRaw<{ id: string }[]>`
     SELECT "id" FROM "scheduled_classes" WHERE "id" = ${sessionId} AND "tenant_id" = ${tenantId} FOR UPDATE`;
@@ -925,7 +947,8 @@ export function createGymBookingService(db: PrismaClient, options: GymBookingSer
 
 /**
  * Protocolo común de asistencia (recordAttendance / updateTrainingNotes):
- * canal/rol → clients (KEY SHARE) → scheduled_classes → class_bookings →
+ * canal/rol → [TRAINER: trainers (FOR SHARE), H04] → clients (KEY SHARE) →
+ * scheduled_classes → class_bookings →
  * class_attendance (FOR UPDATE), con alcance, reserva confirmada, sesión no
  * cancelada y ventana R32 (checkAttendanceAccess) validados bajo lock.
  */
@@ -945,6 +968,10 @@ async function lockAttendanceTarget(
   });
   if (!before) reject("NOT_FOUND", "Reserva no encontrada.");
 
+  // H04: canal TRAINER → trainers (FOR SHARE) primero, en el orden global.
+  const lockedTrainerId = trainer ? await lockAssignedTrainerShared(tx, before.scheduled_class_id, tenantId) : null;
+  if (trainer && lockedTrainerId === null) reject("SESSION_CHANGED_RETRY");
+
   // Orden: clients (KEY SHARE) → scheduled_classes → class_bookings → class_attendance.
   // El trigger gym_class_attendance_integrity lee clients FOR KEY SHARE al
   // escribir la asistencia; tomarlo aquí, ANTES de la sesión, evita invertir
@@ -957,7 +984,9 @@ async function lockAttendanceTarget(
     select: SESSION_SELECT,
   });
   if (staff) assertStaffSessionScope(cmd.scope, cmd.actor, session);
-  // GYM-4: el Trainer asignado debe seguir activo y vinculado al usuario (bajo el lock de la sesión).
+  // GYM-4: el Trainer asignado debe seguir activo y vinculado al usuario,
+  // leído bajo el lock de la sesión y del propio Trainer (H04).
+  if (trainer && session.trainer_id !== lockedTrainerId) reject("SESSION_CHANGED_RETRY");
   if (trainer && !trainerOwnsSession(cmd.actor, session.trainer)) reject("FORBIDDEN");
 
   if (!(await lockBookingById(tx, before.id, tenantId))) reject("SESSION_CHANGED_RETRY");

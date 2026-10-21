@@ -316,6 +316,37 @@ export function checkAttendanceAccess(input: {
 }
 
 /**
+ * Auditoría GYM-4 H03 — actividades impartidas (comunes e individuales).
+ * Una actividad "realizada" exige que la sesión haya empezado de verdad:
+ * sin instante de inicio (SCHEDULE_INCOMPLETE) o antes de él
+ * (ATTENDANCE_NOT_STARTED) nadie la registra, por ningún canal ni estado.
+ * NO hereda la excepción STAFF + OPEN sin política de checkAttendanceAccess
+ * (propia del check-in heredado, que no cambia). Después del inicio aplica
+ * R32 igual que la asistencia: el entrenador hasta fin + 48 h o el cierre;
+ * luego solo SA/BA como corrección administrativa.
+ */
+export function checkTrainingRecordAccess(input: {
+  policy: GymBookingPolicy;
+  now: Date;
+  startsAt: Date | null;
+  endsAt: Date | null;
+  sessionStatus: ClassStatus;
+  channel: GymBookingChannel;
+  role: string;
+}): AttendanceAccess {
+  if (!input.startsAt) return { ok: false, code: "SCHEDULE_INCOMPLETE" };
+  if (input.now.getTime() < input.startsAt.getTime()) return { ok: false, code: "ATTENDANCE_NOT_STARTED" };
+  const admin = input.channel === "STAFF" && (input.role === "super_admin" || input.role === "branch_admin");
+  const closedOrExpired = (): AttendanceAccess =>
+    admin ? { ok: true, administrativeCorrection: true } : { ok: false, code: "ATTENDANCE_WINDOW_CLOSED" };
+  if (input.sessionStatus === "completed") return closedOrExpired();
+  const window = attendanceWindowState(input);
+  if (window.ok) return { ok: true, administrativeCorrection: false };
+  if (window.code === "ATTENDANCE_WINDOW_CLOSED") return closedOrExpired();
+  return window;
+}
+
+/**
  * GYM-4 — el entrenador opera una sesión solo si el perfil Trainer asignado
  * (ScheduledClass.trainer_id) está ACTIVO y vinculado a su usuario. La sede
  * del entrenador no cuenta: manda la asignación (OPEN permite asignar un

@@ -23,7 +23,11 @@ import {
 } from "@/lib/utils/labels";
 import { requireOrganizationModule } from "@/modules/platform/runtime/commercial-enforcement";
 import { resolveEffectiveTenantContext } from "@/modules/platform/runtime/effective-tenant-context";
-import { resolveLinkedTrainer, TRAINER_PROFILE_MISSING_MESSAGE } from "@/modules/classes/trainer/trainer-access";
+import {
+  resolveLinkedTrainer,
+  resolveLiveClassViewer,
+  TRAINER_PROFILE_MISSING_MESSAGE,
+} from "@/modules/classes/trainer/trainer-access";
 import { getSessionTrainingDetail } from "@/modules/classes/trainer/trainer-queries";
 import { TrainerNoticeView } from "../_components/trainer-agenda";
 import { FlashMessages, TrainerSessionView } from "../_components/trainer-session-view";
@@ -36,18 +40,19 @@ type Props = {
 
 /** GYM-4: vista del entrenador de SU sesión (rol LIVE + Trainer activo vinculado + asignación). */
 async function renderTrainerSession(
-  sessionUser: Awaited<ReturnType<typeof requireClassViewer>>,
+  viewer: Awaited<ReturnType<typeof requireClassViewer>>,
   context: Awaited<ReturnType<typeof resolveEffectiveTenantContext>>["context"],
   id: string,
   flash: { error?: string; notice?: string }
 ) {
-  if (context.effectiveRole !== "trainer") {
-    return <TrainerNoticeView title="Clase" message="Tu rol cambió. Vuelve a iniciar sesión para continuar." />;
-  }
-  const trainer = await resolveLinkedTrainer(context.client, sessionUser.id, context.tenantId);
+  const trainer = await resolveLinkedTrainer(context.client, viewer.id, context.tenantId);
   if (!trainer) return <TrainerNoticeView title="Clase" message={TRAINER_PROFILE_MISSING_MESSAGE} />;
-  const detail = await getSessionTrainingDetail(context.client, context.tenantId, id, { includePrivateNotes: true });
-  // Sesión de otro entrenador, sede o tenant: indistinguible de inexistente.
+  // H01: la asignación filtra la consulta; las notas privadas de una sesión
+  // ajena nunca se leen. Otro entrenador, sede o tenant: indistinguible de inexistente.
+  const detail = await getSessionTrainingDetail(context.client, context.tenantId, id, {
+    includePrivateNotes: true,
+    assignedTrainerId: trainer.id,
+  });
   if (!detail || detail.session.trainer.id !== trainer.id) notFound();
   const win = trainingWindow(detail, "TRAINER", "trainer", new Date());
   return <TrainerSessionView detail={detail} win={win} error={flash.error} notice={flash.notice} />;
@@ -85,23 +90,29 @@ export default async function ScheduledClassDetailPage({ params, searchParams }:
   // cliente". El guard corre ANTES de buscar el registro; la búsqueda usa
   // context.client, con lo que un ID de otro tenant nunca puede resolverse.
   const { context, dispose } = await resolveEffectiveTenantContext(sessionUser);
-  const effectiveUser = context.runtime
-    ? { ...sessionUser, tenant_id: context.tenantId }
-    : sessionUser;
 
   try {
     await requireOrganizationModule(context.tenantId, "gym.classes");
 
-    if (!context.runtime && (context.effectiveRole === "trainer" || sessionUser.role === "trainer")) {
-      return await renderTrainerSession(sessionUser, context, id, { error: errorMsg, notice: noticeMsg });
+    // Auditoría GYM-4 H01: rol y sede LIVE para leer y autorizar (nunca los
+    // del JWT). Un rol/sede que cambió falla cerrado antes de cualquier lectura.
+    const live = await resolveLiveClassViewer(sessionUser, context);
+    if (!live.ok) return <TrainerNoticeView title="Clase" message={live.message} />;
+    const viewer = live.user;
+
+    if (!context.runtime && (viewer.role === "trainer" || sessionUser.role === "trainer")) {
+      if (viewer.role !== "trainer") {
+        return <TrainerNoticeView title="Clase" message="Tu rol cambió. Vuelve a iniciar sesión para continuar." />;
+      }
+      return await renderTrainerSession(viewer, context, id, { error: errorMsg, notice: noticeMsg });
     }
 
-    const isTrainer = !context.runtime && sessionUser.role === "trainer";
+    const isTrainer = !context.runtime && viewer.role === "trainer";
 
     const [scheduledClass, availableClients] = await Promise.all([
-      getScheduledClassById(id, effectiveUser, context.client),
+      getScheduledClassById(id, viewer, context.client),
       !isTrainer
-        ? getAvailableClientsForBooking(id, effectiveUser, context.client)
+        ? getAvailableClientsForBooking(id, viewer, context.client)
         : Promise.resolve([]),
     ]);
 
@@ -109,11 +120,11 @@ export default async function ScheduledClassDetailPage({ params, searchParams }:
 
     // Trainer solo puede ver sus propias clases
     if (isTrainer) {
-      const linkedId = await getLinkedTrainerId(sessionUser.id, effectiveUser.tenant_id, context.client);
+      const linkedId = await getLinkedTrainerId(viewer.id, viewer.tenant_id, context.client);
       if (!linkedId || scheduledClass.trainer.id !== linkedId) notFound();
     }
 
-    if (!isTrainer && !canManageClass(sessionUser, scheduledClass)) notFound();
+    if (!isTrainer && !canManageClass(viewer, scheduledClass)) notFound();
 
     const confirmedBookings = scheduledClass.bookings.filter(
       (b) => b.booking_status === "confirmed"
@@ -131,21 +142,21 @@ export default async function ScheduledClassDetailPage({ params, searchParams }:
       scheduledClass.attendance.map((a) => [a.client_id, a])
     );
 
-    const isAdmin =
-      sessionUser.role === "super_admin" || sessionUser.role === "branch_admin";
+    const isAdmin = viewer.role === "super_admin" || viewer.role === "branch_admin";
     // canOperate se fuerza a false en modo runtime: la sesión es siempre solo lectura.
-    const canOperate = !context.runtime && canManageClass(sessionUser, scheduledClass);
+    const canOperate = !context.runtime && canManageClass(viewer, scheduledClass);
     const classStatus = scheduledClass.status as keyof typeof CLASS_STATUS_LABELS;
     const isCancelled = scheduledClass.status === "cancelled";
 
     // GYM-4: registro de entrenamiento (actividades y notas R36) solo para
     // SA/BA con rol LIVE y alcance sobre la clase. Recepción no lo ve.
-    const liveAdmin = context.effectiveRole === "super_admin" || context.effectiveRole === "branch_admin";
+    // canOperate ya se calculó con la identidad LIVE (rol + sede): las notas
+    // privadas solo se consultan después de validar ese acceso.
     const training =
-      canOperate && liveAdmin
+      canOperate && isAdmin
         ? await getSessionTrainingDetail(context.client, context.tenantId, id, { includePrivateNotes: true })
         : null;
-    const trainingWin = training ? trainingWindow(training, "STAFF", context.effectiveRole, new Date()) : null;
+    const trainingWin = training ? trainingWindow(training, "STAFF", viewer.role, new Date()) : null;
 
     return (
       <div className="space-y-6">

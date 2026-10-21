@@ -15,8 +15,17 @@ import { CLASS_STATUS_LABELS, CLASS_STATUS_COLORS } from "@/lib/utils/labels";
 import { DeleteClassButton } from "./_components/delete-class-button";
 import { requireOrganizationModule } from "@/modules/platform/runtime/commercial-enforcement";
 import { resolveEffectiveTenantContext } from "@/modules/platform/runtime/effective-tenant-context";
-import { resolveLinkedTrainer, TRAINER_PROFILE_MISSING_MESSAGE } from "@/modules/classes/trainer/trainer-access";
+import {
+  resolveLinkedTrainer,
+  resolveLiveClassViewer,
+  TRAINER_PROFILE_MISSING_MESSAGE,
+} from "@/modules/classes/trainer/trainer-access";
 import { getTrainerAgenda } from "@/modules/classes/trainer/trainer-queries";
+import {
+  GYM_TIMEZONE_TRAINER_NOTICE,
+  gymTimezoneAdminNotice,
+  loadGymTimezoneStatus,
+} from "@/modules/classes/trainer/timezone-preflight";
 import { TrainerAgendaView, TrainerNoticeView, type TrainerAgendaTab } from "./_components/trainer-agenda";
 
 type Props = {
@@ -66,60 +75,78 @@ function CapacityBar({ used, total }: { used: number; total: number }) {
   );
 }
 
+function TimezoneNotice({ message }: { message: string }) {
+  return (
+    <div role="alert" className="bg-amber-50 border border-amber-200 text-amber-800 text-sm px-4 py-3 rounded-lg">
+      {message}
+    </div>
+  );
+}
+
 export default async function ClassesAgendaPage({ searchParams }: Props) {
   const sessionUser = await requireClassViewer();
   const sp = await searchParams;
 
   // PASO 6C: tenant/PrismaClient EFECTIVOS bajo sesión runtime "Operar como cliente".
   const { context, dispose } = await resolveEffectiveTenantContext(sessionUser);
-  const effectiveUser = context.runtime
-    ? { ...sessionUser, tenant_id: context.tenantId }
-    : sessionUser;
 
   try {
     await requireOrganizationModule(context.tenantId, "gym.classes");
 
+    // Auditoría GYM-4 H01: rol y sede LIVE para filtrar y para las banderas de
+    // UI (nunca los del JWT). Rol o sede cambiados fallan cerrado.
+    const live = await resolveLiveClassViewer(sessionUser, context);
+    if (!live.ok) return <TrainerNoticeView title="Agenda de clases" message={live.message} />;
+    const viewer = live.user;
+
     // GYM-4: el entrenador ve "Mi agenda" con el rol LIVE. Si el JWT dice
     // trainer pero el rol vigente ya no lo es, falla cerrado (sin agenda ajena).
-    if (!context.runtime && (context.effectiveRole === "trainer" || sessionUser.role === "trainer")) {
-      return await renderTrainerAgenda({ sessionUser, context, tab: sp.tab });
+    if (!context.runtime && (viewer.role === "trainer" || sessionUser.role === "trainer")) {
+      return await renderTrainerAgenda({ viewer, context, tab: sp.tab });
     }
 
-    return await renderClassesAgenda({ sessionUser, effectiveUser, context, sp });
+    return await renderClassesAgenda({ viewer, context, sp });
   } finally {
     await dispose();
   }
 }
 
 async function renderTrainerAgenda({
-  sessionUser,
+  viewer,
   context,
   tab,
 }: {
-  sessionUser: Awaited<ReturnType<typeof requireClassViewer>>;
+  viewer: Awaited<ReturnType<typeof requireClassViewer>>;
   context: Awaited<ReturnType<typeof resolveEffectiveTenantContext>>["context"];
   tab: string | undefined;
 }) {
-  if (context.effectiveRole !== "trainer") {
+  if (viewer.role !== "trainer") {
     return <TrainerNoticeView title="Mi agenda" message="Tu rol cambió. Vuelve a iniciar sesión para continuar." />;
   }
-  const trainer = await resolveLinkedTrainer(context.client, sessionUser.id, context.tenantId);
+  const trainer = await resolveLinkedTrainer(context.client, viewer.id, context.tenantId);
   if (!trainer) {
     return <TrainerNoticeView title="Mi agenda" message={TRAINER_PROFILE_MISSING_MESSAGE} />;
   }
   const agenda = await getTrainerAgenda(context.client, context.tenantId, trainer.id);
   const selected: TrainerAgendaTab = tab === "upcoming" || tab === "past" ? tab : "today";
-  return <TrainerAgendaView agenda={agenda} tab={selected} trainerName={`${trainer.first_name} ${trainer.last_name}`} />;
+  const view = <TrainerAgendaView agenda={agenda} tab={selected} trainerName={`${trainer.first_name} ${trainer.last_name}`} />;
+  // H02: sin zona válida, "hoy" usa la fecha del servidor y OPEN heredado no se registra.
+  if (agenda.timezone) return view;
+  return (
+    <div className="space-y-4">
+      <TimezoneNotice message={GYM_TIMEZONE_TRAINER_NOTICE} />
+      {view}
+    </div>
+  );
 }
 
 async function renderClassesAgenda({
-  sessionUser,
-  effectiveUser,
+  viewer,
   context,
   sp,
 }: {
-  sessionUser: Awaited<ReturnType<typeof requireClassViewer>>;
-  effectiveUser: Awaited<ReturnType<typeof requireClassViewer>>;
+  /** Identidad LIVE (resolveLiveClassViewer): rol, tenant y sede efectivos. */
+  viewer: Awaited<ReturnType<typeof requireClassViewer>>;
   context: Awaited<ReturnType<typeof resolveEffectiveTenantContext>>["context"];
   sp: Awaited<Props["searchParams"]>;
 }) {
@@ -137,27 +164,29 @@ async function renderClassesAgenda({
   // canManage se fuerza a false en modo runtime: la sesión es siempre solo lectura.
   const canManage = !context.runtime;
   const isAdmin =
-    canManage && (sessionUser.role === "super_admin" || sessionUser.role === "branch_admin");
-  const isTrainer = !context.runtime && sessionUser.role === "trainer";
+    canManage && (viewer.role === "super_admin" || viewer.role === "branch_admin");
+  const isTrainer = !context.runtime && viewer.role === "trainer";
 
   let forcedTrainerId: string | null = null;
   if (isTrainer) {
-    forcedTrainerId = await getLinkedTrainerId(sessionUser.id, effectiveUser.tenant_id, context.client);
+    forcedTrainerId = await getLinkedTrainerId(viewer.id, viewer.tenant_id, context.client);
   }
 
-  const [classes, trainers] = await Promise.all([
+  const [classes, trainers, timezoneStatus] = await Promise.all([
     viewMode === "upcoming"
-      ? getUpcomingClasses(effectiveUser, {
+      ? getUpcomingClasses(viewer, {
           trainer_id: isTrainer ? (forcedTrainerId ?? "__none__") : sp1(sp.trainer_id),
           status: sp1(sp.status),
         }, context.client)
-      : getScheduledClasses(effectiveUser, {
+      : getScheduledClasses(viewer, {
           date: selectedDate,
           branch_id: sp1(sp.branch_id),
           trainer_id: isTrainer ? (forcedTrainerId ?? "__none__") : sp1(sp.trainer_id),
           status: sp1(sp.status),
         }, context.client),
-    isAdmin ? getTrainerOptionsForClass(effectiveUser, context.client) : Promise.resolve([]),
+    isAdmin ? getTrainerOptionsForClass(viewer, context.client) : Promise.resolve([]),
+    // H02: preflight de zona horaria para el aviso administrativo (solo lectura).
+    isAdmin ? loadGymTimezoneStatus(context.client, context.tenantId) : Promise.resolve(null),
   ]);
 
   if (isTrainer && !forcedTrainerId) {
@@ -239,7 +268,7 @@ async function renderClassesAgenda({
                   </span>
                 </>
               )}
-              {sessionUser.role === "super_admin" && (
+              {viewer.role === "super_admin" && (
                 <>
                   <span className="text-xs text-zinc-400">·</span>
                   <span className="text-xs bg-zinc-100 text-zinc-600 px-2 py-0.5 rounded-full">
@@ -317,6 +346,10 @@ async function renderClassesAgenda({
 
   return (
     <div className="space-y-6">
+      {timezoneStatus && !timezoneStatus.ok && (
+        <TimezoneNotice message={gymTimezoneAdminNotice(timezoneStatus.issue, viewer.role)} />
+      )}
+
       {/* Encabezado */}
       <div className="flex items-center justify-between flex-wrap gap-4">
         <div>

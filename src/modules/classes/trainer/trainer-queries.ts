@@ -72,18 +72,24 @@ export type TrainerAgendaSession = TrainerAgenda["todaySessions"][number];
 /**
  * Detalle operativo de una sesión del tenant: alumnos con reserva confirmada,
  * asistencia, actividades comunes e individuales y, si `includePrivateNotes`,
- * training_notes. La autorización (sesión asignada / alcance admin) la decide
- * el llamador con el resultado; el servidor la revalida al escribir.
+ * training_notes. El llamador valida el acceso ANTES de pedir notas privadas
+ * (H01): el entrenador pasa `assignedTrainerId` y la consulta solo resuelve
+ * su sesión asignada; SA/BA llegan aquí tras canManageClass con identidad
+ * LIVE. El servidor revalida todo al escribir.
  */
 export async function getSessionTrainingDetail(
   client: PrismaClient | undefined,
   tenantId: string,
   sessionId: string,
-  opts: { includePrivateNotes: boolean }
+  opts: { includePrivateNotes: boolean; assignedTrainerId?: string }
 ) {
   const db = client ?? prisma;
   const session = await db.scheduledClass.findFirst({
-    where: { id: sessionId, tenant_id: tenantId },
+    where: {
+      id: sessionId,
+      tenant_id: tenantId,
+      ...(opts.assignedTrainerId !== undefined ? { trainer_id: opts.assignedTrainerId } : {}),
+    },
     select: {
       id: true,
       title: true,
