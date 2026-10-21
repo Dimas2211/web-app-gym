@@ -489,3 +489,19 @@ Detalle completo: `docs/modules/gym-bookings-stage3c.md`. **Sin cambios de códi
 - Suite completa con integración: 253 archivos, 2744/2744. TypeScript, Prisma, lint (sin errores) y build: PASS.
 - Hallazgos: ninguno P0/P1/P2. Cuatro P3 documentados (§20 de 3C).
 - Gate: `GYM_3C_INTEGRAL_CERTIFIED = YES` y `READY_FOR_RELEASE_REVIEW = YES`, sin autorización de despliegue.
+
+## 15. Etapa 4 — operación del entrenador (resumen)
+
+Detalle completo: `docs/modules/gym-bookings-stage4.md`. **Sin cambios en `schema.prisma` ni migraciones.** Rama local `feat/gym-bookings-stage4`, sin publicar.
+
+- Agenda: "Mi agenda" en `/dashboard/classes`, decidida con el rol LIVE. Muestra las sesiones del Trainer **activo** vinculado (`Trainer.user_id`), en las tres modalidades, por fecha local del gimnasio.
+- Asistencia: `trainerRecordAttendanceAction` → `recordAttendance` por canal TRAINER (R32, sin excepciones). El motor ahora exige además que el Trainer asignado siga activo (`trainerOwnsSession`).
+- Notas privadas: `GymBookingService.updateTrainingNotes`. Exige asistencia previa, escribe solo `training_notes` y el evento no lleva el texto. Mismo protocolo de locks que `recordAttendance` (`lockAttendanceTarget`).
+- Actividades: `session-activities.ts`. Comunes (una por sesión) e individuales (alumno presente con reserva confirmada), con locks FOR SHARE en el orden global, idempotencia por clave natural y snapshot `activity_name`. Solo alta: sin edición ni borrado.
+- Códigos aditivos: `ATTENDANCE_REQUIRED` y `ACTIVITY_UNAVAILABLE`.
+- `PERSONALIZED_CAPACITY_RULE = DEFAULT_ONLY`: el cupo del entrenador es un valor predeterminado, no un máximo (sin cambios).
+- Pruebas:
+  - `stage4.integration.test.ts`: 38, PostgreSQL real, concurrencia C1–C10 y Shared/Dedicated;
+  - pruebas unitarias y estáticas: 19;
+  - suite completa: 2801/2801;
+  - navegador: 61/61 a 390 y 1280 px.

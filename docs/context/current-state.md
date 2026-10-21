@@ -25,6 +25,13 @@
 - gym/bookings — **Etapa 3A (2026-10-20): administración multimodalidad** (clientes e historial, planes, snapshots de venta, entrenador PERSONALIZED, GymSettings, sesiones OPEN/PERSONALIZED/GROUP, ausencias, series y actividades). Implementada y auditada, incluida en el release Etapa 3; sin migraciones ni activación automática de nuevas modalidades. Ver docs/modules/gym-bookings-stage3a.md.
 - gym/bookings — **Etapa 3B (2026-10-20): portal del alumno multimodalidad** (calendario y agenda autorizados, elegibilidad, membresías/saldos, reservas, cancelaciones, historial, asistencia y controles LIVE/tenant). Implementada, auditada y validada posteriormente en navegador durante 3C; incluida en el release Etapa 3. Sin migración ni activación automática. Ver docs/modules/gym-bookings-stage3b.md.
 - gym/bookings — **Etapa 3C (2026-10-21): certificación integral 2A/2B/3A/3B** (rama de release `feat/gym-bookings-stage3c`). Pruebas locales reportadas: 209/209 verificaciones E2E en navegador con Auth.js y runtimes Shared/Dedicated sintéticos, 112 vistas responsive y 2744/2744 tests; sin defectos P0/P1/P2 reportados. Certificación local completada y publicación controlada por SHA/estado de Vercel y smoke productivo independientes; sin migración ni activación de modalidades. Ver docs/modules/gym-bookings-stage3c.md.
+- gym/bookings — **Etapa 4 (2026-10-21): operación del entrenador** (rama local `feat/gym-bookings-stage4`, **no publicada**). Incluye:
+  - "Mi agenda" en `/dashboard/classes` con rol LIVE y Trainer activo vinculado;
+  - asistencia por canal TRAINER del motor;
+  - actividades comunes (`ScheduledClassActivity`) e individuales (`ClassAttendanceActivity`), solo alta;
+  - notas privadas R36 sin re-registrar asistencia (`GymBookingService.updateTrainingNotes`).
+
+  Sin migración ni cambios en `schema.prisma`; `PERSONALIZED_CAPACITY_RULE = DEFAULT_ONLY` sin cambios. Pruebas locales: 2801/2801 y 61/61 en navegador (PLATFORM_NATIVE local). Ver docs/modules/gym-bookings-stage4.md.
 - commerce/cash cerrado y operativo — apertura/cierre de sesión, movimientos manuales, corte de caja, historial, exportación PDF/Excel, asociación automática venta → sesión. Ver docs/modules/cash-summary.md.
 
 ## Identidad activa
