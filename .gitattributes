@@ -1,1 +1,2 @@
 prisma/migrations/20261006000000_harden_supabase_public_data_api/migration.sql text eol=lf
+prisma/migrations/20261020000000_gym_bookings_capacity_check/migration.sql text eol=lf
