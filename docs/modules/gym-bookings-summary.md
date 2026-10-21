@@ -478,3 +478,14 @@ Detalle completo: `docs/modules/gym-bookings-stage3b.md`. **Sin cambios en `sche
 - Membresía: vigentes, relevante, próximas e historial con saldo (`sessions_total` / `sessions_used`) y entrenador PERSONALIZED. Historial: pasadas, canceladas y asistencia, sin notas internas.
 - `getAvailableClasses` y `getMyBookings` eliminadas (reemplazadas).
 - Pruebas: unitarias (42 nuevas), `stage3b.integration.test.ts` (24, PostgreSQL real), regresión 2B+3A+portal 408/408 y suite completa 2718/2718. Validación visual pendiente.
+
+## 14. Etapa 3C — certificación integral (resumen)
+
+Detalle completo: `docs/modules/gym-bookings-stage3c.md`. **Sin cambios de código de producción, sin migración y sin cambios en `schema.prisma`.**
+
+- Auditoría dirigida de integración: un solo motor (`GymBookingService`), contadores solo por trigger, el portal reutiliza las reglas del motor, sin ids del navegador como autoridad de tenant o cliente.
+- E2E en navegador real (Chromium + Auth.js por hostname + `next start`) contra un Control Plane local que enruta a una base Shared (tenants A, B y C) y a una base Dedicated (tenant D): 209/209 verificaciones (NORMAL, PERSONALIZED, GROUP, administración avanzada, ids manipulados, roles LIVE, aislamiento, DST de Nueva York y 112 vistas a 390 y 1280 px).
+- Prueba nueva `stage3c.integration.test.ts`: generación simultánea de una serie desde 2 y 4 conexiones (sin duplicados; una sola transacción crea).
+- Suite completa con integración: 253 archivos, 2744/2744. TypeScript, Prisma, lint (sin errores) y build: PASS.
+- Hallazgos: ninguno P0/P1/P2. Cuatro P3 documentados (§20 de 3C).
+- Gate: `GYM_3C_INTEGRAL_CERTIFIED = YES` y `READY_FOR_RELEASE_REVIEW = YES`, sin autorización de despliegue.
