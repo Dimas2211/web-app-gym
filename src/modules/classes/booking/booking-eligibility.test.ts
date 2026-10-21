@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
+  checkAttendanceAccess,
   checkAttendanceWindow,
   dateOnly,
   hhmmRangesOverlap,
@@ -165,6 +166,42 @@ describe("ventanas", () => {
       ok: false,
       code: "SCHEDULE_INCOMPLETE",
     });
+  });
+
+  it("checkAttendanceAccess (R32): ventana o cierre para entrenador/recepción; SA/BA corrigen después", () => {
+    const startsAt = new Date("2026-10-20T13:00:00Z");
+    const endsAt = new Date("2026-10-20T14:00:00Z");
+    const p = policy();
+    const access = (role: string, iso: string, o: { status?: "scheduled" | "completed"; kind?: "OPEN" | "GROUP"; channel?: "STAFF" | "TRAINER" } = {}) =>
+      checkAttendanceAccess({
+        kind: o.kind ?? "GROUP",
+        policy: p,
+        now: new Date(iso),
+        startsAt,
+        endsAt,
+        sessionStatus: o.status ?? "scheduled",
+        channel: o.channel ?? (role === "trainer" ? "TRAINER" : "STAFF"),
+        role,
+      });
+    const open = { ok: true, administrativeCorrection: false };
+    const correction = { ok: true, administrativeCorrection: true };
+    const closed = { ok: false, code: "ATTENDANCE_WINDOW_CLOSED" };
+    for (const role of ["trainer", "reception", "branch_admin", "super_admin"]) {
+      expect(access(role, "2026-10-20T13:30:00Z"), role).toEqual(open);
+      expect(access(role, "2026-10-20T12:00:00Z"), role).toEqual({ ok: false, code: "ATTENDANCE_NOT_STARTED" });
+    }
+    expect(access("trainer", "2026-10-22T14:00:01Z")).toEqual(closed);
+    expect(access("reception", "2026-10-22T14:00:01Z")).toEqual(closed);
+    expect(access("branch_admin", "2026-10-22T14:00:01Z")).toEqual(correction);
+    expect(access("super_admin", "2026-10-22T14:00:01Z")).toEqual(correction);
+    expect(access("trainer", "2026-10-20T15:00:00Z", { status: "completed" })).toEqual(closed);
+    expect(access("reception", "2026-10-20T15:00:00Z", { status: "completed" })).toEqual(closed);
+    expect(access("branch_admin", "2026-10-20T15:00:00Z", { status: "completed" })).toEqual(correction);
+    // SA con canal TRAINER no obtiene el privilegio administrativo.
+    expect(access("super_admin", "2026-10-22T14:00:01Z", { channel: "TRAINER" })).toEqual(closed);
+    // Excepción heredada: staff en OPEN sin política; el canal TRAINER no la tiene.
+    expect(access("reception", "2026-10-25T00:00:00Z", { kind: "OPEN", status: "completed" })).toEqual(open);
+    expect(access("trainer", "2026-10-25T00:00:00Z", { kind: "OPEN" })).toEqual(closed);
   });
 
   it("staffCancelReasonRequired (R29) y normalizeReason", () => {

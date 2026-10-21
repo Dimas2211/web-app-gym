@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import type { PrismaClient, UserRole } from "@prisma/client";
+import { Prisma, type PrismaClient, type UserRole } from "@prisma/client";
 import {
   requireAdmin,
   requireMembershipManager,
@@ -185,8 +185,10 @@ function parseClassFormData(formData: FormData) {
   };
 }
 
+type ClassDb = PrismaClient | Prisma.TransactionClient;
+
 async function validateTrainerOverlap(
-  db: PrismaClient,
+  db: ClassDb,
   trainerId: string,
   classDate: string,
   startTime: string,
@@ -206,6 +208,45 @@ async function validateTrainerOverlap(
     select: { id: true, title: true, start_time: true, end_time: true },
   });
   return overlap;
+}
+
+// GYM-BOOKINGS 2B (auditoría H03) — R14: un entrenador no puede tener dos
+// sesiones no canceladas solapadas. Validar y escribir en la MISMA
+// transacción READ COMMITTED, con el entrenador destino bloqueado
+// `FOR UPDATE` antes (primer elemento de GYM_BOOKING_LOCK_ORDER tras el
+// advisory): dos altas/ediciones del mismo entrenador se serializan y la
+// segunda ve la sesión confirmada por la primera. La edición bloquea
+// después la sesión (trainers → scheduled_classes) para validar el cupo.
+const CLASS_SCHEDULING_TX = {
+  isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted,
+  timeout: 20_000,
+  maxWait: 15_000,
+};
+
+async function lockTrainerForScheduling(tx: Prisma.TransactionClient, trainerId: string, tenantId: string) {
+  await tx.$queryRaw`SELECT "id" FROM "trainers" WHERE "id" = ${trainerId} AND "tenant_id" = ${tenantId} FOR UPDATE`;
+}
+
+function availabilityError(reason: "no_availability" | "outside_blocks"): ClassActionState {
+  return {
+    errors: {
+      start_time: [
+        reason === "no_availability"
+          ? "El entrenador no tiene disponibilidad registrada para ese día."
+          : "La clase queda fuera de los bloques de disponibilidad del entrenador.",
+      ],
+    },
+  };
+}
+
+function overlapError(overlap: { start_time: string; end_time: string }): ClassActionState {
+  return {
+    errors: {
+      start_time: [
+        `El entrenador ya tiene una clase programada de ${overlap.start_time} a ${overlap.end_time} en esa fecha.`,
+      ],
+    },
+  };
 }
 
 export async function createScheduledClassAction(
@@ -241,75 +282,52 @@ export async function createScheduledClassAction(
     const { branch_id, class_type_id, trainer_id, class_date, start_time, end_time, ...rest } =
       parsed.data;
 
-    // Validar que el entrenador pertenezca a la sucursal correcta
-    const trainer = await context.client.trainer.findFirst({
-      where: { id: trainer_id, tenant_id: context.tenantId },
-    });
-    if (!trainer) return { error: "Entrenador no encontrado." };
-    if (
-      effectiveRole === "branch_admin" &&
-      trainer.branch_id !== context.locationId
-    ) {
-      return { error: "El entrenador no pertenece a tu sucursal." };
-    }
-
-    // Validar disponibilidad del entrenador (debe ir antes del overlap check)
-    const availCheck = await validateClassWithinTrainerAvailability(
-      trainer_id,
-      class_date,
-      start_time,
-      end_time,
-      context.client,
-    );
-    if (!availCheck.valid) {
-      return {
-        errors: {
-          start_time: [
-            availCheck.reason === "no_availability"
-              ? "El entrenador no tiene disponibilidad registrada para ese día."
-              : "La clase queda fuera de los bloques de disponibilidad del entrenador.",
-          ],
-        },
-      };
-    }
-
-    // Validar solapamiento con otras clases
-    const overlap = await validateTrainerOverlap(
-      context.client,
-      trainer_id,
-      class_date,
-      start_time,
-      end_time
-    );
-    if (overlap) {
-      return {
-        errors: {
-          start_time: [
-            `El entrenador ya tiene una clase programada de ${overlap.start_time} a ${overlap.end_time} en esa fecha.`,
-          ],
-        },
-      };
-    }
-
     if (!context.gymId) {
       return { error: "El módulo GYM no está configurado para esta organización." };
     }
+    const gymId = context.gymId;
 
-    await context.client.scheduledClass.create({
-      data: {
-        gym_id: context.gymId,
-        tenant_id: context.tenantId,
-        branch_id,
-        class_type_id,
-        trainer_id,
-        class_date: new Date(class_date + "T00:00:00.000Z"),
-        start_time,
-        end_time,
-        created_by: context.effectiveUser.id,
-        ...rest,
-        status: "scheduled",
-      },
-    });
+    const failure = await context.client.$transaction(async (tx): Promise<ClassActionState | null> => {
+      await lockTrainerForScheduling(tx, trainer_id, context.tenantId);
+
+      // Validar que el entrenador pertenezca a la sucursal correcta
+      const trainer = await tx.trainer.findFirst({
+        where: { id: trainer_id, tenant_id: context.tenantId },
+      });
+      if (!trainer) return { error: "Entrenador no encontrado." };
+      if (
+        effectiveRole === "branch_admin" &&
+        trainer.branch_id !== context.locationId
+      ) {
+        return { error: "El entrenador no pertenece a tu sucursal." };
+      }
+
+      // Validar disponibilidad del entrenador (debe ir antes del overlap check)
+      const availCheck = await validateClassWithinTrainerAvailability(trainer_id, class_date, start_time, end_time, tx);
+      if (!availCheck.valid) return availabilityError(availCheck.reason);
+
+      // Validar solapamiento con otras clases (bajo el lock del entrenador)
+      const overlap = await validateTrainerOverlap(tx, trainer_id, class_date, start_time, end_time);
+      if (overlap) return overlapError(overlap);
+
+      await tx.scheduledClass.create({
+        data: {
+          gym_id: gymId,
+          tenant_id: context.tenantId,
+          branch_id,
+          class_type_id,
+          trainer_id,
+          class_date: new Date(class_date + "T00:00:00.000Z"),
+          start_time,
+          end_time,
+          created_by: context.effectiveUser.id,
+          ...rest,
+          status: "scheduled",
+        },
+      });
+      return null;
+    }, CLASS_SCHEDULING_TX);
+    if (failure) return failure;
   } finally {
     await dispose();
   }
@@ -357,87 +375,64 @@ export async function updateScheduledClassAction(
     const { branch_id, class_type_id, trainer_id, class_date, start_time, end_time, ...rest } =
       parsed.data;
 
-    const trainer = await context.client.trainer.findFirst({
-      where: { id: trainer_id, tenant_id: context.tenantId },
-    });
-    if (!trainer) return { error: "Entrenador no encontrado." };
-
-    // Validar disponibilidad del entrenador (debe ir antes del overlap check)
-    const availCheckUpdate = await validateClassWithinTrainerAvailability(
-      trainer_id,
-      class_date,
-      start_time,
-      end_time,
-      context.client,
-    );
-    if (!availCheckUpdate.valid) {
-      return {
-        errors: {
-          start_time: [
-            availCheckUpdate.reason === "no_availability"
-              ? "El entrenador no tiene disponibilidad registrada para ese día."
-              : "La clase queda fuera de los bloques de disponibilidad del entrenador.",
-          ],
-        },
-      };
-    }
-
-    // Validar solapamiento con otras clases
-    const overlap = await validateTrainerOverlap(
-      context.client,
-      trainer_id,
-      class_date,
-      start_time,
-      end_time,
-      id
-    );
-    if (overlap) {
-      return {
-        errors: {
-          start_time: [
-            `El entrenador ya tiene una clase programada de ${overlap.start_time} a ${overlap.end_time} en esa fecha.`,
-          ],
-        },
-      };
-    }
-
-    // GYM-BOOKINGS 2B (I5): el cupo no puede bajar de las reservas
-    // confirmadas. El CHECK scheduled_classes_booked_count_capacity_chk es
-    // el respaldo si una reserva entra entre esta lectura y el UPDATE.
-    const capacityError = {
-      errors: {
-        capacity: [`La capacidad no puede ser menor que las reservas confirmadas (${target.booked_count}).`],
-      },
-    };
-    if (rest.capacity < target.booked_count) return capacityError;
-
-    // Si cambia fecha u hora, los instantes guardados dejan de ser válidos:
-    // se anulan y el motor los deriva de class_date + HH:mm con la timezone.
-    const timingChanged =
-      target.class_date.toISOString().slice(0, 10) !== class_date ||
-      target.start_time !== start_time ||
-      target.end_time !== end_time;
-
+    let failure: ClassActionState | null;
     try {
-      await context.client.scheduledClass.update({
-        where: { id },
-        data: {
-          branch_id,
-          class_type_id,
-          trainer_id,
-          class_date: new Date(class_date + "T00:00:00.000Z"),
-          start_time,
-          end_time,
-          ...rest,
-          ...(timingChanged ? { starts_at: null, ends_at: null } : {}),
-        },
-      });
+      failure = await context.client.$transaction(async (tx): Promise<ClassActionState | null> => {
+        // Orden: trainers (destino) → scheduled_classes.
+        await lockTrainerForScheduling(tx, trainer_id, context.tenantId);
+        await tx.$queryRaw`SELECT "id" FROM "scheduled_classes" WHERE "id" = ${id} AND "tenant_id" = ${context.tenantId} FOR UPDATE`;
+        const current = await tx.scheduledClass.findFirst({
+          where: { id, tenant_id: context.tenantId },
+        });
+        if (!current) return { error: "Clase no encontrada." };
+
+        const trainer = await tx.trainer.findFirst({
+          where: { id: trainer_id, tenant_id: context.tenantId },
+        });
+        if (!trainer) return { error: "Entrenador no encontrado." };
+
+        // Validar disponibilidad del entrenador (debe ir antes del overlap check)
+        const availCheckUpdate = await validateClassWithinTrainerAvailability(trainer_id, class_date, start_time, end_time, tx);
+        if (!availCheckUpdate.valid) return availabilityError(availCheckUpdate.reason);
+
+        // Validar solapamiento con otras clases (bajo el lock del entrenador)
+        const overlap = await validateTrainerOverlap(tx, trainer_id, class_date, start_time, end_time, id);
+        if (overlap) return overlapError(overlap);
+
+        // GYM-BOOKINGS 2B (I5): el cupo no puede bajar de las reservas
+        // confirmadas; bajo el lock de la sesión ninguna reserva entra en
+        // medio. El CHECK scheduled_classes_booked_count_capacity_chk es el respaldo.
+        if (rest.capacity < current.booked_count) return capacityError(current.booked_count);
+
+        // Si cambia fecha u hora, los instantes guardados dejan de ser válidos:
+        // se anulan y el motor los deriva de class_date + HH:mm con la timezone.
+        const timingChanged =
+          current.class_date.toISOString().slice(0, 10) !== class_date ||
+          current.start_time !== start_time ||
+          current.end_time !== end_time;
+
+        await tx.scheduledClass.update({
+          where: { id },
+          data: {
+            branch_id,
+            class_type_id,
+            trainer_id,
+            class_date: new Date(class_date + "T00:00:00.000Z"),
+            start_time,
+            end_time,
+            ...rest,
+            ...(timingChanged ? { starts_at: null, ends_at: null } : {}),
+          },
+        });
+        return null;
+      }, CLASS_SCHEDULING_TX);
     } catch (err) {
       if (String((err as Error)?.message ?? "").includes("scheduled_classes_booked_count_capacity_chk")) {
-        return capacityError;
+        return capacityError(target.booked_count);
       }
       throw err;
     }
+    if (failure) return failure;
 
     revalidatePath("/dashboard/classes");
     revalidatePath(`/dashboard/classes/${id}`);
@@ -446,6 +441,14 @@ export async function updateScheduledClassAction(
   }
 
   redirect(`/dashboard/classes/${formData.get("id")}`);
+}
+
+function capacityError(bookedCount: number): ClassActionState {
+  return {
+    errors: {
+      capacity: [`La capacidad no puede ser menor que las reservas confirmadas (${bookedCount}).`],
+    },
+  };
 }
 
 export async function toggleScheduledClassStatusAction(

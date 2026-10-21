@@ -14,6 +14,10 @@
 //      cancelBooking  clients → client_memberships → scheduled_classes → class_bookings
 //      cancelSession  clients → client_memberships → scheduled_classes → class_bookings
 //      recordAttendance clients (KEY SHARE) →          scheduled_classes → class_bookings → class_attendance
+//  - R29: cancelBooking / cancelSession no operan sobre sesiones completed
+//    (SESSION_CLOSED), salvo la excepción OPEN heredada sin consumo.
+//  - R32: asistencia del entrenador/recepción solo en ventana y sesión
+//    abierta; después, solo SA/BA (administrative_correction en el evento).
 //  - booked_count / sessions_used NO se escriben: los mueve el trigger
 //    gym_class_bookings_counters; aquí solo se valida cupo/saldo bajo lock.
 //  - Idempotencia por comando: REPLAY del `result` guardado o
@@ -67,7 +71,7 @@ import {
 } from "./booking-policy";
 import { checkBookingWindow, consumptionAfterCancel, consumptionOnBook, decideCancellation } from "./booking-rules";
 import {
-  checkAttendanceWindow,
+  checkAttendanceAccess,
   dateOnly,
   hhmmRangesOverlap,
   legacyOpenDateAllowed,
@@ -622,6 +626,13 @@ export function createGymBookingService(db: PrismaClient, options: GymBookingSer
         const applies = policyAppliesTo(policy, kind);
         const reason = normalizeReason(cmd.reason);
 
+        // R29: se cancela "hasta que la sesión se cierre". Una sesión completed
+        // no libera cupos ni consumos. Excepción heredada (corrección B): OPEN
+        // sin política y sin consumo conserva la cancelación sin restricción.
+        if (session.status === "completed" && (applies || booking.consumption !== "NOT_APPLICABLE")) {
+          reject("SESSION_CLOSED");
+        }
+
         if (cmd.channel === "PORTAL" && !applies) {
           const today = localDate(now, policy.timezone);
           if (!legacyOpenDateAllowed("PORTAL", dateOnly(session.class_date), today)) {
@@ -701,6 +712,9 @@ export function createGymBookingService(db: PrismaClient, options: GymBookingSer
         if (!before) reject("NOT_FOUND", "Clase no encontrada.");
         assertStaffSessionScope(cmd.scope, cmd.actor, before);
         if (before.status === "cancelled") reject("ALREADY_CANCELLED");
+        // R29: una sesión cerrada no se cancela (no hay excepción heredada:
+        // cancelSession es una operación nueva de 2B).
+        if (before.status === "completed") reject("SESSION_CLOSED");
 
         // Lectura sin lock del conjunto a bloquear; se revalida bajo el lock de la sesión.
         const preview = await tx.classBooking.findMany({
@@ -717,6 +731,7 @@ export function createGymBookingService(db: PrismaClient, options: GymBookingSer
         const session = await tx.scheduledClass.findUniqueOrThrow({ where: { id: cmd.sessionId }, select: SESSION_SELECT });
         assertStaffSessionScope(cmd.scope, cmd.actor, session);
         if (session.status === "cancelled") reject("ALREADY_CANCELLED");
+        if (session.status === "completed") reject("SESSION_CLOSED");
 
         const lockedBookings = await tx.$queryRaw<{ id: string; client_id: string; client_membership_id: string | null }[]>`
           SELECT "id", "client_id", "client_membership_id" FROM "class_bookings"
@@ -831,8 +846,18 @@ export function createGymBookingService(db: PrismaClient, options: GymBookingSer
 
         const policy = await loadGymBookingPolicy(tx, tenantId);
         const { startsAt, endsAt } = resolveSessionInstants(session, policy.timezone);
-        const window = checkAttendanceWindow({ kind: session.session_kind, policy, now, startsAt, endsAt });
-        if (!window.ok) reject(window.code);
+        // R32: ventana del entrenador/recepción hasta fin + 48 h o cierre; luego solo SA/BA.
+        const access = checkAttendanceAccess({
+          kind: session.session_kind,
+          policy,
+          now,
+          startsAt,
+          endsAt,
+          sessionStatus: session.status,
+          channel: cmd.channel,
+          role: cmd.actor.role,
+        });
+        if (!access.ok) reject(access.code);
 
         const lockedAttendance = await tx.$queryRaw<{ id: string; attendance_status: string }[]>`
           SELECT "id", "attendance_status"::text AS "attendance_status" FROM "class_attendance"
@@ -876,6 +901,7 @@ export function createGymBookingService(db: PrismaClient, options: GymBookingSer
                 attendance_id: attendance.id,
                 attendance_from: previous?.attendance_status ?? null,
                 attendance_to: cmd.status,
+                administrative_correction: access.administrativeCorrection,
               },
             },
           ],

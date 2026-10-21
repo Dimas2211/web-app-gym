@@ -81,12 +81,21 @@ const SES = "eeb1d1e1-e1c8-4958-9d16-db8129862c8e";
 const CLI = "0b7c8a3e-36a9-4c8e-9d61-3f8a2b1c4d5e";
 const KEY = "4d3c2b1a-aaaa-bbbb-cccc-000000000001";
 
-const db = {
+const db: Record<string, unknown> & {
+  classBooking: Record<string, ReturnType<typeof vi.fn>>;
+  classAttendance: Record<string, ReturnType<typeof vi.fn>>;
+  scheduledClass: Record<string, ReturnType<typeof vi.fn>>;
+  trainer: Record<string, ReturnType<typeof vi.fn>>;
+} = {
   classBooking: { findFirst: vi.fn(), create: vi.fn(), update: vi.fn(), upsert: vi.fn() },
   classAttendance: { upsert: vi.fn(), create: vi.fn(), update: vi.fn() },
   scheduledClass: { findFirst: vi.fn(), update: vi.fn() },
   trainer: { findFirst: vi.fn() },
+  // H03: alta/edición de clases en transacción con lock del entrenador (la
+  // concurrencia real se certifica en actions.scheduling.integration.test.ts).
+  $queryRaw: vi.fn(async () => []),
 };
+db.$transaction = vi.fn(async (fn: (tx: typeof db) => unknown) => fn(db));
 
 function handle(role = "reception", locationId: string | null = "loc-1") {
   return {
@@ -323,6 +332,14 @@ describe("updateScheduledClassAction — cupo frente a reservas confirmadas (I5)
     const r = await updateScheduledClassAction(undefined, form("3"));
     expect(r).toEqual({ errors: { capacity: ["La capacidad no puede ser menor que las reservas confirmadas (4)."] } });
     expect(db.scheduledClass.update).not.toHaveBeenCalled();
+  });
+
+  it("valida y escribe dentro de una transacción READ COMMITTED que bloquea antes al entrenador (H03)", async () => {
+    db.scheduledClass.update.mockResolvedValue({});
+    await updateScheduledClassAction(undefined, form("6"));
+    expect(db.$transaction).toHaveBeenCalledWith(expect.any(Function), expect.objectContaining({ isolationLevel: "ReadCommitted" }));
+    const firstLock = String((db.$queryRaw as ReturnType<typeof vi.fn>).mock.calls[0][0]);
+    expect(firstLock).toMatch(/FROM "trainers"[\s\S]*FOR UPDATE/);
   });
 
   it("si una reserva entra en paralelo, el CHECK de BD se traduce al mismo error", async () => {

@@ -17,6 +17,8 @@
 // ─────────────────────────────────────────────────────────────────
 
 import type {
+  ClassStatus,
+  GymBookingChannel,
   GymClientModality,
   GymSessionConsumption,
   GymSessionKind,
@@ -258,12 +260,59 @@ export function checkAttendanceWindow(input: {
   endsAt: Date | null;
 }): AttendanceWindowCheck {
   if (!policyAppliesTo(input.policy, input.kind)) return { ok: true };
+  return attendanceWindowState(input);
+}
+
+/** Ventana [inicio, fin + attendance_edit_window_hours] sin compuerta de política. */
+function attendanceWindowState(input: {
+  policy: GymBookingPolicy;
+  now: Date;
+  startsAt: Date | null;
+  endsAt: Date | null;
+}): AttendanceWindowCheck {
   if (!input.startsAt) return { ok: false, code: "SCHEDULE_INCOMPLETE" };
   const now = input.now.getTime();
   if (now < input.startsAt.getTime()) return { ok: false, code: "ATTENDANCE_NOT_STARTED" };
   const closesAt = (input.endsAt ?? input.startsAt).getTime() + input.policy.attendanceEditWindowHours * HOUR;
   if (now > closesAt) return { ok: false, code: "ATTENDANCE_WINDOW_CLOSED" };
   return { ok: true };
+}
+
+export type AttendanceAccess =
+  | { ok: true; administrativeCorrection: boolean }
+  | { ok: false; code: "SCHEDULE_INCOMPLETE" | "ATTENDANCE_NOT_STARTED" | "ATTENDANCE_WINDOW_CLOSED" };
+
+/**
+ * R32 (auditoría Etapa 1): el entrenador de la sesión —y recepción, que solo
+ * hace check-in— edita la asistencia desde el inicio hasta 48 h
+ * (attendance_edit_window_hours) después de ends_at o hasta que la sesión se
+ * cierra (status completed), lo que ocurra primero. Después, solo SA o BA de
+ * la sede, como corrección administrativa (queda marcada en el evento).
+ * Nadie registra antes del inicio.
+ * Excepción heredada (corrección B): staff en OPEN sin política conserva el
+ * registro sin ventana. El canal TRAINER es nuevo y no tiene excepción.
+ */
+export function checkAttendanceAccess(input: {
+  kind: GymSessionKind;
+  policy: GymBookingPolicy;
+  now: Date;
+  startsAt: Date | null;
+  endsAt: Date | null;
+  sessionStatus: ClassStatus;
+  channel: GymBookingChannel;
+  role: string;
+}): AttendanceAccess {
+  const admin = input.channel === "STAFF" && (input.role === "super_admin" || input.role === "branch_admin");
+  if (input.channel === "STAFF" && !policyAppliesTo(input.policy, input.kind)) {
+    return { ok: true, administrativeCorrection: false };
+  }
+  const closedOrExpired = (): AttendanceAccess =>
+    admin ? { ok: true, administrativeCorrection: true } : { ok: false, code: "ATTENDANCE_WINDOW_CLOSED" };
+  if (input.sessionStatus === "completed") return closedOrExpired();
+  const window = attendanceWindowState(input);
+  if (window.ok) return { ok: true, administrativeCorrection: false };
+  if (window.code === "ATTENDANCE_WINDOW_CLOSED") return closedOrExpired();
+  return window;
 }
 
 /**

@@ -405,17 +405,20 @@ describe.skipIf(!IT_ENABLED)("GymBookingService — integración PostgreSQL real
       const startsAt = new Date(Date.now() + 2 * HOUR);
       const ses = await createSession(db, { kind: "GROUP", startsAt, durationMinutes: 60 });
       const b = ok(await svc.bookSession(staffBook(ses, m.clientId)));
-      const at = (h: number) => ({ scope: T1_STAFF_SCOPE, actor: SA1, channel: "STAFF" as const, bookingId: b.bookingId, status: "absent" as const, idempotencyKey: key(), now: new Date(startsAt.getTime() + h * HOUR) });
+      // Recepción sigue la ventana (R32); SA/BA corrigen después (auditoría H02, ver audit-fixes).
+      const at = (h: number) => ({ scope: { tenantId: T1, locationId: B1 }, actor: RC1, channel: "STAFF" as const, bookingId: b.bookingId, status: "absent" as const, idempotencyKey: key(), now: new Date(startsAt.getTime() + h * HOUR) });
       expect(code(await svc.recordAttendance(at(-0.1)))).toBe("ATTENDANCE_NOT_STARTED");
       expect(code(await svc.recordAttendance(at(0.5)))).toBe("OK");
       expect(code(await svc.recordAttendance(at(1 + 47.9)))).toBe("OK");
       expect(code(await svc.recordAttendance(at(1 + 48.1)))).toBe("ATTENDANCE_WINDOW_CLOSED");
+      expect(code(await svc.recordAttendance({ ...at(1 + 48.1), scope: T1_STAFF_SCOPE, actor: SA1 }))).toBe("OK");
       // R31: ausente sigue consumido.
       expect((await counters(ses, m.membershipId)).used).toBe(1);
     });
 
     it("C3 permisos: reserva cancelada → NOT_CONFIRMED; notas de entrenamiento solo SA/BA/entrenador de la sesión", async () => {
-      const ses = await createSession(db, { trainer: TRAINER_A });
+      // En curso: el canal TRAINER sigue la ventana R32 también en OPEN (auditoría H02).
+      const ses = await createSession(db, { trainer: TRAINER_A, startsAt: new Date(Date.now() - 0.5 * HOUR) });
       const m = await createMember(db);
       const b = ok(await svc.bookSession(staffBook(ses, m.clientId)));
       const base = { bookingId: b.bookingId, status: "attended" as const };

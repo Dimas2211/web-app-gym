@@ -107,6 +107,8 @@ export type GymBookingErrorCode =
   | "REASON_REQUIRED"
   /** Campo del comando fuera de contrato (p. ej. estado de asistencia "cancelled"). */
   | "INVALID_COMMAND"
+  /** R29: la sesión ya se cerró (status completed); no se cancelan reservas ni la sesión. */
+  | "SESSION_CLOSED"
   // estado / concurrencia
   | "ALREADY_BOOKED"
   | "ALREADY_CANCELLED"

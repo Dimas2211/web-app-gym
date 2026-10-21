@@ -341,10 +341,10 @@ Todas las operaciones corren en una transacción READ COMMITTED. Empiezan con el
 | Fecha / ventana de reserva | portal: no reserva días pasados. Staff: sin restricción | horizonte, anticipación mínima (staff exento, R25) y no iniciada |
 | Solapamiento propio | no se valida (sin cambio de reglas) | `CLIENT_SCHEDULE_CONFLICT` |
 | Cancelación del alumno | portal: hasta el día de la clase, `CLIENT_IN_POLICY` | ≥ `cancel_min_lead_minutes`: libera la sesión. Si es tardía: `CLIENT_LATE`, que consume si `late_cancel_consumes_session`. Después del inicio: `CANCEL_WINDOW_CLOSED` |
-| Cancelación por staff | sin motivo obligatorio (igual que antes) | motivo obligatorio (R29); libera la sesión |
+| Cancelación por staff | sin motivo obligatorio y sin restricción de estado (igual que antes) | motivo obligatorio (R29); libera la sesión; **sesión `completed` → `SESSION_CLOSED`** (§11.10) |
 | Reactivación | exige cupo | exige cupo. Si la reserva era RELEASED, exige saldo. Si es una tardía CONSUMED, sin doble consumo y en la misma membresía |
 | Cancelar la sesión (agenda) | solo cambia el estado; las reservas siguen confirmadas (igual que antes) | `cancelSession`: 1 operación y N eventos `SESSION_CANCELLED`; libera cupos y sesiones |
-| Asistencia | sin ventana. `checked_in_at` solo para `attended` (igual que antes) | desde el inicio hasta el fin + `attendance_edit_window_hours`. El ausente sigue consumido (R31) |
+| Asistencia | staff sin ventana. `checked_in_at` solo para `attended` (igual que antes). El canal TRAINER sí sigue R32 | R32 (§11.10): entrenador y recepción desde el inicio hasta fin + `attendance_edit_window_hours` o hasta el cierre; después, solo SA/BA (corrección administrativa). El ausente sigue consumido (R31) |
 | Notas de entrenamiento (R36) | SA, BA o el entrenador de la sesión; recepción → `FORBIDDEN` | igual |
 
 **Instantes.** Mandan `starts_at` / `ends_at`. Si son NULL, se derivan de `class_date + HH:mm` en `GymSettings.timezone`. Sin timezone, PERSONALIZED/GROUP ya fallan cerrados por R18. Si `updateScheduledClassAction` cambia la fecha o la hora, anula los instantes guardados para que se deriven de nuevo.
@@ -408,7 +408,8 @@ Sin esas variables, las suites de integración se omiten y `npx vitest run` sigu
 ### 11.8 Riesgos y límites conocidos
 
 - **Convivencia de versiones durante el despliegue.** Si el código anterior y el de 2B escriben a la vez en la misma base, PostgreSQL puede abortar una operación por interbloqueo (§5). Se pierde la operación, no la integridad. Conviene desplegar en una ventana de bajo uso.
-- **Reglas sin documento de Etapa 1 a la vista.** El significado exacto de algunas reglas sale del contrato y de este resumen, porque la auditoría original no está en el repositorio activo:
+- **Reglas verificadas contra la auditoría original** (`Auditoría Reservas GYM.md`, en Downloads del equipo, fuera del repositorio) para R14, R29, R32 y R36 en §11.10. El resto de las reglas siguientes sigue pendiente de validación funcional.
+- **Reglas sin documento de Etapa 1 a la vista (al cierre inicial de 2B).** El significado exacto de algunas reglas sale del contrato y de este resumen, porque la auditoría original no está en el repositorio activo:
   - ventana de asistencia desde el inicio hasta el fin + N horas;
   - motivo R29 obligatorio salvo en OPEN heredado;
   - solapamiento solo con política.
@@ -433,3 +434,23 @@ Sin esas variables, las suites de integración se omiten y `npx vitest run` sigu
 **Rollback.**
 - Código: volver al build anterior. Funciona con la base ampliada, porque el CHECK solo rechaza sobrecupo.
 - CHECK: roll-forward con `rollback-gym-bookings-capacity-check.sql` (§7.3), solo si hace falta.
+
+### 11.10 Correcciones posteriores a la auditoría independiente (H01–H03)
+
+Fuente de las reglas: `Auditoría Reservas GYM.md` (Etapa 1), R14, R29, R32, R36 y la matriz de permisos E. Cada hallazgo se reprodujo con pruebas contra PostgreSQL real que fallaban sobre `535e085` y pasan con la corrección.
+
+| Hallazgo | Causa reproducida | Corrección |
+| --- | --- | --- |
+| **H01 · R29** «el staff cancela hasta que la sesión se cierre» | `cancelBooking` y `cancelSession` no miraban `status = completed`: cancelar en una sesión cerrada devolvía OK y liberaba cupo y sesión consumida | Código nuevo `SESSION_CLOSED`. `cancelBooking` lo devuelve si la sesión está `completed` y aplica política o la reserva tiene consumo. Excepción heredada: OPEN sin política y `NOT_APPLICABLE` conserva la cancelación (corrección B). `cancelSession` lo devuelve siempre (operación nueva de 2B, sin excepción), antes y bajo el lock de la sesión. `in_progress` sigue cancelable |
+| **H02 · R32** «entrenador hasta 48 h después de `ends_at` o hasta cerrar la sesión; después solo SA o BA» | La ventana no distinguía rol ni miraba el cierre: SA/BA no podían corregir tras las 48 h, y entrenador y recepción seguían editando una sesión `completed`. El canal TRAINER heredaba la exención de OPEN | `checkAttendanceAccess` (`booking-eligibility.ts`). Sesión `completed` o fuera de ventana: SA/BA (canal STAFF) pasan como corrección administrativa (`metadata.administrative_correction = true` en el evento); entrenador y recepción reciben `ATTENDANCE_WINDOW_CLOSED`. Antes del inicio, nadie. El staff en OPEN sin política conserva el registro sin ventana; el canal TRAINER siempre sigue R32. R36 sin cambios: recepción nunca escribe `training_notes` |
+| **H03 · R14** «un entrenador no puede tener dos sesiones no canceladas solapadas» | `createScheduledClassAction` / `updateScheduledClassAction` validaban el solapamiento con lecturas sueltas y escribían después. Dos conexiones simultáneas crearon 4 clases solapadas en una ronda y 2 en la edición. El INSERT solo esperaba por el `KEY SHARE` de la FK, ya validado | Validación y escritura en una transacción READ COMMITTED: `trainers FOR UPDATE` (entrenador destino) antes de leer al entrenador, la disponibilidad y el solapamiento. En la edición, además `scheduled_classes FOR UPDATE` (trainers → scheduled_classes) para validar el cupo bajo lock. Mensajes y validaciones de disponibilidad, tenant y sucursal sin cambios |
+
+**Pruebas nuevas:**
+- `booking-service.audit-fixes.integration.test.ts` (H01-1…6, H02-1…6), con trainer, recepción, BA y SA antes y después de la ventana, en sesiones `completed`.
+- `classes/actions.scheduling.integration.test.ts` (H03-1…4). Ejecuta las acciones reales con dos `PrismaClient` independientes. H03-3 retiene `trainers FOR NO KEY UPDATE`: no choca con el `KEY SHARE` de la FK, pero sí con el `FOR UPDATE` del fix, así que prueba que la acción bloquea antes de validar.
+- Unitaria de `checkAttendanceAccess`.
+
+**Expectativas previas ajustadas** porque contradecían R32:
+- C2: SA ya corrige después de la ventana; el cierre se prueba con recepción.
+- C3: el entrenador registra en una sesión en curso, no en una futura.
+

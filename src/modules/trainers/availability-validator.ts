@@ -16,7 +16,9 @@ export async function validateClassWithinTrainerAvailability(
   classDate: string, // YYYY-MM-DD
   startTime: string, // HH:mm
   endTime: string,   // HH:mm
-  db: PrismaClient = prisma,
+  // Solo lee trainerAvailability: acepta también un Prisma.TransactionClient
+  // (alta/edición de clases bajo el lock del entrenador, GYM-BOOKINGS 2B H03).
+  db: Pick<PrismaClient, "trainerAvailability"> = prisma,
 ): Promise<AvailabilityCheckResult> {
   const dayOfWeek = dayOfWeekFromDateString(classDate);
 
