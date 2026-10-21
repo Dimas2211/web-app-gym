@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { requireClientManager, canManageClient } from "@/lib/permissions/guards";
-import { getClientById } from "@/modules/clients/queries";
+import { getClientById, getClientModalityHistory } from "@/modules/clients/queries";
 import { getClientMembershipsByClientId } from "@/modules/memberships/queries";
 import { getClientWeeklyPlansByClientId } from "@/modules/weekly-plans/queries";
 import {
@@ -10,6 +10,9 @@ import {
 } from "@/modules/clients/actions";
 import { EnablePortalForm } from "@/components/forms/enable-portal-form";
 import { ManageClientPortalAccess } from "@/components/forms/manage-client-portal-access";
+import { ClientModalityForm } from "@/components/forms/client-modality-form";
+import { MODALITY_LABELS } from "@/modules/memberships/modality-rules";
+import { getCapabilities } from "@/core/permissions/role-capabilities";
 import { StatusBadge } from "@/components/ui/status-badge";
 import {
   GENDER_LABELS,
@@ -22,7 +25,7 @@ import {
   EXECUTION_STATUS_LABELS,
   EXECUTION_STATUS_COLORS,
 } from "@/lib/utils/labels";
-import type { PaymentStatus, MembershipStatus, ExecutionStatus } from "@prisma/client";
+import type { PaymentStatus, MembershipStatus, ExecutionStatus, UserRole } from "@prisma/client";
 import { resolveEffectiveTenantContext } from "@/modules/platform/runtime/effective-tenant-context";
 import { requireEffectiveVertical } from "@/modules/platform/runtime/effective-vertical";
 
@@ -73,10 +76,11 @@ export default async function ClientDetailPage({ params }: Props) {
     // PASO 6F: "Clientes" es superficie GYM sin module code propio.
     await requireEffectiveVertical(context.tenantId, "GYM");
 
-    const [client, memberships, weeklyPlans] = await Promise.all([
+    const [client, memberships, weeklyPlans, modalityHistory] = await Promise.all([
       getClientById(id, effectiveUser, context.client),
       getClientMembershipsByClientId(id, effectiveUser, context.client),
       getClientWeeklyPlansByClientId(id, effectiveUser, context.client),
+      getClientModalityHistory(id, context.tenantId, context.client),
     ]);
 
     if (!client || !canManageClient(sessionUser, client)) notFound();
@@ -91,6 +95,10 @@ export default async function ClientDetailPage({ params }: Props) {
 
     // canEdit se fuerza a false en modo runtime: la sesión es siempre solo lectura.
     const canEdit = !context.runtime && canManageClient(sessionUser, client);
+    // GYM-BOOKINGS 3A — cambiar modalidad: SA/BA con el rol efectivo (la
+    // acción lo revalida con el rol LIVE y exige gym.classes).
+    const canChangeModality =
+      canEdit && getCapabilities(context.effectiveRole as UserRole).canManageStaff;
 
     // Membresía activa actual (primera activa vigente)
     const today = new Date();
@@ -183,6 +191,32 @@ export default async function ClientDetailPage({ params }: Props) {
             </span>
           </div>
         </div>
+      </div>
+
+      {/* GYM-BOOKINGS 3A — Modalidad */}
+      <div className="bg-white rounded-xl border border-zinc-200 shadow-sm p-5 space-y-4">
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <h2 className="text-xs font-semibold text-zinc-400 uppercase tracking-wide">Modalidad</h2>
+          <span className="text-xs font-semibold bg-zinc-100 text-zinc-700 px-2.5 py-1 rounded-full">
+            {MODALITY_LABELS[client.modality]}
+          </span>
+        </div>
+        {canChangeModality && <ClientModalityForm clientId={client.id} currentModality={client.modality} />}
+        {modalityHistory.length > 0 && (
+          <div>
+            <p className="text-xs text-zinc-400 mb-2">Historial de cambios</p>
+            <ul className="space-y-1.5">
+              {modalityHistory.map((h) => (
+                <li key={h.id} className="text-sm text-zinc-600 bg-zinc-50 rounded-lg px-3 py-2">
+                  <span className="font-medium text-zinc-800">
+                    {MODALITY_LABELS[h.from_modality]} → {MODALITY_LABELS[h.to_modality]}
+                  </span>{" "}
+                  · {formatDate(h.changed_at)} · {h.reason}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
       </div>
 
       {/* Acceso al portal */}

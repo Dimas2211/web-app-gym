@@ -338,6 +338,22 @@ async function renderClassesAgenda({
           )}
           {isAdmin && (
             <Link
+              href="/dashboard/classes/series"
+              className="text-sm text-zinc-600 border border-zinc-300 px-3 py-1.5 rounded-lg hover:bg-zinc-50 transition-colors"
+            >
+              Series
+            </Link>
+          )}
+          {isAdmin && (
+            <Link
+              href="/dashboard/classes/activities"
+              className="text-sm text-zinc-600 border border-zinc-300 px-3 py-1.5 rounded-lg hover:bg-zinc-50 transition-colors"
+            >
+              Actividades
+            </Link>
+          )}
+          {isAdmin && (
+            <Link
               href="/dashboard/classes/new"
               className="bg-zinc-900 text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-zinc-800 transition-colors"
             >

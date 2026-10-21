@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import bcrypt from "bcryptjs";
 import { z } from "zod";
-import type { UserRole } from "@prisma/client";
+import { Prisma, type UserRole } from "@prisma/client";
 import {
   requireClientManager,
   canManageClient,
@@ -19,7 +19,13 @@ import {
   updateClientSchema,
   updatePortalEmailSchema,
   resetPortalPasswordSchema,
+  changeClientModalitySchema,
 } from "./schemas";
+import { getCapabilities } from "@/core/permissions/role-capabilities";
+import { MODALITY_LABELS, modalityChangeBlockers } from "@/modules/memberships/modality-rules";
+import { loadGymBookingPolicy } from "@/modules/classes/booking/booking-service";
+import { localDate } from "@/modules/classes/booking/booking-eligibility";
+import { gymAdminScope } from "@/modules/classes/scheduling/admin-support";
 import { updateCoreUser } from "@/core/modules/users/actions";
 import { suggestNextClientCode, generateQrToken } from "@/lib/utils/operational-codes";
 import {
@@ -73,9 +79,14 @@ export async function createClientAction(
   // isRuntimeReadOnlyActive() + Prisma global + sessionUser.tenant_id/role
   // crudo del JWT. `clients` no tiene module code propio en el registro
   // comercial (es base de la vertical GYM, no un módulo activable/desactivable).
+  // GYM-BOOKINGS 3A: una modalidad PERSONALIZED/GROUP sí exige gym.classes.
+  const requestedModality = normalizeEmpty(formData.get("modality")) ?? "NORMAL";
   let handle;
   try {
-    handle = await requireOperationalContext(sessionUser, { write: true });
+    handle = await requireOperationalContext(sessionUser, {
+      write: true,
+      ...(requestedModality !== "NORMAL" ? { module: "gym.classes" } : {}),
+    });
   } catch (err) {
     if (err instanceof OperationalContextError) return { error: err.userMessage };
     throw err;
@@ -92,12 +103,21 @@ export async function createClientAction(
       }
     }
 
-    const parsed = createClientSchema.safeParse(raw);
+    const parsed = createClientSchema.safeParse({ ...raw, modality: requestedModality });
     if (!parsed.success) {
       return { errors: parsed.error.flatten().fieldErrors };
     }
 
     const { branch_id, birth_date, gender, ...rest } = parsed.data;
+
+    // GYM-BOOKINGS 3A — asignar PERSONALIZED/GROUP es decisión administrativa
+    // (rol LIVE con canManageStaff: SA/BA). Recepción registra NORMAL.
+    if (
+      rest.modality !== "NORMAL" &&
+      !getCapabilities(context.effectiveUser.role as UserRole).canManageStaff
+    ) {
+      return { errors: { modality: ["Solo un administrador puede asignar una modalidad personalizada o grupal."] } };
+    }
 
     if (!context.gymId) {
       return { error: "El módulo GYM no está configurado para esta organización." };
@@ -188,6 +208,120 @@ export async function updateClientAction(
   revalidatePath("/dashboard/clients");
   revalidatePath(`/dashboard/clients/${formData.get("id")}`);
   redirect("/dashboard/clients");
+}
+
+// ──────────────────────────────────────────────
+// GYM-BOOKINGS 3A — Cambio de modalidad (con historial append-only)
+// ──────────────────────────────────────────────
+
+export type ClientModalityActionState =
+  | { errors?: Record<string, string[]>; error?: string; success?: string }
+  | undefined;
+
+/**
+ * Cambia Client.modality y registra ClientModalityChange (append-only por
+ * trigger) en la MISMA transacción, con el cliente bloqueado FOR UPDATE
+ * (mismo lock que bookSession y la venta de membresías: no entra una
+ * reserva o venta a mitad del cambio).
+ * Rechaza si quedarían membresías vigentes o reservas futuras de otra
+ * modalidad. Solo SA/BA (rol LIVE) y con gym.classes habilitado.
+ */
+export async function changeClientModalityAction(
+  _prev: ClientModalityActionState,
+  formData: FormData
+): Promise<ClientModalityActionState> {
+  const sessionUser = await requireClientManager();
+
+  let handle;
+  try {
+    handle = await requireOperationalContext(sessionUser, { module: "gym.classes", write: true });
+  } catch (err) {
+    if (err instanceof OperationalContextError) return { error: err.userMessage };
+    throw err;
+  }
+  const { context, dispose } = handle;
+
+  try {
+    const scope = gymAdminScope(context);
+    if (!scope.ok) return { error: "Solo un administrador puede cambiar la modalidad del cliente." };
+
+    const parsed = changeClientModalitySchema.safeParse({
+      client_id: formData.get("client_id"),
+      to_modality: formData.get("to_modality"),
+      reason: formData.get("reason") ?? undefined,
+    });
+    if (!parsed.success) return { errors: parsed.error.flatten().fieldErrors };
+    const { client_id, to_modality, reason } = parsed.data;
+
+    const policy = await loadGymBookingPolicy(context.client, context.tenantId);
+    const today = new Date(`${localDate(new Date(), policy.timezone)}T00:00:00.000Z`);
+
+    const result = await context.client.$transaction(
+      async (tx): Promise<ClientModalityActionState> => {
+        await tx.$queryRaw`SELECT "id" FROM "clients" WHERE "id" = ${client_id} AND "tenant_id" = ${context.tenantId} FOR UPDATE`;
+        const client = await tx.client.findFirst({ where: { id: client_id, tenant_id: context.tenantId } });
+        if (!client) return { error: "Cliente no encontrado." };
+        const effectiveSessionUser = { ...context.effectiveUser, role: context.effectiveUser.role as UserRole };
+        if (!canManageClient(effectiveSessionUser, client)) {
+          return { error: "Sin permiso para modificar este cliente." };
+        }
+        if (client.modality === to_modality) {
+          return { errors: { to_modality: ["El cliente ya tiene esa modalidad."] } };
+        }
+
+        const [currentMemberships, futureBookings] = await Promise.all([
+          tx.clientMembership.findMany({
+            where: { client_id, status: { in: ["active", "suspended"] }, end_date: { gte: today } },
+            select: { modality: true },
+          }),
+          tx.classBooking.findMany({
+            where: {
+              client_id,
+              booking_status: "confirmed",
+              scheduled_class: { class_date: { gte: today }, status: { in: ["scheduled", "in_progress"] } },
+            },
+            select: { scheduled_class: { select: { session_kind: true } } },
+          }),
+        ]);
+        const blockers = modalityChangeBlockers(to_modality, {
+          currentMemberships,
+          futureBookings: futureBookings.map((b) => b.scheduled_class),
+        });
+        if (blockers.length > 0) {
+          return {
+            error: `No se puede cambiar a ${MODALITY_LABELS[to_modality]}: el cliente tiene ${blockers.join(" y ")}. Finaliza o cancela esos registros primero.`,
+          };
+        }
+
+        const changedAt = new Date();
+        await tx.client.update({
+          where: { id: client_id },
+          data: { modality: to_modality, modality_changed_at: changedAt },
+        });
+        await tx.clientModalityChange.create({
+          data: {
+            tenant_id: context.tenantId,
+            client_id,
+            from_modality: client.modality,
+            to_modality,
+            reason,
+            changed_by_user_id: context.effectiveUser.id,
+            changed_at: changedAt,
+          },
+        });
+        return { success: `Modalidad cambiada a ${MODALITY_LABELS[to_modality]}.` };
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted, timeout: 20_000, maxWait: 15_000 }
+    );
+
+    if (result?.success) {
+      revalidatePath(`/dashboard/clients/${client_id}`);
+      revalidatePath("/dashboard/clients");
+    }
+    return result;
+  } finally {
+    await dispose();
+  }
 }
 
 // ──────────────────────────────────────────────

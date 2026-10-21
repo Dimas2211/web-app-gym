@@ -6,6 +6,7 @@ import { useFormStatus } from "react-dom";
 import type { Gender } from "@prisma/client";
 import type { ClientActionState } from "@/modules/clients/actions";
 import { GENDER_LABELS } from "@/lib/utils/labels";
+import { GYM_CLIENT_MODALITIES, MODALITY_LABELS } from "@/modules/memberships/modality-rules";
 
 type Option = { id: string; name: string };
 type TrainerOption = { id: string; first_name: string; last_name: string };
@@ -40,6 +41,12 @@ type ClientFormProps = {
   isEdit?: boolean;
   /** Si el usuario solo puede ver su propia sucursal (branch_admin / reception) */
   fixedBranchId?: string | null;
+  /**
+   * GYM-BOOKINGS 3A — alta: SA/BA pueden elegir PERSONALIZED/GROUP (la
+   * acción lo revalida con el rol LIVE). En edición la modalidad no se
+   * muestra aquí: se cambia desde la ficha (motivo + historial).
+   */
+  canAssignModality?: boolean;
 };
 
 function SubmitButton({ isEdit }: { isEdit: boolean }) {
@@ -98,6 +105,7 @@ export function ClientForm({
   goals,
   isEdit = false,
   fixedBranchId,
+  canAssignModality = false,
 }: ClientFormProps) {
   const [state, formAction] = useActionState(action, undefined);
 
@@ -287,6 +295,21 @@ export function ClientForm({
               </select>
             </Field>
           </div>
+
+          {!isEdit && (
+            <Field label="Modalidad" error={state?.errors?.modality?.[0]}>
+              <select name="modality" defaultValue="NORMAL" className={selectCls}>
+                {GYM_CLIENT_MODALITIES.filter((m) => canAssignModality || m === "NORMAL").map((m) => (
+                  <option key={m} value={m}>
+                    {MODALITY_LABELS[m]}
+                  </option>
+                ))}
+              </select>
+              <p className="text-xs text-zinc-400 mt-1">
+                La modalidad sola no habilita reservas: requiere una membresía vigente de la misma modalidad.
+              </p>
+            </Field>
+          )}
 
           <Field label="Entrenador asignado" error={state?.errors?.assigned_trainer_id?.[0]}>
             <select

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { GYM_CLIENT_MODALITIES } from "./modality-rules";
 
 // ── Planes de membresía ──────────────────────────────────────
 
@@ -24,6 +25,8 @@ export const planSchema = z.object({
   }),
   is_recurring: z.boolean().default(false),
   branch_id: z.string().uuid().optional().nullable(),
+  // GYM-BOOKINGS 3A — se copia como snapshot a la membresía al vender.
+  modality: z.enum(GYM_CLIENT_MODALITIES).default("NORMAL"),
 });
 
 export type PlanInput = z.infer<typeof planSchema>;
@@ -47,6 +50,8 @@ export const createClientMembershipSchema = z
       required_error: "Estado de pago requerido",
     }),
     notes: z.string().max(500).optional().nullable(),
+    // GYM-BOOKINGS 3A — entrenador autorizado (solo planes PERSONALIZED).
+    assigned_trainer_id: z.string().uuid("Entrenador inválido").optional().nullable(),
   })
   .refine((d) => d.discount_amount <= d.price_at_sale, {
     message: "El descuento no puede ser mayor al precio de venta",
@@ -62,6 +67,7 @@ export const updateClientMembershipSchema = z
     payment_status: z.enum(["pending", "paid", "partial", "overdue", "refunded"]),
     status: z.enum(["active", "expired", "cancelled", "suspended"]),
     notes: z.string().max(500).optional().nullable(),
+    assigned_trainer_id: z.string().uuid("Entrenador inválido").optional().nullable(),
   })
   .refine((d) => d.discount_amount <= d.price_at_sale, {
     message: "El descuento no puede ser mayor al precio de venta",

@@ -59,6 +59,7 @@ export default async function EditPlanPage({ params }: Props) {
               access_type: plan.access_type,
               is_recurring: plan.is_recurring,
               branch_id: plan.branch_id,
+              modality: plan.modality,
             }}
             branches={branches}
             fixedBranchId={fixedBranchId}

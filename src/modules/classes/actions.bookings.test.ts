@@ -86,11 +86,18 @@ const db: Record<string, unknown> & {
   classAttendance: Record<string, ReturnType<typeof vi.fn>>;
   scheduledClass: Record<string, ReturnType<typeof vi.fn>>;
   trainer: Record<string, ReturnType<typeof vi.fn>>;
+  branch: Record<string, ReturnType<typeof vi.fn>>;
+  classType: Record<string, ReturnType<typeof vi.fn>>;
+  trainerTimeOff: Record<string, ReturnType<typeof vi.fn>>;
 } = {
-  classBooking: { findFirst: vi.fn(), create: vi.fn(), update: vi.fn(), upsert: vi.fn() },
+  classBooking: { findFirst: vi.fn(), create: vi.fn(), update: vi.fn(), upsert: vi.fn(), count: vi.fn(async () => 0) },
   classAttendance: { upsert: vi.fn(), create: vi.fn(), update: vi.fn() },
   scheduledClass: { findFirst: vi.fn(), update: vi.fn() },
   trainer: { findFirst: vi.fn() },
+  // GYM-BOOKINGS 3A: referencias del tenant y ausencias del entrenador.
+  branch: { findFirst: vi.fn(async () => ({ id: "loc-1" })) },
+  classType: { findFirst: vi.fn(async () => ({ capacity_default: null })) },
+  trainerTimeOff: { findMany: vi.fn(async () => []) },
   // H03: alta/edición de clases en transacción con lock del entrenador (la
   // concurrencia real se certifica en actions.scheduling.integration.test.ts).
   $queryRaw: vi.fn(async () => []),
@@ -311,15 +318,22 @@ describe("updateScheduledClassAction — cupo frente a reservas confirmadas (I5)
       capacity,
     });
 
+  // GYM-BOOKINGS 3A: el BA solo edita dentro de su sucursal (la del formulario).
+  const BRANCH = "9b2f6c1e-1111-4a2b-8c3d-000000000001";
+
   beforeEach(() => {
-    requireOperationalContextMock.mockResolvedValue(handle("branch_admin"));
-    db.trainer.findFirst.mockResolvedValue({ id: "t", branch_id: "loc-1" });
+    requireOperationalContextMock.mockResolvedValue(handle("branch_admin", BRANCH));
+    db.trainer.findFirst.mockResolvedValue({ id: "t", branch_id: BRANCH, status: "active", personalized_capacity: null });
     db.scheduledClass.findFirst.mockImplementation(async (args: { where: Record<string, unknown> }) =>
       "trainer_id" in args.where
         ? null // sin solapamiento
         : {
             id: SES,
-            branch_id: "loc-1",
+            branch_id: BRANCH,
+            session_kind: "OPEN",
+            series_id: null,
+            status: "scheduled",
+            trainer_id: "9b2f6c1e-1111-4a2b-8c3d-000000000003",
             booked_count: 4,
             class_date: new Date("2026-10-25T00:00:00.000Z"),
             start_time: "07:00",
@@ -354,6 +368,21 @@ describe("updateScheduledClassAction — cupo frente a reservas confirmadas (I5)
     const data = db.scheduledClass.update.mock.calls[0][0].data;
     expect(data.capacity).toBe(6);
     expect("starts_at" in data).toBe(false);
+  });
+
+  it("3A · BA no puede mover la clase a otra sucursal", async () => {
+    requireOperationalContextMock.mockResolvedValue(handle("branch_admin", "loc-1"));
+    const r = await updateScheduledClassAction(undefined, form("6"));
+    expect(r).toEqual({ error: "Solo puedes programar clases en tu propia sucursal." });
+    expect(db.$transaction).not.toHaveBeenCalled();
+  });
+
+  it("3A · formulario heredado sin session_kind conserva OPEN e is_personalized", async () => {
+    db.scheduledClass.update.mockResolvedValue({});
+    const f = form("6");
+    f.set("is_personalized", "on");
+    await updateScheduledClassAction(undefined, f);
+    expect(db.scheduledClass.update.mock.calls[0][0].data).toMatchObject({ session_kind: "OPEN", is_personalized: true });
   });
 
   it("si cambia la hora, anula los instantes para que el motor los derive de nuevo", async () => {

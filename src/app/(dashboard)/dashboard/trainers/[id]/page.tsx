@@ -95,6 +95,12 @@ export default async function TrainerDetailPage({ params }: Props) {
               Disponibilidad
             </Link>
             <Link
+              href={`/dashboard/trainers/${id}/time-off`}
+              className="text-sm text-zinc-600 border border-zinc-300 px-4 py-2 rounded-lg hover:border-zinc-400 hover:bg-zinc-50 transition-colors"
+            >
+              Ausencias
+            </Link>
+            <Link
               href={`/dashboard/trainers/${id}/edit`}
               className="bg-zinc-900 text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-zinc-800 transition-colors"
             >

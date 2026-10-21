@@ -1,5 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import type { UserRole } from "@prisma/client";
+import { getCapabilities } from "@/core/permissions/role-capabilities";
 import { requireClientManager } from "@/lib/permissions/guards";
 import { getBranchOptions } from "@/modules/branches/queries";
 import { getTrainersForClient, getGoalOptions, getSportOptions } from "@/modules/clients/queries";
@@ -57,6 +59,7 @@ export default async function NewClientPage() {
             goals={goals}
             sports={sports}
             fixedBranchId={fixedBranchId}
+            canAssignModality={getCapabilities(context.effectiveRole as UserRole).canManageStaff}
           />
         </div>
       </div>

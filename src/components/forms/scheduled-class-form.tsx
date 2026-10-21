@@ -3,7 +3,10 @@
 import Link from "next/link";
 import { useActionState, useState, useEffect } from "react";
 import { useFormStatus } from "react-dom";
+import type { GymSessionKind } from "@prisma/client";
 import type { ClassActionState } from "@/modules/classes/actions";
+import { GYM_SESSION_KINDS } from "@/modules/classes/schemas";
+import { SESSION_KIND_LABELS } from "@/modules/classes/scheduling/scheduling-rules";
 
 type ClassTypeOption = {
   id: string;
@@ -34,6 +37,7 @@ type DefaultValues = {
   room_name?: string | null;
   is_personalized?: boolean;
   notes?: string | null;
+  session_kind?: GymSessionKind;
 };
 
 type Props = {
@@ -96,6 +100,8 @@ export function ScheduledClassForm({
   const [capacity, setCapacity] = useState(
     String(defaultValues.capacity ?? "")
   );
+  // GYM-BOOKINGS 3A — tipo de sesión (OPEN = comportamiento heredado).
+  const [sessionKind, setSessionKind] = useState<GymSessionKind>(defaultValues.session_kind ?? "OPEN");
 
   // Filtrar entrenadores por sucursal seleccionada
   const filteredTrainers = selectedBranchId
@@ -209,6 +215,31 @@ export function ScheduledClassForm({
             <FieldError errors={state?.errors?.trainer_id} />
           </div>
 
+          {/* Tipo de sesión */}
+          <div>
+            <label className="block text-sm font-medium text-zinc-700 mb-1">
+              Tipo de sesión <span className="text-red-500">*</span>
+            </label>
+            <select
+              name="session_kind"
+              value={sessionKind}
+              onChange={(e) => setSessionKind(e.target.value as GymSessionKind)}
+              className="w-full border border-zinc-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-zinc-400 bg-white"
+            >
+              {GYM_SESSION_KINDS.map((k) => (
+                <option key={k} value={k}>
+                  {SESSION_KIND_LABELS[k]}
+                </option>
+              ))}
+            </select>
+            {sessionKind !== "OPEN" && (
+              <p className="text-xs text-zinc-400 mt-1">
+                Requiere la modalidad habilitada y la zona horaria en la configuración de reservas.
+              </p>
+            )}
+            <FieldError errors={state?.errors?.session_kind} />
+          </div>
+
           {/* Título */}
           <div>
             <label className="block text-sm font-medium text-zinc-700 mb-1">
@@ -285,7 +316,7 @@ export function ScheduledClassForm({
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <div>
             <label className="block text-sm font-medium text-zinc-700 mb-1">
-              Capacidad <span className="text-red-500">*</span>
+              Capacidad {sessionKind === "OPEN" && <span className="text-red-500">*</span>}
             </label>
             <input
               type="number"
@@ -295,6 +326,9 @@ export function ScheduledClassForm({
               min={1}
               className="w-full border border-zinc-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-zinc-400"
             />
+            {sessionKind === "PERSONALIZED" && (
+              <p className="text-xs text-zinc-400 mt-1">Vacío = cupo personalizado del entrenador o de la configuración.</p>
+            )}
             <FieldError errors={state?.errors?.capacity} />
           </div>
 
@@ -312,17 +346,20 @@ export function ScheduledClassForm({
             <FieldError errors={state?.errors?.room_name} />
           </div>
 
-          <div className="flex items-end pb-2">
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input
-                type="checkbox"
-                name="is_personalized"
-                defaultChecked={defaultValues.is_personalized ?? false}
-                className="w-4 h-4 rounded border-zinc-300 accent-zinc-800"
-              />
-              <span className="text-sm text-zinc-700">Clase personalizada</span>
-            </label>
-          </div>
+          {/* Etiqueta heredada (solo visual, OPEN). No define el tipo de sesión. */}
+          {sessionKind === "OPEN" && (
+            <div className="flex items-end pb-2">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  name="is_personalized"
+                  defaultChecked={defaultValues.is_personalized ?? false}
+                  className="w-4 h-4 rounded border-zinc-300 accent-zinc-800"
+                />
+                <span className="text-sm text-zinc-700">Etiqueta &quot;personalizada&quot; (visual)</span>
+              </label>
+            </div>
+          )}
         </div>
       </div>
 

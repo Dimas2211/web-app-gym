@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import type { UserRole } from "@prisma/client";
+import { Prisma, type GymClientModality, type UserRole } from "@prisma/client";
 import {
   requireAdmin,
   requireMembershipManager,
@@ -23,6 +23,7 @@ import {
   requireOperationalContext,
   OperationalContextError,
 } from "@/modules/platform/runtime/require-operational-context";
+import { membershipSnapshotFromPlan, saleModalityFailure } from "./modality-rules";
 
 export type MembershipActionState =
   | { errors?: Record<string, string[]>; error?: string }
@@ -39,6 +40,76 @@ function addDays(dateStr: string, days: number): Date {
   const d = new Date(dateStr);
   d.setDate(d.getDate() + days);
   return d;
+}
+
+// ── GYM-BOOKINGS 3A — modalidad, sede y entrenador de la membresía ──
+
+const MEMBERSHIP_TX = {
+  isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted,
+  timeout: 20_000,
+  maxWait: 15_000,
+};
+
+type MembershipFailure = { errors?: Record<string, string[]>; error?: string };
+
+/**
+ * Bloqueos en el orden global (GYM_BOOKING_LOCK_ORDER): trainers (SHARE,
+ * el entrenador asignado no cambia de sede a mitad) → clients FOR UPDATE
+ * (serializa con bookSession y con el cambio de modalidad).
+ */
+async function lockMembershipParents(
+  tx: Prisma.TransactionClient,
+  tenantId: string,
+  clientId: string,
+  trainerId: string | null
+) {
+  if (trainerId) {
+    await tx.$queryRaw`SELECT "id" FROM "trainers" WHERE "id" = ${trainerId} AND "tenant_id" = ${tenantId} FOR SHARE`;
+  }
+  await tx.$queryRaw`SELECT "id" FROM "clients" WHERE "id" = ${clientId} AND "tenant_id" = ${tenantId} FOR UPDATE`;
+}
+
+/**
+ * Entrenador autorizado: obligatorio para PERSONALIZED (del tenant, activo
+ * y de la sede de la membresía: R10, también exigido por trigger); para
+ * NORMAL/GROUP siempre null.
+ */
+async function resolveAssignedTrainer(
+  tx: Prisma.TransactionClient,
+  tenantId: string,
+  modality: GymClientModality,
+  trainerId: string | null | undefined,
+  membershipBranchId: string
+): Promise<{ trainerId: string | null } | { failure: MembershipFailure }> {
+  if (modality !== "PERSONALIZED") return { trainerId: null };
+  if (!trainerId) {
+    return { failure: { errors: { assigned_trainer_id: ["Selecciona el entrenador de la membresía personalizada."] } } };
+  }
+  const trainer = await tx.trainer.findFirst({
+    where: { id: trainerId, tenant_id: tenantId },
+    select: { id: true, status: true, branch_id: true },
+  });
+  if (!trainer) return { failure: { errors: { assigned_trainer_id: ["Entrenador no encontrado."] } } };
+  if (trainer.status !== "active") return { failure: { errors: { assigned_trainer_id: ["El entrenador no está activo."] } } };
+  if (trainer.branch_id !== membershipBranchId) {
+    return { failure: { errors: { assigned_trainer_id: ["El entrenador debe pertenecer a la sucursal de la membresía."] } } };
+  }
+  return { trainerId: trainer.id };
+}
+
+/** Sede del plan (null = todas) y, para PERSONALIZED/GROUP, sede del cliente. */
+function membershipBranchFailure(
+  plan: { branch_id: string | null; modality: GymClientModality },
+  client: { branch_id: string },
+  membershipBranchId: string
+): MembershipFailure | null {
+  if (plan.branch_id && plan.branch_id !== membershipBranchId) {
+    return { errors: { membership_plan_id: ["El plan no está disponible para esta sucursal."] } };
+  }
+  if (plan.modality !== "NORMAL" && client.branch_id !== membershipBranchId) {
+    return { errors: { branch_id: ["La membresía personalizada o grupal debe ser de la sucursal del cliente."] } };
+  }
+  return null;
 }
 
 // ── PLANES ───────────────────────────────────────────────────
@@ -78,6 +149,7 @@ export async function createPlanAction(
         effectiveRole === "branch_admin"
           ? context.locationId
           : norm(formData.get("branch_id")),
+      modality: norm(formData.get("modality")) ?? undefined,
     };
 
     const parsed = planSchema.safeParse(raw);
@@ -110,6 +182,7 @@ export async function createPlanAction(
         price: parsed.data.price,
         access_type: parsed.data.access_type,
         is_recurring: parsed.data.is_recurring,
+        modality: parsed.data.modality,
         status: "active",
       },
     });
@@ -163,11 +236,27 @@ export async function updatePlanAction(
       access_type: formData.get("access_type"),
       is_recurring: formData.get("is_recurring") === "on",
       branch_id: plan.branch_id, // no se cambia la sucursal en edición
+      // Sin campo (formularios previos) = conserva la modalidad actual.
+      modality: norm(formData.get("modality")) ?? plan.modality,
     };
 
     const parsed = planSchema.safeParse(raw);
     if (!parsed.success) {
       return { errors: parsed.error.flatten().fieldErrors };
+    }
+
+    // GYM-BOOKINGS 3A — los snapshots vendidos no cambian, pero un plan con
+    // membresías no cambia de modalidad (evita un plan "Personalizado" con
+    // ventas NORMAL). sessions_limit sí: solo afecta ventas futuras.
+    if (parsed.data.modality !== plan.modality) {
+      const sold = await context.client.clientMembership.count({ where: { membership_plan_id: id } });
+      if (sold > 0) {
+        return {
+          errors: {
+            modality: [`No se puede cambiar la modalidad: el plan tiene ${sold} membresía(s) vendida(s). Crea un plan nuevo.`],
+          },
+        };
+      }
     }
 
     await context.client.membershipPlan.update({
@@ -181,6 +270,7 @@ export async function updatePlanAction(
         price: parsed.data.price,
         access_type: parsed.data.access_type,
         is_recurring: parsed.data.is_recurring,
+        modality: parsed.data.modality,
       },
     });
   } finally {
@@ -258,6 +348,7 @@ export async function createClientMembershipAction(
       discount_amount: formData.get("discount_amount") || "0",
       payment_status: formData.get("payment_status"),
       notes: norm(formData.get("notes")),
+      assigned_trainer_id: norm(formData.get("assigned_trainer_id")),
     };
 
     const parsed = createClientMembershipSchema.safeParse(raw);
@@ -296,25 +387,57 @@ export async function createClientMembershipAction(
     if (!context.gymId) {
       return { errors: { membership_plan_id: ["El módulo GYM no está configurado para esta organización."] } };
     }
+    const gymId = context.gymId;
 
-    await context.client.clientMembership.create({
-      data: {
-        gym_id: context.gymId,
-        tenant_id: context.tenantId,
-        branch_id: parsed.data.branch_id,
-        client_id: parsed.data.client_id,
-        membership_plan_id: parsed.data.membership_plan_id,
-        start_date: new Date(parsed.data.start_date),
-        end_date,
-        price_at_sale: parsed.data.price_at_sale,
-        discount_amount: parsed.data.discount_amount,
-        final_amount,
-        payment_status: parsed.data.payment_status,
-        status: "active",
-        sold_by_user_id: context.effectiveUser.id,
-        notes: parsed.data.notes ?? null,
-      },
+    // GYM-BOOKINGS 3A — sede del tenant, sede del plan, modalidad del cliente
+    // (bajo su lock) y entrenador PERSONALIZED; snapshot del plan al vender.
+    const branch = await context.client.branch.findFirst({
+      where: { id: parsed.data.branch_id, tenant_id: context.tenantId },
+      select: { id: true },
     });
+    if (!branch) return { errors: { branch_id: ["Sucursal no encontrada."] } };
+    const branchFailure = membershipBranchFailure(plan, client, parsed.data.branch_id);
+    if (branchFailure) return branchFailure;
+
+    const snapshot = membershipSnapshotFromPlan(plan);
+    const failure = await context.client.$transaction(async (tx): Promise<MembershipFailure | null> => {
+      const trainerInput = snapshot.modality === "PERSONALIZED" ? (parsed.data.assigned_trainer_id ?? null) : null;
+      await lockMembershipParents(tx, context.tenantId, parsed.data.client_id, trainerInput);
+      const locked = await tx.client.findFirst({
+        where: { id: parsed.data.client_id, tenant_id: context.tenantId },
+        select: { modality: true },
+      });
+      if (!locked) return { errors: { client_id: ["Cliente no encontrado."] } };
+      const modalityFailure = saleModalityFailure(locked.modality, snapshot.modality);
+      if (modalityFailure) return { errors: { membership_plan_id: [modalityFailure] } };
+
+      const trainer = await resolveAssignedTrainer(tx, context.tenantId, snapshot.modality, trainerInput, parsed.data.branch_id);
+      if ("failure" in trainer) return trainer.failure;
+
+      await tx.clientMembership.create({
+        data: {
+          gym_id: gymId,
+          tenant_id: context.tenantId,
+          branch_id: parsed.data.branch_id,
+          client_id: parsed.data.client_id,
+          membership_plan_id: parsed.data.membership_plan_id,
+          start_date: new Date(parsed.data.start_date),
+          end_date,
+          price_at_sale: parsed.data.price_at_sale,
+          discount_amount: parsed.data.discount_amount,
+          final_amount,
+          payment_status: parsed.data.payment_status,
+          status: "active",
+          sold_by_user_id: context.effectiveUser.id,
+          notes: parsed.data.notes ?? null,
+          modality: snapshot.modality,
+          sessions_total: snapshot.sessions_total,
+          assigned_trainer_id: trainer.trainerId,
+        },
+      });
+      return null;
+    }, MEMBERSHIP_TX);
+    if (failure) return failure;
   } finally {
     await dispose();
   }
@@ -364,6 +487,7 @@ export async function updateClientMembershipAction(
       payment_status: formData.get("payment_status"),
       status: formData.get("status"),
       notes: norm(formData.get("notes")),
+      assigned_trainer_id: norm(formData.get("assigned_trainer_id")),
     };
 
     const parsed = updateClientMembershipSchema.safeParse(raw);
@@ -383,20 +507,83 @@ export async function updateClientMembershipAction(
     }
     const end_date = addDays(parsed.data.start_date, plan.duration_days);
 
-    await context.client.clientMembership.update({
-      where: { id },
-      data: {
-        membership_plan_id: parsed.data.membership_plan_id,
-        start_date: new Date(parsed.data.start_date),
-        end_date,
-        price_at_sale: parsed.data.price_at_sale,
-        discount_amount: parsed.data.discount_amount,
-        final_amount,
-        payment_status: parsed.data.payment_status,
-        status: parsed.data.status,
-        notes: parsed.data.notes ?? null,
-      },
-    });
+    // GYM-BOOKINGS 3A — el snapshot (modalidad, sessions_total) solo se
+    // re-toma del plan si se cambia de plan y la membresía no tiene reservas
+    // (su consumo depende de él). sessions_used nunca se edita aquí.
+    const planChanged = plan.id !== existing.membership_plan_id;
+    const failure = await context.client.$transaction(async (tx): Promise<MembershipFailure | null> => {
+      const current = await tx.clientMembership.findFirst({ where: { id, tenant_id: context.tenantId } });
+      if (!current) return { error: "Membresía no encontrada." };
+      const snapshot = planChanged
+        ? membershipSnapshotFromPlan(plan)
+        : { modality: current.modality, sessions_total: current.sessions_total };
+      const trainerInput =
+        snapshot.modality === "PERSONALIZED" ? (parsed.data.assigned_trainer_id ?? current.assigned_trainer_id) : null;
+
+      await lockMembershipParents(tx, context.tenantId, current.client_id, trainerInput);
+      await tx.$queryRaw`SELECT "id" FROM "client_memberships" WHERE "id" = ${id} AND "tenant_id" = ${context.tenantId} FOR UPDATE`;
+      const client = await tx.client.findFirst({
+        where: { id: current.client_id, tenant_id: context.tenantId },
+        select: { modality: true, branch_id: true },
+      });
+      if (!client) return { error: "Cliente no encontrado." };
+
+      if (planChanged) {
+        const bookings = await tx.classBooking.count({ where: { client_membership_id: id } });
+        if (bookings > 0) {
+          return { errors: { membership_plan_id: ["No se puede cambiar el plan: la membresía tiene reservas registradas."] } };
+        }
+        const branchFailure = membershipBranchFailure(plan, client, current.branch_id);
+        if (branchFailure) return branchFailure;
+      }
+      // Activar (o mantener activa) exige modalidad compatible con el cliente.
+      if (parsed.data.status === "active" || parsed.data.status === "suspended") {
+        const modalityFailure = saleModalityFailure(client.modality, snapshot.modality);
+        if (modalityFailure) return { errors: { status: [modalityFailure] } };
+      }
+
+      const trainer = await resolveAssignedTrainer(tx, context.tenantId, snapshot.modality, trainerInput, current.branch_id);
+      if ("failure" in trainer) return trainer.failure;
+      // Reasignar el entrenador con reservas futuras del anterior rompería R10.
+      if (snapshot.modality === "PERSONALIZED" && trainer.trainerId !== current.assigned_trainer_id) {
+        const pending = await tx.classBooking.count({
+          where: {
+            client_membership_id: id,
+            booking_status: "confirmed",
+            scheduled_class: { status: { in: ["scheduled", "in_progress"] }, trainer_id: { not: trainer.trainerId ?? undefined } },
+          },
+        });
+        if (pending > 0) {
+          return {
+            errors: {
+              assigned_trainer_id: [
+                `No se puede reasignar: hay ${pending} reserva(s) vigente(s) con el entrenador anterior. Cancélalas primero.`,
+              ],
+            },
+          };
+        }
+      }
+
+      await tx.clientMembership.update({
+        where: { id },
+        data: {
+          membership_plan_id: parsed.data.membership_plan_id,
+          start_date: new Date(parsed.data.start_date),
+          end_date,
+          price_at_sale: parsed.data.price_at_sale,
+          discount_amount: parsed.data.discount_amount,
+          final_amount,
+          payment_status: parsed.data.payment_status,
+          status: parsed.data.status,
+          notes: parsed.data.notes ?? null,
+          modality: snapshot.modality,
+          sessions_total: snapshot.sessions_total,
+          assigned_trainer_id: trainer.trainerId,
+        },
+      });
+      return null;
+    }, MEMBERSHIP_TX);
+    if (failure) return failure;
 
     revalidatePath("/dashboard/memberships/client-memberships");
     revalidatePath(`/dashboard/clients/${existing.client_id}`);
@@ -545,6 +732,14 @@ export async function toggleClientMembershipStatusAction(
     if (!membership || !canManageMembership(effectiveSessionUser, membership)) return;
 
     const next = membership.status === "active" ? "cancelled" : "active";
+    // GYM-BOOKINGS 3A — no reactivar una membresía de otra modalidad que el cliente.
+    if (next === "active") {
+      const client = await context.client.client.findFirst({
+        where: { id: membership.client_id, tenant_id: context.tenantId },
+        select: { modality: true },
+      });
+      if (!client || saleModalityFailure(client.modality, membership.modality)) return;
+    }
     await context.client.clientMembership.update({ where: { id }, data: { status: next } });
 
     revalidatePath("/dashboard/memberships/client-memberships");

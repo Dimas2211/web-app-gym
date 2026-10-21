@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { requireMembershipManager } from "@/lib/permissions/guards";
 import { getActivePlansForAssignment, getActiveClientsForSelect } from "@/modules/memberships/queries";
 import { getBranchOptions } from "@/modules/branches/queries";
+import { getTrainerOptionsForClass } from "@/modules/classes/queries";
 import { ClientMembershipForm } from "@/components/forms/client-membership-form";
 import { createClientMembershipAction } from "@/modules/memberships/actions";
 import { requireOrganizationModule } from "@/modules/platform/runtime/commercial-enforcement";
@@ -32,10 +33,11 @@ export default async function NewClientMembershipPage({
       redirect("/dashboard/memberships/client-memberships");
     }
 
-    const [plans, clients, branches] = await Promise.all([
+    const [plans, clients, branches, trainers] = await Promise.all([
       getActivePlansForAssignment(effectiveUser, context.client),
       getActiveClientsForSelect(effectiveUser, context.client),
       getBranchOptions(effectiveUser, context.client),
+      getTrainerOptionsForClass(effectiveUser, context.client),
     ]);
 
     const fixedBranchId =
@@ -61,6 +63,7 @@ export default async function NewClientMembershipPage({
             plans={plans}
             clients={clients}
             branches={branches}
+            trainers={trainers}
             fixedBranchId={fixedBranchId}
             fixedClientId={params.client_id ?? null}
             defaultValues={

@@ -95,6 +95,31 @@ export async function getClientById(id: string, user: SessionUser, client: Prism
   });
 }
 
+/**
+ * GYM-BOOKINGS 3A — historial de modalidad (append-only), del tenant
+ * EFECTIVO. Más reciente primero. `client` opcional: runtime-aware.
+ */
+export async function getClientModalityHistory(
+  clientId: string,
+  tenantId: string,
+  client: PrismaClient = prisma,
+  take = 20
+) {
+  return client.clientModalityChange.findMany({
+    where: { client_id: clientId, tenant_id: tenantId },
+    select: {
+      id: true,
+      from_modality: true,
+      to_modality: true,
+      reason: true,
+      changed_by_user_id: true,
+      changed_at: true,
+    },
+    orderBy: { changed_at: "desc" },
+    take,
+  });
+}
+
 export async function getTrainersForClient(user: SessionUser, client: PrismaClient = prisma) {
   const where: Record<string, unknown> = {
     tenant_id: user.tenant_id,

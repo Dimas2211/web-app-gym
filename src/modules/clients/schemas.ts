@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { passwordSchema } from "@/core/modules/users/schemas";
+import { GYM_CLIENT_MODALITIES } from "@/modules/memberships/modality-rules";
 
 const baseClientSchema = z.object({
   first_name: z.string().min(1, "El nombre es requerido").max(100),
@@ -19,9 +20,24 @@ const baseClientSchema = z.object({
   branch_id: z.string().uuid("Sucursal requerida"),
 });
 
-export const createClientSchema = baseClientSchema;
+// GYM-BOOKINGS 3A — la modalidad se elige al crear (default NORMAL). En la
+// edición NO viaja por el formulario general: cambiarla exige motivo e
+// historial (changeClientModalitySchema / changeClientModalityAction).
+export const createClientSchema = baseClientSchema.extend({
+  modality: z.enum(GYM_CLIENT_MODALITIES).default("NORMAL"),
+});
 
 export const updateClientSchema = baseClientSchema;
+
+export const changeClientModalitySchema = z.object({
+  client_id: z.string().uuid("Cliente requerido"),
+  to_modality: z.enum(GYM_CLIENT_MODALITIES, { required_error: "Modalidad requerida" }),
+  reason: z
+    .string({ required_error: "El motivo es requerido" })
+    .trim()
+    .min(3, "Indica el motivo del cambio (mínimo 3 caracteres)")
+    .max(500, "Máximo 500 caracteres"),
+});
 
 export type CreateClientInput = z.infer<typeof createClientSchema>;
 export type UpdateClientInput = z.infer<typeof updateClientSchema>;

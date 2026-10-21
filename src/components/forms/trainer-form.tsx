@@ -16,6 +16,7 @@ type DefaultValues = {
   specialty?: string | null;
   notes?: string | null;
   branch_id?: string;
+  personalized_capacity?: number | null;
 };
 
 type Props = {
@@ -155,6 +156,23 @@ export function TrainerForm({
             placeholder="Ej. Musculación, CrossFit, Yoga..."
           />
           <FieldError errors={state?.errors?.specialty} />
+        </div>
+
+        {/* GYM-BOOKINGS 3A — cupo de sus sesiones personalizadas (R19) */}
+        <div>
+          <label className="block text-sm font-medium text-zinc-700 mb-1">
+            Cupo en sesiones personalizadas
+          </label>
+          <input
+            type="number"
+            name="personalized_capacity"
+            min={1}
+            max={50}
+            defaultValue={defaultValues.personalized_capacity ?? ""}
+            className="w-full border border-zinc-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-zinc-400"
+            placeholder="Vacío = valor por defecto de la configuración de reservas"
+          />
+          <FieldError errors={state?.errors?.personalized_capacity} />
         </div>
 
         <div>

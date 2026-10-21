@@ -106,6 +106,7 @@ export async function getActivePlansForAssignment(
       duration_days: true,
       access_type: true,
       sessions_limit: true,
+      modality: true,
     },
     orderBy: { name: "asc" },
   });

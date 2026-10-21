@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { Prisma, type PrismaClient, type UserRole } from "@prisma/client";
+import { Prisma, type GymSessionKind, type PrismaClient, type UserRole } from "@prisma/client";
 import {
   requireAdmin,
   requireMembershipManager,
@@ -17,6 +17,13 @@ import {
   recordAttendanceSchema,
 } from "./schemas";
 import { validateClassWithinTrainerAvailability } from "@/modules/trainers/availability-validator";
+import {
+  findTimeOffConflict,
+  lockTrainerForScheduling,
+  timeOffConflictMessage,
+  validateTrainerOverlap,
+} from "./scheduling/scheduling-guards";
+import { resolveSessionSetup } from "./scheduling/scheduling-rules";
 import {
   requireOperationalContext,
   OperationalContextError,
@@ -178,36 +185,13 @@ function parseClassFormData(formData: FormData) {
     class_date: formData.get("class_date"),
     start_time: formData.get("start_time"),
     end_time: formData.get("end_time"),
-    capacity: formData.get("capacity"),
+    capacity: n(formData.get("capacity")),
     room_name: n(formData.get("room_name")),
     is_personalized: formData.get("is_personalized") === "on",
+    // GYM-BOOKINGS 3A — sin campo (formularios previos) = OPEN heredado.
+    session_kind: n(formData.get("session_kind")) ?? undefined,
     notes: n(formData.get("notes")),
   };
-}
-
-type ClassDb = PrismaClient | Prisma.TransactionClient;
-
-async function validateTrainerOverlap(
-  db: ClassDb,
-  trainerId: string,
-  classDate: string,
-  startTime: string,
-  endTime: string,
-  excludeId?: string
-) {
-  const overlap = await db.scheduledClass.findFirst({
-    where: {
-      trainer_id: trainerId,
-      class_date: new Date(classDate + "T00:00:00.000Z"),
-      status: { not: "cancelled" },
-      ...(excludeId ? { id: { not: excludeId } } : {}),
-      // Overlapping condition: existing.start_time < new.end_time AND existing.end_time > new.start_time
-      start_time: { lt: endTime },
-      end_time: { gt: startTime },
-    },
-    select: { id: true, title: true, start_time: true, end_time: true },
-  });
-  return overlap;
 }
 
 // GYM-BOOKINGS 2B (auditoría H03) — R14: un entrenador no puede tener dos
@@ -223,8 +207,22 @@ const CLASS_SCHEDULING_TX = {
   maxWait: 15_000,
 };
 
-async function lockTrainerForScheduling(tx: Prisma.TransactionClient, trainerId: string, tenantId: string) {
-  await tx.$queryRaw`SELECT "id" FROM "trainers" WHERE "id" = ${trainerId} AND "tenant_id" = ${tenantId} FOR UPDATE`;
+// GYM-BOOKINGS 3A — referencias del formulario dentro del tenant efectivo.
+// La FK simple de branch/class_type no compara tenant: sin esta guarda un
+// id de otra organización (base Shared) se aceptaría.
+async function validateClassReferences(
+  db: PrismaClient | Prisma.TransactionClient,
+  tenantId: string,
+  branchId: string,
+  classTypeId: string
+): Promise<{ failure: ClassActionState } | { classType: { capacity_default: number | null } }> {
+  const [branch, classType] = await Promise.all([
+    db.branch.findFirst({ where: { id: branchId, tenant_id: tenantId }, select: { id: true } }),
+    db.classType.findFirst({ where: { id: classTypeId, tenant_id: tenantId }, select: { capacity_default: true } }),
+  ]);
+  if (!branch) return { failure: { errors: { branch_id: ["Sucursal no encontrada."] } } };
+  if (!classType) return { failure: { errors: { class_type_id: ["Tipo de clase no encontrado."] } } };
+  return { classType };
 }
 
 function availabilityError(reason: "no_availability" | "outside_blocks"): ClassActionState {
@@ -279,8 +277,18 @@ export async function createScheduledClassAction(
     const parsed = createScheduledClassSchema.safeParse(raw);
     if (!parsed.success) return { errors: parsed.error.flatten().fieldErrors };
 
-    const { branch_id, class_type_id, trainer_id, class_date, start_time, end_time, ...rest } =
-      parsed.data;
+    const {
+      branch_id,
+      class_type_id,
+      trainer_id,
+      class_date,
+      start_time,
+      end_time,
+      capacity,
+      session_kind,
+      is_personalized,
+      ...rest
+    } = parsed.data;
 
     if (!context.gymId) {
       return { error: "El módulo GYM no está configurado para esta organización." };
@@ -302,6 +310,24 @@ export async function createScheduledClassAction(
         return { error: "El entrenador no pertenece a tu sucursal." };
       }
 
+      // GYM-BOOKINGS 3A — sede y tipo del tenant; tipo de sesión, cupo efectivo
+      // (R19) e instantes (R18: PERSONALIZED/GROUP fallan cerrados).
+      const refs = await validateClassReferences(tx, context.tenantId, branch_id, class_type_id);
+      if ("failure" in refs) return refs.failure;
+      const kindFailure = nonOpenTrainerFailure(session_kind, trainer, branch_id);
+      if (kindFailure) return kindFailure;
+      const setup = resolveSessionSetup({
+        kind: session_kind,
+        policy: await loadGymBookingPolicy(tx, context.tenantId),
+        date: class_date,
+        startTime: start_time,
+        endTime: end_time,
+        explicitCapacity: capacity,
+        trainerPersonalizedCapacity: trainer.personalized_capacity,
+        classTypeCapacityDefault: refs.classType.capacity_default,
+      });
+      if (!setup.ok) return { errors: { [setup.field]: [setup.message] } };
+
       // Validar disponibilidad del entrenador (debe ir antes del overlap check)
       const availCheck = await validateClassWithinTrainerAvailability(trainer_id, class_date, start_time, end_time, tx);
       if (!availCheck.valid) return availabilityError(availCheck.reason);
@@ -309,6 +335,10 @@ export async function createScheduledClassAction(
       // Validar solapamiento con otras clases (bajo el lock del entrenador)
       const overlap = await validateTrainerOverlap(tx, trainer_id, class_date, start_time, end_time);
       if (overlap) return overlapError(overlap);
+
+      // GYM-BOOKINGS 3A — ausencias del entrenador (TrainerTimeOff).
+      const timeOff = await findTimeOffConflict(tx, context.tenantId, trainer_id, class_date, start_time, end_time);
+      if (timeOff) return { errors: { start_time: [timeOffConflictMessage(timeOff)] } };
 
       await tx.scheduledClass.create({
         data: {
@@ -322,6 +352,12 @@ export async function createScheduledClassAction(
           end_time,
           created_by: context.effectiveUser.id,
           ...rest,
+          capacity: setup.capacity,
+          session_kind,
+          // is_personalized es una etiqueta heredada de OPEN; nunca acompaña a session_kind.
+          is_personalized: session_kind === "OPEN" ? is_personalized : false,
+          starts_at: setup.startsAt,
+          ends_at: setup.endsAt,
           status: "scheduled",
         },
       });
@@ -372,8 +408,23 @@ export async function updateScheduledClassAction(
     const parsed = updateScheduledClassSchema.safeParse(raw);
     if (!parsed.success) return { errors: parsed.error.flatten().fieldErrors };
 
-    const { branch_id, class_type_id, trainer_id, class_date, start_time, end_time, ...rest } =
-      parsed.data;
+    const {
+      branch_id,
+      class_type_id,
+      trainer_id,
+      class_date,
+      start_time,
+      end_time,
+      capacity,
+      session_kind,
+      is_personalized,
+      ...rest
+    } = parsed.data;
+
+    // GYM-BOOKINGS 3A — BA no puede mover la clase a otra sucursal (rol LIVE).
+    if (effectiveSessionUser.role === "branch_admin" && branch_id !== context.locationId) {
+      return { error: "Solo puedes programar clases en tu propia sucursal." };
+    }
 
     let failure: ClassActionState | null;
     try {
@@ -390,6 +441,39 @@ export async function updateScheduledClassAction(
           where: { id: trainer_id, tenant_id: context.tenantId },
         });
         if (!trainer) return { error: "Entrenador no encontrado." };
+        if (effectiveSessionUser.role === "branch_admin" && trainer.branch_id !== context.locationId) {
+          return { error: "El entrenador no pertenece a tu sucursal." };
+        }
+
+        const timingChanged =
+          current.class_date.toISOString().slice(0, 10) !== class_date ||
+          current.start_time !== start_time ||
+          current.end_time !== end_time;
+        const structuralChanged =
+          timingChanged || current.trainer_id !== trainer_id || current.branch_id !== branch_id;
+
+        // GYM-BOOKINGS 3A — protecciones de sesiones con dependencias.
+        const dependencyFailure = await sessionEditDependencyFailure(tx, current, {
+          session_kind,
+          branch_id,
+          structuralChanged,
+        });
+        if (dependencyFailure) return dependencyFailure;
+        const refs = await validateClassReferences(tx, context.tenantId, branch_id, class_type_id);
+        if ("failure" in refs) return refs.failure;
+        const kindFailure = nonOpenTrainerFailure(session_kind, trainer, branch_id);
+        if (kindFailure) return kindFailure;
+        const setup = resolveSessionSetup({
+          kind: session_kind,
+          policy: await loadGymBookingPolicy(tx, context.tenantId),
+          date: class_date,
+          startTime: start_time,
+          endTime: end_time,
+          explicitCapacity: capacity,
+          trainerPersonalizedCapacity: trainer.personalized_capacity,
+          classTypeCapacityDefault: refs.classType.capacity_default,
+        });
+        if (!setup.ok) return { errors: { [setup.field]: [setup.message] } };
 
         // Validar disponibilidad del entrenador (debe ir antes del overlap check)
         const availCheckUpdate = await validateClassWithinTrainerAvailability(trainer_id, class_date, start_time, end_time, tx);
@@ -399,17 +483,25 @@ export async function updateScheduledClassAction(
         const overlap = await validateTrainerOverlap(tx, trainer_id, class_date, start_time, end_time, id);
         if (overlap) return overlapError(overlap);
 
+        if (structuralChanged) {
+          const timeOff = await findTimeOffConflict(tx, context.tenantId, trainer_id, class_date, start_time, end_time);
+          if (timeOff) return { errors: { start_time: [timeOffConflictMessage(timeOff)] } };
+        }
+
         // GYM-BOOKINGS 2B (I5): el cupo no puede bajar de las reservas
         // confirmadas; bajo el lock de la sesión ninguna reserva entra en
         // medio. El CHECK scheduled_classes_booked_count_capacity_chk es el respaldo.
-        if (rest.capacity < current.booked_count) return capacityError(current.booked_count);
+        if (setup.capacity < current.booked_count) return capacityError(current.booked_count);
 
-        // Si cambia fecha u hora, los instantes guardados dejan de ser válidos:
-        // se anulan y el motor los deriva de class_date + HH:mm con la timezone.
-        const timingChanged =
-          current.class_date.toISOString().slice(0, 10) !== class_date ||
-          current.start_time !== start_time ||
-          current.end_time !== end_time;
+        // OPEN: si cambia fecha u hora, los instantes guardados dejan de ser
+        // válidos; se anulan y el motor los deriva de class_date + HH:mm con
+        // la timezone. PERSONALIZED/GROUP: se recalculan siempre (3A).
+        const instants =
+          session_kind !== "OPEN"
+            ? { starts_at: setup.startsAt, ends_at: setup.endsAt }
+            : timingChanged || current.session_kind !== "OPEN"
+              ? { starts_at: null, ends_at: null }
+              : {};
 
         await tx.scheduledClass.update({
           where: { id },
@@ -421,7 +513,10 @@ export async function updateScheduledClassAction(
             start_time,
             end_time,
             ...rest,
-            ...(timingChanged ? { starts_at: null, ends_at: null } : {}),
+            capacity: setup.capacity,
+            session_kind,
+            is_personalized: session_kind === "OPEN" ? is_personalized : false,
+            ...instants,
           },
         });
         return null;
@@ -441,6 +536,67 @@ export async function updateScheduledClassAction(
   }
 
   redirect(`/dashboard/classes/${formData.get("id")}`);
+}
+
+// GYM-BOOKINGS 3A — PERSONALIZED/GROUP: entrenador activo y de la sede de
+// la sesión (R10 compara después membresía ↔ sesión). OPEN conserva la
+// regla heredada (super_admin puede asignar un entrenador de otra sede).
+function nonOpenTrainerFailure(
+  kind: GymSessionKind,
+  trainer: { status: string; branch_id: string },
+  branchId: string
+): ClassActionState | null {
+  if (kind === "OPEN") return null;
+  if (trainer.status !== "active") return { errors: { trainer_id: ["El entrenador no está activo."] } };
+  if (trainer.branch_id !== branchId) {
+    return { errors: { trainer_id: ["El entrenador debe pertenecer a la sucursal de la sesión."] } };
+  }
+  return null;
+}
+
+// GYM-BOOKINGS 3A — reglas de edición con dependencias (bajo el lock de la sesión):
+//  - session_kind no cambia si la sesión tiene reservas (de cualquier
+//    estado: su consumo depende del tipo) o pertenece a una serie;
+//  - una sesión de serie no cambia de sede (trigger de 2A, mensaje claro);
+//  - PERSONALIZED/GROUP cancelada o cerrada no se edita, y con reservas
+//    confirmadas no cambia entrenador, sede, fecha ni horario (R10/R14 del
+//    alumno ya reservado). OPEN conserva la edición heredada.
+async function sessionEditDependencyFailure(
+  tx: Prisma.TransactionClient,
+  current: {
+    id: string;
+    session_kind: GymSessionKind;
+    series_id: string | null;
+    branch_id: string;
+    status: string;
+    booked_count: number;
+  },
+  next: { session_kind: GymSessionKind; branch_id: string; structuralChanged: boolean }
+): Promise<ClassActionState | null> {
+  if (next.session_kind !== current.session_kind) {
+    if (current.series_id) {
+      return { errors: { session_kind: ["Una sesión generada por una serie conserva el tipo de la serie."] } };
+    }
+    const bookings = await tx.classBooking.count({ where: { scheduled_class_id: current.id } });
+    if (bookings > 0) {
+      return { errors: { session_kind: ["No se puede cambiar el tipo de sesión: la clase tiene reservas registradas."] } };
+    }
+  }
+  if (current.series_id && next.branch_id !== current.branch_id) {
+    return { errors: { branch_id: ["Una sesión generada por una serie no puede cambiar de sucursal."] } };
+  }
+  if (current.session_kind !== "OPEN") {
+    if (current.status === "cancelled" || current.status === "completed") {
+      return { error: "La sesión está cancelada o cerrada: no se puede editar." };
+    }
+    if (current.booked_count > 0 && next.structuralChanged) {
+      return {
+        error:
+          "La sesión tiene reservas confirmadas: no se puede cambiar entrenador, sucursal, fecha ni horario. Cancela las reservas o la sesión primero.",
+      };
+    }
+  }
+  return null;
 }
 
 function capacityError(bookedCount: number): ClassActionState {

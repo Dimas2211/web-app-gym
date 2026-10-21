@@ -7,6 +7,7 @@ import {
   getActiveClientsForSelect,
 } from "@/modules/memberships/queries";
 import { getBranchOptions } from "@/modules/branches/queries";
+import { getTrainerOptionsForClass } from "@/modules/classes/queries";
 import { ClientMembershipForm } from "@/components/forms/client-membership-form";
 import { updateClientMembershipAction } from "@/modules/memberships/actions";
 import { requireOrganizationModule } from "@/modules/platform/runtime/commercial-enforcement";
@@ -35,10 +36,11 @@ export default async function EditClientMembershipPage({ params }: Props) {
     const membership = await getClientMembershipById(id, effectiveUser, context.client);
     if (!membership || !canManageMembership(sessionUser, membership)) notFound();
 
-    const [plans, clients, branches] = await Promise.all([
+    const [plans, clients, branches, trainers] = await Promise.all([
       getActivePlansForAssignment(effectiveUser, context.client),
       getActiveClientsForSelect(effectiveUser, context.client),
       getBranchOptions(effectiveUser, context.client),
+      getTrainerOptionsForClass(effectiveUser, context.client),
     ]);
 
     const fixedBranchId =
@@ -78,10 +80,15 @@ export default async function EditClientMembershipPage({ params }: Props) {
               payment_status: membership.payment_status,
               status: membership.status,
               notes: membership.notes,
+              assigned_trainer_id: membership.assigned_trainer_id,
+              modality: membership.modality,
+              sessions_total: membership.sessions_total,
+              sessions_used: membership.sessions_used,
             }}
             plans={plans}
             clients={clients}
             branches={branches}
+            trainers={trainers}
             fixedBranchId={fixedBranchId}
             fixedClientId={membership.client_id}
             isEdit

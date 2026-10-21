@@ -179,6 +179,28 @@ export default async function SettingsPage() {
         </Link>
         )}
 
+        {/* Card: Política de reservas — GYM-only (GYM-BOOKINGS 3A) */}
+        {isGym && (
+        <Link
+          href="/dashboard/settings/bookings"
+          className="bg-white rounded-xl border border-zinc-200 shadow-sm p-5 hover:border-zinc-400 hover:shadow-md transition-all group flex flex-col justify-between"
+        >
+          <div>
+            <div className="flex items-start justify-between gap-2 mb-3">
+              <h2 className="text-sm font-semibold text-zinc-800 group-hover:text-zinc-900">
+                Reservas
+              </h2>
+            </div>
+            <p className="text-xs text-zinc-500 leading-relaxed">
+              Zona horaria, modalidades personalizada y grupal, ventanas de reserva, cancelación y asistencia.
+            </p>
+          </div>
+          <div className="mt-4 text-xs text-zinc-400 group-hover:text-zinc-600 transition-colors">
+            Configurar →
+          </div>
+        </Link>
+        )}
+
         {/* Card: Códigos operativos — transversal/core, visible siempre */}
         <Link
           href="/dashboard/settings/codes"

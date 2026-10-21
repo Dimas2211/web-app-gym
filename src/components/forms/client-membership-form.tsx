@@ -2,9 +2,10 @@
 
 import { useActionState, useState, useEffect } from "react";
 import { useFormStatus } from "react-dom";
-import type { PaymentStatus, MembershipStatus } from "@prisma/client";
+import type { PaymentStatus, MembershipStatus, GymClientModality } from "@prisma/client";
 import type { MembershipActionState } from "@/modules/memberships/actions";
 import { PAYMENT_STATUS_LABELS, MEMBERSHIP_STATUS_LABELS, ACCESS_TYPE_LABELS } from "@/lib/utils/labels";
+import { MODALITY_LABELS } from "@/modules/memberships/modality-rules";
 
 type PlanOption = {
   id: string;
@@ -14,7 +15,10 @@ type PlanOption = {
   duration_days: number;
   access_type: string;
   sessions_limit: number | null;
+  modality: GymClientModality;
 };
+
+type TrainerOption = { id: string; first_name: string; last_name: string; branch_id: string };
 
 type ClientOption = {
   id: string;
@@ -37,6 +41,11 @@ type DefaultValues = {
   payment_status?: PaymentStatus;
   status?: MembershipStatus;
   notes?: string | null;
+  assigned_trainer_id?: string | null;
+  /** Snapshot vendido (edición): manda mientras no se cambie de plan. */
+  modality?: GymClientModality;
+  sessions_total?: number | null;
+  sessions_used?: number;
 };
 
 type ClientMembershipFormProps = {
@@ -48,6 +57,8 @@ type ClientMembershipFormProps = {
   fixedBranchId?: string | null;
   fixedClientId?: string | null;
   isEdit?: boolean;
+  /** GYM-BOOKINGS 3A — entrenadores activos (para membresías PERSONALIZED). */
+  trainers?: TrainerOption[];
 };
 
 function SubmitButton({ isEdit }: { isEdit: boolean }) {
@@ -112,6 +123,7 @@ export function ClientMembershipForm({
   fixedBranchId,
   fixedClientId,
   isEdit = false,
+  trainers = [],
 }: ClientMembershipFormProps) {
   const [state, formAction] = useActionState(action, undefined);
 
@@ -127,6 +139,14 @@ export function ClientMembershipForm({
   const [startDate, setStartDate] = useState(defaultValues?.start_date ?? "");
 
   const selectedPlan = plans.find((p) => p.id === selectedPlanId);
+  // GYM-BOOKINGS 3A — modalidad efectiva: el snapshot vendido mientras el
+  // plan no cambie; si cambia, la del plan nuevo (la acción lo revalida).
+  const effectiveModality: GymClientModality | undefined =
+    isEdit && selectedPlanId === defaultValues?.membership_plan_id
+      ? (defaultValues?.modality ?? selectedPlan?.modality)
+      : selectedPlan?.modality;
+  const [selectedBranchId, setSelectedBranchId] = useState(fixedBranchId ?? defaultValues?.branch_id ?? "");
+  const branchTrainers = selectedBranchId ? trainers.filter((t) => t.branch_id === selectedBranchId) : trainers;
 
   // Auto-fill price when plan changes (only on create)
   useEffect(() => {
@@ -153,7 +173,9 @@ export function ClientMembershipForm({
           <select
             name="branch_id"
             required
-            defaultValue={defaultValues?.branch_id ?? ""}
+            value={selectedBranchId}
+            onChange={(e) => setSelectedBranchId(e.target.value)}
+            disabled={isEdit}
             className={selectCls}
           >
             <option value="">Selecciona una sucursal...</option>
@@ -207,13 +229,41 @@ export function ClientMembershipForm({
         </select>
         {selectedPlan && (
           <p className="text-xs text-zinc-400 mt-1">
+            {MODALITY_LABELS[selectedPlan.modality]} ·{" "}
             {ACCESS_TYPE_LABELS[selectedPlan.access_type as keyof typeof ACCESS_TYPE_LABELS]}
             {selectedPlan.sessions_limit
               ? ` · Límite: ${selectedPlan.sessions_limit} sesiones`
               : ""}
           </p>
         )}
+        {isEdit && defaultValues?.modality && defaultValues.modality !== "NORMAL" && (
+          <p className="text-xs text-zinc-500 mt-1">
+            Vendida como {MODALITY_LABELS[defaultValues.modality]} · sesiones usadas{" "}
+            {defaultValues.sessions_used ?? 0}
+            {defaultValues.sessions_total != null ? ` de ${defaultValues.sessions_total}` : " (ilimitadas)"}
+          </p>
+        )}
       </Field>
+
+      {/* GYM-BOOKINGS 3A — Entrenador autorizado (solo PERSONALIZED) */}
+      {effectiveModality === "PERSONALIZED" && (
+        <Field label="Entrenador de la membresía personalizada" required error={state?.errors?.assigned_trainer_id?.[0]}>
+          <select
+            name="assigned_trainer_id"
+            required
+            defaultValue={defaultValues?.assigned_trainer_id ?? ""}
+            className={selectCls}
+          >
+            <option value="">Selecciona un entrenador...</option>
+            {branchTrainers.map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.last_name}, {t.first_name}
+              </option>
+            ))}
+          </select>
+          <p className="text-xs text-zinc-400 mt-1">Debe pertenecer a la sucursal de la membresía.</p>
+        </Field>
+      )}
 
       {/* Fecha de inicio y estimada de fin */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">

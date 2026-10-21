@@ -1,6 +1,7 @@
 # GYM · Reservas y seguimiento de entrenamientos — resumen activo
 
 Vertical: `gym` · Iniciativa en 5 etapas · **Estado: Etapa 2A aplicada en las tres bases (local, Control Plane, trustme-runtime). Etapa 2B (motor operativo unificado) con código completo y certificada, sin desplegar (§11).**
+Etapa 3A (administración y configuración de modalidades): código y pruebas completos en `feat/gym-bookings-stage3a`, commit local, sin migración ni despliegue (§12 y `docs/modules/gym-bookings-stage3a.md`).
 Referencia de diseño: auditoría de Etapa 1 ("Auditoría Reservas GYM.md"), con las correcciones A–F de 2A.
 
 ## 1. Qué contiene 2A
@@ -454,3 +455,15 @@ Fuente de las reglas: `Auditoría Reservas GYM.md` (Etapa 1), R14, R29, R32, R36
 - C2: SA ya corrige después de la ventana; el cierre se prueba con recepción.
 - C3: el entrenador registra en una sesión en curso, no en una futura.
 
+## 12. Etapa 3A — administración de modalidades (resumen)
+
+Detalle completo: `docs/modules/gym-bookings-stage3a.md`. **Sin cambios en `schema.prisma` ni migraciones**; 2A/2B no se modificaron.
+
+- Clientes: `modality` en el alta (default NORMAL; PERSONALIZED/GROUP solo SA/BA). `changeClientModalityAction` cambia la modalidad con motivo bajo `clients FOR UPDATE`, rechaza si hay membresías vigentes o reservas futuras incompatibles y escribe `ClientModalityChange` en la misma transacción.
+- Planes y membresías: `MembershipPlan.modality`. La venta copia el snapshot `modality` / `sessions_total` (NORMAL = null) y valida la modalidad del cliente bajo su lock, la sede del plan y el entrenador PERSONALIZED (`ClientMembership.assigned_trainer_id → Trainer`: activo, del tenant y de la sede).
+- Política: `/dashboard/settings/bookings` (`updateGymBookingPolicyAction`, SA LIVE, `gym.classes`). Usa los defaults únicos de `GYM_BOOKING_POLICY_DEFAULTS` y la timezone IANA, y rechaza el cambio de timezone si hay sesiones PERSONALIZED/GROUP vigentes.
+- Sesiones: `session_kind` en el alta y la edición. Cupo efectivo R19 e instantes con timezone (`resolveSessionSetup`), readiness R18, sede y tipo del tenant, ausencias, y protecciones de edición con reservas o con serie. OPEN conserva su comportamiento.
+- Ausencias: `/dashboard/trainers/[id]/time-off`. Bajo el lock del entrenador. Si hay sesiones afectadas la ausencia se **rechaza** y se listan (sin cascada R17).
+- Series: `/dashboard/classes/series`. La generación es explícita e idempotente (`generateSeriesSessions`: trainers → class_series FOR UPDATE), con ventana `series_generation_weeks` y DST por fecha.
+- Actividades: `/dashboard/classes/activities`. CRUD lógico; global solo SA; unicidad por tenant.
+- Pruebas: `stage3a.integration.test.ts` (43, PostgreSQL real), unitarias nuevas (39), 2B sin regresión (206) y suite completa 2639/2639.

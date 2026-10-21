@@ -2,9 +2,10 @@
 
 import { useActionState } from "react";
 import { useFormStatus } from "react-dom";
-import type { AccessType } from "@prisma/client";
+import type { AccessType, GymClientModality } from "@prisma/client";
 import type { MembershipActionState } from "@/modules/memberships/actions";
 import { ACCESS_TYPE_LABELS } from "@/lib/utils/labels";
+import { GYM_CLIENT_MODALITIES, MODALITY_LABELS } from "@/modules/memberships/modality-rules";
 
 type BranchOption = { id: string; name: string };
 
@@ -19,6 +20,7 @@ type DefaultValues = {
   access_type?: AccessType;
   is_recurring?: boolean;
   branch_id?: string | null;
+  modality?: GymClientModality;
 };
 
 type PlanFormProps = {
@@ -176,6 +178,22 @@ export function PlanForm({
           />
         </Field>
       </div>
+
+      {/* GYM-BOOKINGS 3A — Modalidad (snapshot a la membresía al vender) */}
+      <Field
+        label="Modalidad"
+        required
+        hint="Personalizada/Grupal: el límite de sesiones es el total durante la vigencia (vacío = ilimitado)"
+        error={state?.errors?.modality?.[0]}
+      >
+        <select name="modality" defaultValue={defaultValues?.modality ?? "NORMAL"} className={selectCls}>
+          {GYM_CLIENT_MODALITIES.map((m) => (
+            <option key={m} value={m}>
+              {MODALITY_LABELS[m]}
+            </option>
+          ))}
+        </select>
+      </Field>
 
       {/* Tipo de acceso */}
       <Field label="Tipo de acceso" required error={state?.errors?.access_type?.[0]}>

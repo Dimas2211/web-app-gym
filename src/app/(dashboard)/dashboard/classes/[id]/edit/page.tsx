@@ -81,6 +81,7 @@ export default async function EditScheduledClassPage({ params }: Props) {
             room_name: scheduledClass.room_name,
             is_personalized: scheduledClass.is_personalized,
             notes: scheduledClass.notes,
+            session_kind: scheduledClass.session_kind,
           }}
           submitLabel="Guardar cambios"
         />

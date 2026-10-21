@@ -81,6 +81,7 @@ export default async function EditTrainerPage({ params }: Props) {
             specialty: trainer.specialty,
             notes: trainer.notes,
             branch_id: trainer.branch_id,
+            personalized_capacity: trainer.personalized_capacity,
           }}
           submitLabel="Guardar cambios"
         />

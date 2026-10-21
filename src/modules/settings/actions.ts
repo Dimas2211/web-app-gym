@@ -12,7 +12,15 @@ import {
   type SessionUser,
 } from "@/lib/permissions/guards";
 import { generateQrToken } from "@/lib/utils/operational-codes";
-import { gymSchema, sportSchema, goalSchema, gymSettingsSchema } from "./schemas";
+import {
+  gymSchema,
+  sportSchema,
+  goalSchema,
+  gymSettingsSchema,
+  gymBookingPolicySchema,
+} from "./schemas";
+import { localDate } from "@/modules/classes/booking/booking-eligibility";
+import { loadGymBookingPolicy } from "@/modules/classes/booking/booking-service";
 import {
   requireOperationalContext,
   OperationalContextError,
@@ -40,13 +48,13 @@ export type SettingsActionState =
  * Válido para PLATFORM super_admin y RUNTIME_CLIENT super_admin. NO usar
  * para Sports/Goals: catálogos globales sin tenant_id → Platform-only.
  */
-async function openTenantSettingsWriteContext(): Promise<
+async function openTenantSettingsWriteContext(module?: string): Promise<
   { ok: true; handle: OperationalContextHandle } | { ok: false; error: string }
 > {
   const sessionUser = await requireGlobalAdmin();
   let handle: OperationalContextHandle;
   try {
-    handle = await requireOperationalContext(sessionUser, { write: true });
+    handle = await requireOperationalContext(sessionUser, { write: true, ...(module ? { module } : {}) });
   } catch (err) {
     if (err instanceof OperationalContextError) return { ok: false, error: err.userMessage };
     throw err;
@@ -419,6 +427,97 @@ export async function updateGymSettingsAction(
   revalidatePath("/dashboard/settings/codes");
   revalidatePath("/dashboard/settings");
   redirect("/dashboard/settings/codes");
+}
+
+// ══════════════════════════════════════════════
+// GYM-BOOKINGS 3A — Política de reservas (GymSettings, columnas de 2A)
+// ══════════════════════════════════════════════
+
+export type BookingPolicyActionState =
+  | { errors?: Record<string, string[]>; error?: string; success?: string }
+  | undefined;
+
+/**
+ * Guarda la política de reservas del gimnasio EFECTIVO (fila 1:1 por
+ * gym_id = context.gymId; nunca otra organización de la misma base
+ * Shared). Solo super_admin LIVE, vertical GYM y módulo gym.classes.
+ * No activa nada por sí sola: los flags llegan del formulario.
+ */
+export async function updateGymBookingPolicyAction(
+  _prev: BookingPolicyActionState,
+  formData: FormData
+): Promise<BookingPolicyActionState> {
+  const opened = await openTenantSettingsWriteContext("gym.classes");
+  if (!opened.ok) return { error: opened.error };
+  const { context, dispose } = opened.handle;
+
+  try {
+    await requireEffectiveVertical(context.tenantId, "GYM");
+    if (!context.gymId) {
+      return { error: "El módulo GYM no está configurado para esta organización." };
+    }
+    const gymId = context.gymId;
+
+    const timezoneRaw = formData.get("timezone");
+    const parsed = gymBookingPolicySchema.safeParse({
+      timezone: typeof timezoneRaw === "string" && timezoneRaw.trim() !== "" ? timezoneRaw.trim() : null,
+      personalized_booking_enabled: formData.get("personalized_booking_enabled") === "on",
+      group_booking_enabled: formData.get("group_booking_enabled") === "on",
+      personalized_default_capacity: formData.get("personalized_default_capacity"),
+      booking_horizon_days: formData.get("booking_horizon_days"),
+      booking_min_lead_minutes: formData.get("booking_min_lead_minutes"),
+      cancel_min_lead_minutes: formData.get("cancel_min_lead_minutes"),
+      late_cancel_consumes_session: formData.get("late_cancel_consumes_session") === "on",
+      apply_policy_to_open: formData.get("apply_policy_to_open") === "on",
+      attendance_edit_window_hours: formData.get("attendance_edit_window_hours"),
+      series_generation_weeks: formData.get("series_generation_weeks"),
+    });
+    if (!parsed.success) {
+      return { errors: parsed.error.flatten().fieldErrors };
+    }
+    const data = parsed.data;
+
+    const failure = await context.client.$transaction(async (tx): Promise<BookingPolicyActionState | null> => {
+      // Cambiar la zona horaria con sesiones PERSONALIZED/GROUP vigentes
+      // dejaría sus starts_at/ends_at guardados en otra zona: se rechaza.
+      const current = await loadGymBookingPolicy(tx, context.tenantId);
+      if (current.timezone !== data.timezone) {
+        const yesterday = new Date(`${localDate(new Date(), current.timezone)}T00:00:00.000Z`);
+        yesterday.setUTCDate(yesterday.getUTCDate() - 1);
+        const affected = await tx.scheduledClass.count({
+          where: {
+            tenant_id: context.tenantId,
+            session_kind: { in: ["PERSONALIZED", "GROUP"] },
+            status: { in: ["scheduled", "in_progress"] },
+            class_date: { gte: yesterday },
+          },
+        });
+        if (affected > 0) {
+          return {
+            errors: {
+              timezone: [
+                `No se puede cambiar la zona horaria: hay ${affected} sesión(es) personalizadas o grupales vigentes. Cancélalas o espera a que concluyan.`,
+              ],
+            },
+          };
+        }
+      }
+
+      await tx.gymSettings.upsert({
+        where: { gym_id: gymId },
+        create: { gym_id: gymId, tenant_id: context.tenantId, ...data },
+        update: data,
+      });
+      return null;
+    });
+    if (failure) return failure;
+  } finally {
+    await dispose();
+  }
+
+  revalidatePath("/dashboard/settings/bookings");
+  revalidatePath("/dashboard/settings");
+  return { success: "Política de reservas guardada." };
 }
 
 // ══════════════════════════════════════════════

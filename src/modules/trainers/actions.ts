@@ -44,6 +44,7 @@ function parseTrainerFormData(formData: FormData) {
     notes: normalizeEmpty(formData.get("notes")),
     branch_id: formData.get("branch_id"),
     user_id: normalizeEmpty(formData.get("user_id")),
+    personalized_capacity: normalizeEmpty(formData.get("personalized_capacity")),
   };
 }
 
