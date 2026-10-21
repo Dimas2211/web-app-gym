@@ -19,6 +19,7 @@ import {
 import { validateClassWithinTrainerAvailability } from "@/modules/trainers/availability-validator";
 import {
   findTimeOffConflict,
+  loadSchedulingPolicy,
   lockTrainerForScheduling,
   timeOffConflictMessage,
   validateTrainerOverlap,
@@ -297,6 +298,8 @@ export async function createScheduledClassAction(
 
     const failure = await context.client.$transaction(async (tx): Promise<ClassActionState | null> => {
       await lockTrainerForScheduling(tx, trainer_id, context.tenantId);
+      // Auditoría 3A H04: timezone bajo gym_settings FOR SHARE (trainers → gym_settings).
+      const policy = await loadSchedulingPolicy(tx, context.tenantId);
 
       // Validar que el entrenador pertenezca a la sucursal correcta
       const trainer = await tx.trainer.findFirst({
@@ -318,7 +321,7 @@ export async function createScheduledClassAction(
       if (kindFailure) return kindFailure;
       const setup = resolveSessionSetup({
         kind: session_kind,
-        policy: await loadGymBookingPolicy(tx, context.tenantId),
+        policy,
         date: class_date,
         startTime: start_time,
         endTime: end_time,
@@ -429,8 +432,9 @@ export async function updateScheduledClassAction(
     let failure: ClassActionState | null;
     try {
       failure = await context.client.$transaction(async (tx): Promise<ClassActionState | null> => {
-        // Orden: trainers (destino) → scheduled_classes.
+        // Orden: trainers (destino) → gym_settings (auditoría 3A H04) → scheduled_classes.
         await lockTrainerForScheduling(tx, trainer_id, context.tenantId);
+        const policy = await loadSchedulingPolicy(tx, context.tenantId);
         await tx.$queryRaw`SELECT "id" FROM "scheduled_classes" WHERE "id" = ${id} AND "tenant_id" = ${context.tenantId} FOR UPDATE`;
         const current = await tx.scheduledClass.findFirst({
           where: { id, tenant_id: context.tenantId },
@@ -465,7 +469,7 @@ export async function updateScheduledClassAction(
         if (kindFailure) return kindFailure;
         const setup = resolveSessionSetup({
           kind: session_kind,
-          policy: await loadGymBookingPolicy(tx, context.tenantId),
+          policy,
           date: class_date,
           startTime: start_time,
           endTime: end_time,

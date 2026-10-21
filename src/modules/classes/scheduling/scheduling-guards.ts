@@ -8,6 +8,8 @@
 // ─────────────────────────────────────────────────────────────────
 
 import type { Prisma, PrismaClient } from "@prisma/client";
+import type { GymBookingPolicy } from "../booking/booking-policy";
+import { loadGymBookingPolicy } from "../booking/booking-service";
 import { dbDate, timeOffCoversSlot } from "./scheduling-rules";
 
 export type SchedulingDb = PrismaClient | Prisma.TransactionClient;
@@ -15,6 +17,20 @@ export type SchedulingDb = PrismaClient | Prisma.TransactionClient;
 /** trainers FOR UPDATE: primer lock de GYM_BOOKING_LOCK_ORDER tras el advisory. */
 export async function lockTrainerForScheduling(tx: Prisma.TransactionClient, trainerId: string, tenantId: string) {
   await tx.$queryRaw`SELECT "id" FROM "trainers" WHERE "id" = ${trainerId} AND "tenant_id" = ${tenantId} FOR UPDATE`;
+}
+
+/**
+ * Auditoría 3A H04 — gym_settings FOR SHARE y lectura de la política, en la
+ * misma transacción que escribe starts_at/ends_at. Serializa con el cambio
+ * de timezone (updateGymBookingPolicyAction, FOR NO KEY UPDATE): o la sesión
+ * se calcula con la zona ya confirmada, o el cambio la ve y se rechaza.
+ * Posición: tras trainers / class_series. Quien lo toma en exclusiva no
+ * posee otro lock, así que no cierra ciclos. Sin fila no hay timezone y
+ * PERSONALIZED/GROUP fallan cerrados por R18.
+ */
+export async function loadSchedulingPolicy(tx: Prisma.TransactionClient, tenantId: string): Promise<GymBookingPolicy> {
+  await tx.$queryRaw`SELECT s."id" FROM "gym_settings" s JOIN "gyms" g ON g."id" = s."gym_id" WHERE g."tenant_id" = ${tenantId} ORDER BY s."id" FOR SHARE OF s`;
+  return loadGymBookingPolicy(tx, tenantId);
 }
 
 /** Otra sesión no cancelada del entrenador que se cruza con [start, end) ese día (R14). */

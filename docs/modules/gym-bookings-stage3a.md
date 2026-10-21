@@ -252,3 +252,118 @@ Cumplidas en código: el administrador ya puede configurar política, modalidade
 2. Merge y despliegue del código, sin migración.
 3. Prueba visual por perfil.
 4. Configurar la política en el gimnasio piloto, por decisión del cliente.
+
+## 19. Auditoría externa — H01 a H04
+
+Rama `feat/gym-bookings-stage3a`, desde `63de96b`. Los cuatro hallazgos se **reprodujeron** contra PostgreSQL 18.3 real desechable antes de corregirlos. **Sin migración**: `schema.prisma` sin cambios. El motor 2B (`booking-service.ts`) no se tocó.
+
+**Método** (`src/modules/classes/scheduling/stage3a.concurrency.integration.test.ts`):
+
+- **Dos conexiones reales**: cada carril (A / B) usa su propio `PrismaClient`, con pool independiente, y su propia identidad (`AsyncLocalStorage`). Las Server Actions y los guards son los reales.
+- **Barreras sin sleeps**: una extensión `$allOperations` detiene una consulta concreta (antes o después de ejecutarse) hasta que el test la libera. `pg_stat_activity` (`wait_event_type = 'Lock'`) confirma cuándo el otro carril espera un lock.
+- **Mismos puntos de pausa** antes y después de la corrección. Sin los locks, el invariante falla (reproducción). Con ellos, el segundo carril queda **bloqueado** y el invariante se cumple.
+
+### H01 — Edición concurrente de una membresía (`updateClientMembershipAction`)
+
+- **Riesgo.** `planChanged` se calculaba con `existing`, leído fuera de la transacción. Dentro de la transacción, `current` se leía **antes** de bloquear. Una edición podía persistir el plan de un formulario con el snapshot (`modality`, `sessions_total`) de otro plan. También podía revertir el entrenador con un dato obsoleto.
+- **Secuencias.**
+  - H01a: B abre la membresía sobre el Plan 1. A cambia Plan 1 → Plan 2 (y entrenador TA → TC) y confirma. B guarda el Plan 1.
+  - H01b: A tiene los locks tomados. B lee, espera y continúa.
+- **Evidencia previa.**
+  - H01a persistió `membership_plan_id = Plan 1` con `sessions_total = 8`, el snapshot del Plan 2 (el Plan 1 tiene 4).
+  - H01b dejó `assigned_trainer_id = TA`: revirtió el TC de A sin que el formulario de B trajera entrenador.
+- **Corrección.** La lectura previa solo decide **qué bloquear**. Bajo lock se relee la membresía y el plan. Con esos datos se calculan `planChanged`, el snapshot, el entrenador, la sede y la vigencia (`end_date`). Si el entrenador necesario no es el bloqueado, la transacción termina sin escribir y se reintenta, como `LOCK_SET_CHANGED_RETRY` de 2B. Máximo: `GYM_BOOKING_MAX_CONCURRENCY_RETRIES`. Al agotarse responde «La membresía cambió mientras se guardaba».
+- **Locks.** `trainers FOR SHARE` (candidato) → `clients FOR UPDATE` → `membership_plans FOR SHARE` (plan destino) → `client_memberships FOR UPDATE`.
+- **Resultado.** El último en escribir gana con un snapshot coherente: Plan 1 / 4 sesiones. El entrenador vigente (TC) se conserva. H01b verifica además que B bloqueó al entrenador dos veces: TA en el intento 1 y TC en el reintento.
+- **Impacto en 2B.** Ninguno. Mismo prefijo `trainers → clients` que la venta y `bookSession`. El trigger de 2A (`gym_client_memberships_trainer_integrity`) toma `trainers FOR SHARE` sobre un entrenador que ya está bloqueado, así que no adquiere locks nuevos fuera de orden.
+
+### H02 — Reactivación vs. cambio de modalidad (`toggleClientMembershipStatusAction` / `changeClientModalityAction`)
+
+- **Riesgo.** El toggle leía la modalidad del cliente y escribía el estado sin transacción ni locks. No se serializaba con el cambio de modalidad, que ya bloqueaba `clients FOR UPDATE`.
+- **Secuencias.** Cliente NORMAL con una membresía NORMAL cancelada.
+  - H02a: B (reactivar) lee NORMAL; luego A cambia a PERSONALIZED.
+  - H02b: A ya verificó las membresías; luego B reactiva.
+- **Evidencia previa.** En ambos órdenes quedó un cliente PERSONALIZED con una membresía NORMAL `active`.
+- **Corrección.** El toggle corre en una transacción READ COMMITTED con el mismo protocolo que la edición. Estado, `next` y modalidad se releen bajo lock. El entrenador va primero porque el trigger de 2A lo toma `FOR SHARE` al reactivar una PERSONALIZED: tomarlo después de `clients` invertiría el orden.
+- **Locks.** `trainers FOR SHARE` (si la membresía tiene entrenador) → `clients FOR UPDATE` → `client_memberships FOR UPDATE`. `changeClientModalityAction` no cambia: ya toma `clients FOR UPDATE`.
+- **Resultado.**
+  - H02a: A espera. B reactiva y A se rechaza por la membresía vigente, sin cambio ni historial.
+  - H02b: B espera, ve PERSONALIZED y no escribe. La fila queda idéntica, sin escrituras parciales.
+  - H02c: la cancelación sigue igual.
+- **Impacto en 2B.** Ninguno. Mismo lock que `bookSession`, `cancelBooking` y la venta.
+
+### H03 — Cambio de modalidad del plan vs. venta (`updatePlanAction` / `createClientMembershipAction`)
+
+- **Riesgo.** El conteo de ventas y la escritura del plan ocurrían fuera de cualquier transacción. La venta no bloqueaba el plan, y el FK de `client_memberships` solo toma `FOR KEY SHARE`, que no choca con el `NO KEY UPDATE` de un `UPDATE` del plan.
+- **Secuencias.** Plan NORMAL sin ventas y cliente NORMAL.
+  - H03a: A cuenta 0 ventas; luego B vende.
+  - H03b: B tomó su snapshot NORMAL; luego A cambia a GROUP.
+- **Evidencia previa.** En ambos órdenes quedó un plan GROUP con una venta NORMAL.
+- **Corrección.**
+  - `updatePlanAction`: transacción con `membership_plans FOR NO KEY UPDATE` → relectura → conteo → `UPDATE`. Sin campo `modality`, conserva la modalidad **bloqueada**.
+  - Venta: `membership_plans FOR SHARE` tras `clients`. Estado, sede, snapshot y vigencia salen del plan releído bajo lock. Si la modalidad del plan cambió entre la lectura previa y el lock (y con ella el entrenador a bloquear), se reintenta.
+- **Locks.** Plan: `membership_plans FOR NO KEY UPDATE`, sin poseer ningún otro lock. Venta: `trainers FOR SHARE` → `clients FOR UPDATE` → `membership_plans FOR SHARE`.
+- **Resultado.**
+  - H03a: B espera, ve el plan GROUP y se rechaza por la modalidad del cliente.
+  - H03b: A espera, cuenta 1 venta y se rechaza.
+  - H03c: sin ventas, el cambio sigue permitido.
+  - Las ventas existentes no se tocan (no hay cambio retroactivo).
+- **Orden.** `membership_plans` va **después de `clients` y antes de `client_memberships`**. Quien lo bloquea en exclusiva (edición, activación o borrado del plan) no posee otro lock de GYM, así que no puede cerrar un ciclo. Además, un borrado del plan (plan → FK sobre `client_memberships`) sigue el mismo orden.
+- **Impacto en 2B.** Ninguno. 2B no bloquea `membership_plans`.
+
+### H04 — Timezone vs. sesiones con instantes (`updateGymBookingPolicyAction` / `createScheduledClassAction` / `updateScheduledClassAction` / `generateSeriesSessions`)
+
+- **Riesgo.** La política contaba las sesiones PERSONALIZED/GROUP vigentes y quien programaba leía la timezone, sin ningún lock en común. Podía confirmarse una timezone nueva con sesiones cuyos `starts_at` / `ends_at` estaban en la anterior.
+- **Secuencias.**
+  - H04a: A ya contó 0 sesiones; luego B crea una PERSONALIZED.
+  - H04b: B ya calculó instantes; luego A cambia la timezone.
+  - H04c: igual que H04b, con la generación de una serie GROUP.
+- **Evidencia previa.** Una sesión de las 07:00 quedó en `13:00Z` (El Salvador) con la política ya en `America/New_York`, cuando lo esperado era `12:00Z`. La serie quedó en `00:00Z` en lugar de `22:00Z`.
+- **Corrección.**
+  - `loadSchedulingPolicy` (`scheduling-guards.ts`): `gym_settings FOR SHARE` y lectura de la política en la misma transacción que escribe los instantes. La usan el alta y la edición de sesiones y el generador de series.
+  - La política bloquea `gym_settings FOR NO KEY UPDATE` antes de leer la timezone actual y contar.
+  - Sin fila de settings no hay timezone: PERSONALIZED/GROUP fallan cerrados por R18 y OPEN deja los instantes en NULL.
+- **Locks.**
+  - Alta y edición: `trainers FOR UPDATE` → `gym_settings FOR SHARE` → (edición) `scheduled_classes FOR UPDATE`. La edición ahora carga la política antes de bloquear la sesión, para que el orden sea uniforme.
+  - Series: `trainers` → `class_series` → `gym_settings FOR SHARE`.
+  - Política: solo `gym_settings FOR NO KEY UPDATE`.
+- **Resultado.**
+  - H04a: B espera y calcula con New_York.
+  - H04b y H04c: A espera, ve la sesión y se rechaza.
+  - H04d: el lock de T1 no detiene a T2 (aislamiento).
+  - H04e: OPEN heredado sin cambios.
+- **Impacto en 2B.** Ninguno. `bookSession` y las demás operaciones siguen leyendo la política sin lock: no escriben instantes. `gym_settings` no está en `GYM_BOOKING_LOCK_ORDER` y su único titular exclusivo no posee otros locks.
+
+### Protocolo de locks resultante (extensión de `GYM_BOOKING_LOCK_ORDER`)
+
+`trainers` → `class_series` → **`gym_settings` (SHARE)** → `trainer_time_off` → `clients` → **`membership_plans` (SHARE)** → `client_memberships` → `scheduled_classes` → … (resto sin cambios).
+
+Los titulares exclusivos de las dos tablas nuevas en el orden (`updateGymBookingPolicyAction`, `updatePlanAction`, `togglePlanStatusAction`, `deletePlanAction`) no poseen ningún otro lock de GYM.
+
+### Pruebas
+
+| Suite | Resultado |
+| --- | --- |
+| `stage3a.concurrency.integration.test.ts` antes de corregir | 9 de 13 fallan en el invariante: H01a/b, H02a/b, H03a/b y H04a/b/c (los 4 restantes son controles) |
+| ídem, después de corregir | 13/13, en 3 corridas seguidas; 0 `deadlock detected` en el log del servidor |
+| `stage3a.integration.test.ts` | 43/43 |
+| Regresión 2B + 3A (`src/modules/classes src/modules/client-portal prisma/scripts/gym-bookings`) | 22 archivos, 342/342 |
+| `npx vitest run` completo con integración | 249 archivos, 2652/2652 |
+
+**Mutaciones de control** (deben fallar y fallan; restauradas después):
+
+| Mutación | Falla |
+| --- | --- |
+| Venta sin `membership_plans FOR SHARE` | H03a, H03b |
+| `updatePlanAction` sin `FOR NO KEY UPDATE` | H03a, H03b |
+| Programar sin `gym_settings FOR SHARE` | H04a, H04b, H04c |
+| Política sin `gym_settings FOR NO KEY UPDATE` | H04a, H04b, H04c |
+| Toggle sin `lockMembershipParents` | H02a, H02b |
+| Edición que decide `planChanged` con `existing` (el bug original) | H01a, H01b |
+| Edición sin la comprobación de lock-set | H01b |
+
+### Impacto en bases de datos y sincronización local/remota
+
+- **Bases tocadas**: solo bases desechables `zolvi_it2b_*` en un clúster temporal del scratchpad (127.0.0.1:55439, `data_directory` verificado por el arnés), creadas y borradas por los tests.
+- **Bases no tocadas**: `DATABASE_URL`, `DIRECT_URL`, Control Plane, runtimes y Supabase.
+- **Sincronización**: no hay nada que alinear. Sin migración ni cambios de `schema.prisma`.

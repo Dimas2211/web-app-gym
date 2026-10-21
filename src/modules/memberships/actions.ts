@@ -24,6 +24,7 @@ import {
   OperationalContextError,
 } from "@/modules/platform/runtime/require-operational-context";
 import { membershipSnapshotFromPlan, saleModalityFailure } from "./modality-rules";
+import { GYM_BOOKING_MAX_CONCURRENCY_RETRIES } from "@/modules/classes/booking/booking-contracts";
 
 export type MembershipActionState =
   | { errors?: Record<string, string[]>; error?: string }
@@ -55,18 +56,44 @@ type MembershipFailure = { errors?: Record<string, string[]>; error?: string };
 /**
  * Bloqueos en el orden global (GYM_BOOKING_LOCK_ORDER): trainers (SHARE,
  * el entrenador asignado no cambia de sede a mitad) → clients FOR UPDATE
- * (serializa con bookSession y con el cambio de modalidad).
+ * (serializa con bookSession y con el cambio de modalidad) → membership_plans
+ * FOR SHARE (auditoría 3A H03: serializa con el cambio de modalidad del plan,
+ * que lo toma FOR NO KEY UPDATE sin poseer otro lock) → client_memberships
+ * (lo toma quien edita).
  */
 async function lockMembershipParents(
   tx: Prisma.TransactionClient,
   tenantId: string,
   clientId: string,
-  trainerId: string | null
+  trainerId: string | null,
+  planId: string | null
 ) {
   if (trainerId) {
     await tx.$queryRaw`SELECT "id" FROM "trainers" WHERE "id" = ${trainerId} AND "tenant_id" = ${tenantId} FOR SHARE`;
   }
   await tx.$queryRaw`SELECT "id" FROM "clients" WHERE "id" = ${clientId} AND "tenant_id" = ${tenantId} FOR UPDATE`;
+  if (planId) {
+    await tx.$queryRaw`SELECT "id" FROM "membership_plans" WHERE "id" = ${planId} AND "tenant_id" = ${tenantId} FOR SHARE`;
+  }
+}
+
+/**
+ * Auditoría 3A H01/H02 — el entrenador a bloquear se decide con una lectura
+ * previa; si bajo lock resulta otro, la transacción termina sin escribir y
+ * se reintenta (mismo criterio que LOCK_SET_CHANGED_RETRY de 2B). Tomar el
+ * entrenador después de clients invertiría el orden global.
+ */
+const LOCK_SET_CHANGED = Symbol("LOCK_SET_CHANGED");
+const LOCK_SET_CHANGED_FAILURE: MembershipFailure = {
+  error: "La membresía cambió mientras se guardaba. Intenta nuevamente.",
+};
+
+async function withLockSetRetry<T>(attempt: () => Promise<T | typeof LOCK_SET_CHANGED>): Promise<T | MembershipFailure> {
+  for (let i = 0; i <= GYM_BOOKING_MAX_CONCURRENCY_RETRIES; i++) {
+    const result = await attempt();
+    if (result !== LOCK_SET_CHANGED) return result;
+  }
+  return LOCK_SET_CHANGED_FAILURE;
 }
 
 /**
@@ -226,6 +253,7 @@ export async function updatePlanAction(
       return { error: "Sin permiso para editar este plan." };
     }
 
+    const requestedModality = norm(formData.get("modality"));
     const raw = {
       code: norm(formData.get("code")),
       name: formData.get("name"),
@@ -237,7 +265,7 @@ export async function updatePlanAction(
       is_recurring: formData.get("is_recurring") === "on",
       branch_id: plan.branch_id, // no se cambia la sucursal en edición
       // Sin campo (formularios previos) = conserva la modalidad actual.
-      modality: norm(formData.get("modality")) ?? plan.modality,
+      modality: requestedModality ?? plan.modality,
     };
 
     const parsed = planSchema.safeParse(raw);
@@ -248,31 +276,42 @@ export async function updatePlanAction(
     // GYM-BOOKINGS 3A — los snapshots vendidos no cambian, pero un plan con
     // membresías no cambia de modalidad (evita un plan "Personalizado" con
     // ventas NORMAL). sessions_limit sí: solo afecta ventas futuras.
-    if (parsed.data.modality !== plan.modality) {
-      const sold = await context.client.clientMembership.count({ where: { membership_plan_id: id } });
-      if (sold > 0) {
-        return {
-          errors: {
-            modality: [`No se puede cambiar la modalidad: el plan tiene ${sold} membresía(s) vendida(s). Crea un plan nuevo.`],
-          },
-        };
+    // Auditoría 3A H03: conteo y escritura bajo membership_plans FOR NO KEY
+    // UPDATE, que choca con el FOR SHARE de la venta (el FK solo toma KEY
+    // SHARE y no serializaría). Esta transacción no toma otros locks.
+    const failure = await context.client.$transaction(async (tx): Promise<MembershipFailure | null> => {
+      await tx.$queryRaw`SELECT "id" FROM "membership_plans" WHERE "id" = ${id} AND "tenant_id" = ${context.tenantId} FOR NO KEY UPDATE`;
+      const locked = await tx.membershipPlan.findFirst({ where: { id, tenant_id: context.tenantId }, select: { modality: true } });
+      if (!locked) return { error: "Plan no encontrado." };
+      const modality = requestedModality ? parsed.data.modality : locked.modality;
+      if (modality !== locked.modality) {
+        const sold = await tx.clientMembership.count({ where: { membership_plan_id: id } });
+        if (sold > 0) {
+          return {
+            errors: {
+              modality: [`No se puede cambiar la modalidad: el plan tiene ${sold} membresía(s) vendida(s). Crea un plan nuevo.`],
+            },
+          };
+        }
       }
-    }
 
-    await context.client.membershipPlan.update({
-      where: { id },
-      data: {
-        code: parsed.data.code ?? null,
-        name: parsed.data.name,
-        description: parsed.data.description ?? null,
-        duration_days: parsed.data.duration_days,
-        sessions_limit: parsed.data.sessions_limit ?? null,
-        price: parsed.data.price,
-        access_type: parsed.data.access_type,
-        is_recurring: parsed.data.is_recurring,
-        modality: parsed.data.modality,
-      },
-    });
+      await tx.membershipPlan.update({
+        where: { id },
+        data: {
+          code: parsed.data.code ?? null,
+          name: parsed.data.name,
+          description: parsed.data.description ?? null,
+          duration_days: parsed.data.duration_days,
+          sessions_limit: parsed.data.sessions_limit ?? null,
+          price: parsed.data.price,
+          access_type: parsed.data.access_type,
+          is_recurring: parsed.data.is_recurring,
+          modality,
+        },
+      });
+      return null;
+    }, MEMBERSHIP_TX);
+    if (failure) return failure;
   } finally {
     await dispose();
   }
@@ -382,7 +421,6 @@ export async function createClientMembershipAction(
     if (final_amount < 0) {
       return { errors: { discount_amount: ["El monto final no puede ser negativo."] } };
     }
-    const end_date = addDays(parsed.data.start_date, plan.duration_days);
 
     if (!context.gymId) {
       return { errors: { membership_plan_id: ["El módulo GYM no está configurado para esta organización."] } };
@@ -399,15 +437,28 @@ export async function createClientMembershipAction(
     const branchFailure = membershipBranchFailure(plan, client, parsed.data.branch_id);
     if (branchFailure) return branchFailure;
 
-    const snapshot = membershipSnapshotFromPlan(plan);
-    const failure = await context.client.$transaction(async (tx): Promise<MembershipFailure | null> => {
-      const trainerInput = snapshot.modality === "PERSONALIZED" ? (parsed.data.assigned_trainer_id ?? null) : null;
-      await lockMembershipParents(tx, context.tenantId, parsed.data.client_id, trainerInput);
+    // Auditoría 3A H03: el plan se relee bajo FOR SHARE; snapshot, estado,
+    // sede y vigencia salen del plan efectivo al vender, no de la lectura previa.
+    const failure = await withLockSetRetry(() => context.client.$transaction(async (tx): Promise<MembershipFailure | null | typeof LOCK_SET_CHANGED> => {
+      const trainerInput = plan.modality === "PERSONALIZED" ? (parsed.data.assigned_trainer_id ?? null) : null;
+      await lockMembershipParents(tx, context.tenantId, parsed.data.client_id, trainerInput, plan.id);
+      const lockedPlan = await tx.membershipPlan.findFirst({ where: { id: plan.id, tenant_id: context.tenantId } });
+      if (!lockedPlan) return { errors: { membership_plan_id: ["Plan no encontrado."] } };
+      if (lockedPlan.status !== "active") {
+        return { errors: { membership_plan_id: ["El plan seleccionado no está activo."] } };
+      }
+      const snapshot = membershipSnapshotFromPlan(lockedPlan);
+      // La modalidad del plan cambió entre la lectura previa y el lock: el entrenador a bloquear es otro.
+      if ((snapshot.modality === "PERSONALIZED" ? (parsed.data.assigned_trainer_id ?? null) : null) !== trainerInput) {
+        return LOCK_SET_CHANGED;
+      }
       const locked = await tx.client.findFirst({
         where: { id: parsed.data.client_id, tenant_id: context.tenantId },
-        select: { modality: true },
+        select: { modality: true, branch_id: true },
       });
       if (!locked) return { errors: { client_id: ["Cliente no encontrado."] } };
+      const lockedBranchFailure = membershipBranchFailure(lockedPlan, locked, parsed.data.branch_id);
+      if (lockedBranchFailure) return lockedBranchFailure;
       const modalityFailure = saleModalityFailure(locked.modality, snapshot.modality);
       if (modalityFailure) return { errors: { membership_plan_id: [modalityFailure] } };
 
@@ -422,7 +473,7 @@ export async function createClientMembershipAction(
           client_id: parsed.data.client_id,
           membership_plan_id: parsed.data.membership_plan_id,
           start_date: new Date(parsed.data.start_date),
-          end_date,
+          end_date: addDays(parsed.data.start_date, lockedPlan.duration_days),
           price_at_sale: parsed.data.price_at_sale,
           discount_amount: parsed.data.discount_amount,
           final_amount,
@@ -436,7 +487,7 @@ export async function createClientMembershipAction(
         },
       });
       return null;
-    }, MEMBERSHIP_TX);
+    }, MEMBERSHIP_TX));
     if (failure) return failure;
   } finally {
     await dispose();
@@ -505,23 +556,34 @@ export async function updateClientMembershipAction(
     if (final_amount < 0) {
       return { errors: { discount_amount: ["El monto final no puede ser negativo."] } };
     }
-    const end_date = addDays(parsed.data.start_date, plan.duration_days);
 
     // GYM-BOOKINGS 3A — el snapshot (modalidad, sessions_total) solo se
     // re-toma del plan si se cambia de plan y la membresía no tiene reservas
     // (su consumo depende de él). sessions_used nunca se edita aquí.
-    const planChanged = plan.id !== existing.membership_plan_id;
-    const failure = await context.client.$transaction(async (tx): Promise<MembershipFailure | null> => {
+    // Auditoría 3A H01: la lectura previa solo elige qué bloquear
+    // (trainers SHARE → clients → membership_plans SHARE → client_memberships);
+    // planChanged, snapshot y entrenador se deciden con la fila releída bajo lock.
+    const failure = await withLockSetRetry(() => context.client.$transaction(async (tx): Promise<MembershipFailure | null | typeof LOCK_SET_CHANGED> => {
+      const preview = await tx.clientMembership.findFirst({ where: { id, tenant_id: context.tenantId } });
+      if (!preview) return { error: "Membresía no encontrada." };
+      const lockedTrainer = parsed.data.assigned_trainer_id ?? preview.assigned_trainer_id ?? null;
+
+      await lockMembershipParents(tx, context.tenantId, preview.client_id, lockedTrainer, plan.id);
+      await tx.$queryRaw`SELECT "id" FROM "client_memberships" WHERE "id" = ${id} AND "tenant_id" = ${context.tenantId} FOR UPDATE`;
       const current = await tx.clientMembership.findFirst({ where: { id, tenant_id: context.tenantId } });
       if (!current) return { error: "Membresía no encontrada." };
+      const lockedPlan = await tx.membershipPlan.findFirst({ where: { id: plan.id, tenant_id: context.tenantId } });
+      if (!lockedPlan) return { errors: { membership_plan_id: ["Plan no encontrado."] } };
+
+      const planChanged = lockedPlan.id !== current.membership_plan_id;
       const snapshot = planChanged
-        ? membershipSnapshotFromPlan(plan)
+        ? membershipSnapshotFromPlan(lockedPlan)
         : { modality: current.modality, sessions_total: current.sessions_total };
       const trainerInput =
         snapshot.modality === "PERSONALIZED" ? (parsed.data.assigned_trainer_id ?? current.assigned_trainer_id) : null;
-
-      await lockMembershipParents(tx, context.tenantId, current.client_id, trainerInput);
-      await tx.$queryRaw`SELECT "id" FROM "client_memberships" WHERE "id" = ${id} AND "tenant_id" = ${context.tenantId} FOR UPDATE`;
+      if (current.client_id !== preview.client_id || (trainerInput !== null && trainerInput !== lockedTrainer)) {
+        return LOCK_SET_CHANGED;
+      }
       const client = await tx.client.findFirst({
         where: { id: current.client_id, tenant_id: context.tenantId },
         select: { modality: true, branch_id: true },
@@ -533,7 +595,7 @@ export async function updateClientMembershipAction(
         if (bookings > 0) {
           return { errors: { membership_plan_id: ["No se puede cambiar el plan: la membresía tiene reservas registradas."] } };
         }
-        const branchFailure = membershipBranchFailure(plan, client, current.branch_id);
+        const branchFailure = membershipBranchFailure(lockedPlan, client, current.branch_id);
         if (branchFailure) return branchFailure;
       }
       // Activar (o mantener activa) exige modalidad compatible con el cliente.
@@ -569,7 +631,7 @@ export async function updateClientMembershipAction(
         data: {
           membership_plan_id: parsed.data.membership_plan_id,
           start_date: new Date(parsed.data.start_date),
-          end_date,
+          end_date: addDays(parsed.data.start_date, lockedPlan.duration_days),
           price_at_sale: parsed.data.price_at_sale,
           discount_amount: parsed.data.discount_amount,
           final_amount,
@@ -582,7 +644,7 @@ export async function updateClientMembershipAction(
         },
       });
       return null;
-    }, MEMBERSHIP_TX);
+    }, MEMBERSHIP_TX));
     if (failure) return failure;
 
     revalidatePath("/dashboard/memberships/client-memberships");
@@ -731,16 +793,32 @@ export async function toggleClientMembershipStatusAction(
     };
     if (!membership || !canManageMembership(effectiveSessionUser, membership)) return;
 
-    const next = membership.status === "active" ? "cancelled" : "active";
-    // GYM-BOOKINGS 3A — no reactivar una membresía de otra modalidad que el cliente.
-    if (next === "active") {
-      const client = await context.client.client.findFirst({
-        where: { id: membership.client_id, tenant_id: context.tenantId },
-        select: { modality: true },
-      });
-      if (!client || saleModalityFailure(client.modality, membership.modality)) return;
-    }
-    await context.client.clientMembership.update({ where: { id }, data: { status: next } });
+    // Auditoría 3A H02: clients FOR UPDATE, el mismo lock que el cambio de
+    // modalidad, antes de decidir; estado y modalidad se releen bajo lock.
+    // El entrenador va primero: el trigger de 2A lo toma FOR SHARE al reactivar.
+    await withLockSetRetry(() => context.client.$transaction(async (tx): Promise<null | typeof LOCK_SET_CHANGED> => {
+      const preview = await tx.clientMembership.findFirst({ where: { id, tenant_id: context.tenantId } });
+      if (!preview) return null;
+      await lockMembershipParents(tx, context.tenantId, preview.client_id, preview.assigned_trainer_id, null);
+      await tx.$queryRaw`SELECT "id" FROM "client_memberships" WHERE "id" = ${id} AND "tenant_id" = ${context.tenantId} FOR UPDATE`;
+      const current = await tx.clientMembership.findFirst({ where: { id, tenant_id: context.tenantId } });
+      if (!current) return null;
+      if (current.client_id !== preview.client_id || current.assigned_trainer_id !== preview.assigned_trainer_id) {
+        return LOCK_SET_CHANGED;
+      }
+
+      const next = current.status === "active" ? "cancelled" : "active";
+      // GYM-BOOKINGS 3A — no reactivar una membresía de otra modalidad que el cliente.
+      if (next === "active") {
+        const client = await tx.client.findFirst({
+          where: { id: current.client_id, tenant_id: context.tenantId },
+          select: { modality: true },
+        });
+        if (!client || saleModalityFailure(client.modality, current.modality)) return null;
+      }
+      await tx.clientMembership.update({ where: { id }, data: { status: next } });
+      return null;
+    }, MEMBERSHIP_TX));
 
     revalidatePath("/dashboard/memberships/client-memberships");
     revalidatePath(`/dashboard/clients/${membership.client_id}`);

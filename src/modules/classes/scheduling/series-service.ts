@@ -3,6 +3,7 @@
 //
 // Operación administrativa (sin cron). Una transacción READ COMMITTED:
 //   trainers FOR UPDATE → class_series FOR UPDATE   (GYM_BOOKING_LOCK_ORDER)
+//   → gym_settings FOR SHARE (auditoría 3A H04: timezone de los instantes)
 //   → lecturas de ausencias, disponibilidad y agenda del entrenador
 //   → INSERT de las sesiones nuevas (el trigger de 2A valida sede/tipo).
 //
@@ -14,9 +15,8 @@
 // ─────────────────────────────────────────────────────────────────
 
 import { Prisma, type PrismaClient } from "@prisma/client";
-import { loadGymBookingPolicy } from "../booking/booking-service";
 import { dateOnly, localDate } from "../booking/booking-eligibility";
-import { lockTrainerForScheduling } from "./scheduling-guards";
+import { loadSchedulingPolicy, lockTrainerForScheduling } from "./scheduling-guards";
 import {
   dbDate,
   planSeriesDates,
@@ -75,7 +75,7 @@ export async function generateSeriesSessions(
     if (series.trainer.status !== "active") return { ok: false, error: "El entrenador de la serie no está activo." };
     if (series.class_type.status !== "active") return { ok: false, error: "El tipo de clase de la serie no está activo." };
 
-    const policy = await loadGymBookingPolicy(tx, input.tenantId);
+    const policy = await loadSchedulingPolicy(tx, input.tenantId);
     const today = localDate(now, policy.timezone);
     const plan = planSeriesDates({
       weekday: series.weekday,

@@ -480,6 +480,11 @@ export async function updateGymBookingPolicyAction(
     const failure = await context.client.$transaction(async (tx): Promise<BookingPolicyActionState | null> => {
       // Cambiar la zona horaria con sesiones PERSONALIZED/GROUP vigentes
       // dejaría sus starts_at/ends_at guardados en otra zona: se rechaza.
+      // Auditoría 3A H04: bajo gym_settings FOR NO KEY UPDATE, que choca con
+      // el FOR SHARE de quien calcula instantes (loadSchedulingPolicy). Esta
+      // transacción no toma otros locks. Sin fila, nadie pudo calcular
+      // instantes PERSONALIZED/GROUP (R18 sin timezone).
+      await tx.$queryRaw`SELECT s."id" FROM "gym_settings" s JOIN "gyms" g ON g."id" = s."gym_id" WHERE s."gym_id" = ${gymId} OR g."tenant_id" = ${context.tenantId} ORDER BY s."id" FOR NO KEY UPDATE OF s`;
       const current = await loadGymBookingPolicy(tx, context.tenantId);
       if (current.timezone !== data.timezone) {
         const yesterday = new Date(`${localDate(new Date(), current.timezone)}T00:00:00.000Z`);
