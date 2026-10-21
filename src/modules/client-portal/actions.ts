@@ -12,8 +12,20 @@ import {
   requireOperationalContext,
   OperationalContextError,
 } from "@/modules/platform/runtime/require-operational-context";
+import { createGymBookingService, resolveIdempotencyKey } from "@/modules/classes/booking/booking-service";
+import { gymBookingErrorMessage } from "@/modules/classes/booking/booking-messages";
+import {
+  bookingActorFromContext,
+  bookingScopeFromContext,
+} from "@/modules/classes/booking/booking-action-support";
 
 export type ActionResult = { error: string } | { success: true };
+
+/** Actor del portal con rol LIVE; null si la cuenta ya no es de rol client. */
+function portalActor(context: Parameters<typeof bookingActorFromContext>[0]) {
+  const actor = bookingActorFromContext(context);
+  return actor?.role === "client" ? actor : null;
+}
 
 // FASE VI-D7: el Client Portal es la superficie más expuesta al aislamiento
 // runtime — un miembro real de un tenant hosteado escribe (reserva clases,
@@ -22,8 +34,11 @@ export type ActionResult = { error: string } | { success: true };
 // tocar datos: bloquea bajo Support Session (readOnly) y enruta SIEMPRE al
 // PrismaClient runtime efectivo — nunca al Prisma global de la plataforma.
 // El portal no tiene module code comercial propio (es un canal hacia
-// módulos GYM ya gateados aguas arriba, gym.classes/gym.weekly_plans); no
-// se inventa uno nuevo aquí.
+// módulos GYM ya gateados aguas arriba); no se inventa uno nuevo aquí.
+// GYM-BOOKINGS 2B: reservar y cancelar exigen module "gym.classes" (el
+// mismo que el staff) y delegan en GymBookingService con channel PORTAL.
+// El alumno SIEMPRE se resuelve desde sessionUser.id; el servicio vuelve a
+// verificar client.user_id = actor bajo bloqueo.
 
 // ============================================================
 // RESERVAR CLASE
@@ -37,7 +52,7 @@ export async function bookClassAction(
 
   let handle;
   try {
-    handle = await requireOperationalContext(sessionUser, { write: true });
+    handle = await requireOperationalContext(sessionUser, { module: "gym.classes", write: true });
   } catch (err) {
     if (err instanceof OperationalContextError) return { error: err.userMessage };
     throw err;
@@ -54,79 +69,20 @@ export async function bookClassAction(
     const client = await getClientByUserId(sessionUser.id, context.client);
     if (!client) return { error: "No tienes un perfil de cliente vinculado." };
 
-    // Verificar membresía activa y vigente
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const activeMembership = await context.client.clientMembership.findFirst({
-      where: {
-        client_id: client.id,
-        status: "active",
-        payment_status: { in: ["paid", "partial"] },
-        start_date: { lte: today },
-        end_date: { gte: today },
-      },
+    const actor = portalActor(context);
+    if (!actor) return { error: "No tienes un perfil de cliente vinculado." };
+
+    // Membresía vigente, modalidad, sucursal, fecha, cupo, duplicado y
+    // reactivación: GymBookingService, en una transacción bajo bloqueo.
+    const result = await createGymBookingService(context.client).bookSession({
+      scope: bookingScopeFromContext(context),
+      actor,
+      channel: "PORTAL",
+      sessionId: class_id,
+      clientId: client.id,
+      idempotencyKey: resolveIdempotencyKey(formData.get("idempotency_key")),
     });
-    if (!activeMembership) {
-      return { error: "No tienes una membresía activa vigente para reservar clases." };
-    }
-
-    // Verificar que la clase existe, está programada y pertenece a tu sucursal
-    const scheduledClass = await context.client.scheduledClass.findFirst({
-      where: {
-        id: class_id,
-        status: "scheduled",
-        branch_id: client.branch_id,
-      },
-      include: {
-        bookings: { where: { booking_status: "confirmed" }, select: { id: true } },
-      },
-    });
-    if (!scheduledClass) {
-      return { error: "Clase no disponible o no pertenece a tu sucursal." };
-    }
-
-    // Verificar que la clase no está en el pasado
-    const classDate = new Date(scheduledClass.class_date);
-    classDate.setHours(0, 0, 0, 0);
-    if (classDate < today) {
-      return { error: "No puedes reservar una clase pasada." };
-    }
-
-    // Verificar cupo disponible
-    const confirmedCount = scheduledClass.bookings.length;
-    if (confirmedCount >= scheduledClass.capacity) {
-      return { error: "Esta clase ya no tiene cupo disponible." };
-    }
-
-    // Verificar reserva duplicada
-    const existing = await context.client.classBooking.findUnique({
-      where: {
-        scheduled_class_id_client_id: {
-          scheduled_class_id: class_id,
-          client_id: client.id,
-        },
-      },
-    });
-    if (existing) {
-      if (existing.booking_status === "confirmed") {
-        return { error: "Ya tienes una reserva confirmada para esta clase." };
-      }
-      // Si estaba cancelada, reactivar
-      await context.client.classBooking.update({
-        where: { id: existing.id },
-        data: { booking_status: "confirmed", booked_at: new Date() },
-      });
-      revalidatePath("/portal/clases");
-      return { success: true };
-    }
-
-    await context.client.classBooking.create({
-      data: {
-        scheduled_class_id: class_id,
-        client_id: client.id,
-        booking_status: "confirmed",
-      },
-    });
+    if (!result.ok) return { error: gymBookingErrorMessage(result.code, "portal", result.message) };
 
     revalidatePath("/portal/clases");
     return { success: true };
@@ -147,7 +103,7 @@ export async function cancelBookingAction(
 
   let handle;
   try {
-    handle = await requireOperationalContext(sessionUser, { write: true });
+    handle = await requireOperationalContext(sessionUser, { module: "gym.classes", write: true });
   } catch (err) {
     if (err instanceof OperationalContextError) return { error: err.userMessage };
     throw err;
@@ -163,31 +119,19 @@ export async function cancelBookingAction(
     const client = await getClientByUserId(sessionUser.id, context.client);
     if (!client) return { error: "No tienes un perfil de cliente vinculado." };
 
-    // Verificar que la reserva pertenece a este cliente
-    const booking = await context.client.classBooking.findFirst({
-      where: { id: booking_id, client_id: client.id },
-      include: {
-        scheduled_class: { select: { class_date: true, status: true } },
-      },
-    });
-    if (!booking) return { error: "Reserva no encontrada." };
-    if (booking.booking_status !== "confirmed") {
-      return { error: "Esta reserva ya está cancelada." };
-    }
+    const actor = portalActor(context);
+    if (!actor) return { error: "No tienes un perfil de cliente vinculado." };
 
-    // No permitir cancelar clases ya pasadas o en progreso
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const classDate = new Date(booking.scheduled_class.class_date);
-    classDate.setHours(0, 0, 0, 0);
-    if (classDate < today) {
-      return { error: "No puedes cancelar una reserva de clase pasada." };
-    }
-
-    await context.client.classBooking.update({
-      where: { id: booking_id },
-      data: { booking_status: "cancelled" },
+    // Propiedad de la reserva (client.user_id = sesión), ventana de
+    // cancelación y liberación de cupo/sesión: GymBookingService.
+    const result = await createGymBookingService(context.client).cancelBooking({
+      scope: bookingScopeFromContext(context),
+      actor,
+      channel: "PORTAL",
+      bookingId: booking_id,
+      idempotencyKey: resolveIdempotencyKey(formData.get("idempotency_key")),
     });
+    if (!result.ok) return { error: gymBookingErrorMessage(result.code, "portal", result.message) };
 
     revalidatePath("/portal/clases");
     return { success: true };

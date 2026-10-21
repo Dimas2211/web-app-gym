@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import Link from "next/link";
 import { requireClassViewer } from "@/lib/permissions/guards";
 import {
@@ -244,6 +245,8 @@ async function renderClassesAgenda({
                   )}
                   {c.status !== "cancelled" ? (
                     <form action={toggleScheduledClassStatusAction}>
+                      {/* GYM-BOOKINGS 2B: clave de la orden de cancelación de sesión. */}
+                      <input type="hidden" name="idempotency_key" value={randomUUID()} />
                       <input type="hidden" name="id" value={c.id} />
                       <button
                         type="submit"

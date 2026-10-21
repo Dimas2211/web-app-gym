@@ -1,7 +1,8 @@
 // ─────────────────────────────────────────────────────────────────
-// GYM-BOOKINGS 2A — contrato del futuro servicio único de reservas.
+// GYM-BOOKINGS 2A — contrato del servicio único de reservas.
 //
-// SOLO tipos y constantes: la implementación llega en 2B. Staff, portal
+// SOLO tipos y constantes. Implementación (2B): booking-service.ts
+// (createGymBookingService). Staff, portal
 // alumno y portal entrenador deberán pasar por esta interfaz; ninguna
 // ruta nueva escribe class_bookings / class_attendance por fuera.
 //
@@ -97,6 +98,15 @@ export type GymBookingErrorCode =
   | "BELOW_MIN_LEAD"
   | "CLIENT_SCHEDULE_CONFLICT"
   | "CANCEL_WINDOW_CLOSED"
+  // 2B — asistencia / comando (aditivos)
+  /** Asistencia antes del inicio de la sesión (solo si la política aplica al tipo). */
+  | "ATTENDANCE_NOT_STARTED"
+  /** Pasó attendance_edit_window_hours desde el fin de la sesión. */
+  | "ATTENDANCE_WINDOW_CLOSED"
+  /** Cancelación de staff (R29) o de sesión sin motivo. */
+  | "REASON_REQUIRED"
+  /** Campo del comando fuera de contrato (p. ej. estado de asistencia "cancelled"). */
+  | "INVALID_COMMAND"
   // estado / concurrencia
   | "ALREADY_BOOKED"
   | "ALREADY_CANCELLED"

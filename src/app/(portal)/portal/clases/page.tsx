@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { requireClient } from "@/lib/permissions/guards";
 import {
   getClientByUserId,
@@ -116,6 +117,8 @@ export default async function ClasesPage() {
                     <div className="shrink-0">
                       <BookClassButton
                         classId={cls.id}
+                        bookKey={randomUUID()}
+                        cancelKey={randomUUID()}
                         bookingId={bookingId}
                         isConfirmed={isConfirmed}
                         isFull={isFull && !isConfirmed}
@@ -161,6 +164,8 @@ export default async function ClasesPage() {
                   </div>
                   <BookClassButton
                     classId={booking.scheduled_class_id}
+                    bookKey={randomUUID()}
+                    cancelKey={randomUUID()}
                     bookingId={booking.id}
                     isConfirmed={true}
                     isFull={false}

@@ -21,6 +21,18 @@ import {
   requireOperationalContext,
   OperationalContextError,
 } from "@/modules/platform/runtime/require-operational-context";
+import {
+  createGymBookingService,
+  loadGymBookingPolicy,
+  resolveIdempotencyKey,
+} from "./booking/booking-service";
+import { policyAppliesTo } from "./booking/booking-policy";
+import { gymBookingErrorMessage } from "./booking/booking-messages";
+import {
+  bookingActorFromContext,
+  bookingScopeFromContext,
+  optionalFormText,
+} from "./booking/booking-action-support";
 
 export type ClassActionState =
   | { errors?: Record<string, string[]>; error?: string }
@@ -389,18 +401,43 @@ export async function updateScheduledClassAction(
       };
     }
 
-    await context.client.scheduledClass.update({
-      where: { id },
-      data: {
-        branch_id,
-        class_type_id,
-        trainer_id,
-        class_date: new Date(class_date + "T00:00:00.000Z"),
-        start_time,
-        end_time,
-        ...rest,
+    // GYM-BOOKINGS 2B (I5): el cupo no puede bajar de las reservas
+    // confirmadas. El CHECK scheduled_classes_booked_count_capacity_chk es
+    // el respaldo si una reserva entra entre esta lectura y el UPDATE.
+    const capacityError = {
+      errors: {
+        capacity: [`La capacidad no puede ser menor que las reservas confirmadas (${target.booked_count}).`],
       },
-    });
+    };
+    if (rest.capacity < target.booked_count) return capacityError;
+
+    // Si cambia fecha u hora, los instantes guardados dejan de ser válidos:
+    // se anulan y el motor los deriva de class_date + HH:mm con la timezone.
+    const timingChanged =
+      target.class_date.toISOString().slice(0, 10) !== class_date ||
+      target.start_time !== start_time ||
+      target.end_time !== end_time;
+
+    try {
+      await context.client.scheduledClass.update({
+        where: { id },
+        data: {
+          branch_id,
+          class_type_id,
+          trainer_id,
+          class_date: new Date(class_date + "T00:00:00.000Z"),
+          start_time,
+          end_time,
+          ...rest,
+          ...(timingChanged ? { starts_at: null, ends_at: null } : {}),
+        },
+      });
+    } catch (err) {
+      if (String((err as Error)?.message ?? "").includes("scheduled_classes_booked_count_capacity_chk")) {
+        return capacityError;
+      }
+      throw err;
+    }
 
     revalidatePath("/dashboard/classes");
     revalidatePath(`/dashboard/classes/${id}`);
@@ -437,11 +474,41 @@ export async function toggleScheduledClassStatusAction(
     };
     if (!target || !canManageClass(effectiveSessionUser, target)) return;
 
-    const newStatus = target.status === "cancelled" ? "scheduled" : "cancelled";
-    await context.client.scheduledClass.update({
-      where: { id },
-      data: { status: newStatus },
-    });
+    if (target.status === "cancelled") {
+      // Reactivar la sesión: solo su estado. Las reservas liberadas por una
+      // cancelación de sesión (2B) quedan canceladas.
+      await context.client.scheduledClass.update({
+        where: { id },
+        data: { status: "scheduled", cancelled_at: null, cancelled_by_user_id: null, cancel_reason: null },
+      });
+    } else {
+      // GYM-BOOKINGS 2B: con política aplicable (PERSONALIZED / GROUP, u OPEN
+      // con apply_policy_to_open) la cancelación libera cupos y sesiones vía
+      // GymBookingService.cancelSession. OPEN heredado conserva su
+      // comportamiento: solo cambia el estado y las reservas siguen confirmadas.
+      const policy = await loadGymBookingPolicy(context.client, context.tenantId);
+      const actor = bookingActorFromContext(context);
+      if (policyAppliesTo(policy, target.session_kind)) {
+        if (!actor) return;
+        const result = await createGymBookingService(context.client).cancelSession({
+          scope: bookingScopeFromContext(context),
+          actor,
+          sessionId: id,
+          reason: n(formData.get("cancel_reason")) ?? "Sesión cancelada desde la agenda.",
+          idempotencyKey: resolveIdempotencyKey(formData.get("idempotency_key")),
+        });
+        if (!result.ok) return;
+      } else {
+        await context.client.scheduledClass.update({
+          where: { id },
+          data: {
+            status: "cancelled",
+            cancelled_at: new Date(),
+            cancelled_by_user_id: context.effectiveUser.id,
+          },
+        });
+      }
+    }
 
     revalidatePath("/dashboard/classes");
     revalidatePath(`/dashboard/classes/${id}`);
@@ -541,7 +608,6 @@ export async function createBookingAction(
   const { context, dispose } = handle;
 
   try {
-    const effectiveRole = context.effectiveUser.role;
     const raw = {
       scheduled_class_id: formData.get("scheduled_class_id"),
       client_id: formData.get("client_id"),
@@ -552,81 +618,20 @@ export async function createBookingAction(
 
     const { scheduled_class_id, client_id } = parsed.data;
 
-    // Verificar clase existe y está en scope
-    const scheduledClass = await context.client.scheduledClass.findFirst({
-      where: { id: scheduled_class_id, tenant_id: context.tenantId },
-    });
-    if (!scheduledClass) return { error: "Clase no encontrada." };
+    // GYM-BOOKINGS 2B: alcance, membresía, modalidad, cupo, duplicado y
+    // reactivación los resuelve GymBookingService bajo bloqueo (una tx).
+    const actor = bookingActorFromContext(context);
+    if (!actor) return { error: "Sin permiso para gestionar esta clase." };
 
-    const effectiveSessionUser = {
-      ...context.effectiveUser,
-      role: effectiveRole as UserRole,
-    };
-    if (!canManageClass(effectiveSessionUser, scheduledClass)) {
-      return { error: "Sin permiso para gestionar esta clase." };
-    }
-    if (scheduledClass.status === "cancelled") {
-      return { error: "No se pueden registrar reservas en una clase cancelada." };
-    }
-
-    // Verificar cliente en scope
-    const client = await context.client.client.findFirst({
-      where: { id: client_id, tenant_id: context.tenantId },
+    const result = await createGymBookingService(context.client).bookSession({
+      scope: bookingScopeFromContext(context),
+      actor,
+      channel: "STAFF",
+      sessionId: scheduled_class_id,
+      clientId: client_id,
+      idempotencyKey: resolveIdempotencyKey(formData.get("idempotency_key")),
     });
-    if (!client) return { error: "Cliente no encontrado." };
-    if (
-      (effectiveRole === "branch_admin" || effectiveRole === "reception") &&
-      client.branch_id !== context.locationId
-    ) {
-      return { error: "El cliente no pertenece a tu sucursal." };
-    }
-
-    // Verificar membresía activa
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const activeMembership = await context.client.clientMembership.findFirst({
-      where: {
-        client_id,
-        tenant_id: context.tenantId,
-        status: "active",
-        end_date: { gte: today },
-        payment_status: { in: ["paid", "partial"] },
-      },
-    });
-    if (!activeMembership) {
-      return { error: "El cliente no tiene membresía activa válida para reservar." };
-    }
-
-    // Verificar reserva duplicada
-    const existing = await context.client.classBooking.findUnique({
-      where: {
-        scheduled_class_id_client_id: { scheduled_class_id, client_id },
-      },
-    });
-    if (existing) {
-      if (existing.booking_status === "confirmed") {
-        return { error: "El cliente ya tiene una reserva confirmada para esta clase." };
-      }
-      // Reactivar reserva cancelada
-      await context.client.classBooking.update({
-        where: { id: existing.id },
-        data: { booking_status: "confirmed", booked_at: new Date() },
-      });
-      revalidatePath(`/dashboard/classes/${scheduled_class_id}`);
-      return undefined;
-    }
-
-    // Verificar cupo disponible
-    const confirmedCount = await context.client.classBooking.count({
-      where: { scheduled_class_id, booking_status: "confirmed" },
-    });
-    if (confirmedCount >= scheduledClass.capacity) {
-      return { error: "No hay cupo disponible en esta clase." };
-    }
-
-    await context.client.classBooking.create({
-      data: { scheduled_class_id, client_id, booking_status: "confirmed" },
-    });
+    if (!result.ok) return { error: gymBookingErrorMessage(result.code, "staff", result.message) };
 
     revalidatePath(`/dashboard/classes/${scheduled_class_id}`);
     return undefined;
@@ -646,31 +651,38 @@ export async function cancelBookingAction(formData: FormData): Promise<void> {
   }
   const { context, dispose } = handle;
 
+  let redirectTo: string | null = null;
   try {
     const booking_id = formData.get("booking_id") as string;
     if (!booking_id) return;
+    const returnClassId = n(formData.get("scheduled_class_id"));
 
-    const booking = await context.client.classBooking.findUnique({
-      where: { id: booking_id },
-      include: { scheduled_class: true },
-    });
-    if (!booking || booking.scheduled_class.tenant_id !== context.tenantId) return;
+    const actor = bookingActorFromContext(context);
+    if (!actor) return;
 
-    const effectiveSessionUser = {
-      ...context.effectiveUser,
-      role: context.effectiveUser.role as UserRole,
-    };
-    if (!canManageClass(effectiveSessionUser, booking.scheduled_class)) return;
-
-    await context.client.classBooking.update({
-      where: { id: booking_id },
-      data: { booking_status: "cancelled" },
+    const result = await createGymBookingService(context.client).cancelBooking({
+      scope: bookingScopeFromContext(context),
+      actor,
+      channel: "STAFF",
+      bookingId: booking_id,
+      reason: n(formData.get("reason")) ?? undefined,
+      idempotencyKey: resolveIdempotencyKey(formData.get("idempotency_key")),
     });
 
-    revalidatePath(`/dashboard/classes/${booking.scheduled_class_id}`);
+    const classId = result.ok ? result.value.sessionId : returnClassId;
+    if (result.ok) revalidatePath(`/dashboard/classes/${classId}`);
+    if (classId) redirectTo = classDetailUrl(classId, result.ok ? null : gymBookingErrorMessage(result.code, "staff", result.message));
   } finally {
     await dispose();
   }
+  if (redirectTo) redirect(redirectTo);
+}
+
+/** Acciones void del detalle de clase: el error viaja en ?error= (mismo patrón que la agenda). */
+function classDetailUrl(classId: string, error: string | null): string {
+  return error
+    ? `/dashboard/classes/${classId}?error=${encodeURIComponent(error)}`
+    : `/dashboard/classes/${classId}`;
 }
 
 // ══════════════════════════════════════════════
@@ -690,6 +702,7 @@ export async function recordAttendanceAction(
   }
   const { context, dispose } = handle;
 
+  let redirectTo: string | null = null;
   try {
     const raw = {
       scheduled_class_id: formData.get("scheduled_class_id"),
@@ -701,41 +714,40 @@ export async function recordAttendanceAction(
     const parsed = recordAttendanceSchema.safeParse(raw);
     if (!parsed.success) return;
 
-    const { scheduled_class_id, client_id, attendance_status, notes } =
-      parsed.data;
+    const { scheduled_class_id, client_id, attendance_status } = parsed.data;
 
-    // Scope check
-    const scheduledClass = await context.client.scheduledClass.findFirst({
-      where: { id: scheduled_class_id, tenant_id: context.tenantId },
-    });
-    const effectiveSessionUser = {
-      ...context.effectiveUser,
-      role: context.effectiveUser.role as UserRole,
-    };
-    if (!scheduledClass || !canManageClass(effectiveSessionUser, scheduledClass)) return;
+    const actor = bookingActorFromContext(context);
+    if (!actor) return;
 
-    await context.client.classAttendance.upsert({
-      where: {
-        scheduled_class_id_client_id: { scheduled_class_id, client_id },
-      },
-      create: {
-        scheduled_class_id,
-        client_id,
-        attendance_status,
-        notes,
-        checked_in_at:
-          attendance_status === "attended" ? new Date() : null,
-      },
-      update: {
-        attendance_status,
-        notes,
-        checked_in_at:
-          attendance_status === "attended" ? new Date() : null,
-      },
+    // GYM-BOOKINGS 2B: la asistencia se registra sobre la reserva (sesión,
+    // cliente) del tenant efectivo; el servicio valida alcance, estado y ventana.
+    const booking = await context.client.classBooking.findFirst({
+      where: { scheduled_class_id, client_id, tenant_id: context.tenantId },
+      select: { id: true },
     });
 
-    revalidatePath(`/dashboard/classes/${scheduled_class_id}`);
+    let error: string | null = null;
+    if (!booking) {
+      error = "El cliente no tiene una reserva en esta clase.";
+    } else if (attendance_status === "cancelled") {
+      error = gymBookingErrorMessage("INVALID_COMMAND");
+    } else {
+      const result = await createGymBookingService(context.client).recordAttendance({
+        scope: bookingScopeFromContext(context),
+        actor,
+        channel: "STAFF",
+        bookingId: booking.id,
+        status: attendance_status,
+        // Sin campo "notes" en el formulario → no se sobrescribe la nota existente.
+        notes: optionalFormText(formData, "notes"),
+        idempotencyKey: resolveIdempotencyKey(formData.get("idempotency_key")),
+      });
+      if (result.ok) revalidatePath(`/dashboard/classes/${scheduled_class_id}`);
+      else error = gymBookingErrorMessage(result.code, "staff", result.message);
+    }
+    redirectTo = classDetailUrl(scheduled_class_id, error);
   } finally {
     await dispose();
   }
+  if (redirectTo) redirect(redirectTo);
 }

@@ -12,6 +12,8 @@ type ClientOption = {
 };
 
 type Props = {
+  /** GYM-BOOKINGS 2B: clave de la orden; el servidor la renueva al revalidar. */
+  idempotencyKey: string;
   scheduledClassId: string;
   clients: ClientOption[];
   action: (prev: ClassActionState, formData: FormData) => Promise<ClassActionState>;
@@ -30,7 +32,7 @@ function SubmitButton() {
   );
 }
 
-export function BookingForm({ scheduledClassId, clients, action }: Props) {
+export function BookingForm({ idempotencyKey, scheduledClassId, clients, action }: Props) {
   const [state, formAction] = useActionState(action, undefined);
 
   if (clients.length === 0) {
@@ -43,6 +45,7 @@ export function BookingForm({ scheduledClassId, clients, action }: Props) {
 
   return (
     <form action={formAction} className="space-y-3">
+      <input type="hidden" name="idempotency_key" value={idempotencyKey} />
       <input type="hidden" name="scheduled_class_id" value={scheduledClassId} />
 
       {state?.error && (

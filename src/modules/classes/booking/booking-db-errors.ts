@@ -26,6 +26,8 @@ const MESSAGE_RULES: ReadonlyArray<[RegExp, GymBookingErrorCode]> = [
   [/GYM_COUNTER_READONLY/, "COUNTER_READONLY"],
   [/GYM_APPEND_ONLY/, "APPEND_ONLY"],
   [/client_memberships_sessions_chk/, "MEMBERSHIP_EXHAUSTED"],
+  // 2B (I5): CHECK NOT VALID de cupo, respaldo del lock de la sesión.
+  [/scheduled_classes_booked_count_capacity_chk/, "SESSION_FULL"],
   [/class_bookings_scheduled_class_id_client_id_key|scheduled_class_id_client_id/, "ALREADY_BOOKED"],
 ];
 

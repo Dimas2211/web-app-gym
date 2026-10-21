@@ -12,6 +12,9 @@
  *  - Nunca imprime la URL completa ni datos personales (solo IDs técnicos).
  *  - Fase automática: si scheduled_classes.booked_count no existe, corre
  *    las comprobaciones "pre"; si existe, corre "pre" + "post".
+ *  - GYM-BOOKINGS 2B (--stage=2b, requiere 2A aplicada): agrega "pre2b" y,
+ *    si 20261020000000_gym_bookings_capacity_check figura aplicada en
+ *    _prisma_migrations, "post2b".
  *
  * USO (PowerShell):
  *   $env:GYM_PREFLIGHT_DATABASE_URL = "<url de la base a revisar>"
@@ -22,6 +25,7 @@
 
 import { PrismaClient } from "@prisma/client";
 import {
+  GYM_BOOKINGS_2B_MIGRATION,
   GYM_BOOKINGS_PREFLIGHT_CHECKS,
   type GymPreflightCheck,
 } from "./preflight-gym-bookings.queries";
@@ -43,6 +47,7 @@ async function main() {
     return;
   }
   const withSamples = process.argv.includes("--samples");
+  const stage2b = process.argv.includes("--stage=2b");
   const prisma = new PrismaClient({ datasourceUrl: url });
 
   console.log(`GYM-BOOKINGS 2A preflight (READ ONLY) → ${describeUrlSafely(url)}`);
@@ -60,8 +65,31 @@ async function main() {
                 AND table_name = 'scheduled_classes' AND column_name = 'booked_count'
            ) AS migrated`
         );
+        let migrated2b = false;
+        if (stage2b && migrated) {
+          const [{ hasTable }] = await tx.$queryRawUnsafe<{ hasTable: boolean }[]>(
+            `SELECT EXISTS (
+               SELECT 1 FROM information_schema.tables
+                WHERE table_schema = current_schema() AND table_name = '_prisma_migrations'
+             ) AS "hasTable"`
+          );
+          if (hasTable) {
+            const [{ applied }] = await tx.$queryRawUnsafe<{ applied: boolean }[]>(
+              `SELECT EXISTS (
+                 SELECT 1 FROM "_prisma_migrations"
+                  WHERE "migration_name" = $1 AND "finished_at" IS NOT NULL AND "rolled_back_at" IS NULL
+               ) AS applied`,
+              GYM_BOOKINGS_2B_MIGRATION
+            );
+            migrated2b = applied;
+          }
+        }
         const checks = GYM_BOOKINGS_PREFLIGHT_CHECKS.filter(
-          (c: GymPreflightCheck) => c.phase === "pre" || migrated
+          (c: GymPreflightCheck) =>
+            c.phase === "pre" ||
+            (c.phase === "post" && migrated) ||
+            (c.phase === "pre2b" && stage2b && migrated) ||
+            (c.phase === "post2b" && migrated2b)
         );
 
         const rows: { check: GymPreflightCheck; n: number; sample?: unknown[] }[] = [];
@@ -73,12 +101,21 @@ async function main() {
               : undefined;
           rows.push({ check, n: Number(n), sample });
         }
-        return { migrated, rows };
+        return { migrated, migrated2b, rows };
       },
       { timeout: 120_000 }
     );
 
-    console.log(`Migración 2A aplicada: ${report.migrated ? "SÍ (pre + post)" : "NO (solo pre)"}\n`);
+    console.log(`Migración 2A aplicada: ${report.migrated ? "SÍ (pre + post)" : "NO (solo pre)"}`);
+    if (stage2b) {
+      const stage = !report.migrated
+        ? "requiere 2A aplicada"
+        : report.migrated2b
+          ? "pre2b + post2b (CHECK de cupo aplicado)"
+          : "pre2b (CHECK de cupo sin aplicar)";
+      console.log(`Etapa 2B: ${stage}`);
+    }
+    console.log("");
     let blockers = 0;
     for (const { check, n, sample } of report.rows) {
       const flag = n === 0 ? "OK  " : check.severity === "BLOCKER" ? "STOP" : check.severity === "WARNING" ? "WARN" : "INFO";

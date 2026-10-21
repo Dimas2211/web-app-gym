@@ -6,12 +6,15 @@ import { bookClassAction, cancelBookingAction } from "@/modules/client-portal/ac
 
 type Props = {
   classId: string;
+  /** GYM-BOOKINGS 2B: claves de orden generadas por el servidor (se renuevan con router.refresh()). */
+  bookKey: string;
+  cancelKey: string;
   bookingId?: string;
   isConfirmed: boolean;
   isFull: boolean;
 };
 
-export function BookClassButton({ classId, bookingId, isConfirmed, isFull }: Props) {
+export function BookClassButton({ classId, bookKey, cancelKey, bookingId, isConfirmed, isFull }: Props) {
   const router = useRouter();
   const [bookState, bookAction, bookPending] = useActionState(bookClassAction, undefined);
   const [cancelState, cancelAction, cancelPending] = useActionState(cancelBookingAction, undefined);
@@ -31,6 +34,7 @@ export function BookClassButton({ classId, bookingId, isConfirmed, isFull }: Pro
           <span className="text-xs text-zinc-400">Cancelada</span>
         ) : (
           <form action={cancelAction}>
+            <input type="hidden" name="idempotency_key" value={cancelKey} />
             <input type="hidden" name="booking_id" value={bookingId} />
             <button
               type="submit"
@@ -64,6 +68,7 @@ export function BookClassButton({ classId, bookingId, isConfirmed, isFull }: Pro
         <span className="text-xs text-emerald-600 font-medium">Reservada</span>
       ) : (
         <form action={bookAction}>
+          <input type="hidden" name="idempotency_key" value={bookKey} />
           <input type="hidden" name="class_id" value={classId} />
           <button
             type="submit"

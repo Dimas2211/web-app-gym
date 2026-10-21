@@ -1,6 +1,6 @@
 # GYM · Reservas y seguimiento de entrenamientos — resumen activo
 
-Vertical: `gym` · Iniciativa en 5 etapas · **Estado: Etapa 2A (fundación de datos) con código completo, sin desplegar.**
+Vertical: `gym` · Iniciativa en 5 etapas · **Estado: Etapa 2A aplicada en las tres bases (local, Control Plane, trustme-runtime). Etapa 2B (motor operativo unificado) con código completo y certificada, sin desplegar (§11).**
 Referencia de diseño: auditoría de Etapa 1 ("Auditoría Reservas GYM.md"), con las correcciones A–F de 2A.
 
 ## 1. Qué contiene 2A
@@ -281,7 +281,7 @@ Medido con `certify-gym-bookings-prisma-migrate.mjs` (Prisma 6.19.2 contra Postg
 | `certify-gym-bookings-concurrency.mjs` | PostgreSQL 17.10 real desechable, dos conexiones, sincronización por `pg_stat_activity` (sin sleeps) | C01–C24 en ambos órdenes (padre primero / hijo primero; C21–C24 = reserva ↔ asistencia, H05), L01–L08 concurrencia legítima, D01 interbloqueo detectado y reintentado, I01–I03 aislamiento, R01–R02 llamadas por trigger. `--counterfactual --migration=<previa>` reproduce las carreras sin el fix |
 | Vitest | — | Contratos, política, reglas, idempotencia, errores y contrato estático de la migración |
 
-**Pendiente (requiere el servicio de 2B):**
+**Pendiente al cierre de 2A (requería el servicio de 2B; certificado en §11.7):**
 - concurrencia del motor de reservas: último cupo, saldo, solapamientos;
 - el orden de locks implementado por el servicio (la parte de BD, triggers y guardas, ya está certificada en `certify-gym-bookings-concurrency.mjs`).
 
@@ -289,6 +289,147 @@ Las demostraciones D usan un protocolo de referencia en SQL, no el servicio.
 
 **Pendiente de entorno:** ejecutar `prisma migrate deploy` en las bases reales, después de aprobación y preflight.
 
-## 10. Pendiente para 2B
+## 10. Etapa 2B — estado
 
-Implementar `GymBookingService` según `booking-contracts.ts`. Delegar en él `createBookingAction`, `cancelBookingAction` y `recordAttendanceAction` (staff), y las acciones del portal (añadiendo `module: "gym.classes"`). Agregar el CHECK de cupo NOT VALID. Escribir el test de concurrencia contra PostgreSQL real.
+2B cerrada en código y pruebas en la rama `feat/gym-bookings-engine-2b`, **sin desplegar**. El detalle está en §11. Lo que §9 dejaba pendiente para 2B quedó certificado en §11.7. Sigue pendiente el despliegue por base (§11.9).
+
+## 11. Etapa 2B — motor operativo unificado
+
+### 11.1 Piezas
+
+| Pieza | Ubicación |
+| --- | --- |
+| `GymBookingService` (implementación del contrato) | `src/modules/classes/booking/booking-service.ts` (`createGymBookingService(context.client)`) |
+| Reglas puras nuevas: elegibilidad, instantes con timezone, solapamiento, ventana de asistencia, motivo R29 | `src/modules/classes/booking/booking-eligibility.ts` |
+| Mensajes de usuario por código (staff / portal, con los textos heredados) | `src/modules/classes/booking/booking-messages.ts` |
+| Soporte de acciones: scope, actor con rol LIVE, texto opcional del formulario | `src/modules/classes/booking/booking-action-support.ts` |
+| Acciones de staff integradas | `src/modules/classes/actions.ts` (`createBookingAction`, `cancelBookingAction`, `recordAttendanceAction`, `toggleScheduledClassStatusAction`, guarda de cupo en `updateScheduledClassAction`) |
+| Acciones de portal integradas | `src/modules/client-portal/actions.ts` (`bookClassAction`, `cancelBookingAction`, ahora con `module: "gym.classes"`) |
+| Migración (CHECK de cupo NOT VALID + guarda) | `prisma/migrations/20261020000000_gym_bookings_capacity_check/migration.sql` |
+| Limpieza revisada de sobrecupo / reversión | `prisma/scripts/gym-bookings/cleanup-over-capacity-2b.sql`, `rollback-gym-bookings-capacity-check.sql` |
+| Preflight 2B (opt-in `--stage=2b`) | `preflight-gym-bookings.queries.ts` (fases `pre2b` / `post2b`) + runner |
+| Arnés PostgreSQL desechable + fixtures | `src/modules/classes/booking/testing/` |
+
+**Sin cambios en `schema.prisma`.** Los CHECK no se modelan en Prisma: `prisma migrate diff` contra una base con 2B da «No difference detected».
+
+**Contrato (aditivo).** Se agregaron los códigos `ATTENDANCE_NOT_STARTED`, `ATTENDANCE_WINDOW_CLOSED`, `REASON_REQUIRED` e `INVALID_COMMAND`, y el mapeo `scheduled_classes_booked_count_capacity_chk → SESSION_FULL` en `booking-db-errors.ts`. Lo que 2A certificó no cambió.
+
+### 11.2 Protocolo de cada operación
+
+Todas las operaciones corren en una transacción READ COMMITTED. Empiezan con el advisory lock `(tenant, key)` y el paso REPLAY / IDEMPOTENCY_KEY_REUSED. Terminan con el INSERT de la operación (que guarda el `result`) y un evento por reserva.
+
+| Operación | Locks, en orden | Validaciones bajo lock |
+| --- | --- | --- |
+| `bookSession` | lectura previa de la sesión → `clients` FOR UPDATE → `client_memberships` activas del alumno + la de la reserva previa, FOR UPDATE ORDER BY id → `scheduled_classes` FOR UPDATE (forma igual o `SESSION_CHANGED_RETRY`) → `class_bookings` FOR UPDATE (membresía fuera del conjunto: `LOCK_SET_CHANGED_RETRY`) | canal/rol, propiedad (portal), cliente activo, duplicado, sede, readiness R18, estado de la sesión, ventana, membresía y saldo, solapamiento, cupo |
+| `cancelBooking` | `clients` → membresía de la reserva → sesión → reserva | propiedad, sede, estado, ventana, motivo R29 |
+| `cancelSession` | lectura previa de las reservas confirmadas → `clients` ORDER BY id → sus membresías → sesión → reservas confirmadas FOR UPDATE (alguna fuera del conjunto: `LOCK_SET_CHANGED_RETRY`) | SA/BA en su sede, motivo, sesión no cancelada |
+| `recordAttendance` | `clients` **FOR KEY SHARE** → sesión → reserva → asistencia | canal/rol (STAFF o TRAINER de la sesión), R36, reserva confirmada, sesión no cancelada, ventana |
+
+**Corrección de orden encontrada en 2B (asistencia).** El trigger `gym_class_attendance_integrity` lee `clients FOR KEY SHARE` cuando se escribe la asistencia, es decir, después de que el servicio ya bloqueó la sesión. `cancelBooking` y `bookSession` bloquean `clients FOR UPDATE` antes que la sesión. Una asistencia y una cancelación simultáneas del mismo alumno se interbloqueaban: medido, 5 de 6 rondas terminaron en 40P01 y se resolvieron solo por reintento, con 1 s de `deadlock_timeout` cada una. El servicio ahora toma `clients FOR KEY SHARE` antes que la sesión, que es su posición en el orden global. Ese lock choca con `FOR UPDATE` pero no con `NO KEY UPDATE`. Las suites de concurrencia exigen **cero reintentos** no previstos, y el contrafactual (quitar ese lock) vuelve a fallar.
+
+**Reintentos.** Se reintenta solo ante `CONCURRENT_UPDATE_RETRY` (40P01, 40001, P2034), `IDEMPOTENCY_RACE_RETRY` (P2002 de la key), `SESSION_CHANGED_RETRY` y `LOCK_SET_CHANGED_RETRY`. El máximo es `GYM_BOOKING_MAX_CONCURRENCY_RETRIES` (3). Un rechazo de negocio no se reintenta y no deja operación. Un error desconocido se propaga como 500, nunca como éxito.
+
+### 11.3 Reglas funcionales implementadas
+
+| Regla | OPEN con `apply_policy_to_open = false` (heredado) | PERSONALIZED / GROUP (u OPEN con política) |
+| --- | --- | --- |
+| Membresía | `active`, pago `paid`/`partial`. STAFF: `end_date ≥ hoy`. PORTAL: `start_date ≤ hoy ≤ end_date` (igual que antes) | Además, cubre la fecha de la sesión |
+| Modalidad (R2/R6/R7) | cliente y membresía NORMAL | Cliente = snapshot de la membresía = tipo de sesión |
+| Entrenador (R10) | — | PERSONALIZED: `membership.assigned_trainer_id = session.trainer_id` |
+| Consumo / saldo | `NOT_APPLICABLE`. La reserva no se liga a la membresía; la que autoriza queda en `event.metadata.authorizing_membership_id` | `CONSUMED`. Elige la membresía elegible con saldo que vence antes. Sin saldo: `MEMBERSHIP_EXHAUSTED` |
+| Estado de la sesión | portal: `scheduled`. Staff: cualquiera salvo `cancelled` | `scheduled` |
+| Fecha / ventana de reserva | portal: no reserva días pasados. Staff: sin restricción | horizonte, anticipación mínima (staff exento, R25) y no iniciada |
+| Solapamiento propio | no se valida (sin cambio de reglas) | `CLIENT_SCHEDULE_CONFLICT` |
+| Cancelación del alumno | portal: hasta el día de la clase, `CLIENT_IN_POLICY` | ≥ `cancel_min_lead_minutes`: libera la sesión. Si es tardía: `CLIENT_LATE`, que consume si `late_cancel_consumes_session`. Después del inicio: `CANCEL_WINDOW_CLOSED` |
+| Cancelación por staff | sin motivo obligatorio (igual que antes) | motivo obligatorio (R29); libera la sesión |
+| Reactivación | exige cupo | exige cupo. Si la reserva era RELEASED, exige saldo. Si es una tardía CONSUMED, sin doble consumo y en la misma membresía |
+| Cancelar la sesión (agenda) | solo cambia el estado; las reservas siguen confirmadas (igual que antes) | `cancelSession`: 1 operación y N eventos `SESSION_CANCELLED`; libera cupos y sesiones |
+| Asistencia | sin ventana. `checked_in_at` solo para `attended` (igual que antes) | desde el inicio hasta el fin + `attendance_edit_window_hours`. El ausente sigue consumido (R31) |
+| Notas de entrenamiento (R36) | SA, BA o el entrenador de la sesión; recepción → `FORBIDDEN` | igual |
+
+**Instantes.** Mandan `starts_at` / `ends_at`. Si son NULL, se derivan de `class_date + HH:mm` en `GymSettings.timezone`. Sin timezone, PERSONALIZED/GROUP ya fallan cerrados por R18. Si `updateScheduledClassAction` cambia la fecha o la hora, anula los instantes guardados para que se deriven de nuevo.
+
+### 11.4 Cambios de comportamiento deliberados frente a las acciones heredadas
+
+1. **Reactivar exige cupo.** Antes se podía superar el cupo; era el bypass de la decisión 11.
+2. **Sin reservas entre sedes, también para super_admin** (§6). BA y recepción operan solo en su sede.
+3. **Cliente inactivo:** `CLIENT_INACTIVE`. Antes no se validaba.
+4. **Filas heredadas con `tenant_id` NULL** (cliente, membresía o sesión) no se pueden reservar por el servicio (§6). El preflight `PRE_2B_BOOKABLE_ROWS_WITHOUT_TENANT` las cuenta.
+5. **El cupo de una clase no puede bajar de sus reservas confirmadas** (`updateScheduledClassAction`, respaldado por el CHECK).
+6. **Los errores de cancelación y asistencia del staff se muestran** (`?error=` en el detalle). Antes se descartaban en silencio.
+7. **Portal:** reservar y cancelar exigen el módulo `gym.classes` (igual que el staff).
+8. **Asistencia sin campo `notes`** no borra la nota previa. Antes la sobrescribía con NULL.
+9. **Reservas creadas por el servicio** tienen eventos y, por la FK RESTRICT, los scripts de purga heredados (`prisma/scripts/purge-*.ts`) ya no pueden borrarlas. Es el límite R38 de 2A, extendido a toda reserva nueva.
+
+### 11.5 Idempotencia en la UI
+
+Cada formulario lleva `idempotency_key`, un UUID que el servidor genera en cada render y que se renueva con `revalidatePath` / `router.refresh()`. Un doble clic o un reenvío devuelve REPLAY. Si falta la clave (por ejemplo, un cliente con caché durante el despliegue), el servidor genera una nueva: la operación es correcta, pero sin protección contra reintento.
+
+### 11.6 CHECK de cupo (I5) — forma y plan compatible con los datos
+
+Forma: `CHECK ("booked_count" <= "capacity") NOT VALID`, la definida en la decisión 11.
+
+**Incompatibilidad concreta (certificada, G3).** Un CHECK NOT VALID no revalida las filas viejas, pero sí se evalúa en todo UPDATE posterior de esas filas. Con una sesión heredada sobre cupo, editar la clase o cancelar una de sus reservas (booked_count 3 → 2 con cupo 1) falla. Por eso la migración agrega una guarda: el ALTER va primero, porque toma ACCESS EXCLUSIVE, y después un recuento. Si existe alguna fila con `booked_count > capacity`, la migración aborta completa con `GYM_CAPACITY_CHECK_BLOCKED` y no deja nada aplicado.
+
+Limpieza previa, por base, con aprobación (`cleanup-over-capacity-2b.sql`):
+- historial (`class_date < CURRENT_DATE − 1`): `capacity := booked_count`;
+- vigentes: el gimnasio decide (subir el cupo o cancelar reservas por el servicio).
+
+`VALIDATE CONSTRAINT` queda como paso posterior aprobado. Pasa siempre, porque la guarda garantiza 0 filas al crear el CHECK (certificado en G5).
+
+### 11.7 Certificación 2B
+
+| Suite | Base | Resultado |
+| --- | --- | --- |
+| Unitarias: `booking-eligibility`, `booking-service` (reintento acotado, READ COMMITTED, P2002/P2034), `booking-messages`, `booking-db-errors` | — | verdes |
+| Acciones de staff (`classes/actions.bookings.test.ts`) y del portal (`client-portal/actions.test.ts`) | mocks | delegación, `gym.classes`, scope y rol LIVE, clave, sin escrituras directas, mensajes, OPEN heredado en la agenda |
+| `booking-service.integration.test.ts` (35): A OPEN/NORMAL, B PERSONALIZED/GROUP, C asistencia, D idempotencia, E aislamiento | PostgreSQL 18.3 real desechable (127.0.0.1:55439, `data_directory` verificado) | 35/35 |
+| `booking-service.concurrency.test.ts` (19 × 2 modos: con CHECK y **sin CHECK**, solo el servicio) | ídem | 38/38 en 3 corridas seguidas; cero interbloqueos |
+| `booking-capacity-migration.integration.test.ts` G1–G6 | ídem | 6/6 |
+| `prisma migrate deploy` / `status` / `diff` / `resolve` reales (Prisma 6.19.2) | ídem | 61 migraciones aplicadas; status al día; sin diff. Con sobrecupo: P3018 (23514), `applied_steps_count = 0`, motivo real en `logs`, sin CHECK; tras limpieza → `resolve --rolled-back` → `deploy`, al día |
+| Preflight posterior (`--stage=2b`, READ ONLY) | base desechable migrada; TrustmeDB local (solo lectura) | 0 BLOCKERS en ambas |
+
+**Mutaciones de control** (deben fallar y fallan):
+- quitar el lock de la sesión en `bookSession`: 4, 12 y 20 reservas para 1, 1 y 5 cupos;
+- `>` en lugar de `>=` en el cupo: se detecta solo sin el CHECK. Por eso existe el modo «sin CHECK»;
+- quitar el `KEY SHARE` de la asistencia: 5 interbloqueos.
+
+Ejecutar la integración:
+
+```powershell
+$env:GYM_BOOKING_IT_ADMIN_URL = "postgresql://<user>@127.0.0.1:<puerto≠5432>/postgres"
+$env:GYM_BOOKING_IT_DATA_DIR  = "<data_directory del servidor desechable>"
+$env:GYM_BOOKING_IT_PSQL      = "C:\Program Files\PostgreSQL\18\bin\psql.exe"
+npx vitest run src/modules/classes src/modules/client-portal prisma/scripts/gym-bookings --testTimeout=120000
+```
+
+Sin esas variables, las suites de integración se omiten y `npx vitest run` sigue siendo autónomo.
+
+### 11.8 Riesgos y límites conocidos
+
+- **Convivencia de versiones durante el despliegue.** Si el código anterior y el de 2B escriben a la vez en la misma base, PostgreSQL puede abortar una operación por interbloqueo (§5). Se pierde la operación, no la integridad. Conviene desplegar en una ventana de bajo uso.
+- **Reglas sin documento de Etapa 1 a la vista.** El significado exacto de algunas reglas sale del contrato y de este resumen, porque la auditoría original no está en el repositorio activo:
+  - ventana de asistencia desde el inicio hasta el fin + N horas;
+  - motivo R29 obligatorio salvo en OPEN heredado;
+  - solapamiento solo con política.
+
+  Conviene validarlas funcionalmente.
+- **Cancelación de sesión desde la agenda.** La agenda no tiene campo de motivo, así que se usa «Sesión cancelada desde la agenda.». El actor y la fecha quedan registrados. El campo de motivo llega con las pantallas (etapa posterior).
+- **Sin pantallas para PERSONALIZED/GROUP.** No hay UI para crear sesiones de esas modalidades ni para configurar la política: llegan en etapas posteriores. El motor ya las soporta.
+- **Scripts de purga.** No pueden borrar reservas con eventos (§11.4 punto 9).
+
+### 11.9 Plan seguro de despliegue (no ejecutado)
+
+1. **Por cada base** (local → Control Plane → cada runtime, con el mapeo de 2A): `npx tsx prisma/scripts/gym-bookings/preflight-gym-bookings.ts --stage=2b`. Sin BLOCKER. Si `PRE_2B_CLASSES_OVER_CAPACITY > 0`, ejecutar la limpieza revisada con aprobación y respaldo, y repetir el preflight.
+2. `npx prisma migrate status` limpio. Respaldo.
+3. `npx prisma migrate deploy` (aplica solo `20261020000000_gym_bookings_capacity_check`). Si falla con P3018 / `GYM_CAPACITY_CHECK_BLOCKED`: limpieza → `npx prisma migrate resolve --rolled-back 20261020000000_gym_bookings_capacity_check` → `deploy` (certificado).
+4. Preflight `--stage=2b` posterior: `POST_2B_*` sin BLOCKER. `POST_2B_CAPACITY_CHECK_NOT_VALIDATED = 1` es lo esperado.
+5. Desplegar el código de 2B cuando **todas** las bases estén migradas, en una ventana de bajo uso (§11.8). El código también funciona sin el CHECK (modo certificado «sin CHECK»), así que el orden no compromete la integridad.
+6. Prueba visual en cada perfil:
+   - staff: reservar, duplicado, cupo lleno, cancelar con y sin motivo, asistencia ✓/✗/T, cancelar y reactivar una clase;
+   - portal: reservar, cancelar, clase pasada.
+7. Opcional, después: `ALTER TABLE scheduled_classes VALIDATE CONSTRAINT scheduled_classes_booked_count_capacity_chk` en una migración aprobada.
+
+**Rollback.**
+- Código: volver al build anterior. Funciona con la base ampliada, porque el CHECK solo rechaza sobrecupo.
+- CHECK: roll-forward con `rollback-gym-bookings-capacity-check.sql` (§7.3), solo si hace falta.

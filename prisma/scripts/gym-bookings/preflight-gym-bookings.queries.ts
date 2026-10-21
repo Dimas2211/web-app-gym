@@ -6,6 +6,9 @@
  *  - phase "pre":  se ejecuta ANTES de aplicar 20261019000000_gym_bookings_foundation.
  *                  Solo referencia columnas heredadas (válido en bases sin migrar).
  *  - phase "post": se ejecuta DESPUÉS; verifica contadores, triggers y CHECKs.
+ *  - phase "pre2b" / "post2b" (GYM-BOOKINGS 2B, opt-in con --stage=2b): antes
+ *    y después de 20261020000000_gym_bookings_capacity_check. Requieren 2A
+ *    aplicada. No alteran el resultado de pre/post de 2A.
  *
  * Cada `countSql` devuelve exactamente una fila con una columna `n` (int).
  * Cada `sampleSql` devuelve como máximo 20 filas con identificadores
@@ -21,7 +24,7 @@
  */
 
 export type GymPreflightSeverity = "BLOCKER" | "WARNING" | "INFO";
-export type GymPreflightPhase = "pre" | "post";
+export type GymPreflightPhase = "pre" | "post" | "pre2b" | "post2b";
 
 export interface GymPreflightCheck {
   id: string;
@@ -70,6 +73,10 @@ export const GYM_BOOKINGS_EXPECTED_TRIGGERS = [
   "gym_client_memberships_dependents_tenant_guard_trg",
   "gym_class_bookings_attendance_guard_trg",
 ] as const;
+
+/** CHECK de cupo agregado por la migración de 2B (NOT VALID). */
+export const GYM_BOOKINGS_2B_CAPACITY_CHECK = "scheduled_classes_booked_count_capacity_chk";
+export const GYM_BOOKINGS_2B_MIGRATION = "20261020000000_gym_bookings_capacity_check";
 
 export const GYM_BOOKINGS_EXPECTED_CHECKS = [
   "scheduled_classes_booked_count_nonneg_chk",
@@ -444,6 +451,91 @@ export const GYM_BOOKINGS_PREFLIGHT_CHECKS: GymPreflightCheck[] = [
     severity: "WARNING",
     title: "Sesiones con booked_count > capacity (bloquea el CHECK de cupo previsto para 2B)",
     countSql: `SELECT COUNT(*)::int AS n FROM "scheduled_classes" WHERE "booked_count" > "capacity"`,
+  },
+
+  // ── PRE 2B ────────────────────────────────────────────────────────
+  {
+    id: "PRE_2B_CLASSES_OVER_CAPACITY",
+    phase: "pre2b",
+    severity: "BLOCKER",
+    title: "Sesiones con booked_count > capacity: la migración 2B se rechaza (GYM_CAPACITY_CHECK_BLOCKED) hasta la limpieza aprobada",
+    countSql: `SELECT COUNT(*)::int AS n FROM "scheduled_classes" WHERE "booked_count" > "capacity"`,
+    sampleSql: `SELECT "id" AS class_id, "class_date", "capacity", "booked_count" FROM "scheduled_classes"
+     WHERE "booked_count" > "capacity" ORDER BY "class_date", "id" LIMIT 20`,
+  },
+  {
+    id: "PRE_2B_BOOKING_COUNTER_DRIFT",
+    phase: "pre2b",
+    severity: "BLOCKER",
+    title: "booked_count o sessions_used desalineados (I1/I2): el servicio valida cupo y saldo sobre esos contadores",
+    countSql: `SELECT (
+        (SELECT COUNT(*) FROM "scheduled_classes" s
+          WHERE s."booked_count" <> (SELECT COUNT(*) FROM "class_bookings" b
+                                      WHERE b."scheduled_class_id" = s."id" AND b."booking_status" = 'confirmed'))
+      + (SELECT COUNT(*) FROM "client_memberships" m
+          WHERE m."sessions_used" <> (SELECT COUNT(*) FROM "class_bookings" b
+                                       WHERE b."client_membership_id" = m."id" AND b."consumption" = 'CONSUMED'))
+      )::int AS n`,
+  },
+  {
+    id: "PRE_2B_BOOKABLE_ROWS_WITHOUT_TENANT",
+    phase: "pre2b",
+    severity: "WARNING",
+    title: "Clientes/membresías activos o sesiones vigentes con tenant_id NULL: el servicio exige tenant_id = contexto y no podrán reservar",
+    countSql: `SELECT (
+        (SELECT COUNT(*) FROM "clients" WHERE "tenant_id" IS NULL AND "status" = 'active')
+      + (SELECT COUNT(*) FROM "client_memberships" WHERE "tenant_id" IS NULL AND "status" = 'active' AND "end_date" >= CURRENT_DATE - 1)
+      + (SELECT COUNT(*) FROM "scheduled_classes" WHERE "tenant_id" IS NULL AND "status" <> 'cancelled' AND "class_date" >= CURRENT_DATE - 1)
+      )::int AS n`,
+  },
+  {
+    id: "PRE_2B_CROSS_BRANCH_ACTIVE_BOOKINGS",
+    phase: "pre2b",
+    severity: "INFO",
+    title: "Reservas confirmadas vigentes entre sedes (cliente ≠ sede de la sesión): siguen válidas, pero 2B no permite crear nuevas ni reactivarlas",
+    countSql: `SELECT COUNT(*)::int AS n
+      FROM "class_bookings" b
+      JOIN "clients" c ON c."id" = b."client_id"
+      JOIN "scheduled_classes" s ON s."id" = b."scheduled_class_id"
+     WHERE b."booking_status" = 'confirmed' AND s."class_date" >= CURRENT_DATE - 1
+       AND c."branch_id" <> s."branch_id"`,
+  },
+  {
+    id: "PRE_2B_INACTIVE_CLIENTS_WITH_BOOKINGS",
+    phase: "pre2b",
+    severity: "INFO",
+    title: "Clientes inactivos con reservas futuras confirmadas: 2B rechaza nuevas reservas de clientes inactivos (CLIENT_INACTIVE)",
+    countSql: `SELECT COUNT(DISTINCT c."id")::int AS n
+      FROM "clients" c
+      JOIN "class_bookings" b ON b."client_id" = c."id" AND b."booking_status" = 'confirmed'
+      JOIN "scheduled_classes" s ON s."id" = b."scheduled_class_id"
+     WHERE c."status" <> 'active' AND s."class_date" >= CURRENT_DATE`,
+  },
+
+  // ── POST 2B ───────────────────────────────────────────────────────
+  {
+    id: "POST_2B_MISSING_CAPACITY_CHECK",
+    phase: "post2b",
+    severity: "BLOCKER",
+    title: "CHECK de cupo 2B ausente tras aplicar 20261020000000_gym_bookings_capacity_check",
+    countSql: `SELECT COUNT(*)::int AS n
+      FROM (VALUES ('${GYM_BOOKINGS_2B_CAPACITY_CHECK}')) AS e(name)
+     WHERE NOT EXISTS (SELECT 1 FROM pg_constraint c WHERE c.conname = e.name AND c.contype = 'c')`,
+  },
+  {
+    id: "POST_2B_CLASSES_OVER_CAPACITY",
+    phase: "post2b",
+    severity: "BLOCKER",
+    title: "Sesiones con booked_count > capacity con el CHECK activo (no debería ser posible)",
+    countSql: `SELECT COUNT(*)::int AS n FROM "scheduled_classes" WHERE "booked_count" > "capacity"`,
+  },
+  {
+    id: "POST_2B_CAPACITY_CHECK_NOT_VALIDATED",
+    phase: "post2b",
+    severity: "INFO",
+    title: "CHECK de cupo todavía NOT VALID (esperado; VALIDATE CONSTRAINT es un paso posterior aprobado)",
+    countSql: `SELECT COUNT(*)::int AS n FROM pg_constraint
+     WHERE conname = '${GYM_BOOKINGS_2B_CAPACITY_CHECK}' AND NOT convalidated`,
   },
 ];
 

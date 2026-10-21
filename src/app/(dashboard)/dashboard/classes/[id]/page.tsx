@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { requireClassViewer, canManageClass } from "@/lib/permissions/guards";
@@ -23,7 +24,10 @@ import {
 import { requireOrganizationModule } from "@/modules/platform/runtime/commercial-enforcement";
 import { resolveEffectiveTenantContext } from "@/modules/platform/runtime/effective-tenant-context";
 
-type Props = { params: Promise<{ id: string }> };
+type Props = {
+  params: Promise<{ id: string }>;
+  searchParams?: Promise<{ error?: string | string[] }>;
+};
 
 function Section({ title, children, action }: { title: string; children: React.ReactNode; action?: React.ReactNode }) {
   return (
@@ -46,9 +50,11 @@ function formatDate(d: Date) {
   });
 }
 
-export default async function ScheduledClassDetailPage({ params }: Props) {
+export default async function ScheduledClassDetailPage({ params, searchParams }: Props) {
   const sessionUser = await requireClassViewer();
   const { id } = await params;
+  const sp = (await searchParams) ?? {};
+  const errorMsg = Array.isArray(sp.error) ? sp.error[0] : sp.error;
 
   // PASO 6D: tenant/PrismaClient EFECTIVOS bajo sesión runtime "Operar como
   // cliente". El guard corre ANTES de buscar el registro; la búsqueda usa
@@ -105,6 +111,13 @@ export default async function ScheduledClassDetailPage({ params }: Props) {
 
     return (
       <div className="space-y-6">
+        {/* Error de operación (acciones de reserva/asistencia, GYM-BOOKINGS 2B) */}
+        {errorMsg && (
+          <div className="bg-red-50 border border-red-200 text-red-700 text-sm px-4 py-3 rounded-lg">
+            {errorMsg}
+          </div>
+        )}
+
         {/* Breadcrumb + acciones */}
         <div className="flex items-start justify-between flex-wrap gap-4">
           <div className="flex items-center gap-2 text-sm text-zinc-500">
@@ -256,6 +269,8 @@ export default async function ScheduledClassDetailPage({ params }: Props) {
                         <div className="flex items-center gap-1">
                           {(["attended", "absent", "late"] as const).map((status) => (
                             <form key={status} action={recordAttendanceAction}>
+                              {/* GYM-BOOKINGS 2B: una clave por orden (doble clic = replay). */}
+                              <input type="hidden" name="idempotency_key" value={randomUUID()} />
                               <input type="hidden" name="scheduled_class_id" value={id} />
                               <input type="hidden" name="client_id" value={b.client.id} />
                               <input type="hidden" name="attendance_status" value={status} />
@@ -276,8 +291,18 @@ export default async function ScheduledClassDetailPage({ params }: Props) {
 
                       {/* Cancelar reserva */}
                       {canOperate && !isCancelled && (
-                        <form action={cancelBookingAction}>
+                        <form action={cancelBookingAction} className="flex items-center gap-1">
+                          <input type="hidden" name="idempotency_key" value={randomUUID()} />
+                          <input type="hidden" name="scheduled_class_id" value={id} />
                           <input type="hidden" name="booking_id" value={b.id} />
+                          <input
+                            type="text"
+                            name="reason"
+                            maxLength={500}
+                            placeholder="Motivo"
+                            aria-label="Motivo de la cancelación"
+                            className="text-xs w-28 border border-zinc-200 rounded px-2 py-0.5 focus:outline-none focus:ring-1 focus:ring-zinc-300"
+                          />
                           <button
                             type="submit"
                             className="text-xs text-red-600 border border-red-200 px-2 py-0.5 rounded hover:bg-red-50 transition-colors"
@@ -298,6 +323,7 @@ export default async function ScheduledClassDetailPage({ params }: Props) {
         {canOperate && !isCancelled && available > 0 && (
           <Section title="Agregar reserva">
             <BookingForm
+              idempotencyKey={randomUUID()}
               scheduledClassId={id}
               clients={availableClients}
               action={createBookingAction}
