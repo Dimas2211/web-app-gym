@@ -23,11 +23,35 @@ import {
 } from "@/lib/utils/labels";
 import { requireOrganizationModule } from "@/modules/platform/runtime/commercial-enforcement";
 import { resolveEffectiveTenantContext } from "@/modules/platform/runtime/effective-tenant-context";
+import { resolveLinkedTrainer, TRAINER_PROFILE_MISSING_MESSAGE } from "@/modules/classes/trainer/trainer-access";
+import { getSessionTrainingDetail } from "@/modules/classes/trainer/trainer-queries";
+import { TrainerNoticeView } from "../_components/trainer-agenda";
+import { FlashMessages, TrainerSessionView } from "../_components/trainer-session-view";
+import { SessionTrainingPanel, WindowBanner, trainingWindow } from "../_components/session-training-panel";
 
 type Props = {
   params: Promise<{ id: string }>;
-  searchParams?: Promise<{ error?: string | string[] }>;
+  searchParams?: Promise<{ error?: string | string[]; notice?: string | string[] }>;
 };
+
+/** GYM-4: vista del entrenador de SU sesión (rol LIVE + Trainer activo vinculado + asignación). */
+async function renderTrainerSession(
+  sessionUser: Awaited<ReturnType<typeof requireClassViewer>>,
+  context: Awaited<ReturnType<typeof resolveEffectiveTenantContext>>["context"],
+  id: string,
+  flash: { error?: string; notice?: string }
+) {
+  if (context.effectiveRole !== "trainer") {
+    return <TrainerNoticeView title="Clase" message="Tu rol cambió. Vuelve a iniciar sesión para continuar." />;
+  }
+  const trainer = await resolveLinkedTrainer(context.client, sessionUser.id, context.tenantId);
+  if (!trainer) return <TrainerNoticeView title="Clase" message={TRAINER_PROFILE_MISSING_MESSAGE} />;
+  const detail = await getSessionTrainingDetail(context.client, context.tenantId, id, { includePrivateNotes: true });
+  // Sesión de otro entrenador, sede o tenant: indistinguible de inexistente.
+  if (!detail || detail.session.trainer.id !== trainer.id) notFound();
+  const win = trainingWindow(detail, "TRAINER", "trainer", new Date());
+  return <TrainerSessionView detail={detail} win={win} error={flash.error} notice={flash.notice} />;
+}
 
 function Section({ title, children, action }: { title: string; children: React.ReactNode; action?: React.ReactNode }) {
   return (
@@ -55,6 +79,7 @@ export default async function ScheduledClassDetailPage({ params, searchParams }:
   const { id } = await params;
   const sp = (await searchParams) ?? {};
   const errorMsg = Array.isArray(sp.error) ? sp.error[0] : sp.error;
+  const noticeMsg = Array.isArray(sp.notice) ? sp.notice[0] : sp.notice;
 
   // PASO 6D: tenant/PrismaClient EFECTIVOS bajo sesión runtime "Operar como
   // cliente". El guard corre ANTES de buscar el registro; la búsqueda usa
@@ -66,6 +91,10 @@ export default async function ScheduledClassDetailPage({ params, searchParams }:
 
   try {
     await requireOrganizationModule(context.tenantId, "gym.classes");
+
+    if (!context.runtime && (context.effectiveRole === "trainer" || sessionUser.role === "trainer")) {
+      return await renderTrainerSession(sessionUser, context, id, { error: errorMsg, notice: noticeMsg });
+    }
 
     const isTrainer = !context.runtime && sessionUser.role === "trainer";
 
@@ -109,14 +138,19 @@ export default async function ScheduledClassDetailPage({ params, searchParams }:
     const classStatus = scheduledClass.status as keyof typeof CLASS_STATUS_LABELS;
     const isCancelled = scheduledClass.status === "cancelled";
 
+    // GYM-4: registro de entrenamiento (actividades y notas R36) solo para
+    // SA/BA con rol LIVE y alcance sobre la clase. Recepción no lo ve.
+    const liveAdmin = context.effectiveRole === "super_admin" || context.effectiveRole === "branch_admin";
+    const training =
+      canOperate && liveAdmin
+        ? await getSessionTrainingDetail(context.client, context.tenantId, id, { includePrivateNotes: true })
+        : null;
+    const trainingWin = training ? trainingWindow(training, "STAFF", context.effectiveRole, new Date()) : null;
+
     return (
       <div className="space-y-6">
         {/* Error de operación (acciones de reserva/asistencia, GYM-BOOKINGS 2B) */}
-        {errorMsg && (
-          <div className="bg-red-50 border border-red-200 text-red-700 text-sm px-4 py-3 rounded-lg">
-            {errorMsg}
-          </div>
-        )}
+        <FlashMessages error={errorMsg} notice={noticeMsg} />
 
         {/* Breadcrumb + acciones */}
         <div className="flex items-start justify-between flex-wrap gap-4">
@@ -351,6 +385,15 @@ export default async function ScheduledClassDetailPage({ params, searchParams }:
               })}
             </div>
           </Section>
+        )}
+
+        {/* GYM-4 — registro de entrenamiento (SA/BA) */}
+        {training && trainingWin && (
+          <div className="space-y-3">
+            <h2 className="text-xs font-semibold text-zinc-400 uppercase tracking-wide">Registro de entrenamiento</h2>
+            <WindowBanner win={trainingWin} timeZone={training.policy.timezone} />
+            <SessionTrainingPanel detail={training} win={trainingWin} showAttendanceControls={false} includePrivateNotes />
+          </div>
         )}
 
         {/* Reservas canceladas */}

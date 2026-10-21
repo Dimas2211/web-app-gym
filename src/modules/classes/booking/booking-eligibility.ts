@@ -316,6 +316,42 @@ export function checkAttendanceAccess(input: {
 }
 
 /**
+ * GYM-4 — el entrenador opera una sesión solo si el perfil Trainer asignado
+ * (ScheduledClass.trainer_id) está ACTIVO y vinculado a su usuario. La sede
+ * del entrenador no cuenta: manda la asignación (OPEN permite asignar un
+ * entrenador de otra sede). Client.assigned_trainer_id nunca autoriza.
+ */
+export function trainerOwnsSession(
+  actor: { userId: string; role: string },
+  sessionTrainer: { user_id: string | null; status: string }
+): boolean {
+  return (
+    actor.role === "trainer" &&
+    sessionTrainer.status === "active" &&
+    sessionTrainer.user_id !== null &&
+    sessionTrainer.user_id === actor.userId
+  );
+}
+
+/**
+ * GYM-4 — quién escribe el registro de entrenamiento de una sesión
+ * (actividades comunes/individuales): el entrenador de la sesión (canal
+ * TRAINER) o SA/BA de su alcance (canal STAFF). Recepción nunca (R36: no
+ * adquiere privilegios de entrenador).
+ */
+export function checkSessionOperator(input: {
+  channel: GymBookingChannel;
+  actor: { userId: string; role: string };
+  scopeLocationId: string | null;
+  session: { branch_id: string; trainer: { user_id: string | null; status: string } };
+}): boolean {
+  if (input.channel === "TRAINER") return trainerOwnsSession(input.actor, input.session.trainer);
+  if (input.channel !== "STAFF") return false;
+  if (input.actor.role === "super_admin") return true;
+  return input.actor.role === "branch_admin" && input.scopeLocationId !== null && input.session.branch_id === input.scopeLocationId;
+}
+
+/**
  * R29: el staff justifica toda cancelación que devuelve o retiene una sesión
  * consumida, y toda cancelación bajo política. OPEN heredado (sin consumo y
  * sin política) conserva el botón sin motivo.

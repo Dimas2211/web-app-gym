@@ -32,6 +32,8 @@ const MESSAGES: Record<GymBookingErrorCode, string> = {
   REASON_REQUIRED: "Indica el motivo de la cancelación.",
   INVALID_COMMAND: "Datos inválidos.",
   SESSION_CLOSED: "La clase ya fue cerrada; no se pueden cancelar reservas.",
+  ATTENDANCE_REQUIRED: "Primero registra la asistencia del alumno.",
+  ACTIVITY_UNAVAILABLE: "La actividad no está disponible para esta clase.",
   ALREADY_BOOKED: "El cliente ya tiene una reserva confirmada para esta clase.",
   ALREADY_CANCELLED: "Esta reserva ya está cancelada.",
   NOT_CONFIRMED: "La reserva no está confirmada.",

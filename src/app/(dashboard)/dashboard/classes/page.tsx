@@ -15,6 +15,9 @@ import { CLASS_STATUS_LABELS, CLASS_STATUS_COLORS } from "@/lib/utils/labels";
 import { DeleteClassButton } from "./_components/delete-class-button";
 import { requireOrganizationModule } from "@/modules/platform/runtime/commercial-enforcement";
 import { resolveEffectiveTenantContext } from "@/modules/platform/runtime/effective-tenant-context";
+import { resolveLinkedTrainer, TRAINER_PROFILE_MISSING_MESSAGE } from "@/modules/classes/trainer/trainer-access";
+import { getTrainerAgenda } from "@/modules/classes/trainer/trainer-queries";
+import { TrainerAgendaView, TrainerNoticeView, type TrainerAgendaTab } from "./_components/trainer-agenda";
 
 type Props = {
   searchParams: Promise<{
@@ -24,6 +27,7 @@ type Props = {
     status?: string;
     error?: string;
     view?: string;
+    tab?: string;
   }>;
 };
 
@@ -75,10 +79,37 @@ export default async function ClassesAgendaPage({ searchParams }: Props) {
   try {
     await requireOrganizationModule(context.tenantId, "gym.classes");
 
+    // GYM-4: el entrenador ve "Mi agenda" con el rol LIVE. Si el JWT dice
+    // trainer pero el rol vigente ya no lo es, falla cerrado (sin agenda ajena).
+    if (!context.runtime && (context.effectiveRole === "trainer" || sessionUser.role === "trainer")) {
+      return await renderTrainerAgenda({ sessionUser, context, tab: sp.tab });
+    }
+
     return await renderClassesAgenda({ sessionUser, effectiveUser, context, sp });
   } finally {
     await dispose();
   }
+}
+
+async function renderTrainerAgenda({
+  sessionUser,
+  context,
+  tab,
+}: {
+  sessionUser: Awaited<ReturnType<typeof requireClassViewer>>;
+  context: Awaited<ReturnType<typeof resolveEffectiveTenantContext>>["context"];
+  tab: string | undefined;
+}) {
+  if (context.effectiveRole !== "trainer") {
+    return <TrainerNoticeView title="Mi agenda" message="Tu rol cambió. Vuelve a iniciar sesión para continuar." />;
+  }
+  const trainer = await resolveLinkedTrainer(context.client, sessionUser.id, context.tenantId);
+  if (!trainer) {
+    return <TrainerNoticeView title="Mi agenda" message={TRAINER_PROFILE_MISSING_MESSAGE} />;
+  }
+  const agenda = await getTrainerAgenda(context.client, context.tenantId, trainer.id);
+  const selected: TrainerAgendaTab = tab === "upcoming" || tab === "past" ? tab : "today";
+  return <TrainerAgendaView agenda={agenda} tab={selected} trainerName={`${trainer.first_name} ${trainer.last_name}`} />;
 }
 
 async function renderClassesAgenda({

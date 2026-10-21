@@ -109,6 +109,11 @@ export type GymBookingErrorCode =
   | "INVALID_COMMAND"
   /** R29: la sesión ya se cerró (status completed); no se cancelan reservas ni la sesión. */
   | "SESSION_CLOSED"
+  // GYM-4 — operación del entrenador (aditivos)
+  /** Notas / actividades individuales sin asistencia registrada (o alumno ausente). */
+  | "ATTENDANCE_REQUIRED"
+  /** Actividad de otro tenant/sede, inexistente o desactivada. */
+  | "ACTIVITY_UNAVAILABLE"
   // estado / concurrencia
   | "ALREADY_BOOKED"
   | "ALREADY_CANCELLED"
@@ -191,6 +196,21 @@ export interface RecordAttendanceCommand {
   now?: Date;
 }
 
+/**
+ * GYM-4 — notas privadas (R36) sobre una asistencia YA registrada, sin
+ * alterar attendance_status, checked_in_at ni quién registró la asistencia.
+ * Mismos locks, canal/rol y ventana R32 que recordAttendance.
+ */
+export interface UpdateTrainingNotesCommand {
+  scope: GymBookingScope;
+  actor: GymBookingActor;
+  channel: GymBookingChannel;
+  bookingId: string;
+  trainingNotes: string | null;
+  idempotencyKey: IdempotencyKey;
+  now?: Date;
+}
+
 export interface BookingSnapshot {
   bookingId: string;
   sessionId: string;
@@ -217,4 +237,5 @@ export interface GymBookingService {
   cancelBooking(cmd: CancelBookingCommand): Promise<GymBookingResult<BookingSnapshot>>;
   cancelSession(cmd: CancelSessionCommand): Promise<GymBookingResult<{ released: BookingSnapshot[] }>>;
   recordAttendance(cmd: RecordAttendanceCommand): Promise<GymBookingResult<{ attendanceId: string }>>;
+  updateTrainingNotes(cmd: UpdateTrainingNotesCommand): Promise<GymBookingResult<{ attendanceId: string }>>;
 }

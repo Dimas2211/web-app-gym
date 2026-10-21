@@ -152,8 +152,14 @@ export async function getScheduledClassById(id: string, user: SessionUser, clien
         },
         orderBy: { booked_at: "asc" },
       },
+      // GYM-4 (R36): selección explícita; training_notes nunca viaja en esta
+      // consulta compartida (la usan recepción y la edición de la clase).
       attendance: {
-        include: {
+        select: {
+          id: true,
+          client_id: true,
+          attendance_status: true,
+          checked_in_at: true,
           client: {
             select: { id: true, first_name: true, last_name: true },
           },

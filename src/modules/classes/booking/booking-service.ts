@@ -14,6 +14,7 @@
 //      cancelBooking  clients → client_memberships → scheduled_classes → class_bookings
 //      cancelSession  clients → client_memberships → scheduled_classes → class_bookings
 //      recordAttendance clients (KEY SHARE) →          scheduled_classes → class_bookings → class_attendance
+//      updateTrainingNotes (GYM-4) igual que recordAttendance (solo training_notes)
 //  - R29: cancelBooking / cancelSession no operan sobre sesiones completed
 //    (SESSION_CLOSED), salvo la excepción OPEN heredada sin consumo.
 //  - R32: asistencia del entrenador/recepción solo en ventana y sesión
@@ -54,6 +55,7 @@ import {
   type GymBookingScope,
   type GymBookingService,
   type RecordAttendanceCommand,
+  type UpdateTrainingNotesCommand,
 } from "./booking-contracts";
 import { mapGymBookingDbError } from "./booking-db-errors";
 import {
@@ -80,6 +82,7 @@ import {
   resolveSessionInstants,
   selectMembership,
   staffCancelReasonRequired,
+  trainerOwnsSession,
   type MembershipCandidate,
 } from "./booking-eligibility";
 
@@ -139,7 +142,7 @@ const SESSION_SELECT = {
   ends_at: true,
   capacity: true,
   booked_count: true,
-  trainer: { select: { user_id: true } },
+  trainer: { select: { user_id: true, status: true } },
 } satisfies Prisma.ScheduledClassSelect;
 
 type SessionRow = Prisma.ScheduledClassGetPayload<{ select: typeof SESSION_SELECT }>;
@@ -811,58 +814,8 @@ export function createGymBookingService(db: PrismaClient, options: GymBookingSer
       body: async (tx, now) => {
         const { tenantId } = cmd.scope;
         if (!["attended", "absent", "late"].includes(cmd.status)) reject("INVALID_COMMAND");
-        const staff = cmd.channel === "STAFF" && STAFF_ROLES.has(cmd.actor.role);
-        const trainer = cmd.channel === "TRAINER" && cmd.actor.role === "trainer";
-        if (!staff && !trainer) reject("FORBIDDEN");
         if (cmd.trainingNotes !== undefined && !TRAINING_NOTES_ROLES.has(cmd.actor.role)) reject("FORBIDDEN");
-
-        const before = await tx.classBooking.findFirst({
-          where: { id: cmd.bookingId, tenant_id: tenantId },
-          select: BOOKING_SELECT,
-        });
-        if (!before) reject("NOT_FOUND", "Reserva no encontrada.");
-
-        // Orden: clients (KEY SHARE) → scheduled_classes → class_bookings → class_attendance.
-        // El trigger gym_class_attendance_integrity lee clients FOR KEY SHARE al
-        // escribir la asistencia; tomarlo aquí, ANTES de la sesión, evita invertir
-        // el orden global frente a cancelBooking/bookSession (clients FOR UPDATE →
-        // sesión), que si no se interbloquea (40P01) con una asistencia concurrente.
-        await tx.$queryRaw`SELECT "id" FROM "clients" WHERE "id" = ${before.client_id} FOR KEY SHARE`;
-        if (!(await lockSession(tx, before.scheduled_class_id, tenantId))) reject("SESSION_CHANGED_RETRY");
-        const session = await tx.scheduledClass.findUniqueOrThrow({
-          where: { id: before.scheduled_class_id },
-          select: SESSION_SELECT,
-        });
-        if (staff) assertStaffSessionScope(cmd.scope, cmd.actor, session);
-        if (trainer && session.trainer.user_id !== cmd.actor.userId) reject("FORBIDDEN");
-
-        if (!(await lockBookingById(tx, before.id, tenantId))) reject("SESSION_CHANGED_RETRY");
-        const booking = await tx.classBooking.findUniqueOrThrow({ where: { id: before.id }, select: BOOKING_SELECT });
-        if (booking.scheduled_class_id !== session.id || booking.client_id !== before.client_id) {
-          reject("SESSION_CHANGED_RETRY");
-        }
-        if (booking.booking_status !== "confirmed") reject("NOT_CONFIRMED");
-        if (session.status === "cancelled") reject("SESSION_NOT_BOOKABLE");
-
-        const policy = await loadGymBookingPolicy(tx, tenantId);
-        const { startsAt, endsAt } = resolveSessionInstants(session, policy.timezone);
-        // R32: ventana del entrenador/recepción hasta fin + 48 h o cierre; luego solo SA/BA.
-        const access = checkAttendanceAccess({
-          kind: session.session_kind,
-          policy,
-          now,
-          startsAt,
-          endsAt,
-          sessionStatus: session.status,
-          channel: cmd.channel,
-          role: cmd.actor.role,
-        });
-        if (!access.ok) reject(access.code);
-
-        const lockedAttendance = await tx.$queryRaw<{ id: string; attendance_status: string }[]>`
-          SELECT "id", "attendance_status"::text AS "attendance_status" FROM "class_attendance"
-           WHERE "scheduled_class_id" = ${session.id} AND "client_id" = ${booking.client_id} FOR UPDATE`;
-        const previous = lockedAttendance[0] ?? null;
+        const { session, booking, access, previous } = await lockAttendanceTarget(tx, cmd, now);
 
         const data = {
           attendance_status: cmd.status,
@@ -910,10 +863,132 @@ export function createGymBookingService(db: PrismaClient, options: GymBookingSer
     });
   }
 
-  return { bookSession, cancelBooking, cancelSession, recordAttendance };
+  // ── updateTrainingNotes (GYM-4) ─────────────────────────────────
+  // Notas privadas sin fingir un check-in: exige la asistencia ya registrada
+  // y solo escribe training_notes (estado, checked_in_at y recorded_* intactos).
+  // Comando RECORD_ATTENDANCE (agregado de asistencia, sin migración); la
+  // huella incluye `operation`, así que una key de asistencia no se reusa aquí.
+  // El evento no lleva el texto de la nota (R36).
+  async function updateTrainingNotes(cmd: UpdateTrainingNotesCommand): Promise<GymBookingResult<{ attendanceId: string }>> {
+    return execute({
+      command: "RECORD_ATTENDANCE",
+      scope: cmd.scope,
+      actor: cmd.actor,
+      channel: cmd.channel,
+      idempotencyKey: cmd.idempotencyKey,
+      payload: { operation: "UPDATE_TRAINING_NOTES", ...cmd },
+      now: cmd.now,
+      body: async (tx, now) => {
+        if (!TRAINING_NOTES_ROLES.has(cmd.actor.role)) reject("FORBIDDEN");
+        const { booking, access, previous } = await lockAttendanceTarget(tx, cmd, now);
+        if (!previous) reject("ATTENDANCE_REQUIRED");
+
+        await tx.classAttendance.update({
+          where: { id: previous.id },
+          data: { training_notes: cmd.trainingNotes },
+          select: { id: true },
+        });
+        return {
+          value: { attendanceId: previous.id },
+          targetId: booking.id,
+          events: [
+            {
+              bookingId: booking.id,
+              sessionId: booking.scheduled_class_id,
+              clientId: booking.client_id,
+              membershipId: booking.client_membership_id,
+              eventType: "ATTENDANCE_UPDATED",
+              fromStatus: booking.booking_status,
+              toStatus: booking.booking_status,
+              consumptionBefore: booking.consumption,
+              consumptionAfter: booking.consumption,
+              cancellationType: null,
+              reason: null,
+              metadata: {
+                attendance_id: previous.id,
+                change: "training_notes",
+                attendance_from: previous.attendance_status,
+                attendance_to: previous.attendance_status,
+                administrative_correction: access.administrativeCorrection,
+              },
+            },
+          ],
+        };
+      },
+    });
+  }
+
+  return { bookSession, cancelBooking, cancelSession, recordAttendance, updateTrainingNotes };
 }
 
 // ── Helpers ───────────────────────────────────────────────────────
+
+/**
+ * Protocolo común de asistencia (recordAttendance / updateTrainingNotes):
+ * canal/rol → clients (KEY SHARE) → scheduled_classes → class_bookings →
+ * class_attendance (FOR UPDATE), con alcance, reserva confirmada, sesión no
+ * cancelada y ventana R32 (checkAttendanceAccess) validados bajo lock.
+ */
+async function lockAttendanceTarget(
+  tx: Tx,
+  cmd: { scope: GymBookingScope; actor: GymBookingActor; channel: GymBookingChannel; bookingId: string },
+  now: Date
+) {
+  const { tenantId } = cmd.scope;
+  const staff = cmd.channel === "STAFF" && STAFF_ROLES.has(cmd.actor.role);
+  const trainer = cmd.channel === "TRAINER" && cmd.actor.role === "trainer";
+  if (!staff && !trainer) reject("FORBIDDEN");
+
+  const before = await tx.classBooking.findFirst({
+    where: { id: cmd.bookingId, tenant_id: tenantId },
+    select: BOOKING_SELECT,
+  });
+  if (!before) reject("NOT_FOUND", "Reserva no encontrada.");
+
+  // Orden: clients (KEY SHARE) → scheduled_classes → class_bookings → class_attendance.
+  // El trigger gym_class_attendance_integrity lee clients FOR KEY SHARE al
+  // escribir la asistencia; tomarlo aquí, ANTES de la sesión, evita invertir
+  // el orden global frente a cancelBooking/bookSession (clients FOR UPDATE →
+  // sesión), que si no se interbloquea (40P01) con una asistencia concurrente.
+  await tx.$queryRaw`SELECT "id" FROM "clients" WHERE "id" = ${before.client_id} FOR KEY SHARE`;
+  if (!(await lockSession(tx, before.scheduled_class_id, tenantId))) reject("SESSION_CHANGED_RETRY");
+  const session = await tx.scheduledClass.findUniqueOrThrow({
+    where: { id: before.scheduled_class_id },
+    select: SESSION_SELECT,
+  });
+  if (staff) assertStaffSessionScope(cmd.scope, cmd.actor, session);
+  // GYM-4: el Trainer asignado debe seguir activo y vinculado al usuario (bajo el lock de la sesión).
+  if (trainer && !trainerOwnsSession(cmd.actor, session.trainer)) reject("FORBIDDEN");
+
+  if (!(await lockBookingById(tx, before.id, tenantId))) reject("SESSION_CHANGED_RETRY");
+  const booking = await tx.classBooking.findUniqueOrThrow({ where: { id: before.id }, select: BOOKING_SELECT });
+  if (booking.scheduled_class_id !== session.id || booking.client_id !== before.client_id) {
+    reject("SESSION_CHANGED_RETRY");
+  }
+  if (booking.booking_status !== "confirmed") reject("NOT_CONFIRMED");
+  if (session.status === "cancelled") reject("SESSION_NOT_BOOKABLE");
+
+  const policy = await loadGymBookingPolicy(tx, tenantId);
+  const { startsAt, endsAt } = resolveSessionInstants(session, policy.timezone);
+  // R32: ventana del entrenador/recepción hasta fin + 48 h o cierre; luego solo SA/BA.
+  const access = checkAttendanceAccess({
+    kind: session.session_kind,
+    policy,
+    now,
+    startsAt,
+    endsAt,
+    sessionStatus: session.status,
+    channel: cmd.channel,
+    role: cmd.actor.role,
+  });
+  if (!access.ok) reject(access.code);
+
+  const lockedAttendance = await tx.$queryRaw<{ id: string; attendance_status: string }[]>`
+    SELECT "id", "attendance_status"::text AS "attendance_status" FROM "class_attendance"
+     WHERE "scheduled_class_id" = ${session.id} AND "client_id" = ${booking.client_id} FOR UPDATE`;
+  const previous = lockedAttendance[0] ?? null;
+  return { session, booking, access, previous };
+}
 
 /** Estados reservables: portal y política → solo 'scheduled'; staff OPEN heredado → todo salvo 'cancelled'. */
 function assertSessionBookable(status: ClassStatus, channel: GymBookingChannel, applies: boolean) {
