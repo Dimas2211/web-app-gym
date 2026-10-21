@@ -31,7 +31,7 @@
   - actividades comunes (`ScheduledClassActivity`) e individuales (`ClassAttendanceActivity`), solo alta;
   - notas privadas R36 sin re-registrar asistencia (`GymBookingService.updateTrainingNotes`).
 
-  Sin migración ni cambios en `schema.prisma`; `PERSONALIZED_CAPACITY_RULE = DEFAULT_ONLY` sin cambios. Pruebas locales: 2801/2801 y 61/61 en navegador (PLATFORM_NATIVE local). Ver docs/modules/gym-bookings-stage4.md.
+  Sin migración ni cambios en `schema.prisma`; `PERSONALIZED_CAPACITY_RULE = DEFAULT_ONLY` sin cambios. Pruebas locales: 2801/2801 y 61/61 en navegador (PLATFORM_NATIVE local). Auditoría independiente H01–H04 corregida localmente (rol/sede LIVE en páginas, preflight de timezone, actividades después del inicio, lock del Trainer en canal TRAINER); suite completa 2847/2847. Requisito: configurar `GymSettings.timezone` antes de habilitar al entrenador. Ver docs/modules/gym-bookings-stage4.md §19.
 - commerce/cash cerrado y operativo — apertura/cierre de sesión, movimientos manuales, corte de caja, historial, exportación PDF/Excel, asociación automática venta → sesión. Ver docs/modules/cash-summary.md.
 
 ## Identidad activa

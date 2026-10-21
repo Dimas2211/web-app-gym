@@ -97,6 +97,7 @@ Garantías:
 - Sin cambios en `canManageClass`, `requireMembershipManager` ni `role-capabilities`. El entrenador no vende membresías, no cambia modalidades, no edita la política, no programa sesiones y no cancela reservas (K/L).
 - Sin vista de detalle propia para recepción. SA/BA ven en el detalle administrativo la sección «Registro de entrenamiento» (actividades y notas) y la escriben por canal STAFF; fuera de plazo queda como corrección administrativa.
 - La UI decide quién es entrenador con `context.effectiveRole` (LIVE). Un rol degradado pierde el acceso en la siguiente petición.
+- **Auditoría H01 (§19):** las páginas de clases ya no combinan `sessionUser.role` / `location_id` del JWT con el rol LIVE. Filtran y autorizan con `resolveLiveClassViewer` (rol LIVE + sede validada).
 
 ## 9. Aislamiento Shared / Dedicated
 
@@ -107,10 +108,12 @@ Garantías:
 
 ## 10. Ventanas temporales
 
-- Asistencia, notas y actividades usan `checkAttendanceAccess` (R32): desde el inicio hasta fin + `attendance_edit_window_hours`, o hasta que la sesión pase a `completed`. Después, solo SA/BA como corrección administrativa.
+- Asistencia y notas usan `checkAttendanceAccess` (R32): desde el inicio hasta fin + `attendance_edit_window_hours`, o hasta que la sesión pase a `completed`. Después, solo SA/BA como corrección administrativa.
+- Actividades usan `checkTrainingRecordAccess` (auditoría H03, §19): la misma R32, pero **nunca antes del inicio real** y **sin** la excepción STAFF de OPEN heredado.
 - Sin excepciones nuevas para TRAINER: el canal TRAINER sigue R32 también en OPEN.
 - Los instantes salen de `starts_at` / `ends_at` o de la fecha + HH:mm en `GymSettings.timezone`. La agenda formatea `class_date` en UTC para no correr el día.
-- **Consecuencia documentada:** en un gimnasio **sin timezone configurada**, una sesión OPEN heredada sin instantes no tiene ventana derivable. El entrenador ve «La clase no tiene horario completo o el gimnasio no tiene zona horaria configurada» (`SCHEDULE_INCOMPLETE`), mientras que el staff conserva el registro heredado sin ventana. Es el contrato R32 vigente, no un defecto.
+- **Consecuencia documentada:** en un gimnasio **sin timezone válida**, una sesión OPEN heredada sin instantes no tiene ventana derivable: el entrenador recibe `SCHEDULE_INCOMPLETE` y el staff conserva el check-in heredado sin ventana. Es el contrato R32 vigente, no un defecto.
+- **Requisito de configuración previa (auditoría H02, §19):** antes de habilitar la operación del entrenador en un gimnasio, un super administrador debe configurar `GymSettings.timezone` (zona IANA del país del gimnasio) en Ajustes › Reservas. Zolvi no asume ninguna zona por defecto. El preflight `findGymsWithoutValidTimezone` (solo lectura) lista los gimnasios de una base que no cumplen, y la agenda muestra el aviso a SA/BA.
 
 ## 11. Compatibilidad de modalidades
 
@@ -164,7 +167,8 @@ Con el código real hubo **0** interbloqueos en todas las corridas. El lock de l
 - **Validación visual:** en modo PLATFORM_NATIVE local. No se repitió el login runtime por hostname (RUNTIME_CLIENT), cubierto en 3C y sin cambios en auth.
 - **Actividades:** solo alta (§6). Un error de captura requiere decisión de producto.
 - **Agenda:** muestra hasta 60 próximas y 30 anteriores, sin paginación.
-- **Ventana sin timezone** (§10): un gimnasio sin `GymSettings.timezone` no puede registrar desde el canal TRAINER las sesiones OPEN heredadas.
+- **Ventana sin timezone** (§10): un gimnasio sin `GymSettings.timezone` válida no puede registrar desde el canal TRAINER las sesiones OPEN heredadas. Mitigado con preflight y aviso (H02); la configuración sigue siendo manual.
+- Riesgos residuales de la corrección de auditoría: ver §19.6.
 - **P3 preexistente (fuera de alcance, sin tocar):** el encabezado del detalle **administrativo** formatea `class_date` sin `timeZone: "UTC"` y, en servidores con desfase negativo, muestra el día anterior (visto en la captura `d-admin-registro`: «martes 20» para una sesión del miércoles 21). La vista del entrenador no lo tiene.
 
 ## 15. Pendientes funcionales
@@ -226,3 +230,91 @@ Sin desbordamiento horizontal en ninguna vista. Las capturas (22 PNG, solo datos
   - recepción no ve el «Registro de entrenamiento»;
   - el portal del alumno no cambia.
 - Rollback: revertir el deploy o los commits. Sin rollback de esquema. Las filas de actividades creadas quedan en tablas de 2A que el código anterior tolera.
+
+## 19. Corrección de auditoría independiente H01–H04
+
+Baseline `3955f61` + `3ff592b`, misma rama. Sin migración ni cambios en `schema.prisma`. Sin cambios en Commerce, DTE, Platform ni auth. `PERSONALIZED_CAPACITY_RULE = DEFAULT_ONLY` sin cambios.
+
+Cada hallazgo se reprodujo primero contra el código base (prueba que falla) y luego se corrigió.
+
+### 19.1 H01 (P1) — autorización LIVE y privacidad
+
+**Causa.** `/dashboard/classes/[id]` calculaba `canOperate = canManageClass(sessionUser, …)` con el rol y la sede del **JWT**, y luego pedía las notas privadas si el rol LIVE era SA/BA. La agenda filtraba con `branchScope(sessionUser)`. Un JWT `super_admin` cuyo rol LIVE pasó a `branch_admin` de otra sede veía alumnos y `training_notes` de sedes ajenas. Además, la plataforma revalida el rol LIVE en RUNTIME_CLIENT, pero no compara la sede del JWT con la sede vigente del usuario.
+
+**Corrección** (`src/modules/classes/trainer/trainer-access.ts`):
+
+- `resolveLiveClassViewer`: usuario con el que las páginas filtran y autorizan. Usa el rol LIVE (`context.effectiveRole`), el tenant efectivo y la sede efectiva. Falla cerrado («Tu rol o tu sede cambiaron…») si el rol LIVE no tiene operaciones, o si en RUNTIME_CLIENT un rol de sede (BA, recepción) tiene en la base runtime una sede (`users.branch_id`) distinta de la del JWT.
+- `liveLocationMatches`: la misma comprobación de sede, también en `resolveSessionOperator` (canal STAFF de las acciones GYM-4).
+- Ambas páginas sustituyen `sessionUser` / `effectiveUser` por el visor LIVE en `branchScope`, `canManageClass` y en las banderas de UI. Las notas privadas se piden **después** de validar el acceso. En la vista del entrenador, `getSessionTrainingDetail` filtra por `assignedTrainerId`: las notas de una sesión ajena nunca se leen.
+- PLATFORM_NATIVE y SUPPORT_RUNTIME no cambian: su rol efectivo sigue siendo el del JWT, por contrato de plataforma. No se amplían permisos de entrenador ni de recepción.
+
+### 19.2 H02 (P2) — timezone del gimnasio
+
+Se mantiene el contrato R32 y no se escribe ninguna configuración.
+
+- `src/modules/classes/trainer/timezone-preflight.ts`, solo lectura:
+  - `evaluateGymTimezone` distingue `NO_SETTINGS`, `MISSING` e `INVALID`;
+  - `loadGymTimezoneStatus` hace el diagnóstico de un tenant;
+  - `findGymsWithoutValidTimezone` es el preflight de una base Shared o Dedicated;
+  - `gymTimezoneAdminNotice` arma el aviso según el rol.
+- Aviso administrativo en la agenda para SA/BA. El entrenador ve otro aviso en su agenda, y el banner de ventana explica que falta la zona del gimnasio.
+- STAFF heredado intacto: recepción sigue registrando OPEN sin ventana.
+
+### 19.3 H03 (P2) — actividades antes del inicio
+
+**Causa.** Las actividades reutilizaban `checkAttendanceAccess`, que concede a STAFF + OPEN + `apply_policy_to_open = false` registro sin ventana. Así, SA/BA podían dar por «realizada» una actividad de una clase futura.
+
+**Corrección.** `checkTrainingRecordAccess` (`booking-eligibility.ts`), usada por `session-activities.ts` y por la ventana STAFF del panel:
+
+- sin instante de inicio → `SCHEDULE_INCOMPLETE`;
+- antes del inicio → `ATTENDANCE_NOT_STARTED`, para todo canal y estado (incluso `completed`);
+- después del inicio, R32 igual que la asistencia, con la corrección administrativa SA/BA conservada.
+
+`checkAttendanceAccess` y las reglas históricas de asistencia no cambian.
+
+### 19.4 H04 (P2) — revocación concurrente
+
+**Reproducción** (PostgreSQL real, conexiones independientes, barrera `pg_stat_activity`):
+
+1. Una conexión retiene la fila que el motor toma después de autorizar (la reserva, o la actividad del catálogo).
+2. El entrenador escribe y queda en espera.
+3. Otra conexión desactiva el Trainer o cambia su `user_id`.
+
+En el código base la revocación **confirmó mientras la escritura seguía en vuelo**, y la escritura igual se guardó (`{ revokedInFlight: true, ok: true }`) en las 6 variantes: asistencia, actividad común e individual, y nota, con desactivación y con cambio de usuario. La sesión estaba bloqueada; la fila `trainers`, no.
+
+**Corrección.** Solo en el canal TRAINER, `lockAssignedTrainerShared` (`booking-service.ts`) toma `trainers FOR SHARE` en su posición de `GYM_BOOKING_LOCK_ORDER`, antes de `clients` y `scheduled_classes`. Bajo el lock de la sesión se revalida que la asignación no cambió; si cambió → `SESSION_CHANGED_RETRY` (reintento acotado existente). Se aplica en `lockAttendanceTarget` (asistencia y notas) y en `addSessionActivity` / `addAttendanceActivity`.
+
+Resultado: o la revocación espera a que la escritura confirme, o la escritura la ve confirmada y responde `FORBIDDEN`.
+
+Sin interbloqueos:
+
+- todos los escritores de `trainers` toman la fila **antes** que la sesión (programación, series y ausencias vía `lockTrainerForScheduling`), o son UPDATE de una sola sentencia (desactivación, vínculo de usuario);
+- los triggers de 2A toman la fila del entrenador con `FOR SHARE` / `KEY SHARE`, compatibles;
+- el canal STAFF no toma el lock nuevo, y el motor 2B no cambia para STAFF ni PORTAL.
+
+### 19.5 Pruebas
+
+| Suite | Base | Resultado |
+| --- | --- | --- |
+| `trainer/stage4-audit-pages.integration.test.tsx` (H01): páginas reales `/dashboard/classes` y `/[id]` con JWT obsoleto y roles LIVE | PostgreSQL 18 real desechable (127.0.0.1:55442) | 12/12. Contra las páginas base: **7 fallan** (fuga de notas/alumnos) |
+| `trainer/stage4-audit.integration.test.ts`: H02 (5 zonas IANA, DST en Nueva York y Madrid, preflight), H03 (futura, en curso, finalizada, completed antes del inicio, cancelada), H04 (6 carreras + revocación primero + STAFF sin lock) | ídem | 25/25. Antes de corregir H04: 6 carreras + 1 espera fallan. Mutación H03 (volver a `checkAttendanceAccess`): **4 fallan** |
+| `trainer/audit-rules.test.ts`: reglas puras H01/H02/H03 y regresión de asistencia heredada | — | 9/9 |
+| `classes/trainer` + `classes/booking` (2B + GYM-4), 3 corridas seguidas | PostgreSQL real | 270/270 ×3, 0 interbloqueos |
+| Suite completa `npx vitest run --testTimeout=120000 --hookTimeout=180000` con integración | PostgreSQL real | **259 archivos, 2847/2847, 0 fallidas**, 0 bases `zolvi_it2b_*` sobrantes |
+| `npx tsc --noEmit`, `npx prisma validate`, `npm run lint`, `npm run build` | — | OK (lint: 0 errores; las advertencias son previas, en archivos no tocados) |
+
+Con el `hookTimeout` por defecto, 5 archivos marcan el `afterAll` (`DROP DATABASE` bajo carga), condición ya documentada en 3B §16 / 3C. Las dos suites nuevas declaran 180 s.
+
+### 19.6 Riesgos residuales
+
+- **Sede LIVE fuera de GYM-4.** La comprobación de sede vigente vive en las páginas de clases y en las acciones GYM-4. Otras acciones heredadas de clases (`actions.ts`: reservas, asistencia STAFF, programación) y otros módulos siguen usando la sede del JWT, que la plataforma valida como existente y activa pero no compara con la vigente. Para cerrarlo globalmente, `requireRuntimeOrganizationContext` debería devolver la sede LIVE: tarea de plataforma, fuera de alcance.
+- **PLATFORM_NATIVE.** El rol efectivo es el del JWT, por contrato de plataforma sin cambios.
+- **Cambio de rol de usuario.** `users/actions.ts` cambia `users.role` y luego desactiva el Trainer en sentencias separadas. El lock nuevo cubre la desactivación, no el intervalo entre ambas. El rol se resuelve LIVE al inicio de cada acción. Es preexistente y está fuera de alcance.
+- **H02.**
+  - El preflight es una función, no un script CLI: no se ejecutó contra bases reales, por regla de la etapa.
+  - La zona se sigue configurando a mano.
+  - Sin zona, el «hoy» de la agenda del entrenador usa la fecha del servidor (aviso visible).
+- **H03 (presentación).** En el panel administrativo, el formulario de notas también se oculta antes del inicio en OPEN heredado, aunque el motor aceptaría la nota por la regla heredada. Es una decisión conservadora.
+- **Validación visual.** Los avisos nuevos (zona horaria, identidad cambiada) se verificaron por render en pruebas, no en navegador. La corrida 61/61 de §16 no se repitió.
+
+Veredicto: `H01 = PASS`, `H02 = PASS`, `H03 = PASS`, `H04 = PASS` (reproducido y corregido), `GYM_4_REGRESSION = PASS`, `GYM_4_BUILD = PASS`.

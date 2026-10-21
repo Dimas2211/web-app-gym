@@ -505,3 +505,10 @@ Detalle completo: `docs/modules/gym-bookings-stage4.md`. **Sin cambios en `schem
   - pruebas unitarias y estáticas: 19;
   - suite completa: 2801/2801;
   - navegador: 61/61 a 390 y 1280 px.
+- Auditoría independiente H01–H04 corregida (stage4 §19):
+  - páginas de clases con rol y sede LIVE (`resolveLiveClassViewer`);
+  - preflight y aviso de timezone sin zona por defecto;
+  - actividades nunca antes del inicio real (`checkTrainingRecordAccess`);
+  - canal TRAINER con `trainers FOR SHARE` en el orden global.
+
+  Suite completa: 2847/2847.
