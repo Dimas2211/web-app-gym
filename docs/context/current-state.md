@@ -32,6 +32,7 @@
   - notas privadas R36 sin re-registrar asistencia (`GymBookingService.updateTrainingNotes`).
 
   Sin migración ni cambios en `schema.prisma`; `PERSONALIZED_CAPACITY_RULE = DEFAULT_ONLY` sin cambios. Pruebas locales: 2801/2801 y 61/61 en navegador (PLATFORM_NATIVE local). Auditoría independiente H01–H04 corregida localmente (rol/sede LIVE en páginas, preflight de timezone, actividades después del inicio, lock del Trainer en canal TRAINER); suite completa 2847/2847. Requisito: configurar `GymSettings.timezone` antes de habilitar al entrenador. Ver docs/modules/gym-bookings-stage4.md §19.
+- gym/weekly-plans — **GYM-5A (2026-10-21): planes semanales y seguimiento individual por fecha** (rama local `feat/gym-training-stage5a`, desde `949a04e`, **no publicada ni desplegada**). Corrige la pertenencia día↔plan (`update`/`mark` de día), valida referencias y solapes bajo lock, y añade ejecuciones por **fecha local del gimnasio** (autorreporte del alumno y registro del entrenador por separado, vínculo explícito con asistencia GYM-4, bitácora append-only). **Requiere migración aditiva** `20261021000000_gym_training_executions` (no aplicada en ninguna base real ni local de desarrollo). Ver docs/modules/gym-training-stage5a.md.
 - commerce/cash cerrado y operativo — apertura/cierre de sesión, movimientos manuales, corte de caja, historial, exportación PDF/Excel, asociación automática venta → sesión. Ver docs/modules/cash-summary.md.
 
 ## Identidad activa
