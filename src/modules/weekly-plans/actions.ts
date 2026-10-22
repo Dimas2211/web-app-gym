@@ -25,6 +25,16 @@ import {
 } from "./schemas";
 import { authorizePlan, authorizePlanDay } from "./plan-access";
 import {
+  PLAN_OVERLAP_MESSAGE,
+  createPlanWithDays,
+  resolveApplicableTemplate,
+  resolveAssignableTrainer,
+  resolveTenantBranch,
+  togglePlanStatusChecked,
+  updatePlanChecked,
+} from "./plan-service";
+import { liveLocationMatches, LIVE_IDENTITY_CHANGED_MESSAGE, resolveLinkedTrainer } from "@/modules/classes/trainer/trainer-access";
+import {
   requireOperationalContext,
   OperationalContextError,
   type EffectiveOperationalUser,
@@ -328,30 +338,6 @@ export async function deleteTemplateDayAction(
 // CLIENT WEEKLY PLANS
 // ══════════════════════════════════════════════
 
-/** Valida que no exista un plan activo que se solape en el periodo dado para ese cliente */
-async function validatePlanOverlap(
-  db: PrismaClient,
-  client_id: string,
-  start_date: string,
-  end_date: string,
-  excludeId?: string
-) {
-  const start = new Date(start_date + "T00:00:00.000Z");
-  const end = new Date(end_date + "T00:00:00.000Z");
-
-  const overlap = await db.clientWeeklyPlan.findFirst({
-    where: {
-      client_id,
-      status: { in: ["active", "suspended"] },
-      ...(excludeId ? { id: { not: excludeId } } : {}),
-      start_date: { lte: end },
-      end_date: { gte: start },
-    },
-    select: { id: true, start_date: true, end_date: true, status: true },
-  });
-  return overlap;
-}
-
 export async function createClientPlanAction(
   _prev: WeeklyPlanActionState,
   formData: FormData
@@ -379,12 +365,37 @@ export async function createClientPlanAction(
       notes: n(formData.get("notes")),
     };
 
+    // Rol LIVE y sede vigente (misma regla que GYM-4 H01 para roles acotados a sede).
+    if (!["super_admin", "branch_admin", "reception", "trainer"].includes(effectiveRole)) {
+      return { error: "Sin permiso para asignar planes." };
+    }
+    if (!(await liveLocationMatches({
+      runtimeMode: context.runtimeMode,
+      client: context.client,
+      userId: context.effectiveUser.id,
+      role: effectiveRole,
+      locationId: context.locationId,
+    }))) {
+      return { error: LIVE_IDENTITY_CHANGED_MESSAGE };
+    }
+
     // Scope: branch_admin/reception solo crean en su sucursal
     if (
       (effectiveRole === "branch_admin" || effectiveRole === "reception") &&
       raw.branch_id !== context.locationId
     ) {
       return { error: "Solo puedes asignar planes en tu propia sucursal." };
+    }
+
+    // El entrenador solo asigna planes a SU perfil y en SU sede.
+    if (effectiveRole === "trainer") {
+      const me = await resolveLinkedTrainer(context.client, context.effectiveUser.id, context.tenantId);
+      if (!me) return { error: "Tu cuenta no tiene un perfil de entrenador activo vinculado." };
+      if (raw.branch_id !== me.branch_id) return { error: "Solo puedes asignar planes en tu propia sucursal." };
+      if (raw.trainer_id !== null && raw.trainer_id !== me.id) {
+        return { error: "Solo puedes asignarte planes a ti mismo." };
+      }
+      raw.trainer_id = me.id;
     }
 
     const parsed = createClientPlanSchema.safeParse(raw);
@@ -405,70 +416,56 @@ export async function createClientPlanAction(
       return { error: "El cliente no pertenece a tu sucursal." };
     }
 
-    // Validar trainer si se indicó
-    if (trainer_id) {
-      const trainer = await context.client.trainer.findFirst({
-        where: { id: trainer_id, tenant_id: context.tenantId },
-      });
-      if (!trainer) return { error: "Entrenador no encontrado." };
+    // GYM-5A: sede del tenant y coherente con la sede del alumno.
+    if (!(await resolveTenantBranch(context.client, context.tenantId, branch_id))) {
+      return { error: "Sucursal no encontrada." };
+    }
+    if (client.branch_id !== branch_id) {
+      return { error: "La sede del plan debe coincidir con la sede del alumno." };
     }
 
-    // Validar solapamiento
-    const overlap = await validatePlanOverlap(context.client, client_id, start_date, end_date);
-    if (overlap) {
-      return {
-        errors: {
-          start_date: [
-            `Ya existe un plan activo para este cliente que se solapa con las fechas indicadas.`,
-          ],
-        },
-      };
+    // Entrenador activo del tenant y de la sede del plan
+    if (trainer_id) {
+      const t = await resolveAssignableTrainer(context.client, context.tenantId, trainer_id, branch_id);
+      if (!t.ok) return { error: t.error };
+    }
+
+    // Plantilla activa del tenant y aplicable a la sede
+    let template = null;
+    if (template_id) {
+      const t = await resolveApplicableTemplate(context.client, context.tenantId, template_id, branch_id);
+      if (!t.ok) return { error: t.error };
+      template = t.template;
     }
 
     if (!context.gymId) {
       return { error: "El módulo GYM no está configurado para esta organización." };
     }
 
-    // Crear el plan
-    const newPlan = await context.client.clientWeeklyPlan.create({
-      data: {
-        gym_id: context.gymId,
-        tenant_id: context.tenantId,
-        branch_id,
-        client_id,
-        trainer_id,
-        template_id,
-        start_date: new Date(start_date + "T00:00:00.000Z"),
-        end_date: new Date(end_date + "T00:00:00.000Z"),
-        notes,
-        status: "active",
-        assignment_type: "individual",
-      },
-    });
-
-    // Si hay plantilla, copiar los días al plan del cliente
-    if (template_id) {
-      const templateDays = await context.client.weeklyPlanTemplateDay.findMany({
-        where: { template_id },
+    // Plan + días en una transacción; solapamiento validado bajo bloqueo del alumno.
+    let created;
+    try {
+      created = await createPlanWithDays(context.client, {
+        gymId: context.gymId,
+        tenantId: context.tenantId,
+        branchId: branch_id,
+        clientId: client_id,
+        trainerId: trainer_id ?? null,
+        template,
+        startDate: start_date,
+        endDate: end_date,
+        notes: notes ?? null,
+        assignmentType: "individual",
       });
-
-      if (templateDays.length > 0) {
-        await context.client.clientWeeklyPlanDay.createMany({
-          data: templateDays.map((d) => ({
-            client_weekly_plan_id: newPlan.id,
-            weekday: d.weekday,
-            session_name: d.session_name,
-            focus_area: d.focus_area,
-            duration_minutes: d.duration_minutes,
-            exercise_block: d.exercise_block,
-            execution_status: "pending",
-          })),
-        });
-      }
+    } catch {
+      return { error: "No se pudo crear el plan. Intenta de nuevo." };
+    }
+    if (!created.ok) {
+      return { errors: { start_date: [PLAN_OVERLAP_MESSAGE] } };
     }
 
     revalidatePath("/dashboard/weekly-plans/client-plans");
-    redirect(`/dashboard/weekly-plans/client-plans/${newPlan.id}`);
+    redirect(`/dashboard/weekly-plans/client-plans/${created.plan.id}`);
   } finally {
     await dispose();
   }
@@ -510,30 +507,36 @@ export async function updateClientPlanAction(
 
     const { start_date, end_date } = parsed.data;
 
-    // Validar solapamiento (excluyendo este plan)
-    if (parsed.data.status === "active") {
-      const overlap = await validatePlanOverlap(context.client, plan.client_id, start_date, end_date, id);
-      if (overlap) {
-        return {
-          errors: {
-            start_date: [
-              `Ya existe un plan activo para este cliente que se solapa con las fechas indicadas.`,
-            ],
-          },
-        };
+    // Cambio de entrenador: el entrenador no reasigna su propio plan; el
+    // entrenador nuevo debe ser activo, del tenant y de la sede del plan.
+    let trainerId = parsed.data.trainer_id ?? null;
+    if (trainerId !== plan.trainer_id) {
+      if (access.scope === "trainer") {
+        return { error: "Solo administración puede cambiar el entrenador del plan." };
+      }
+      if (trainerId) {
+        const t = await resolveAssignableTrainer(context.client, context.tenantId, trainerId, plan.branch_id);
+        if (!t.ok) return { error: t.error };
       }
     }
+    if (access.scope === "trainer") trainerId = plan.trainer_id;
 
-    await context.client.clientWeeklyPlan.update({
-      where: { id },
-      data: {
-        trainer_id: parsed.data.trainer_id,
-        start_date: new Date(start_date + "T00:00:00.000Z"),
-        end_date: new Date(end_date + "T00:00:00.000Z"),
+    // Solapamiento revalidado bajo bloqueo del alumno (transacción).
+    let updated;
+    try {
+      updated = await updatePlanChecked(context.client, {
+        planId: plan.id,
+        clientId: plan.client_id,
+        trainerId,
+        startDate: start_date,
+        endDate: end_date,
         status: parsed.data.status,
-        notes: parsed.data.notes,
-      },
-    });
+        notes: parsed.data.notes ?? null,
+      });
+    } catch {
+      return { error: "No se pudo actualizar el plan. Intenta de nuevo." };
+    }
+    if (!updated.ok) return { errors: { start_date: [PLAN_OVERLAP_MESSAGE] } };
 
     revalidatePath("/dashboard/weekly-plans/client-plans");
     revalidatePath(`/dashboard/weekly-plans/client-plans/${id}`);
@@ -565,10 +568,8 @@ export async function toggleClientPlanStatusAction(
     if (!access.ok) return;
     const plan = access.plan;
 
-    await context.client.clientWeeklyPlan.update({
-      where: { id },
-      data: { status: plan.status === "active" ? "inactive" : "active" },
-    });
+    // GYM-5A: al reactivar se revalida el solapamiento bajo bloqueo del alumno.
+    await togglePlanStatusChecked(context.client, { id: plan.id, client_id: plan.client_id });
 
     revalidatePath("/dashboard/weekly-plans/client-plans");
     revalidatePath(`/dashboard/weekly-plans/client-plans/${id}`);
@@ -787,6 +788,19 @@ export async function assignTemplateSegmentedAction(
       notes: n(formData.get("notes")),
     };
 
+    if (effectiveRole !== "super_admin" && effectiveRole !== "branch_admin") {
+      return { error: "Sin permiso para asignar planes de forma masiva." };
+    }
+    if (!(await liveLocationMatches({
+      runtimeMode: context.runtimeMode,
+      client: context.client,
+      userId: context.effectiveUser.id,
+      role: effectiveRole,
+      locationId: context.locationId,
+    }))) {
+      return { error: LIVE_IDENTITY_CHANGED_MESSAGE };
+    }
+
     // branch_admin siempre opera en su propia sucursal
     if (effectiveRole === "branch_admin") {
       raw.branch_id = context.locationId ?? null;
@@ -821,12 +835,28 @@ export async function assignTemplateSegmentedAction(
       return { error: "Sin permiso para usar esta plantilla." };
     }
 
-    // Validar entrenador si se indicó
+    // Sede de operación del lote: la del admin de sede, la indicada o la del entrenador.
+    let scopeBranchId: string | null = branch_id ?? null;
+
+    // Entrenador activo del tenant; con entrenador, el lote queda en SU sede.
     if (trainer_id) {
-      const trainer = await context.client.trainer.findFirst({
-        where: { id: trainer_id, tenant_id: context.tenantId },
-      });
+      const trainer = await context.client.trainer.findFirst({ where: { id: trainer_id, tenant_id: context.tenantId } });
       if (!trainer) return { error: "Entrenador no encontrado." };
+      if (trainer.status !== "active") return { error: "El entrenador seleccionado está inactivo." };
+      if (scopeBranchId && scopeBranchId !== trainer.branch_id) {
+        return { error: "El entrenador no pertenece a la sede indicada." };
+      }
+      scopeBranchId = trainer.branch_id;
+    }
+    // La plantilla restringida a una sede solo aplica a esa sede.
+    if (template.branch_id) {
+      if (scopeBranchId && scopeBranchId !== template.branch_id) {
+        return { error: "La plantilla no es aplicable a la sede indicada." };
+      }
+      scopeBranchId = template.branch_id;
+    }
+    if (effectiveRole === "branch_admin" && scopeBranchId !== context.locationId) {
+      return { error: "Solo puedes asignar planes en tu propia sucursal." };
     }
 
     // Construir filtro de clientes
@@ -846,11 +876,7 @@ export async function assignTemplateSegmentedAction(
       },
     };
 
-    if (branch_id) {
-      clientWhere.branch_id = branch_id;
-    } else if (effectiveRole === "branch_admin") {
-      clientWhere.branch_id = context.locationId!;
-    }
+    if (scopeBranchId) clientWhere.branch_id = scopeBranchId;
 
     if (target_gender) clientWhere.gender = target_gender;
     if (target_sport_id) clientWhere.sport_id = target_sport_id;
@@ -868,63 +894,30 @@ export async function assignTemplateSegmentedAction(
       };
     }
 
-    const start = new Date(start_date + "T00:00:00.000Z");
-    const end = new Date(end_date + "T00:00:00.000Z");
-
     let assigned = 0;
     let skipped = 0;
 
+    // Un alumno por transacción: cada una bloquea UNA fila (sin deadlocks) y
+    // revalida el solapamiento bajo bloqueo; un fallo aislado no deja medio lote.
     for (const client of clients) {
-      // Verificar solapamiento con plan existente
-      const overlap = await context.client.clientWeeklyPlan.findFirst({
-        where: {
-          client_id: client.id,
-          status: { in: ["active", "suspended"] },
-          start_date: { lte: end },
-          end_date: { gte: start },
-        },
-        select: { id: true },
-      });
-
-      if (overlap) {
-        skipped++;
-        continue;
-      }
-
-      // Crear el plan — branch del cliente si no se especificó scope de sucursal
-      const planBranchId = branch_id ?? client.branch_id;
-
-      const newPlan = await context.client.clientWeeklyPlan.create({
-        data: {
-          gym_id: context.gymId,
-          tenant_id: context.tenantId,
-          branch_id: planBranchId,
-          client_id: client.id,
-          trainer_id,
-          template_id,
-          start_date: start,
-          end_date: end,
-          notes,
-          status: "active",
-          assignment_type: "segmented",
-        },
-      });
-
-      if (template.days.length > 0) {
-        await context.client.clientWeeklyPlanDay.createMany({
-          data: template.days.map((d) => ({
-            client_weekly_plan_id: newPlan.id,
-            weekday: d.weekday,
-            session_name: d.session_name,
-            focus_area: d.focus_area,
-            duration_minutes: d.duration_minutes,
-            exercise_block: d.exercise_block,
-            execution_status: "pending",
-          })),
+      try {
+        const created = await createPlanWithDays(context.client, {
+          gymId: context.gymId,
+          tenantId: context.tenantId,
+          branchId: client.branch_id,
+          clientId: client.id,
+          trainerId: trainer_id ?? null,
+          template,
+          startDate: start_date,
+          endDate: end_date,
+          notes: notes ?? null,
+          assignmentType: "segmented",
         });
+        if (created.ok) assigned++;
+        else skipped++;
+      } catch {
+        skipped++;
       }
-
-      assigned++;
     }
 
     revalidatePath("/dashboard/weekly-plans/client-plans");

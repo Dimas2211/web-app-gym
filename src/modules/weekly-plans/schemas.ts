@@ -2,6 +2,16 @@ import { z } from "zod";
 
 const VALID_WEEKDAYS = [0, 1, 2, 3, 4, 5, 6] as const;
 
+/** Fecha calendario real "AAAA-MM-DD" (GYM-5A: sin Date.parse ambiguo ni fechas inexistentes). */
+export function isIsoCalendarDate(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const d = new Date(`${value}T00:00:00.000Z`);
+  return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === value;
+}
+
+const isoDate = (required: string) =>
+  z.string().min(1, required).refine(isIsoCalendarDate, { message: "Fecha inválida (use AAAA-MM-DD)" });
+
 // ── Plantillas ───────────────────────────────────────────────
 
 export const createTemplateSchema = z.object({
@@ -52,11 +62,11 @@ export const createClientPlanSchema = z
     branch_id: z.string().uuid("Sucursal requerida"),
     trainer_id: z.string().uuid().optional().nullable(),
     template_id: z.string().uuid().optional().nullable(),
-    start_date: z.string().min(1, "Fecha de inicio requerida"),
-    end_date: z.string().min(1, "Fecha de fin requerida"),
+    start_date: isoDate("Fecha de inicio requerida"),
+    end_date: isoDate("Fecha de fin requerida"),
     notes: z.string().max(1000).optional().nullable(),
   })
-  .refine((d) => new Date(d.end_date) > new Date(d.start_date), {
+  .refine((d) => !isIsoCalendarDate(d.start_date) || !isIsoCalendarDate(d.end_date) || d.end_date > d.start_date, {
     message: "La fecha de fin debe ser posterior a la de inicio",
     path: ["end_date"],
   });
@@ -64,12 +74,12 @@ export const createClientPlanSchema = z
 export const updateClientPlanSchema = z
   .object({
     trainer_id: z.string().uuid().optional().nullable(),
-    start_date: z.string().min(1, "Fecha de inicio requerida"),
-    end_date: z.string().min(1, "Fecha de fin requerida"),
+    start_date: isoDate("Fecha de inicio requerida"),
+    end_date: isoDate("Fecha de fin requerida"),
     status: z.enum(["active", "inactive", "suspended", "deleted"]),
     notes: z.string().max(1000).optional().nullable(),
   })
-  .refine((d) => new Date(d.end_date) > new Date(d.start_date), {
+  .refine((d) => !isIsoCalendarDate(d.start_date) || !isIsoCalendarDate(d.end_date) || d.end_date > d.start_date, {
     message: "La fecha de fin debe ser posterior a la de inicio",
     path: ["end_date"],
   });
@@ -109,8 +119,8 @@ export const assignSegmentedSchema = z
     template_id: z.string().uuid("Plantilla requerida"),
     branch_id: z.string().uuid().optional().nullable(),
     trainer_id: z.string().uuid().optional().nullable(),
-    start_date: z.string().min(1, "Fecha de inicio requerida"),
-    end_date: z.string().min(1, "Fecha de fin requerida"),
+    start_date: isoDate("Fecha de inicio requerida"),
+    end_date: isoDate("Fecha de fin requerida"),
     target_gender: z
       .enum(["male", "female", "other", "prefer_not_to_say"])
       .optional()
@@ -119,7 +129,7 @@ export const assignSegmentedSchema = z
     target_goal_id: z.string().uuid().optional().nullable(),
     notes: z.string().max(1000).optional().nullable(),
   })
-  .refine((d) => new Date(d.end_date) > new Date(d.start_date), {
+  .refine((d) => !isIsoCalendarDate(d.start_date) || !isIsoCalendarDate(d.end_date) || d.end_date > d.start_date, {
     message: "La fecha de fin debe ser posterior a la de inicio",
     path: ["end_date"],
   });

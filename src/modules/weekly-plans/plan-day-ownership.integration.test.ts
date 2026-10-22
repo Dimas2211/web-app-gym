@@ -12,117 +12,36 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PrismaClient } from "@prisma/client";
 
-const state = vi.hoisted(() => ({
-  user: null as null | { id: string; role: string; tenantId: string; locationId: string | null },
-  jwtRole: null as null | string,
-  db: null as unknown,
-  readOnly: false,
-  moduleDisabled: false,
-  runtimeMode: "RUNTIME_CLIENT" as string,
-}));
-
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
-vi.mock("next/navigation", () => ({
-  redirect: vi.fn((to: string) => {
-    throw new Error(`NEXT_REDIRECT:${to}`);
-  }),
-}));
-
-function sessionUser() {
-  const u = state.user!;
-  return {
-    id: u.id,
-    tenant_id: u.tenantId,
-    location_id: u.locationId,
-    role: state.jwtRole ?? u.role,
-    auth_scope: "RUNTIME_CLIENT",
-  };
-}
-
-vi.mock("@/lib/permissions/guards", () => ({
-  requireAdmin: vi.fn(async () => sessionUser()),
-  requireClassViewer: vi.fn(async () => sessionUser()),
-  requireClient: vi.fn(async () => sessionUser()),
-  getSessionOrRedirect: vi.fn(async () => sessionUser()),
-  canDeleteDirectly: vi.fn(() => true),
-}));
-
-vi.mock("@/modules/platform/runtime/require-operational-context", () => {
-  class OperationalContextError extends Error {
-    code: string;
-    httpStatus: number;
-    userMessage: string;
-    constructor(code: string, userMessage: string, httpStatus: number) {
-      super(userMessage);
-      this.code = code;
-      this.httpStatus = httpStatus;
-      this.userMessage = userMessage;
-    }
-  }
-  return {
-    OperationalContextError,
-    requireOperationalContext: vi.fn(async (_s: unknown, opts: { module?: string; write?: boolean } = {}) => {
-      if (opts.write && state.readOnly) throw new OperationalContextError("READ_ONLY", "Sesión de soporte de solo lectura.", 403);
-      if (opts.module && state.moduleDisabled) throw new OperationalContextError("MODULE_DISABLED", "Módulo no habilitado.", 403);
-      const u = state.user!;
-      return {
-        context: {
-          runtimeMode: state.runtimeMode,
-          authScope: "RUNTIME_CLIENT",
-          effectiveUser: { id: u.id, tenant_id: u.tenantId, location_id: u.locationId, role: u.role, auth_scope: "RUNTIME_CLIENT" },
-          organizationId: null,
-          tenantId: u.tenantId,
-          gymId: u.tenantId,
-          locationId: u.locationId,
-          client: state.db,
-          readOnly: state.readOnly,
-          commercialContext: null,
-        },
-        dispose: async () => {},
-      };
-    }),
-  };
-});
+vi.mock("next/navigation", async () => (await import("./testing/plan-action-mocks")).navigationMock());
+vi.mock("@/lib/permissions/guards", async () => (await import("./testing/plan-action-mocks")).guardsMock());
+vi.mock("@/modules/platform/runtime/require-operational-context", async () => (await import("./testing/plan-action-mocks")).operationalContextMock());
 
 import { createItDatabase, disconnectAdmin, IT_ENABLED, type ItDatabase } from "@/modules/classes/booking/testing/pg-it-harness";
-import { B1B, seedBase, T2, TRAINER_C } from "@/modules/classes/booking/testing/booking-fixtures";
-import { FAKE_USERS, seedPlan, type SeededPlan } from "./testing/plan-it-harness";
+import { T2 } from "@/modules/classes/booking/testing/booking-fixtures";
+import { FAKE_USERS, seedPlan, seedPlanWorld, W, type SeededPlan } from "./testing/plan-it-harness";
+import { formData as fd, planActionState as state, resetPlanActionState, runAction as run } from "./testing/plan-action-mocks";
 import { markClientPlanDayAction, updateClientPlanDayAction } from "./actions";
 import { submitPlanDayAction } from "@/modules/client-portal/actions";
-
-const fd = (o: Record<string, string>) => {
-  const f = new FormData();
-  for (const [k, v] of Object.entries(o)) f.set(k, v);
-  return f;
-};
-
-async function run<T>(p: Promise<T>): Promise<T | undefined> {
-  try {
-    return await p;
-  } catch (e) {
-    if (e instanceof Error && e.message.startsWith("NEXT_REDIRECT")) return undefined;
-    throw e;
-  }
-}
 
 describe.skipIf(!IT_ENABLED)("GYM-5A — pertenencia de día y autorización (PostgreSQL real)", () => {
   let it5: ItDatabase;
   let db: PrismaClient;
-  let own: SeededPlan & { clientUserId: string | null }; // T1/B1, entrenador A
-  let otherClient: SeededPlan & { clientUserId: string | null }; // T1/B1, entrenador A, otro alumno
-  let otherTrainer: SeededPlan & { clientUserId: string | null }; // T1/B1, entrenador C
-  let otherBranch: SeededPlan & { clientUserId: string | null }; // T1/B1B
-  let otherTenant: SeededPlan & { clientUserId: string | null }; // T2
+  let own: SeededPlan; // T1/B1, entrenador A
+  let otherClient: SeededPlan; // T1/B1, entrenador A, otro alumno
+  let otherTrainer: SeededPlan; // T1/B1, entrenador C
+  let otherBranch: SeededPlan; // T1/B1B
+  let otherTenant: SeededPlan; // T2
 
   beforeAll(async () => {
     it5 = await createItDatabase();
     db = it5.db;
     state.db = db;
-    await seedBase(db);
+    await seedPlanWorld(db);
     own = await seedPlan(db, { start: "2026-01-01", end: "2026-12-31", withClientUser: true });
     otherClient = await seedPlan(db, { start: "2026-01-01", end: "2026-12-31", withClientUser: true });
-    otherTrainer = await seedPlan(db, { start: "2026-01-01", end: "2026-12-31", trainerId: TRAINER_C });
-    otherBranch = await seedPlan(db, { start: "2026-01-01", end: "2026-12-31", branch: B1B, trainerId: null });
+    otherTrainer = await seedPlan(db, { start: "2026-01-01", end: "2026-12-31", trainerId: W.TR2 });
+    otherBranch = await seedPlan(db, { start: "2026-01-01", end: "2026-12-31", branch: W.B2, trainerId: null });
     otherTenant = await seedPlan(db, { tenant: T2, start: "2026-01-01", end: "2026-12-31" });
   }, 180_000);
 
@@ -132,11 +51,8 @@ describe.skipIf(!IT_ENABLED)("GYM-5A — pertenencia de día y autorización (Po
   });
 
   beforeEach(() => {
-    state.user = FAKE_USERS.sa1;
-    state.jwtRole = null;
-    state.readOnly = false;
-    state.moduleDisabled = false;
-    state.runtimeMode = "RUNTIME_CLIENT";
+    resetPlanActionState(FAKE_USERS.sa1);
+    state.db = db;
   });
 
   const snapshot = async (dayId: string) =>
@@ -150,7 +66,7 @@ describe.skipIf(!IT_ENABLED)("GYM-5A — pertenencia de día y autorización (Po
   type Victim = { name: string; plan: () => SeededPlan; as?: keyof typeof FAKE_USERS; weekday: number };
   const cases: Victim[] = [
     { name: "alumno ajeno (mismo tenant y sede)", plan: () => otherClient, weekday: 1 },
-    { name: "otro entrenador", plan: () => otherTrainer, as: "trainerA", weekday: 1 },
+    { name: "otro entrenador", plan: () => otherTrainer, as: "tr1", weekday: 1 },
     { name: "otra sucursal", plan: () => otherBranch, as: "ba1", weekday: 3 },
     { name: "otro tenant Shared", plan: () => otherTenant, weekday: 5 },
   ];
@@ -181,7 +97,7 @@ describe.skipIf(!IT_ENABLED)("GYM-5A — pertenencia de día y autorización (Po
   }
 
   it("portal: el alumno no puede registrar el día de otro alumno ni de otro tenant", async () => {
-    state.user = { id: own.clientUserId!, role: "client", tenantId: "it-tenant-1", locationId: "it-branch-1a" };
+    state.user = { id: own.clientUserId!, role: "client", tenantId: "it-tenant-1", locationId: W.B1 };
     for (const victim of [otherClient, otherTenant]) {
       const dayId = Object.values(victim.days)[0];
       const before = await snapshot(dayId);
@@ -194,7 +110,7 @@ describe.skipIf(!IT_ENABLED)("GYM-5A — pertenencia de día y autorización (Po
   });
 
   it("rol LIVE degradado (JWT trainer, LIVE client) pierde el acceso de escritura", async () => {
-    state.user = { ...FAKE_USERS.trainerA, role: "client" };
+    state.user = { ...FAKE_USERS.tr1, role: "client" };
     state.jwtRole = "trainer";
     const dayId = own.days[1];
     const before = await snapshot(dayId);
@@ -223,7 +139,7 @@ describe.skipIf(!IT_ENABLED)("GYM-5A — pertenencia de día y autorización (Po
   });
 
   it("control positivo: el entrenador asignado edita un día de SU plan", async () => {
-    state.user = FAKE_USERS.trainerA;
+    state.user = FAKE_USERS.tr1;
     const dayId = own.days[5];
     await run(updateClientPlanDayAction(undefined, fd({ plan_id: own.planId, day_id: dayId, duration_minutes: "45", session_name: "Pierna" })));
     const after = await snapshot(dayId);
