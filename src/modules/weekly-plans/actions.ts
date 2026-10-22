@@ -96,6 +96,22 @@ export async function createTemplateAction(
   const { context, dispose } = handle;
 
   try {
+    // El gate de sesión (requireAdmin) usa el rol del JWT; la autorización real
+    // es el rol y la sede LIVE (misma regla que la asignación segmentada).
+    const liveRole = context.effectiveUser.role;
+    if (liveRole !== "super_admin" && liveRole !== "branch_admin") {
+      return { error: "Sin permiso para crear plantillas." };
+    }
+    if (!(await liveLocationMatches({
+      runtimeMode: context.runtimeMode,
+      client: context.client,
+      userId: context.effectiveUser.id,
+      role: liveRole,
+      locationId: context.locationId,
+    }))) {
+      return { error: LIVE_IDENTITY_CHANGED_MESSAGE };
+    }
+
     const raw = {
       code: n(formData.get("code")),
       name: formData.get("name"),
