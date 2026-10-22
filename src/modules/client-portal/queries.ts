@@ -33,6 +33,18 @@ import {
 // de un tenant hosteado nunca debe leer su perfil/membresía/clases/plan
 // desde el Prisma global de la plataforma.
 
+/**
+ * "Hoy" para las consultas de membresía/plan del portal. GYM-5A: con
+ * `todayIso` (fecha local del gimnasio, "YYYY-MM-DD") la comparación usa el
+ * día local; sin él se conserva el comportamiento anterior (día del servidor).
+ */
+function portalToday(todayIso?: string): Date {
+  if (todayIso) return new Date(`${todayIso}T00:00:00.000Z`);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return today;
+}
+
 // ============================================================
 // PERFIL DEL CLIENTE
 // ============================================================
@@ -100,9 +112,8 @@ export async function getMyActiveMembership(clientId: string, client: PrismaClie
  * Retorna la membresía más reciente que ya venció (end_date en el pasado) y fue pagada.
  * Se usa para mostrar el aviso de membresía caducada y calcular días hábiles desde el vencimiento.
  */
-export async function getLastExpiredMembership(clientId: string, client: PrismaClient = prisma) {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
+export async function getLastExpiredMembership(clientId: string, client: PrismaClient = prisma, todayIso?: string) {
+  const today = portalToday(todayIso);
   return client.clientMembership.findFirst({
     where: {
       client_id: clientId,
@@ -153,9 +164,8 @@ export async function getMyBookingForClass(clientId: string, classId: string, cl
 // ============================================================
 
 /** Plan semanal activo y vigente del cliente. */
-export async function getMyActivePlan(clientId: string, client: PrismaClient = prisma) {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
+export async function getMyActivePlan(clientId: string, client: PrismaClient = prisma, todayIso?: string) {
+  const today = portalToday(todayIso);
   return client.clientWeeklyPlan.findFirst({
     where: {
       client_id: clientId,
@@ -194,9 +204,8 @@ export async function getMyPlans(clientId: string, client: PrismaClient = prisma
 // ============================================================
 
 /** Devuelve true si el cliente tiene membresía activa y vigente hoy. */
-export async function hasActiveMembership(clientId: string, client: PrismaClient = prisma): Promise<boolean> {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
+export async function hasActiveMembership(clientId: string, client: PrismaClient = prisma, todayIso?: string): Promise<boolean> {
+  const today = portalToday(todayIso);
   const found = await client.clientMembership.findFirst({
     where: {
       client_id: clientId,

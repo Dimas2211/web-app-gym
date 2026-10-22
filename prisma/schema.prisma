@@ -591,6 +591,7 @@ model ClassAttendance {
   scheduled_class    ScheduledClass   @relation(fields: [scheduled_class_id], references: [id])
   booking            ClassBooking?    @relation(fields: [booking_id], references: [id], onDelete: SetNull)
   activities         ClassAttendanceActivity[]
+  plan_executions    ClientPlanDayExecution[]
 
   @@unique([scheduled_class_id, client_id])
   @@index([scheduled_class_id])
@@ -665,6 +666,7 @@ model ClientWeeklyPlan {
   created_at      DateTime              @default(now())
   updated_at      DateTime              @updatedAt
   days            ClientWeeklyPlanDay[]
+  executions      ClientPlanDayExecution[]
   branch          Branch                @relation(fields: [branch_id], references: [id])
   client          Client                @relation(fields: [client_id], references: [id])
   gym             Gym                   @relation(fields: [gym_id], references: [id])
@@ -675,6 +677,8 @@ model ClientWeeklyPlan {
   @@index([branch_id])
   @@index([client_id])
   @@index([trainer_id])
+  // GYM-5A — destino de la FK compuesta de ClientPlanDayExecution (aditivo; id ya es PK).
+  @@unique([id, tenant_id, client_id])
   @@map("client_weekly_plans")
 }
 
@@ -693,10 +697,93 @@ model ClientWeeklyPlanDay {
   created_at            DateTime         @default(now())
   updated_at            DateTime         @updatedAt
   plan                  ClientWeeklyPlan @relation(fields: [client_weekly_plan_id], references: [id])
+  executions            ClientPlanDayExecution[]
 
   @@unique([client_weekly_plan_id, weekday])
   @@index([client_weekly_plan_id])
+  // GYM-5A — destino de la FK compuesta (día ∈ plan) de ClientPlanDayExecution.
+  @@unique([id, client_weekly_plan_id])
   @@map("client_weekly_plan_days")
+}
+
+// GYM-5A — ejecución de un día del plan en una FECHA LOCAL concreta.
+// PLAN = ClientWeeklyPlanDay (lo programado, una fila por weekday);
+// EJECUCIÓN = esta tabla (lo registrado en una fecha, una fila por día+fecha);
+// ASISTENCIA = ClassAttendance (GYM-4), referenciada solo por vínculo
+// explícito y validado (attendance_id). El autorreporte del alumno y el
+// registro del entrenador son columnas separadas: ninguno sobrescribe al otro.
+// Los campos execution_status/executed_at/trainer_feedback/client_feedback de
+// ClientWeeklyPlanDay quedan como dato HEREDADO y no se reinterpretan.
+model ClientPlanDayExecution {
+  id          String   @id @default(uuid())
+  tenant_id   String
+  client_id   String
+  plan_id     String
+  plan_day_id String
+  // Fecha calendario en la zona horaria del gimnasio (no UTC del servidor).
+  local_date  DateTime @db.Date
+  // Zona IANA usada para derivar local_date (auditable ante cambios futuros).
+  timezone    String
+
+  // Autorreporte del alumno (nunca equivale a asistencia verificada).
+  client_status      ExecutionStatus?
+  client_comment     String?          @db.Text
+  client_reported_at DateTime?
+  client_reported_by String?
+
+  // Registro del entrenador / administración.
+  trainer_status        ExecutionStatus?
+  trainer_feedback      String?          @db.Text
+  trainer_recorded_at   DateTime?
+  trainer_recorded_by   String?
+  trainer_recorded_role String?
+
+  // Vínculo explícito con una asistencia GYM-4 (validado por servicio y trigger).
+  attendance_id        String?
+  attendance_linked_by String?
+  attendance_linked_at DateTime?
+
+  revision   Int      @default(1)
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  plan       ClientWeeklyPlan    @relation(fields: [plan_id, tenant_id, client_id], references: [id, tenant_id, client_id], onDelete: Restrict, onUpdate: Restrict)
+  day        ClientWeeklyPlanDay @relation(fields: [plan_day_id, plan_id], references: [id, client_weekly_plan_id], onDelete: Restrict, onUpdate: Restrict)
+  attendance ClassAttendance?    @relation(fields: [attendance_id, tenant_id], references: [id, tenant_id], onDelete: Restrict, onUpdate: Restrict)
+  events     ClientPlanDayExecutionEvent[]
+
+  @@unique([plan_day_id, local_date])
+  @@unique([attendance_id])
+  @@unique([id, tenant_id])
+  @@index([tenant_id, client_id, local_date])
+  @@index([plan_id, local_date])
+  @@map("client_plan_day_executions")
+}
+
+enum PlanExecutionEventKind {
+  CLIENT_REPORT
+  TRAINER_RECORD
+}
+
+// Bitácora append-only (trigger en BD) de cada cambio de una ejecución.
+model ClientPlanDayExecutionEvent {
+  id              String                 @id @default(uuid())
+  tenant_id       String
+  execution_id    String
+  kind            PlanExecutionEventKind
+  actor_user_id   String
+  actor_role      String
+  previous_status ExecutionStatus?
+  new_status      ExecutionStatus
+  // Obligatoria al corregir un estado ya registrado por el entrenador.
+  reason          String?
+  attendance_id   String?
+  created_at      DateTime               @default(now())
+
+  execution ClientPlanDayExecution @relation(fields: [execution_id, tenant_id], references: [id, tenant_id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@index([execution_id, created_at])
+  @@map("client_plan_day_execution_events")
 }
 
 model GymSettings {

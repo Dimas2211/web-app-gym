@@ -13,6 +13,7 @@ import { StatusBadge } from "@/components/ui/status-badge";
 import type { Status, AssignmentType } from "@prisma/client";
 import { requireOrganizationModule } from "@/modules/platform/runtime/commercial-enforcement";
 import { resolveEffectiveTenantContext } from "@/modules/platform/runtime/effective-tenant-context";
+import { resolveLiveClassViewer } from "@/modules/classes/trainer/trainer-access";
 
 function AssignmentTypeBadge({ type }: { type: AssignmentType }) {
   if (type === "segmented") {
@@ -54,12 +55,18 @@ export default async function ClientWeeklyPlansPage({
 
   // PASO 6C: tenant/PrismaClient EFECTIVOS bajo sesión runtime "Operar como cliente".
   const { context, dispose } = await resolveEffectiveTenantContext(sessionUser);
-  const effectiveUser = context.runtime
-    ? { ...sessionUser, tenant_id: context.tenantId }
-    : sessionUser;
 
   try {
     await requireOrganizationModule(context.tenantId, "gym.weekly_plans");
+
+    // GYM-5A: rol y sede LIVE para leer y autorizar (nunca los del JWT).
+    const live = await resolveLiveClassViewer(sessionUser, context);
+    if (!live.ok) {
+      return (
+        <div className="bg-amber-50 border border-amber-200 rounded-xl p-6 text-sm text-amber-800">{live.message}</div>
+      );
+    }
+    const effectiveUser = live.user;
 
     // Sin filtro de estado explícito → vista operativa: solo planes vigentes (end_date >= hoy)
     // Con filtro de estado explícito → historial visible completo
@@ -82,7 +89,7 @@ export default async function ClientWeeklyPlansPage({
 
     // Para entrenadores: mapa de cuántos de sus planes usan cada plantilla general
     const trainerPlansByTemplate: Record<string, number> = {};
-    if (sessionUser.role === "trainer") {
+    if (effectiveUser.role === "trainer") {
       for (const p of plans) {
         if (p.template?.id) {
           trainerPlansByTemplate[p.template.id] =
@@ -255,7 +262,7 @@ export default async function ClientWeeklyPlansPage({
                             </form>
                             <DeleteAuthorizationDialog
                               entityLabel={`el plan de ${p.client.first_name} ${p.client.last_name}`}
-                              userRole={sessionUser.role}
+                              userRole={effectiveUser.role}
                               hiddenFields={{ id: p.id }}
                               action={deleteClientPlanAction}
                             />
@@ -324,7 +331,7 @@ export default async function ClientWeeklyPlansPage({
             Plantillas publicadas
           </span>
         </div>
-        {sessionUser.role === "trainer" ? (
+        {effectiveUser.role === "trainer" ? (
           <p className="text-xs text-zinc-500">
             Rutinas generales publicadas para el gimnasio. Tus clientes las ven en su portal si
             tienen membresía vigente y su perfil (deporte, meta, género) coincide con la
@@ -346,8 +353,8 @@ export default async function ClientWeeklyPlansPage({
               No hay plantillas activas publicadas para este scope.
             </p>
             {canManage &&
-              (sessionUser.role === "super_admin" ||
-                sessionUser.role === "branch_admin") && (
+              (effectiveUser.role === "super_admin" ||
+                effectiveUser.role === "branch_admin") && (
               <Link
                 href="/dashboard/weekly-plans/templates"
                 className="mt-2 inline-block text-sm text-zinc-600 border border-zinc-300 px-4 py-2 rounded-lg hover:bg-zinc-50"
@@ -374,7 +381,7 @@ export default async function ClientWeeklyPlansPage({
                     <th className="text-center px-4 py-3 text-xs font-semibold text-sky-700 uppercase tracking-wide">
                       Planes asignados
                     </th>
-                    {sessionUser.role === "trainer" && (
+                    {effectiveUser.role === "trainer" && (
                       <th className="text-center px-4 py-3 text-xs font-semibold text-sky-700 uppercase tracking-wide">
                         Mis planes
                       </th>
@@ -383,8 +390,8 @@ export default async function ClientWeeklyPlansPage({
                       Alcance
                     </th>
                     {canManage &&
-                      (sessionUser.role === "super_admin" ||
-                        sessionUser.role === "branch_admin") && (
+                      (effectiveUser.role === "super_admin" ||
+                        effectiveUser.role === "branch_admin") && (
                       <th className="text-right px-5 py-3" />
                     )}
                   </tr>
@@ -423,7 +430,7 @@ export default async function ClientWeeklyPlansPage({
                       <td className="px-4 py-3.5 text-center text-zinc-500">
                         {t._count.client_plans}
                       </td>
-                      {sessionUser.role === "trainer" && (
+                      {effectiveUser.role === "trainer" && (
                         <td className="px-4 py-3.5 text-center">
                           {(trainerPlansByTemplate[t.id] ?? 0) > 0 ? (
                             <span className="text-xs font-semibold text-indigo-700">
@@ -440,8 +447,8 @@ export default async function ClientWeeklyPlansPage({
                         )}
                       </td>
                       {canManage &&
-                        (sessionUser.role === "super_admin" ||
-                          sessionUser.role === "branch_admin") && (
+                        (effectiveUser.role === "super_admin" ||
+                          effectiveUser.role === "branch_admin") && (
                         <td className="px-5 py-3.5 text-right">
                           <Link
                             href={`/dashboard/weekly-plans/templates/${t.id}/assign-segmented`}
@@ -481,7 +488,7 @@ export default async function ClientWeeklyPlansPage({
                   </div>
                   <p className="text-xs text-zinc-500">
                     {t._count.days} día(s) · {t._count.client_plans} plan(es) asignado(s)
-                    {sessionUser.role === "trainer" &&
+                    {effectiveUser.role === "trainer" &&
                       (trainerPlansByTemplate[t.id] ?? 0) > 0 && (
                         <span className="ml-1 text-indigo-700 font-semibold">
                           · {trainerPlansByTemplate[t.id]} mis planes
@@ -489,8 +496,8 @@ export default async function ClientWeeklyPlansPage({
                       )}
                   </p>
                   {canManage &&
-                    (sessionUser.role === "super_admin" ||
-                      sessionUser.role === "branch_admin") && (
+                    (effectiveUser.role === "super_admin" ||
+                      effectiveUser.role === "branch_admin") && (
                     <Link
                       href={`/dashboard/weekly-plans/templates/${t.id}/assign-segmented`}
                       className="inline-block text-xs text-indigo-600 border border-indigo-200 px-2.5 py-1 rounded hover:bg-indigo-50"

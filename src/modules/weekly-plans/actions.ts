@@ -20,10 +20,13 @@ import {
   createClientPlanSchema,
   updateClientPlanSchema,
   updateClientPlanDaySchema,
-  markDaySchema,
+  recordExecutionSchema,
   assignSegmentedSchema,
 } from "./schemas";
-import { authorizePlan, authorizePlanDay } from "./plan-access";
+import { PLAN_TRAINING_ROLES, authorizePlan, authorizePlanDay } from "./plan-access";
+import { TIMEZONE_NOT_CONFIGURED_MESSAGE, resolveGymClock } from "./gym-clock";
+import { recordTrainerExecution } from "./training-execution-service";
+import { hasOrganizationModule } from "@/modules/platform/runtime/commercial-enforcement/module-guard";
 import {
   PLAN_OVERLAP_MESSAGE,
   createPlanWithDays,
@@ -631,53 +634,82 @@ export async function updateClientPlanDayAction(
   redirect(`/dashboard/weekly-plans/client-plans/${formData.get("plan_id")}`);
 }
 
-export async function markClientPlanDayAction(
+// GYM-5A: reemplaza a markClientPlanDayAction (una sola fila de estado por
+// weekday, sin fecha ni procedencia). El registro del entrenador ahora es
+// POR FECHA LOCAL del gimnasio, conserva el autorreporte del alumno y deja
+// bitácora. Los campos heredados de ClientWeeklyPlanDay no se modifican.
+export type ExecutionActionState =
+  | { error?: string; errors?: Record<string, string[]>; ok?: true; unchanged?: true }
+  | undefined;
+
+export async function recordPlanExecutionAction(
+  _prev: ExecutionActionState,
   formData: FormData
-): Promise<void> {
+): Promise<ExecutionActionState> {
   const sessionUser = await requireClassViewer();
 
   let handle;
   try {
     handle = await requireOperationalContext(sessionUser, { module: "gym.weekly_plans", write: true });
-  } catch {
-    return;
+  } catch (err) {
+    if (err instanceof OperationalContextError) return { error: err.userMessage };
+    throw err;
   }
   const { context, dispose } = handle;
 
   try {
-    const day_id = formData.get("day_id") as string;
-    const plan_id = formData.get("plan_id") as string;
-    if (!day_id || !plan_id) return;
-
-    const access = await authorizePlanDay(context, plan_id, day_id);
-    if (!access.ok) return;
-
     const raw = {
+      plan_id: formData.get("plan_id"),
+      day_id: formData.get("day_id"),
+      local_date: formData.get("local_date"),
       execution_status: formData.get("execution_status"),
       trainer_feedback: n(formData.get("trainer_feedback")),
-      client_feedback: n(formData.get("client_feedback")),
+      reason: n(formData.get("reason")),
+      attendance_id: n(formData.get("attendance_id")),
+      expected_revision: n(formData.get("expected_revision")),
     };
+    const parsed = recordExecutionSchema.safeParse(raw);
+    if (!parsed.success) return { errors: parsed.error.flatten().fieldErrors };
+    const input = parsed.data;
 
-    const parsed = markDaySchema.safeParse(raw);
-    if (!parsed.success) return;
-
-    const executed_at =
-      parsed.data.execution_status === "completed" ||
-      parsed.data.execution_status === "partial"
-        ? new Date()
-        : null;
-
-    await context.client.clientWeeklyPlanDay.updateMany({
-      where: { id: access.day.id, client_weekly_plan_id: access.plan.id },
-      data: {
-        execution_status: parsed.data.execution_status,
-        executed_at,
-        trainer_feedback: parsed.data.trainer_feedback,
-        client_feedback: parsed.data.client_feedback,
-      },
+    // Registro del entrenador: super_admin, branch_admin o el entrenador asignado al plan.
+    const access = await authorizePlanDay(context, input.plan_id, input.day_id, {
+      roles: PLAN_TRAINING_ROLES,
+      statuses: ["active", "inactive", "suspended"],
     });
+    if (!access.ok) return { error: access.error };
 
-    revalidatePath(`/dashboard/weekly-plans/client-plans/${plan_id}`);
+    // Vincular/desvincular asistencia exige además el módulo de clases (lee datos GYM-4).
+    const attendanceRequested = input.attendance_id != null || formData.get("unlink_attendance") === "1";
+    if (attendanceRequested) {
+      const ctx = context.commercialContext;
+      if (!ctx || !hasOrganizationModule(ctx, "gym.classes")) {
+        return { error: "El módulo de clases no está habilitado para vincular asistencias." };
+      }
+    }
+
+    const clock = await resolveGymClock(context.client, context.tenantId);
+    if (!clock) return { error: TIMEZONE_NOT_CONFIGURED_MESSAGE };
+
+    const result = await recordTrainerExecution(context.client, {
+      tenantId: context.tenantId,
+      planId: access.plan.id,
+      planDayId: access.day.id,
+      localDate: input.local_date,
+      status: input.execution_status,
+      feedback: input.trainer_feedback ?? null,
+      reason: input.reason ?? null,
+      attendanceId: input.attendance_id ? input.attendance_id : formData.get("unlink_attendance") === "1" ? null : undefined,
+      expectedRevision: input.expected_revision ?? null,
+      actor: { userId: context.effectiveUser.id, role: context.effectiveUser.role },
+      timezone: clock.timezone,
+      today: clock.today,
+    });
+    if (!result.ok) return { error: result.message };
+
+    revalidatePath(`/dashboard/weekly-plans/client-plans/${access.plan.id}`);
+    revalidatePath("/portal/plan-semanal");
+    return result.changed ? { ok: true } : { ok: true, unchanged: true };
   } finally {
     await dispose();
   }
@@ -1012,6 +1044,14 @@ export async function deleteClientPlanAction(
 
     const access = await authorizePlan(context, id);
     if (!access.ok) return { error: access.error };
+
+    // GYM-5A: el historial de ejecuciones no se borra físicamente; se desactiva el plan.
+    const executions = await context.client.clientPlanDayExecution.count({
+      where: { plan_id: access.plan.id, tenant_id: context.tenantId },
+    });
+    if (executions > 0) {
+      return { error: `No se puede eliminar: el plan tiene ${executions} ejecución(es) registrada(s). Desactívalo en su lugar.` };
+    }
 
     const auth = await checkDeleteAuth(
       formData,

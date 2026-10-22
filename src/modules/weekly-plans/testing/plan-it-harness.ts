@@ -10,7 +10,7 @@
 
 import { randomUUID } from "node:crypto";
 import type { PrismaClient } from "@prisma/client";
-import { createClient, id, seedBase, T1, T2 } from "@/modules/classes/booking/testing/booking-fixtures";
+import { createClient, id, seedBase, setPolicy, T1, T2, TZ } from "@/modules/classes/booking/testing/booking-fixtures";
 
 export interface FakeUser {
   id: string;
@@ -52,6 +52,9 @@ export const FAKE_USERS = {
 
 export async function seedPlanWorld(db: PrismaClient) {
   await seedBase(db);
+  // Zona horaria del gimnasio (el seguimiento por fecha falla cerrado sin ella).
+  await setPolicy(db, T1, { timezone: TZ });
+  await setPolicy(db, T2, { timezone: "America/New_York" });
   await db.branch.createMany({
     data: [
       { id: W.B1, gym_id: T1, tenant_id: T1, name: "W Sede 1" },

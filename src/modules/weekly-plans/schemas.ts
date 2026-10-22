@@ -135,3 +135,21 @@ export const assignSegmentedSchema = z
   });
 
 export type AssignSegmentedInput = z.infer<typeof assignSegmentedSchema>;
+
+// ── Ejecución por fecha (GYM-5A) ─────────────────────────────
+
+export const recordExecutionSchema = z.object({
+  plan_id: z.string().uuid("Plan requerido"),
+  day_id: z.string().uuid("Día requerido"),
+  local_date: isoDate("Fecha requerida"),
+  execution_status: z.enum(["completed", "partial", "skipped"], {
+    required_error: "Estado requerido",
+    invalid_type_error: "Estado inválido",
+  }),
+  trainer_feedback: z.string().max(1000).optional().nullable(),
+  reason: z.string().max(500).optional().nullable(),
+  attendance_id: z.string().uuid("Asistencia inválida").optional().nullable(),
+  expected_revision: z.coerce.number().int().min(0).optional().nullable(),
+});
+
+export type RecordExecutionInput = z.infer<typeof recordExecutionSchema>;

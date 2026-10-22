@@ -21,7 +21,7 @@ import { createItDatabase, disconnectAdmin, IT_ENABLED, type ItDatabase } from "
 import { T2 } from "@/modules/classes/booking/testing/booking-fixtures";
 import { FAKE_USERS, seedPlan, seedPlanWorld, W, type SeededPlan } from "./testing/plan-it-harness";
 import { formData as fd, planActionState as state, resetPlanActionState, runAction as run } from "./testing/plan-action-mocks";
-import { markClientPlanDayAction, updateClientPlanDayAction } from "./actions";
+import { recordPlanExecutionAction, updateClientPlanDayAction } from "./actions";
 import { submitPlanDayAction } from "@/modules/client-portal/actions";
 
 describe.skipIf(!IT_ENABLED)("GYM-5A — pertenencia de día y autorización (PostgreSQL real)", () => {
@@ -60,8 +60,11 @@ describe.skipIf(!IT_ENABLED)("GYM-5A — pertenencia de día y autorización (Po
 
   const editForm = (planId: string, dayId: string) =>
     fd({ plan_id: planId, day_id: dayId, duration_minutes: "99", session_name: "HACKED", trainer_feedback: "HACKED" });
-  const markForm = (planId: string, dayId: string) =>
-    fd({ plan_id: planId, day_id: dayId, execution_status: "completed", trainer_feedback: "HACKED" });
+  // GYM-5A: el registro del entrenador es por fecha local; 2026-01-05 es lunes.
+  const DATE_BY_WEEKDAY: Record<number, string> = { 1: "2026-01-05", 3: "2026-01-07", 5: "2026-01-09" };
+  const markForm = (planId: string, dayId: string, weekday = 1) =>
+    fd({ plan_id: planId, day_id: dayId, local_date: DATE_BY_WEEKDAY[weekday], execution_status: "completed", trainer_feedback: "HACKED" });
+  const executionCount = () => db.clientPlanDayExecution.count();
 
   type Victim = { name: string; plan: () => SeededPlan; as?: keyof typeof FAKE_USERS; weekday: number };
   const cases: Victim[] = [
@@ -84,11 +87,14 @@ describe.skipIf(!IT_ENABLED)("GYM-5A — pertenencia de día y autorización (Po
       expect(res).toBeDefined(); // no hubo redirect de éxito
     });
 
-    it(`markClientPlanDayAction: plan autorizado + day_id de ${c.name} → sin cambios`, async () => {
+    it(`recordPlanExecutionAction: plan autorizado + day_id de ${c.name} → rechazado, sin ejecución ni cambios`, async () => {
       state.user = FAKE_USERS[c.as ?? "sa1"];
       const victim = c.plan();
       const before = await snapshot(victim.days[c.weekday]);
-      await run(markClientPlanDayAction(markForm(own.planId, victim.days[c.weekday])));
+      const n0 = await executionCount();
+      const res = await run(recordPlanExecutionAction(undefined, markForm(own.planId, victim.days[c.weekday], c.weekday)));
+      expect(res).toEqual(expect.objectContaining({ error: expect.any(String) }));
+      expect(await executionCount()).toBe(n0);
       const after = await snapshot(victim.days[c.weekday]);
       expect(after.execution_status).toBe(before.execution_status);
       expect(after.trainer_feedback).toBe(before.trainer_feedback);
@@ -101,7 +107,7 @@ describe.skipIf(!IT_ENABLED)("GYM-5A — pertenencia de día y autorización (Po
     for (const victim of [otherClient, otherTenant]) {
       const dayId = Object.values(victim.days)[0];
       const before = await snapshot(dayId);
-      const res = await submitPlanDayAction(undefined, fd({ plan_day_id: dayId, execution_status: "completed", client_feedback: "HACKED" }));
+      const res = await submitPlanDayAction(undefined, fd({ plan_day_id: dayId, local_date: "2026-01-05", execution_status: "completed", client_feedback: "HACKED" }));
       expect(res).toEqual(expect.objectContaining({ error: expect.any(String) }));
       const after = await snapshot(dayId);
       expect(after.execution_status).toBe(before.execution_status);
@@ -114,28 +120,32 @@ describe.skipIf(!IT_ENABLED)("GYM-5A — pertenencia de día y autorización (Po
     state.jwtRole = "trainer";
     const dayId = own.days[1];
     const before = await snapshot(dayId);
-    await run(markClientPlanDayAction(markForm(own.planId, dayId)));
+    const n0 = await executionCount();
+    expect(await run(recordPlanExecutionAction(undefined, markForm(own.planId, dayId)))).toEqual(expect.objectContaining({ error: expect.any(String) }));
     await run(updateClientPlanDayAction(undefined, editForm(own.planId, dayId)));
     const after = await snapshot(dayId);
     expect(after.trainer_feedback).toBe(before.trainer_feedback);
     expect(after.execution_status).toBe(before.execution_status);
+    expect(await executionCount()).toBe(n0);
   });
 
   it("Support Session (solo lectura) y módulo deshabilitado no escriben", async () => {
     const dayId = own.days[3];
     const before = await snapshot(dayId);
+    const n0 = await executionCount();
     state.readOnly = true;
-    await run(markClientPlanDayAction(markForm(own.planId, dayId)));
+    await run(recordPlanExecutionAction(undefined, markForm(own.planId, dayId, 3)));
     const r1 = await run(updateClientPlanDayAction(undefined, editForm(own.planId, dayId)));
     expect(r1).toEqual(expect.objectContaining({ error: expect.any(String) }));
     state.readOnly = false;
     state.moduleDisabled = true;
-    await run(markClientPlanDayAction(markForm(own.planId, dayId)));
+    await run(recordPlanExecutionAction(undefined, markForm(own.planId, dayId, 3)));
     const r2 = await run(updateClientPlanDayAction(undefined, editForm(own.planId, dayId)));
     expect(r2).toEqual(expect.objectContaining({ error: expect.any(String) }));
     const after = await snapshot(dayId);
     expect(after.trainer_feedback).toBe(before.trainer_feedback);
     expect(after.execution_status).toBe(before.execution_status);
+    expect(await executionCount()).toBe(n0);
   });
 
   it("control positivo: el entrenador asignado edita un día de SU plan", async () => {

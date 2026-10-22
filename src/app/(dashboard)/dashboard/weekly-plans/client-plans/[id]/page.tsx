@@ -5,22 +5,23 @@ import {
   canManageClientWeeklyPlan,
 } from "@/lib/permissions/guards";
 import { getClientWeeklyPlanById } from "@/modules/weekly-plans/queries";
-import {
-  toggleClientPlanStatusAction,
-  markClientPlanDayAction,
-  addClientPlanDayAction,
-} from "@/modules/weekly-plans/actions";
+import { toggleClientPlanStatusAction } from "@/modules/weekly-plans/actions";
 import { StatusBadge } from "@/components/ui/status-badge";
-import { MarkDayForm } from "@/components/forms/client-weekly-plan-day-form";
-import {
-  DAY_OF_WEEK_LABELS,
-  WEEK_DAYS_ORDER,
-  EXECUTION_STATUS_LABELS,
-  EXECUTION_STATUS_COLORS,
-} from "@/lib/utils/labels";
+import { ExecutionRow } from "@/components/forms/plan-execution-forms";
+import { DAY_OF_WEEK_LABELS, WEEK_DAYS_ORDER, EXECUTION_STATUS_LABELS, EXECUTION_STATUS_COLORS } from "@/lib/utils/labels";
 import type { ExecutionStatus } from "@prisma/client";
-import { requireOrganizationModule } from "@/modules/platform/runtime/commercial-enforcement";
+import {
+  hasOrganizationModule,
+  requireOrganizationModule,
+  resolveCommercialEnforcementContext,
+} from "@/modules/platform/runtime/commercial-enforcement";
 import { resolveEffectiveTenantContext } from "@/modules/platform/runtime/effective-tenant-context";
+import { resolveLiveClassViewer } from "@/modules/classes/trainer/trainer-access";
+import { PLAN_TRAINING_ROLES } from "@/modules/weekly-plans/plan-access";
+import { resolveGymClock, TIMEZONE_NOT_CONFIGURED_MESSAGE } from "@/modules/weekly-plans/gym-clock";
+import { loadPlanTracking } from "@/modules/weekly-plans/training-tracking-queries";
+import { COMPLIANCE_FORMULA } from "@/modules/weekly-plans/training-tracking-rules";
+import { prisma } from "@/lib/db/prisma";
 
 type Props = { params: Promise<{ id: string }> };
 
@@ -44,25 +45,44 @@ export default async function ClientWeeklyPlanDetailPage({ params }: Props) {
   // cliente". El guard corre ANTES de buscar el registro; la búsqueda usa
   // context.client, con lo que un ID de otro tenant nunca puede resolverse.
   const { context, dispose } = await resolveEffectiveTenantContext(sessionUser);
-  const effectiveUser = context.runtime
-    ? { ...sessionUser, tenant_id: context.tenantId }
-    : sessionUser;
 
   try {
     await requireOrganizationModule(context.tenantId, "gym.weekly_plans");
 
-    const plan = await getClientWeeklyPlanById(id, effectiveUser, context.client);
+    // GYM-5A: rol y sede LIVE para leer y autorizar (nunca los del JWT).
+    const live = await resolveLiveClassViewer(sessionUser, context);
+    if (!live.ok) {
+      return (
+        <div className="bg-amber-50 border border-amber-200 rounded-xl p-6 text-sm text-amber-800">{live.message}</div>
+      );
+    }
+    const viewer = live.user;
+
+    const plan = await getClientWeeklyPlanById(id, viewer, context.client);
     if (!plan) notFound();
 
     // canEdit se fuerza a false en modo runtime: la sesión es siempre solo lectura.
-    const canEdit = !context.runtime && canManageClientWeeklyPlan(sessionUser, plan);
+    const canEdit = !context.runtime && canManageClientWeeklyPlan(viewer, plan);
+    const trainingRole = PLAN_TRAINING_ROLES.has(viewer.role);
 
     const daysByWeekday = Object.fromEntries(plan.days.map((d) => [d.weekday, d]));
     const usedWeekdays = plan.days.map((d) => d.weekday);
 
-    const completedCount = plan.days.filter(
-      (d) => d.execution_status === "completed" || d.execution_status === "partial"
-    ).length;
+    // Seguimiento por fecha (GYM-5A): hoy = fecha local del gimnasio.
+    const db = context.client ?? prisma;
+    const clock = await resolveGymClock(db, context.tenantId);
+    const commercial = await resolveCommercialEnforcementContext(context.tenantId);
+    const classesEnabled = hasOrganizationModule(commercial, "gym.classes");
+    const tracking = clock
+      ? await loadPlanTracking(db, {
+          tenantId: context.tenantId,
+          planId: plan.id,
+          today: clock.today,
+          audience: "STAFF",
+          includeSessions: classesEnabled && trainingRole,
+        })
+      : null;
+    const canRecord = canEdit && trainingRole && clock !== null;
 
     return (
     <div className="space-y-6">
@@ -151,9 +171,9 @@ export default async function ClientWeeklyPlanDetailPage({ params }: Props) {
             </p>
           </div>
           <div>
-            <p className="text-xs text-zinc-400">Progreso</p>
+            <p className="text-xs text-zinc-400">Cumplimiento</p>
             <p className="text-zinc-700 font-medium mt-0.5">
-              {completedCount} / {plan.days.length} días
+              {tracking?.summary.compliancePct != null ? `${tracking.summary.compliancePct}%` : "—"}
             </p>
           </div>
         </div>
@@ -209,15 +229,16 @@ export default async function ClientWeeklyPlanDetailPage({ params }: Props) {
                     <span className="text-xs font-semibold text-zinc-500 uppercase tracking-wide">
                       {DAY_OF_WEEK_LABELS[weekday]}
                     </span>
-                    <div className="flex items-center gap-1">
+                    {day.execution_status !== "pending" && (
                       <span
+                        title="Registro anterior a la ejecución por fecha (dato heredado)"
                         className={`inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-semibold ${
                           EXECUTION_STATUS_COLORS[day.execution_status as ExecutionStatus]
                         }`}
                       >
-                        {EXECUTION_STATUS_LABELS[day.execution_status as ExecutionStatus]}
+                        Heredado: {EXECUTION_STATUS_LABELS[day.execution_status as ExecutionStatus]}
                       </span>
-                    </div>
+                    )}
                   </div>
 
                   <div className="space-y-1.5 mb-3">
@@ -249,13 +270,6 @@ export default async function ClientWeeklyPlanDetailPage({ params }: Props) {
 
                   {canEdit && (
                     <div className="space-y-2 pt-2 border-t border-zinc-200">
-                      {/* Marcación rápida */}
-                      <MarkDayForm
-                        dayId={day.id}
-                        planId={id}
-                        currentStatus={day.execution_status as ExecutionStatus}
-                        markAction={markClientPlanDayAction}
-                      />
                       {/* Editar día */}
                       <Link
                         href={`/dashboard/weekly-plans/client-plans/${id}/days/${day.id}/edit`}
@@ -269,6 +283,115 @@ export default async function ClientWeeklyPlanDetailPage({ params }: Props) {
               );
             })}
           </div>
+        )}
+      </div>
+
+      {/* Seguimiento por fecha (GYM-5A) */}
+      <div className="bg-white rounded-xl border border-zinc-200 shadow-sm p-5 space-y-4">
+        <div>
+          <h2 className="text-xs font-semibold text-zinc-400 uppercase tracking-wide">Seguimiento por fecha</h2>
+          <p className="text-xs text-zinc-400 mt-1">
+            Plan = lo programado · Ejecución = lo registrado en cada fecha · Asistencia = lo confirmado en clases. El
+            autorreporte del alumno no equivale a asistencia verificada.
+          </p>
+        </div>
+
+        {!clock && (
+          <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-800">
+            {TIMEZONE_NOT_CONFIGURED_MESSAGE}
+          </div>
+        )}
+
+        {tracking && (
+          <>
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 text-center">
+              {[
+                ["Programados", tracking.summary.scheduled],
+                ["Completados", tracking.summary.completed],
+                ["Parciales", tracking.summary.partial],
+                ["Omitidos", tracking.summary.skipped],
+                ["Pendientes", tracking.summary.pending],
+              ].map(([label, value]) => (
+                <div key={label as string} className="rounded-lg bg-zinc-50 border border-zinc-100 py-2">
+                  <p className="text-lg font-bold text-zinc-800">{value}</p>
+                  <p className="text-xs text-zinc-400">{label}</p>
+                </div>
+              ))}
+            </div>
+            <p className="text-xs text-zinc-500">
+              {tracking.summary.compliancePct != null ? `Cumplimiento: ${tracking.summary.compliancePct}%. ` : "Sin entrenamientos vencidos todavía. "}
+              {COMPLIANCE_FORMULA}.
+              {tracking.summary.selfReportedOnly > 0 && ` ${tracking.summary.selfReportedOnly} registro(s) solo con autorreporte (no verificado).`}
+              {tracking.distinctActivities != null && ` Actividades distintas registradas en clases: ${tracking.distinctActivities}.`}
+            </p>
+
+            {tracking.occurrences.length === 0 ? (
+              <p className="text-sm text-zinc-400">Aún no hay entrenamientos vencidos en el período del plan.</p>
+            ) : (
+              <ul className="space-y-2">
+                {tracking.occurrences.slice(0, 40).map((o) => (
+                  <ExecutionRow
+                    key={`${o.dayId}-${o.date}`}
+                    row={{
+                      planId: plan.id,
+                      dayId: o.dayId,
+                      date: o.date,
+                      dateLabel: `${DAY_OF_WEEK_LABELS[o.weekday]} ${o.date}`,
+                      title: o.sessionName ?? o.focusArea ?? "Sesión del plan",
+                      execution: o.execution
+                        ? {
+                            revision: o.execution.revision,
+                            clientStatus: o.execution.clientStatus,
+                            clientComment: o.execution.clientComment,
+                            trainerStatus: o.execution.trainerStatus,
+                            trainerFeedback: o.execution.trainerFeedback,
+                            attendance: o.execution.attendance
+                              ? {
+                                  attendanceId: o.execution.attendance.attendanceId,
+                                  stillValid: o.execution.attendance.stillValid,
+                                  classTitle: o.execution.attendance.classTitle,
+                                }
+                              : null,
+                          }
+                        : null,
+                      linkable: (tracking.sessions ?? [])
+                        .filter((x) => x.date === o.date && x.linkedExecutionId === null)
+                        .map((x) => ({ attendanceId: x.attendanceId, title: x.title })),
+                      canRecord,
+                    }}
+                  />
+                ))}
+              </ul>
+            )}
+
+            {tracking.sessions && (
+              <div>
+                <h3 className="text-xs font-semibold text-zinc-400 uppercase tracking-wide mb-2">
+                  Clases a las que asistió en el período
+                </h3>
+                {tracking.sessions.length === 0 ? (
+                  <p className="text-sm text-zinc-400">Sin asistencias confirmadas en el período.</p>
+                ) : (
+                  <ul className="divide-y divide-zinc-100 text-sm">
+                    {tracking.sessions.slice(0, 30).map((x) => (
+                      <li key={x.attendanceId} className="py-2">
+                        <p className="font-medium text-zinc-800">
+                          {x.date} · {x.title}
+                          {x.linkedExecutionId && <span className="ml-2 text-xs text-emerald-700">vinculada a una ejecución</span>}
+                        </p>
+                        {(x.commonActivities.length > 0 || x.individualActivities.length > 0) && (
+                          <p className="text-xs text-zinc-500">
+                            {x.commonActivities.length > 0 && <>Comunes: {x.commonActivities.join(", ")}. </>}
+                            {x.individualActivities.length > 0 && <>Individuales: {x.individualActivities.join(", ")}.</>}
+                          </p>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
+          </>
         )}
       </div>
 

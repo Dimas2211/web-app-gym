@@ -2,7 +2,10 @@
 
 import { revalidatePath } from "next/cache";
 import { requireClient } from "@/lib/permissions/guards";
-import { getClientByUserId } from "./queries";
+import { getClientByUserId, getLastExpiredMembership, hasActiveMembership } from "./queries";
+import { plansVisibleForMembership } from "./plan-visibility";
+import { TIMEZONE_NOT_CONFIGURED_MESSAGE, resolveGymClock } from "@/modules/weekly-plans/gym-clock";
+import { recordClientReport } from "@/modules/weekly-plans/training-execution-service";
 import {
   bookClassSchema,
   cancelBookingSchema,
@@ -148,8 +151,14 @@ export async function cancelBookingAction(
 }
 
 // ============================================================
-// REGISTRAR EJECUCIÓN DE DÍA DEL PLAN
+// REGISTRAR EJECUCIÓN DE UN DÍA DEL PLAN (autorreporte por fecha)
 // ============================================================
+
+// GYM-5A: el alumno reporta SU entrenamiento de una fecha local del gimnasio.
+// Es un autorreporte: no es asistencia (GYM-4), no consume membresía ni toca
+// reservas, y no sobrescribe el registro del entrenador. Se exige el módulo
+// gym.weekly_plans, rol LIVE client, plan propio y activo, y la misma política
+// de visibilidad por membresía que aplica la página.
 
 export async function submitPlanDayAction(
   _prev: ActionResult | undefined,
@@ -169,34 +178,48 @@ export async function submitPlanDayAction(
   try {
     const parsed = planDayFeedbackSchema.safeParse({
       plan_day_id: formData.get("plan_day_id"),
+      local_date: formData.get("local_date"),
       execution_status: formData.get("execution_status"),
       client_feedback: formData.get("client_feedback") || undefined,
     });
     if (!parsed.success) return { error: parsed.error.errors[0].message };
 
-    const { plan_day_id, execution_status, client_feedback } = parsed.data;
+    const { plan_day_id, local_date, execution_status, client_feedback } = parsed.data;
 
     if (!portalActor(context)) return { error: "No tienes un perfil de cliente vinculado." };
     const client = await getClientByUserId(sessionUser.id, context.client, { tenantId: context.tenantId, gymId: context.gymId });
     if (!client) return { error: "No tienes un perfil de cliente vinculado." };
 
-    // Verificar que el día pertenece a un plan ACTIVO del propio cliente y del tenant
-    const planDay = await context.client.clientWeeklyPlanDay.findFirst({
-      where: {
-        id: plan_day_id,
-        plan: { client_id: client.id, tenant_id: context.tenantId, status: "active" },
-      },
-    });
-    if (!planDay) return { error: "Día de plan no encontrado." };
+    const clock = await resolveGymClock(context.client, context.tenantId);
+    if (!clock) return { error: TIMEZONE_NOT_CONFIGURED_MESSAGE };
 
-    await context.client.clientWeeklyPlanDay.update({
-      where: { id: plan_day_id },
-      data: {
-        execution_status,
-        executed_at: new Date(),
-        client_feedback: client_feedback ?? null,
-      },
+    // Política de visibilidad por membresía (idéntica a la de la página).
+    const [hasMembership, lastExpired] = await Promise.all([
+      hasActiveMembership(client.id, context.client, clock.today),
+      getLastExpiredMembership(client.id, context.client, clock.today),
+    ]);
+    if (
+      !plansVisibleForMembership({
+        hasActiveMembership: hasMembership,
+        lastExpiredEnd: lastExpired ? lastExpired.end_date.toISOString().slice(0, 10) : null,
+        today: clock.today,
+      })
+    ) {
+      return { error: "Tus planes no están disponibles. Acércate a recepción para reactivar tu acceso." };
+    }
+
+    const result = await recordClientReport(context.client, {
+      tenantId: context.tenantId,
+      clientId: client.id,
+      planDayId: plan_day_id,
+      localDate: local_date,
+      status: execution_status,
+      comment: client_feedback ?? null,
+      actorUserId: sessionUser.id,
+      timezone: clock.timezone,
+      today: clock.today,
     });
+    if (!result.ok) return { error: result.message };
 
     revalidatePath("/portal/plan-semanal");
     return { success: true };

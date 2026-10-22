@@ -8,26 +8,14 @@ import {
   getLastExpiredMembership,
 } from "@/modules/client-portal/queries";
 import { PlanDayCard } from "./plan-day-card";
+import { PlanExecutionReport, type OccurrenceItemData } from "./plan-execution-report";
 import { resolveEffectiveTenantContext } from "@/modules/platform/runtime/effective-tenant-context";
-
-/**
- * Cuenta días hábiles (lun–vie) transcurridos desde `date` hasta hoy,
- * sin incluir el día de vencimiento (empieza a contar el día siguiente).
- */
-function countBusinessDaysSince(date: Date): number {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const cursor = new Date(date);
-  cursor.setHours(0, 0, 0, 0);
-  cursor.setDate(cursor.getDate() + 1);
-  let count = 0;
-  while (cursor <= today) {
-    const dow = cursor.getDay();
-    if (dow !== 0 && dow !== 6) count++;
-    cursor.setDate(cursor.getDate() + 1);
-  }
-  return count;
-}
+import { hasOrganizationModule, resolveCommercialEnforcementContext } from "@/modules/platform/runtime/commercial-enforcement";
+import { plansVisibleForMembership } from "@/modules/client-portal/plan-visibility";
+import { resolveGymClock } from "@/modules/weekly-plans/gym-clock";
+import { loadPlanTracking } from "@/modules/weekly-plans/training-tracking-queries";
+import { CLIENT_REPORT_WINDOW_DAYS, addDays, weekdayOf } from "@/modules/weekly-plans/training-tracking-rules";
+import { prisma } from "@/lib/db/prisma";
 
 function formatDate(date: Date | string) {
   return new Date(date).toLocaleDateString("es-MX", {
@@ -65,10 +53,29 @@ export default async function PlanSemanalPage() {
       );
     }
 
+    // GYM-5A: el módulo debe estar habilitado para el tenant (no solo oculto en el menú).
+    const commercial = await resolveCommercialEnforcementContext(context.tenantId);
+    if (!hasOrganizationModule(commercial, "gym.weekly_plans")) {
+      return (
+        <div className="space-y-4">
+          <h1 className="text-xl font-bold text-zinc-800">Mi plan semanal</h1>
+          <div className="bg-amber-50 border border-amber-200 rounded-xl p-6 text-center">
+            <p className="text-amber-800 font-medium">Esta sección no está disponible en tu gimnasio.</p>
+          </div>
+        </div>
+      );
+    }
+
+    // "Hoy" = fecha local del gimnasio (zona IANA). Sin zona válida se conserva el
+    // comportamiento anterior (día del servidor) y NO se permite reportar por fecha.
+    const db = context.client ?? prisma;
+    const clock = await resolveGymClock(db, context.tenantId);
+    const todayIso = clock?.today;
+
     const [activePlan, allPlans, hasMembership] = await Promise.all([
-      getMyActivePlan(client.id, context.client),
+      getMyActivePlan(client.id, context.client, todayIso),
       getMyPlans(client.id, context.client),
-      hasActiveMembership(client.id, context.client),
+      hasActiveMembership(client.id, context.client, todayIso),
     ]);
 
     // ── Regla de visibilidad de planes tras vencimiento ───────────
@@ -77,27 +84,68 @@ export default async function PlanSemanalPage() {
     let expiredDate: string | null = null;
 
     if (!hasMembership) {
-      const lastExpired = await getLastExpiredMembership(client.id, context.client);
+      const lastExpired = await getLastExpiredMembership(client.id, context.client, todayIso);
       if (lastExpired) {
         expiredDate = new Date(lastExpired.end_date).toLocaleDateString("es-MX", {
           day: "2-digit",
           month: "short",
           year: "numeric",
+          timeZone: "UTC",
         });
-        const businessDays = countBusinessDaysSince(new Date(lastExpired.end_date));
-        if (businessDays >= 3) plansVisible = false;
+        const fallbackToday = new Date();
+        const today =
+          todayIso ??
+          `${fallbackToday.getFullYear()}-${String(fallbackToday.getMonth() + 1).padStart(2, "0")}-${String(fallbackToday.getDate()).padStart(2, "0")}`;
+        plansVisible = plansVisibleForMembership({
+          hasActiveMembership: false,
+          lastExpiredEnd: lastExpired.end_date.toISOString().slice(0, 10),
+          today,
+        });
       }
     }
     // ─────────────────────────────────────────────────────────────
+
+    // Seguimiento por fecha del plan vigente (audiencia CLIENT: sin notas privadas).
+    const tracking =
+      clock && activePlan && plansVisible
+        ? await loadPlanTracking(db, {
+            tenantId: context.tenantId,
+            planId: activePlan.id,
+            today: clock.today,
+            audience: "CLIENT",
+            includeSessions: false,
+          })
+        : null;
+    const reportFrom = clock ? addDays(clock.today, -CLIENT_REPORT_WINDOW_DAYS) : null;
+    const occurrenceItems: OccurrenceItemData[] = (tracking?.occurrences ?? []).slice(0, 30).map((o) => ({
+      dayId: o.dayId,
+      date: o.date,
+      dateLabel: `${WEEKDAY_NAMES[o.weekday]} ${o.date}`,
+      title: o.sessionName ?? o.focusArea ?? "Sesión del plan",
+      isToday: o.date === clock?.today,
+      reportable: activePlan?.status === "active" && reportFrom !== null && o.date >= reportFrom && !o.execution?.trainerStatus,
+      clientStatus: o.execution?.clientStatus ?? null,
+      clientComment: o.execution?.clientComment ?? null,
+      trainerStatus: o.execution?.trainerStatus ?? null,
+      trainerFeedback: o.execution?.trainerFeedback ?? null,
+      attendanceClassTitle: o.execution?.attendance?.stillValid ? o.execution.attendance.classTitle : null,
+    }));
+
+    // Historial: resumen por plan anterior desde las ejecuciones por fecha.
+    const pastPlans = allPlans.filter((p) => p.id !== activePlan?.id).slice(0, 5);
+    const pastSummaries = new Map<string, { completed: number; scheduled: number }>();
+    if (clock) {
+      for (const pp of pastPlans) {
+        const t = await loadPlanTracking(db, { tenantId: context.tenantId, planId: pp.id, today: clock.today, audience: "CLIENT", includeSessions: false });
+        if (t) pastSummaries.set(pp.id, { completed: t.summary.completed, scheduled: t.summary.scheduled });
+      }
+    }
 
     const generalTemplates = hasMembership
       ? await getMyGeneralTemplates(client, context.client)
       : [];
 
-  const todayWeekday = new Date().getDay();
-
-  const completedCount =
-    activePlan?.days.filter((d) => d.execution_status === "completed").length ?? 0;
+  const todayWeekday = clock ? weekdayOf(clock.today) : new Date().getDay();
 
   return (
     <div className="space-y-8">
@@ -153,14 +201,14 @@ export default async function PlanSemanalPage() {
                 </div>
                 <div className="text-right shrink-0">
                   <p className="text-2xl font-black text-zinc-800">
-                    {completedCount}/{activePlan.days.length}
+                    {tracking ? `${tracking.summary.completed}/${tracking.summary.scheduled}` : "—"}
                   </p>
-                  <p className="text-xs text-zinc-400">días completados</p>
+                  <p className="text-xs text-zinc-400">entrenamientos completados</p>
                 </div>
               </div>
             </div>
 
-            {/* Días del plan */}
+            {/* Días programados del plan (solo lectura) */}
             <div className="space-y-3">
               {activePlan.days.map((day) => (
                 <PlanDayCard
@@ -170,6 +218,24 @@ export default async function PlanSemanalPage() {
                   isToday={day.weekday === todayWeekday}
                 />
               ))}
+            </div>
+
+            {/* Mis entrenamientos por fecha */}
+            <div className="space-y-3">
+              <h3 className="text-sm font-semibold text-zinc-700">Mis entrenamientos por fecha</h3>
+              {!clock ? (
+                <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-3">
+                  El registro por fecha aún no está disponible: tu gimnasio debe configurar su zona horaria.
+                </p>
+              ) : (
+                <>
+                  <p className="text-xs text-zinc-500">
+                    Lo que reportas es un autorreporte; tu entrenador lo revisa y la asistencia a clases se confirma por separado.
+                    Puedes reportar los últimos {CLIENT_REPORT_WINDOW_DAYS} días.
+                  </p>
+                  <PlanExecutionReport items={occurrenceItems} />
+                </>
+              )}
             </div>
           </div>
         ) : (
@@ -190,12 +256,8 @@ export default async function PlanSemanalPage() {
               Planes anteriores
             </p>
             <ul className="divide-y divide-zinc-100">
-              {allPlans
-                .filter((p) => p.id !== activePlan?.id)
-                .map((plan) => {
-                  const done = plan.days.filter(
-                    (d) => d.execution_status === "completed"
-                  ).length;
+              {pastPlans.map((plan) => {
+                  const sum = pastSummaries.get(plan.id);
                   return (
                     <li
                       key={plan.id}
@@ -211,7 +273,7 @@ export default async function PlanSemanalPage() {
                         </p>
                       </div>
                       <span className="text-xs text-zinc-500 shrink-0">
-                        {done}/{plan.days.length} días
+                        {sum ? `${sum.completed}/${sum.scheduled} completados` : "—"}
                       </span>
                     </li>
                   );

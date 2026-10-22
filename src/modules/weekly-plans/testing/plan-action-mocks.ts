@@ -95,7 +95,15 @@ export function operationalContextMock() {
           locationId: u.locationId,
           client: st.db,
           readOnly: st.readOnly,
-          commercialContext: null,
+          // Contexto comercial simulado: todos los módulos habilitados salvo disabledModules.
+          commercialContext: opts.module
+            ? {
+                mode: "MANAGED",
+                effectiveModules: new Map(
+                  ["gym.weekly_plans", "gym.classes"].map((code) => [code, { enabled: !st.disabledModules.has(code) && !st.moduleDisabled }])
+                ),
+              }
+            : null,
         },
         dispose: async () => {},
       };
