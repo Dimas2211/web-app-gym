@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import type { PrismaClient, UserRole } from "@prisma/client";
+import type { UserRole } from "@prisma/client";
 import {
   requireAdmin,
   requireClassViewer,
