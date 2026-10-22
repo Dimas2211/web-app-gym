@@ -159,7 +159,7 @@ export async function submitPlanDayAction(
 
   let handle;
   try {
-    handle = await requireOperationalContext(sessionUser, { write: true });
+    handle = await requireOperationalContext(sessionUser, { module: "gym.weekly_plans", write: true });
   } catch (err) {
     if (err instanceof OperationalContextError) return { error: err.userMessage };
     throw err;
@@ -176,14 +176,15 @@ export async function submitPlanDayAction(
 
     const { plan_day_id, execution_status, client_feedback } = parsed.data;
 
-    const client = await getClientByUserId(sessionUser.id, context.client);
+    if (!portalActor(context)) return { error: "No tienes un perfil de cliente vinculado." };
+    const client = await getClientByUserId(sessionUser.id, context.client, { tenantId: context.tenantId, gymId: context.gymId });
     if (!client) return { error: "No tienes un perfil de cliente vinculado." };
 
-    // Verificar que el día pertenece a un plan del cliente
+    // Verificar que el día pertenece a un plan ACTIVO del propio cliente y del tenant
     const planDay = await context.client.clientWeeklyPlanDay.findFirst({
       where: {
         id: plan_day_id,
-        plan: { client_id: client.id },
+        plan: { client_id: client.id, tenant_id: context.tenantId, status: "active" },
       },
     });
     if (!planDay) return { error: "Día de plan no encontrado." };

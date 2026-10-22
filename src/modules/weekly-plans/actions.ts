@@ -23,7 +23,7 @@ import {
   markDaySchema,
   assignSegmentedSchema,
 } from "./schemas";
-import { getLinkedTrainerId } from "./queries";
+import { authorizePlan, authorizePlanDay } from "./plan-access";
 import {
   requireOperationalContext,
   OperationalContextError,
@@ -61,29 +61,6 @@ function canManageTemplate(
     );
   }
   return false;
-}
-
-function canManageClientPlan(
-  user: EffectiveOperationalUser,
-  plan: { branch_id: string; trainer_id: string | null }
-): boolean {
-  if (user.role === "super_admin") return true;
-  if (user.role === "branch_admin" || user.role === "reception") {
-    return plan.branch_id === user.location_id;
-  }
-  // trainer: verifica el campo trainer_id más abajo con linked trainer
-  return false;
-}
-
-async function canTrainerManagePlan(
-  user: EffectiveOperationalUser,
-  plan: { branch_id: string; trainer_id: string | null },
-  db: PrismaClient,
-): Promise<boolean> {
-  if (user.role !== "trainer") return false;
-  const linked = await getLinkedTrainerId(user.id, user.tenant_id, db);
-  if (!linked) return false;
-  return plan.trainer_id === linked && plan.branch_id === user.location_id;
 }
 
 // ══════════════════════════════════════════════
@@ -516,19 +493,9 @@ export async function updateClientPlanAction(
     const id = formData.get("id") as string;
     if (!id) return { error: "ID requerido." };
 
-    const plan = await context.client.clientWeeklyPlan.findFirst({
-      where: { id, tenant_id: context.tenantId },
-    });
-    if (!plan) return { error: "Plan no encontrado." };
-
-    // Verificar permiso
-    const hasDirectAccess = canManageClientPlan(context.effectiveUser, plan);
-    const hasTrainerAccess = !hasDirectAccess
-      ? await canTrainerManagePlan(context.effectiveUser, plan, context.client)
-      : false;
-    if (!hasDirectAccess && !hasTrainerAccess) {
-      return { error: "Sin permiso para editar este plan." };
-    }
+    const access = await authorizePlan(context, id);
+    if (!access.ok) return { error: access.error };
+    const plan = access.plan;
 
     const raw = {
       trainer_id: n(formData.get("trainer_id")),
@@ -594,16 +561,9 @@ export async function toggleClientPlanStatusAction(
     const id = formData.get("id") as string;
     if (!id) return;
 
-    const plan = await context.client.clientWeeklyPlan.findFirst({
-      where: { id, tenant_id: context.tenantId },
-    });
-    if (!plan) return;
-
-    const hasDirectAccess = canManageClientPlan(context.effectiveUser, plan);
-    const hasTrainerAccess = !hasDirectAccess
-      ? await canTrainerManagePlan(context.effectiveUser, plan, context.client)
-      : false;
-    if (!hasDirectAccess && !hasTrainerAccess) return;
+    const access = await authorizePlan(context, id);
+    if (!access.ok) return;
+    const plan = access.plan;
 
     await context.client.clientWeeklyPlan.update({
       where: { id },
@@ -641,18 +601,9 @@ export async function updateClientPlanDayAction(
     const plan_id = formData.get("plan_id") as string;
     if (!day_id || !plan_id) return { error: "IDs requeridos." };
 
-    const plan = await context.client.clientWeeklyPlan.findFirst({
-      where: { id: plan_id, tenant_id: context.tenantId },
-    });
-    if (!plan) return { error: "Plan no encontrado." };
-
-    const hasDirectAccess = canManageClientPlan(context.effectiveUser, plan);
-    const hasTrainerAccess = !hasDirectAccess
-      ? await canTrainerManagePlan(context.effectiveUser, plan, context.client)
-      : false;
-    if (!hasDirectAccess && !hasTrainerAccess) {
-      return { error: "Sin permiso para editar este día." };
-    }
+    // GYM-5A: el día debe pertenecer EXACTAMENTE al plan autorizado.
+    const access = await authorizePlanDay(context, plan_id, day_id);
+    if (!access.ok) return { error: access.error };
 
     const raw = {
       session_name: n(formData.get("session_name")),
@@ -666,10 +617,11 @@ export async function updateClientPlanDayAction(
     const parsed = updateClientPlanDaySchema.safeParse(raw);
     if (!parsed.success) return { errors: parsed.error.flatten().fieldErrors };
 
-    await context.client.clientWeeklyPlanDay.update({
-      where: { id: day_id },
+    const updated = await context.client.clientWeeklyPlanDay.updateMany({
+      where: { id: access.day.id, client_weekly_plan_id: access.plan.id },
       data: parsed.data,
     });
+    if (updated.count !== 1) return { error: "Día de plan no encontrado." };
   } finally {
     await dispose();
   }
@@ -696,16 +648,8 @@ export async function markClientPlanDayAction(
     const plan_id = formData.get("plan_id") as string;
     if (!day_id || !plan_id) return;
 
-    const plan = await context.client.clientWeeklyPlan.findFirst({
-      where: { id: plan_id, tenant_id: context.tenantId },
-    });
-    if (!plan) return;
-
-    const hasDirectAccess = canManageClientPlan(context.effectiveUser, plan);
-    const hasTrainerAccess = !hasDirectAccess
-      ? await canTrainerManagePlan(context.effectiveUser, plan, context.client)
-      : false;
-    if (!hasDirectAccess && !hasTrainerAccess) return;
+    const access = await authorizePlanDay(context, plan_id, day_id);
+    if (!access.ok) return;
 
     const raw = {
       execution_status: formData.get("execution_status"),
@@ -722,8 +666,8 @@ export async function markClientPlanDayAction(
         ? new Date()
         : null;
 
-    await context.client.clientWeeklyPlanDay.update({
-      where: { id: day_id },
+    await context.client.clientWeeklyPlanDay.updateMany({
+      where: { id: access.day.id, client_weekly_plan_id: access.plan.id },
       data: {
         execution_status: parsed.data.execution_status,
         executed_at,
@@ -758,18 +702,8 @@ export async function addClientPlanDayAction(
     const plan_id = formData.get("plan_id") as string;
     if (!plan_id) return { error: "Plan requerido." };
 
-    const plan = await context.client.clientWeeklyPlan.findFirst({
-      where: { id: plan_id, tenant_id: context.tenantId },
-    });
-    if (!plan) return { error: "Plan no encontrado." };
-
-    const hasDirectAccess = canManageClientPlan(context.effectiveUser, plan);
-    const hasTrainerAccess = !hasDirectAccess
-      ? await canTrainerManagePlan(context.effectiveUser, plan, context.client)
-      : false;
-    if (!hasDirectAccess && !hasTrainerAccess) {
-      return { error: "Sin permiso." };
-    }
+    const access = await authorizePlan(context, plan_id);
+    if (!access.ok) return { error: access.error };
 
     const raw = {
       weekday: formData.get("weekday"),
@@ -1083,19 +1017,8 @@ export async function deleteClientPlanAction(
     const id = formData.get("id") as string;
     if (!id) return { error: "Datos inválidos" };
 
-    const plan = await context.client.clientWeeklyPlan.findFirst({
-      where: { id, tenant_id: context.tenantId },
-    });
-
-    if (!plan) return { error: "Plan no encontrado." };
-
-    const hasScope =
-      canManageClientPlan(context.effectiveUser, plan) ||
-      (await canTrainerManagePlan(context.effectiveUser, plan, context.client));
-
-    if (!hasScope) {
-      return { error: "Sin permisos para gestionar este plan." };
-    }
+    const access = await authorizePlan(context, id);
+    if (!access.ok) return { error: access.error };
 
     const auth = await checkDeleteAuth(
       formData,
