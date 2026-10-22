@@ -6,6 +6,9 @@
 //  P1  portal /portal/plan-semanal: fuentes distinguidas, asistencia confirmada,
 //      retroalimentación visible y NINGUNA nota privada
 //  P2  portal: módulo deshabilitado y gimnasio sin zona horaria
+//  H02 auditoría independiente: el portal resuelve el Client con el tenant y el
+//      rol LIVE del contexto (usuario/perfil vinculados entre tenants Shared,
+//      rol LIVE degradado, sin perfil, usuario no cliente, módulo deshabilitado)
 //  P3  detalle del plan: entrenador asignado, rol LIVE degradado, otro
 //      entrenador, recepción y sede obsoleta
 // ─────────────────────────────────────────────────────────────────
@@ -73,7 +76,7 @@ vi.mock("@/modules/platform/runtime/require-runtime-organization-context", async
 vi.mock("@/components/forms/booking-form", () => ({ BookingForm: () => <div>BOOKING_FORM</div> }));
 
 import { createItDatabase, disconnectAdmin, IT_ENABLED, type ItDatabase } from "@/modules/classes/booking/testing/pg-it-harness";
-import { createMember, createSession, setPolicy, T1, TZ } from "@/modules/classes/booking/testing/booking-fixtures";
+import { createClient, createMember, createSession, setPolicy, T1, T2, TZ } from "@/modules/classes/booking/testing/booking-fixtures";
 import { seedPlan, seedPlanWorld, W, type SeededPlan } from "./testing/plan-it-harness";
 import { recordClientReport, recordTrainerExecution } from "./training-execution-service";
 import PlanSemanalPage from "@/app/(portal)/portal/plan-semanal/page";
@@ -85,13 +88,13 @@ const SECRET_ACT = "NOTA-PRIVADA-ACTIVIDAD-5A";
 
 type Role = "super_admin" | "branch_admin" | "reception" | "trainer" | "client";
 
-function jwt(userId: string, role: Role, location: string | null) {
+function jwt(userId: string, role: Role, location: string | null, tenant: string = T1) {
   h.jwt.current = {
     id: userId,
     name: "IT",
     email: `${userId}@it.invalid`,
     role,
-    tenant_id: T1,
+    tenant_id: tenant,
     location_id: location,
     auth_scope: "RUNTIME_CLIENT",
     organization_id: "it-org",
@@ -201,6 +204,111 @@ describe.skipIf(!IT_ENABLED)("GYM-5A — páginas reales (PostgreSQL real)", () 
       } finally {
         await setPolicy(db, T1, { timezone: TZ });
       }
+    });
+  });
+
+  describe("H02 portal /portal/plan-semanal — alcance de tenant y rol LIVE", () => {
+    const portal = () => render(PlanSemanalPage());
+    const SECRET_SESSION = "SESION-OTRO-TENANT-H02";
+    const NO_PROFILE = "Tu perfil de cliente aún no está configurado.";
+    let t1Client: string; // Client de T1 con plan, vinculado a un usuario de T2
+    let t2User: string; // usuario client de T2 (JWT T2) enlazado al Client de T1
+    let t2Client: string; // Client de T2 con plan, vinculado a un usuario de T1
+    let t1User: string;
+
+    async function userRow(id: string, tenant: string, role = "client") {
+      await db.user.create({
+        data: { id, tenant_id: tenant, gym_id: tenant, email: `${id}@it.invalid`, password_hash: "x", first_name: "U", last_name: id, role: role as never },
+      });
+    }
+
+    beforeAll(async () => {
+      const suffix = crypto.randomUUID().slice(0, 8);
+      // Client de T1 (con plan) enlazado por error al usuario de T2.
+      t1Client = (await createClient(db, { id: crypto.randomUUID(), tenant: T1, branch: W.B1 })).clientId;
+      t2User = `h02-user-t2-${suffix}`;
+      await userRow(t2User, T2);
+      await db.client.update({ where: { id: t1Client }, data: { user_id: t2User } });
+      const p1 = await seedPlan(db, { start: "2026-03-02", end: "2026-04-26", clientId: t1Client, weekdays: [1, 3], trainerId: W.TR1 });
+      await db.clientWeeklyPlanDay.updateMany({ where: { client_weekly_plan_id: p1.planId }, data: { session_name: SECRET_SESSION } });
+
+      // Client de T2 (con plan) enlazado por error al usuario de T1.
+      t2Client = (await createClient(db, { id: crypto.randomUUID(), tenant: T2, branch: W.BT2 })).clientId;
+      t1User = `h02-user-t1-${suffix}`;
+      await userRow(t1User, T1);
+      await db.client.update({ where: { id: t2Client }, data: { user_id: t1User } });
+      const p2 = await seedPlan(db, { tenant: T2, start: "2026-03-02", end: "2026-04-26", clientId: t2Client, weekdays: [1, 3], trainerId: W.TR_T2 });
+      await db.clientWeeklyPlanDay.updateMany({ where: { client_weekly_plan_id: p2.planId }, data: { session_name: SECRET_SESSION } });
+    });
+
+    it("H02a usuario de T2 enlazado a un Client de T1 → no revela planes ni datos de T1", async () => {
+      jwt(t2User, "client", W.BT2, T2);
+      const html = await portal();
+      expect(html).toContain(NO_PROFILE);
+      expect(html).not.toContain(SECRET_SESSION);
+      expect(html).not.toContain("Programación personalizada");
+    });
+
+    it("H02b usuario de T1 enlazado a un Client de T2 → no revela planes ni datos de T2", async () => {
+      jwt(t1User, "client", W.B1, T1);
+      const html = await portal();
+      expect(html).toContain(NO_PROFILE);
+      expect(html).not.toContain(SECRET_SESSION);
+      expect(html).not.toContain("Programación personalizada");
+    });
+
+    it("H02c rol LIVE degradado (JWT client, LIVE reception) → sin datos personales", async () => {
+      await db.user.update({ where: { id: memberUserId }, data: { role: "reception" } });
+      try {
+        jwt(memberUserId, "client", W.B1);
+        const html = await portal();
+        expect(html).toContain("no tiene acceso al portal");
+        expect(html).not.toContain("Excelente técnica");
+        expect(html).not.toContain("Me dolió el hombro");
+        expect(html).not.toContain("Programación personalizada");
+      } finally {
+        await db.user.update({ where: { id: memberUserId }, data: { role: "client" } });
+      }
+    });
+
+    it("H02d usuario client sin perfil Client → mensaje, sin consultar nada más", async () => {
+      const orphan = `h02-orphan-${crypto.randomUUID().slice(0, 8)}`;
+      await userRow(orphan, T1);
+      jwt(orphan, "client", W.B1);
+      const html = await portal();
+      expect(html).toContain(NO_PROFILE);
+      expect(html).not.toContain("Programación personalizada");
+    });
+
+    it("H02e usuario normal (JWT staff) no entra al portal del alumno", async () => {
+      jwt(W.U_TR1, "trainer", W.B1);
+      await expect(portal()).rejects.toThrow(/NEXT_REDIRECT/);
+    });
+
+    it("H02f módulo deshabilitado → mensaje, sin datos del plan (Shared)", async () => {
+      h.disabled.current.add("gym.weekly_plans");
+      jwt(memberUserId, "client", W.B1);
+      const html = await portal();
+      expect(html).toContain("no está disponible");
+      expect(html).not.toContain("Excelente técnica");
+      expect(html).not.toContain("Programación personalizada");
+    });
+
+    it("H02g Dedicated: Client heredado con tenant_id NULL del mismo gym sigue accediendo (sin regresión)", async () => {
+      const legacy = await createClient(db, { id: crypto.randomUUID(), tenant: T1, branch: W.B1, withUser: true });
+      await db.client.update({ where: { id: legacy.clientId }, data: { tenant_id: null } });
+      const p = await seedPlan(db, { start: "2026-03-02", end: "2026-04-26", clientId: legacy.clientId, weekdays: [1], trainerId: W.TR1 });
+      await db.clientWeeklyPlanDay.updateMany({ where: { client_weekly_plan_id: p.planId }, data: { session_name: "SESION-HEREDADA-H02" } });
+      jwt(legacy.userId!, "client", W.B1);
+      const html = await portal();
+      expect(html).toContain("SESION-HEREDADA-H02");
+    });
+
+    it("H02h control positivo: alumno propio de su tenant sigue viendo su plan", async () => {
+      jwt(memberUserId, "client", W.B1);
+      const html = await portal();
+      expect(html).toContain("Programación personalizada");
+      expect(html).not.toContain(SECRET_SESSION);
     });
   });
 

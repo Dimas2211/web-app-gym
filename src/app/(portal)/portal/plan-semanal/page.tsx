@@ -1,6 +1,5 @@
 import { requireClient } from "@/lib/permissions/guards";
 import {
-  getClientByUserId,
   getMyActivePlan,
   getMyPlans,
   getMyGeneralTemplates,
@@ -9,8 +8,8 @@ import {
 } from "@/modules/client-portal/queries";
 import { PlanDayCard } from "./plan-day-card";
 import { PlanExecutionReport, type OccurrenceItemData } from "./plan-execution-report";
-import { resolveEffectiveTenantContext } from "@/modules/platform/runtime/effective-tenant-context";
-import { hasOrganizationModule, resolveCommercialEnforcementContext } from "@/modules/platform/runtime/commercial-enforcement";
+import { openPortalContext } from "@/modules/client-portal/portal-context";
+import { PortalAccessNotice } from "../portal-access-notice";
 import { plansVisibleForMembership } from "@/modules/client-portal/plan-visibility";
 import { resolveGymClock } from "@/modules/weekly-plans/gym-clock";
 import { loadPlanTracking } from "@/modules/weekly-plans/training-tracking-queries";
@@ -37,35 +36,21 @@ const WEEKDAY_NAMES = [
 
 export default async function PlanSemanalPage() {
   const sessionUser = await requireClient();
-  const { context, dispose } = await resolveEffectiveTenantContext(sessionUser);
+
+  // Auditoría GYM-5A H02: rol LIVE = client, módulo gym.weekly_plans y Client
+  // resuelto con el tenant del contexto (nunca solo por user_id) ANTES de leer
+  // cualquier dato personal.
+  const access = await openPortalContext(sessionUser, { module: "gym.weekly_plans" });
+  if (!access.ok) {
+    const denied =
+      access.reason === "MODULE_DISABLED"
+        ? { ...access, message: "Esta sección no está disponible en tu gimnasio." }
+        : access;
+    return <PortalAccessNotice title="Mi plan semanal" denied={denied} />;
+  }
+  const { context, client, dispose } = access;
 
   try {
-    const client = await getClientByUserId(sessionUser.id, context.client);
-
-    if (!client) {
-      return (
-        <div className="space-y-4">
-          <h1 className="text-xl font-bold text-zinc-800">Mi plan semanal</h1>
-          <div className="bg-amber-50 border border-amber-200 rounded-xl p-6 text-center">
-            <p className="text-amber-800 font-medium">Perfil de cliente no configurado.</p>
-          </div>
-        </div>
-      );
-    }
-
-    // GYM-5A: el módulo debe estar habilitado para el tenant (no solo oculto en el menú).
-    const commercial = await resolveCommercialEnforcementContext(context.tenantId);
-    if (!hasOrganizationModule(commercial, "gym.weekly_plans")) {
-      return (
-        <div className="space-y-4">
-          <h1 className="text-xl font-bold text-zinc-800">Mi plan semanal</h1>
-          <div className="bg-amber-50 border border-amber-200 rounded-xl p-6 text-center">
-            <p className="text-amber-800 font-medium">Esta sección no está disponible en tu gimnasio.</p>
-          </div>
-        </div>
-      );
-    }
-
     // "Hoy" = fecha local del gimnasio (zona IANA). Sin zona válida se conserva el
     // comportamiento anterior (día del servidor) y NO se permite reportar por fecha.
     const db = context.client ?? prisma;
