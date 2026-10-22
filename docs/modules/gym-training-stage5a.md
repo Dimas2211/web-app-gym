@@ -265,3 +265,26 @@ Creados: `plan-access.ts`, `plan-service.ts`, `training-tracking-rules.ts`, `tra
 `20261021000000_gym_training_executions`; pruebas y `testing/` de `weekly-plans`.
 Modificados: `prisma/schema.prisma`, `weekly-plans/{actions,schemas}.ts`, `client-portal/{actions,queries,schemas}.ts`,
 `/portal/plan-semanal/{page,plan-day-card}.tsx`, `/dashboard/weekly-plans/client-plans/{page,[id]/page}.tsx`.
+
+## 16. Correcciones de auditoría independiente (H01, H02)
+
+Sin schema nuevo ni migración. Base de pruebas: PostgreSQL 18 desechable en `127.0.0.1:54399`; no se tocó
+`DATABASE_URL` ni `DIRECT_URL`.
+
+| Id | Sev | Defecto | RED → FIX → GREEN |
+|----|-----|---------|-------------------|
+| H01 | P1 | `createTemplateAction` autorizaba con el gate JWT (`requireAdmin`) y no exigía que el rol LIVE fuera `super_admin`/`branch_admin`: JWT super_admin + LIVE reception/trainer/client creaba plantillas | RED: 4 fallos (reception, trainer, client, branch_admin con sede trasladada). FIX: rol LIVE ∈ {super_admin, branch_admin} + `liveLocationMatches` (misma regla que la asignación segmentada). GREEN: 0 plantillas creadas en los casos negativos |
+| H02 | P2 | `/portal/plan-semanal` resolvía el Client con `getClientByUserId(userId)` sin tenant ni rol LIVE: un usuario enlazado a un Client de otro tenant (Shared) veía sus planes | RED: usuario T2↔Client T1 y usuario T1↔Client T2 mostraban el plan ajeno; rol LIVE degradado mostraba datos personales. FIX: la página usa `openPortalContext(sessionUser, { module: "gym.weekly_plans" })` (rol LIVE `client`, módulo, `getClientByUserId` con `{ tenantId, gymId }`) como membresías/historial/inicio. GREEN: sin datos ajenos |
+
+Otras acciones de plantillas (`update`, `toggleStatus`, `upsertDay`, `deleteDay`, `delete`) ya autorizaban con el rol LIVE vía
+`canManageTemplate`; se añadió prueba de no regresión (JWT super_admin + LIVE reception no modifica nada). No se alteró
+`assignTemplateSegmentedAction`.
+
+Portal, casos verificados: tenant ajeno (ambos sentidos), rol LIVE degradado, usuario sin perfil Client, usuario no cliente
+(redirige), módulo deshabilitado, Shared, y Dedicated/heredado (Client con `tenant_id` NULL del mismo gym sigue accediendo). Los
+mensajes de módulo deshabilitado se conservan; el de "sin perfil" pasa a "Tu perfil de cliente aún no está configurado." (texto
+común del portal). No se tocaron políticas de membresías ni autorreportes.
+
+Pruebas: `template-live-role.integration.test.ts` (7) y bloque H02 en `training-pages.integration.test.tsx` (8).
+Resultado final: `vitest` 266 archivos / 2950 pruebas pasan; `tsc --noEmit` 0 errores; `prisma validate` válido;
+`npm run lint` 0 errores (advertencias preexistentes); `npm run build` OK.
