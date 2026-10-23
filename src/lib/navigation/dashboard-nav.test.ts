@@ -145,3 +145,20 @@ describe("filterModuleGroupsByAccess — FASE VI-B: canAccessPlatformAdmin", () 
     expect(groupIds).not.toContain("platform");
   });
 });
+
+describe("filterModuleGroupsByAccess — GYM-5C: Seguimiento de mis alumnos", () => {
+  const HREF = "/dashboard/weekly-plans/seguimiento";
+  const enabled = new Set([...ALL_GYM_MODULES, ...ALL_CORE_MODULES]);
+
+  it("visible solo para el rol trainer con gym.weekly_plans habilitado", () => {
+    expect(findItem(filterModuleGroupsByAccess(MODULE_GROUPS, "trainer", enabled, "GYM", false), HREF)?.label).toBe("Seguimiento de mis alumnos");
+    for (const role of ["super_admin", "branch_admin", "reception", "client"] as const) {
+      expect(findItem(filterModuleGroupsByAccess(MODULE_GROUPS, role, enabled, "GYM", false), HREF)).toBeUndefined();
+    }
+  });
+
+  it("gym.weekly_plans deshabilitado oculta el enlace al entrenador", () => {
+    const withoutPlans = new Set([...enabled].filter((c) => c !== "gym.weekly_plans"));
+    expect(findItem(filterModuleGroupsByAccess(MODULE_GROUPS, "trainer", withoutPlans, "GYM", false), HREF)).toBeUndefined();
+  });
+});

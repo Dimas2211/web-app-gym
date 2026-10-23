@@ -51,6 +51,8 @@ export const MODULE_GROUPS: ModuleGroup[] = [
       { label: "Entrenadores", href: "/dashboard/trainers", roles: ["super_admin", "branch_admin"], moduleCode: "gym.trainers" },
       { label: "Agenda", href: "/dashboard/classes", roles: ["super_admin", "branch_admin", "reception", "trainer"], moduleCode: "gym.classes" },
       { label: "Planes semanales", href: "/dashboard/weekly-plans/client-plans", roles: ["super_admin", "branch_admin", "reception", "trainer"], moduleCode: "gym.weekly_plans" },
+      // GYM-5C: panel exclusivo del entrenador (la página vuelve a autorizar con el rol LIVE).
+      { label: "Seguimiento de mis alumnos", href: "/dashboard/weekly-plans/seguimiento", roles: ["trainer"], moduleCode: "gym.weekly_plans" },
       // Reportes GYM es transversal a varios módulos gym (no se amarra a uno
       // solo) pero SÍ depende de la vertical efectiva (PASO 6F) — sin ella
       // no tiene sentido (TrustMe es Commerce-only, vertical null).
