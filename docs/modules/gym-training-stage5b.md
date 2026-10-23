@@ -1,7 +1,8 @@
 # GYM-5B — "Mi progreso" del alumno
 
-Estado: **implementado, riesgos de datos resueltos y certificado técnicamente en local; publicado solo en la rama
-`feat/gym-training-stage5b` para revisión. Sin merge a `main`, NO desplegado.**
+Estado: **READY_FOR_MERGE** (técnico). Implementado, riesgos de datos resueltos, revisión externa (H1 coherencia con
+GYM-5A, H2 consultas truncadas) corregida y certificada en local; publicado solo en la rama `feat/gym-training-stage5b`.
+Sin merge a `main`, NO desplegado.
 
 Procedimiento (cambio 2026-10-22): **se elimina la fase de Vercel Preview** (el propietario no puede acceder a las
 Preview). La certificación visual se hará directamente en `app.getzolvi.com` después de la aprobación técnica y la
@@ -65,14 +66,22 @@ muestra 0 % (es un dato real).
 **Períodos:** `?periodo=semanas|meses|anio` (lista blanca; cualquier otro valor ⇒ `semanas`). Semanas lunes–domingo,
 meses calendario (incluye bisiestos y cambio de año).
 
-**Inicio del seguimiento (métricas históricas):** el inicio del seguimiento de un tenant es la fecha local (zona del
-gimnasio) de la **primera** `ClientPlanDayExecution` creada en ese tenant (`MIN(created_at)`; solo una fecha agregada,
-ningún dato de otros alumnos). Antes de esa fecha nadie podía registrar ejecuciones, así que una ocurrencia vencida
-anterior **solo entra en el denominador si tiene registro** (p. ej. uno retroactivo del entrenador, que cuenta en
-numerador y denominador); sin registro se informa aparte ("N entrenamientos programados antes del …, cuando empezó el
-seguimiento, no tienen registro y no se incluyen en el cálculo"). Sin ninguna ejecución en el tenant el corte es mañana:
-nada vencido cuenta sin registro (resultado: "Sin datos suficientes", nunca 0 %). La fórmula de 5A no cambia: el corte
-solo decide qué ocurrencias forman parte del denominador. Aplica al resumen, a la evolución y al cálculo de cada plan.
+**Inicio del seguimiento (métricas históricas) — contrato final tras la revisión externa (H1):** el cumplimiento de
+5B usa **siempre el mismo denominador que GYM-5A**: todas las ocurrencias vencidas del período del plan. El inicio del
+seguimiento de un tenant (fecha local de la **primera** `ClientPlanDayExecution` creada, `MIN(created_at)`; solo una
+fecha agregada, ningún dato de otros alumnos) **no altera ningún conteo ni porcentaje**; solo sirve para
+**identificar** los pendientes anteriores a esa fecha, que no se podían registrar con el sistema:
+
+- Resumen: "N de los pendientes son anteriores al inicio del seguimiento por fecha en tu gimnasio (fecha): no se pudieron
+  registrar con este sistema y cuentan como pendientes, igual que en tu plan semanal". Sin ningún otro porcentaje.
+- Evolución: un intervalo **entero** anterior al inicio y sin registros se rotula "Antes del seguimiento" / "anterior al
+  inicio del seguimiento (no verificable)" en lugar de "sin registros"; nunca se muestra como 0 %.
+- Historial: cada plan muestra exactamente el cálculo de GYM-5A.
+
+Motivo (caso real de Power Gym, plan 19/10–15/11/2026 al 22/10, primera ejecución del gimnasio el 22/10): GYM-5A
+certifica 4 vencidos, 2 parciales, 2 pendientes, **25 %**. La regla anterior de 5B excluía los pendientes previos al
+corte y producía 2 programados y 50 %: dos porcentajes contradictorios para el mismo plan y fecha. Con el contrato final
+ambas pantallas muestran 25 % y 5B añade "2 de los pendientes son anteriores al inicio del seguimiento".
 
 **Planes solapados:** el lock de 5A impide hoy dos planes activos solapados, pero pueden existir planes heredados
 anteriores. En los indicadores generales cada fecha cuenta **una sola vez**, gobernada por el plan de mayor precedencia
@@ -151,8 +160,8 @@ No se tocaron: `/portal/plan-semanal`, acciones/servicios de 5A, GYM-4, reservas
 
 | Archivo | Cobertura |
 |---|---|
-| `progress-rules.test.ts` (25) | lista blanca de período, semanas/meses (cambio de año, bisiesto, domingo), DST y fecha local, parcial 0,5, entrenador prevalece, igualdad con `summarizeCompliance`, futuras fuera del denominador, sin registros ⇒ sin %, suma vs promedio, recorte por intervalo, ejecuciones fuera del período, fases, frecuencia (attended/late/absent/cancelled, duplicados, futuras, límites), inicio del seguimiento (corte, sin registros en el tenant, registro retroactivo, identidad con 5A), planes solapados (precedencia, tramos, conteo único) |
-| `progress.integration.test.tsx` (24) | página real contra PostgreSQL: G1 resumen/planes/asistencia/objetivo, G2 privacidad, G3 otro alumno/otro tenant/rol LIVE/sin sesión, G4 módulos y base sin tabla 5A, G5 sin datos, sin plan, membresía vencida, sin zona horaria, período, límite del día; G4d runtime real sin tablas 5A (renombradas en la BD desechable); G6 inicio del seguimiento, planes solapados, tope del historial, tope de asistencia y ausencia de avisos sin tope |
+| `progress-rules.test.ts` (25) | lista blanca de período, semanas/meses (cambio de año, bisiesto, domingo), DST y fecha local, parcial 0,5, entrenador prevalece, igualdad con `summarizeCompliance`, futuras fuera del denominador, sin registros ⇒ sin %, suma vs promedio, recorte por intervalo, ejecuciones fuera del período, fases, frecuencia (attended/late/absent/cancelled, duplicados, futuras, límites), inicio del seguimiento (conteos idénticos a 5A con cualquier corte, identificación de pendientes previos, tenant sin registros, caso Sofía), planes solapados (precedencia, tramos, conteo único) |
+| `progress.integration.test.tsx` (29) | página real contra PostgreSQL: G1 resumen/planes/asistencia/objetivo, G2 privacidad, G3 otro alumno/otro tenant/rol LIVE/sin sesión, G4 módulos y base sin tabla 5A, G5 sin datos, sin plan, membresía vencida, sin zona horaria, período, límite del día; G4d runtime real sin tablas 5A (renombradas en la BD desechable); G6 inicio del seguimiento, planes solapados, tope del historial, ausencia de avisos sin tope; G7 revisión externa: caso Sofía contra `loadPlanTracking` de 5A, historial parcial, asistencia y planes por encima del máximo, paginación exacta, límite exacto |
 
 Prueba de que las pruebas discriminan: se aplicaron temporalmente dos mutaciones (ignorar `gym.classes`; mostrar el %
 sin datos suficientes) y fallaron G4b y la regla "sin registros"; se restauró el código.
@@ -170,13 +179,20 @@ Resultados (ver §9).
 
 | Riesgo anterior | Resolución | Prueba |
 |---|---|---|
-| Ocurrencias anteriores al despliegue de 5A contaban como pendientes y bajaban el cumplimiento | Inicio del seguimiento por tenant (§2): antes del corte solo cuentan las ocurrencias con registro; el resto se informa aparte | reglas "inicio del seguimiento" (4) + G6a |
+| Ocurrencias anteriores al despliegue de 5A sin explicación | Contrato final (§2, H1): el denominador es el de GYM-5A; los pendientes previos al inicio del seguimiento se **identifican** (resumen e intervalos "Antes del seguimiento"), sin otro porcentaje | reglas "inicio del seguimiento" (4) + G6a + G7a |
 | Planes heredados solapados sumaban dos veces la misma fecha | `governingSegments`: cada fecha la gobierna un único plan (el más reciente) en resumen y evolución | reglas "planes solapados" (3) + G6b |
-| Resumen dependía del tope de 24 planes del historial | Consulta propia de **todos** los planes que se cruzan con el período (tope de seguridad 200, con aviso si se alcanza); el historial sigue mostrando los 24 más recientes (unión sin duplicados) | G6c |
-| 1000 filas de asistencia recortaban la frecuencia en silencio | Consulta liviana (id, estado, fecha) con tope de seguridad 5000 y aviso "las cifras pueden estar incompletas" si se alcanza; las 8 últimas clases salen de una consulta propia (`take 8`) | G6d, G6e |
+| Resumen dependía del tope de 24 planes del historial | Consulta propia de **todos** los planes que se cruzan con el período, con paginación controlada; el historial sigue mostrando los 24 más recientes (unión sin duplicados) | G6c |
+| Consultas truncadas presentadas como cifras globales (H2) | Paginación por id (`PROGRESS_QUERY_LIMITS`: páginas de 500; máximos 2000 planes del período y 20000 asistencias, muy por encima de 13 meses reales). Lectura exacta hasta el máximo; si se supera, el bloque se marca incompleto y la UI muestra **"Datos incompletos"** explicando qué no se calcula, **en lugar** de porcentajes, totales, promedio o gráfico | G7c, G7d, G7e (páginas de 1 fila = mismo HTML), G7f (justo en el máximo no es incompleto), G6e |
+| Historial parcial sin aclaración (H2) | `count` exacto de planes del alumno; si hay más que los mostrados: "Se muestran X de N planes: los más recientes y los del período consultado" | G7b |
 
-Cada resolución se probó con mutación: al desactivar el corte, el reparto o la consulta del período, falla exactamente
-G6a, G6b o G6c respectivamente (código restaurado).
+Pruebas que reproducen los hallazgos: G7a–G7d se escribieron primero y **fallaron contra `ffa6387`** (G7a: el resumen no
+mostraba 25 %; G7b: sin aclaración del historial; G7c/G7d: sin "Datos incompletos"). G7c/G7d usaban entonces un doble
+de Prisma que simulaba el tope; tras la corrección se reescribieron sobre los máximos reales de la paginación (sin
+mocks), con las mismas aserciones.
+
+Mutaciones (código restaurado): volver a excluir los pendientes previos ⇒ fallan 4 reglas, G6a y G7a; ignorar el
+truncado ⇒ fallan G7c y G7d. Las de la ronda anterior (reparto de solapes ⇒ G6b; consulta del período ⇒ G6c) siguen
+vigentes.
 
 ### 8.2 Residuales
 
@@ -184,8 +200,7 @@ G6a, G6b o G6c respectivamente (código restaurado).
    (sin Preview). El diseño usa una columna en móvil, rejillas `grid-cols-2`/`sm:grid-cols-4`, `lg:grid-cols-2`, barras
    `flex-1 min-w-0` y la tabla en `overflow-x-auto`.
 2. El inicio del seguimiento es una inferencia por datos (primera ejecución del tenant), no la fecha exacta de la
-   migración: si un gimnasio tardó en empezar a registrar, las ocurrencias entre el despliegue y el primer registro
-   quedan fuera del cálculo (se informan como anteriores al seguimiento).
+   migración. Ya no afecta ningún número: solo decide qué pendientes se rotulan como anteriores al seguimiento.
 3. `MIN(created_at)` por tenant usa el índice `(tenant_id, client_id, local_date)` solo para el filtro por tenant;
    adecuado al volumen de un gimnasio. Un índice dedicado requeriría migración (fuera de alcance).
 4. Planes desactivados no suman al resumen aunque tengan ejecuciones reales (decisión explícita; se ven en su historial).
@@ -200,8 +215,8 @@ G6a, G6b o G6c respectivamente (código restaurado).
 npx prisma validate                                   → válido
 npx tsc --noEmit                                      → 0 errores
 npx vitest run --testTimeout=120000 --hookTimeout=180000 (con PostgreSQL desechable)
-                                                      → 268 archivos / 2999 pruebas pasan, 0 omitidas
-                                                        (2950 previas + 49 de 5B)
+                                                      → 268 archivos / 3004 pruebas pasan, 0 omitidas
+                                                        (2950 previas + 54 de 5B)
 npm run lint                                          → 0 errores; 43 advertencias preexistentes, 0 en archivos de 5B
 npm run build                                         → OK (ƒ /portal/progreso)
 ```
@@ -236,3 +251,19 @@ y con las tablas realmente ausentes (G4d): sin error 500, sin porcentajes; asist
 procedimiento). Tras la aprobación técnica: merge a `main` (decisión del responsable) y certificación visual directa
 en `app.getzolvi.com` con las pantallas de §9, a 360, 390 y 1280 px. Las métricas solo aparecen en tenants cuyo
 runtime ya tenga la migración de 5A; en el resto se verá el aviso.
+
+## 11. Contrato final de indicadores
+
+| Indicador | Definición | Cuándo NO se muestra |
+|---|---|---|
+| Cumplimiento (resumen, evolución, plan) | `(completados + 0,5 × parciales) ÷ programados vencidos`, con `summarizeCompliance`/`compliancePct` de 5A; varios planes o intervalos = suma de conteos; denominador = todas las ocurrencias vencidas (igual que GYM-5A) | sin vencidos o sin ningún registro ("Sin datos suficientes"); datos incompletos; tracking no disponible (P2021); membresía vencida; sin zona horaria |
+| Pendientes anteriores al seguimiento | subconjunto informativo de los pendientes, con fecha local < primera ejecución del tenant | si es 0 |
+| Intervalo "Antes del seguimiento" | intervalo entero anterior al inicio y sin registros | — (sustituye a "sin registros") |
+| Solapes heredados | cada fecha cuenta una vez en resumen/evolución, gobernada por el plan más reciente | — |
+| Asistencia (esta semana, este mes, promedio, tardanzas, ausencias, gráfico) | conteos de `attended`/`late` (ausencias aparte), sin porcentaje | `gym.classes` apagado; datos incompletos ("Datos incompletos", se mantienen las últimas clases, que son exactas) |
+| Historial de planes | 24 más recientes ∪ planes del período; cada uno con el cálculo de 5A | aclara "Se muestran X de N planes" cuando N > X |
+| Datos incompletos | una consulta paginada supera su máximo (`PROGRESS_QUERY_LIMITS`) | — (sustituye cifras; nunca se muestran parciales como completas) |
+
+Seguridad multi-tenant sin cambios en esta ronda: todas las consultas nuevas (`count` de planes, páginas por cursor)
+usan exactamente los mismos filtros `client_id` + tenant que antes; G3a–G3d (otro alumno, otro tenant, rol LIVE, sin
+sesión) pasan.

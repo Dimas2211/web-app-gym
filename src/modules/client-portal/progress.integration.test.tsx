@@ -13,6 +13,8 @@
 //      horaria, período, fecha local en el límite del día
 //  G6  riesgos de datos: ocurrencias anteriores al inicio del seguimiento,
 //      planes heredados solapados, topes de consulta
+//  G7  revisión externa: coherencia con GYM-5A (caso real de Sofía) y
+//      consultas truncadas sin cifras parciales presentadas como completas
 // ─────────────────────────────────────────────────────────────────
 
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
@@ -83,8 +85,9 @@ import { createClient, createMember, createSession, setPolicy, T1, T2, TZ } from
 import { seedPlan, seedPlanWorld, W } from "@/modules/weekly-plans/testing/plan-it-harness";
 import { recordClientReport, recordTrainerExecution } from "@/modules/weekly-plans/training-execution-service";
 import ProgresoPage from "@/app/(portal)/portal/progreso/page";
-import { ATTENDANCE_ROWS_CAP, PROGRESS_PLANS_LIMIT } from "@/modules/client-portal/progress-queries";
+import { PROGRESS_PLANS_LIMIT, PROGRESS_QUERY_LIMITS } from "@/modules/client-portal/progress-queries";
 import { addDays } from "@/modules/weekly-plans/training-tracking-rules";
+import { loadPlanTracking } from "@/modules/weekly-plans/training-tracking-queries";
 
 const NOW = "2026-03-11T15:00:00.000Z"; // miércoles 09:00 en El Salvador
 const TODAY = "2026-03-11";
@@ -262,6 +265,8 @@ describe.skipIf(!IT_ENABLED)("GYM-5B — /portal/progreso (PostgreSQL real)", ()
       const start = addDays("2026-05-04", 7 * i);
       await seedPlan(db, { start, end: addDays(start, 6), clientId: g.clientId, weekdays: [1], trainerId: W.TR1 });
     }
+    // Plan antiguo fuera del período y del historial reciente: el historial queda parcial (25 de 26).
+    await seedPlan(db, { start: "2025-06-02", end: "2025-06-29", clientId: g.clientId, weekdays: [1], trainerId: W.TR1 });
 
     // GYM-5A "desplegado" en el tenant antes de todos los planes del escenario
     // (created_at lo fija el reloj real de la BD, no el reloj simulado).
@@ -507,19 +512,18 @@ describe.skipIf(!IT_ENABLED)("GYM-5B — /portal/progreso (PostgreSQL real)", ()
   });
 
   describe("G6 riesgos de datos", () => {
-    it("G6a ocurrencias anteriores al inicio del seguimiento: sin registro quedan fuera del denominador", async () => {
-      // Seguimiento iniciado el 03-mar (local): febrero y el 02-mar solo cuentan si tienen registro.
+    it("G6a pendientes anteriores al inicio del seguimiento: se identifican, el denominador es el de GYM-5A", async () => {
+      // Seguimiento iniciado el 03-mar (local): febrero tiene 6 pendientes anteriores, sin registro posible.
       await db.clientPlanDayExecution.updateMany({ where: { tenant_id: T1 }, data: { created_at: new Date("2026-03-03T18:00:00.000Z") } });
       try {
         jwt(a.userId, "client");
         const html = await render();
-        // Vencidos: 02-mar (completado) + 04/09/11-mar + 2 registrados de febrero = 6; 6 de febrero sin registro fuera.
-        // (3 + 0,5) / 6 = 58 %; sin el corte serían 12 vencidos y 29 %.
-        expect(html).toMatch(/Programados vencidos<\/p><p[^>]*>6</);
-        expect(html).toContain("58%");
-        expect(html).not.toContain("29%");
-        expect(html).toMatch(/6 entrenamientos programados[^<]*antes del[^<]*cuando empezó/);
-        expect(html).toContain("50%"); // febrero: 1 completado + 1 omitido registrados
+        expect(html).toMatch(/Programados vencidos<\/p><p[^>]*>12</);
+        expect(html).toMatch(/Cumplimiento<\/p><p[^>]*>29%</);
+        expect(html).not.toContain("58%");
+        expect(html).toMatch(/6 de los pendientes son anteriores al inicio del seguimiento/);
+        expect(html).toContain("13%"); // febrero en el historial: mismo cálculo que GYM-5A
+        expect(html).toContain("Antes del seguimiento"); // semanas de febrero sin registros
       } finally {
         await db.clientPlanDayExecution.updateMany({ where: { tenant_id: T1 }, data: { created_at: new Date(TRACKING_EPOCH) } });
       }
@@ -545,29 +549,102 @@ describe.skipIf(!IT_ENABLED)("GYM-5B — /portal/progreso (PostgreSQL real)", ()
       expect(html).toContain("Vigente");
     });
 
-    it("G6d tope de filas de asistencia alcanzado → aviso, no cifras recortadas en silencio", async () => {
-      const fake = Array.from({ length: ATTENDANCE_ROWS_CAP }, (_, i) => ({
-        id: `fake-${i}`,
-        attendance_status: "attended",
-        scheduled_class: { class_date: new Date("2026-03-10T00:00:00.000Z") },
-      }));
-      const spy = spyDb(db, {
-        classAttendance: {
-          findMany: (args: { take?: number }) => (args.take === ATTENDANCE_ROWS_CAP ? Promise.resolve(fake) : db.classAttendance.findMany(args as never)),
-        },
-      });
-      h.db.current = spy.proxy;
-      jwt(a.userId, "client");
-      const html = await render();
-      expect(html).toContain("las cifras pueden estar incompletas");
-      expect(html).toContain("Llegó tarde"); // últimas clases: consulta propia, no del lote recortado
-    });
-
     it("G6e sin tope alcanzado no hay avisos de datos incompletos", async () => {
       jwt(a.userId, "client");
       const html = await render();
-      expect(html).not.toContain("pueden estar incompletas");
-      expect(html).not.toContain("puede estar incompleto");
+      expect(html).not.toContain("Datos incompletos");
+      expect(html).not.toMatch(/Se muestran \d+ de \d+ planes/); // A tiene menos planes que el límite del historial
+    });
+  });
+
+  describe("G7 revisión externa", () => {
+    it("G7a H1 caso Sofía: 'Mi progreso' coincide con GYM-5A (25 %) aunque el seguimiento empezó el 22-oct", async () => {
+      // Plan real de prueba (Power Gym): 19/10–15/11/2026, lun–jue; al 22/10 vencen 19, 20, 21 y 22.
+      // Parciales registrados el 21 y el 22; la primera ejecución del gimnasio es del 22/10.
+      vi.setSystemTime(new Date("2026-10-22T15:00:00.000Z")); // jueves 09:00 en El Salvador
+      const m = await createMember(db, { id: crypto.randomUUID(), branch: W.B1, withUser: true });
+      const sofia = { clientId: m.clientId, userId: m.userId! };
+      const plan = await seedPlan(db, { start: "2026-10-19", end: "2026-11-15", clientId: sofia.clientId, weekdays: [1, 2, 3, 4], trainerId: W.TR1 });
+      const rec = (dayId: string, date: string) =>
+        recordTrainerExecution(db, {
+          tenantId: T1, planId: plan.planId, planDayId: dayId, localDate: date, status: "partial", feedback: null, reason: null,
+          attendanceId: null, actor: { userId: ACTOR, role: "trainer" }, timezone: TZ, today: "2026-10-22",
+        });
+      ok(await rec(plan.days[3], "2026-10-21"));
+      ok(await rec(plan.days[4], "2026-10-22"));
+      await db.clientPlanDayExecution.updateMany({ where: { tenant_id: T1 }, data: { created_at: new Date("2026-10-22T14:00:00.000Z") } });
+      try {
+        const tracking = await loadPlanTracking(db, { tenantId: T1, planId: plan.planId, today: "2026-10-22", audience: "CLIENT", includeSessions: false });
+        expect(tracking?.summary).toMatchObject({ scheduled: 4, partial: 2, pending: 2, compliancePct: 25 });
+
+        jwt(sofia.userId, "client");
+        const html = await render();
+        expect(html).toMatch(/Cumplimiento<\/p><p[^>]*>25%</);
+        expect(html).toMatch(/Programados vencidos<\/p><p[^>]*>4</);
+        expect(html).toMatch(/Parciales<\/p><p[^>]*>2</);
+        expect(html).toMatch(/Pendientes<\/p><p[^>]*>2</);
+        expect(html).not.toContain("50%");
+        // Los dos pendientes anteriores al inicio del seguimiento se identifican, sin otro porcentaje.
+        expect(html).toMatch(/2 de los pendientes son anteriores al inicio del seguimiento/);
+      } finally {
+        await db.clientPlanDayExecution.updateMany({ where: { tenant_id: T1 }, data: { created_at: new Date(TRACKING_EPOCH) } });
+      }
+    });
+
+    it("G7b H2 historial: aclara cuando solo muestra los planes más recientes", async () => {
+      jwt(g.userId, "client");
+      const html = await render();
+      expect(html).toContain("Se muestran 25 de 26 planes: los más recientes y los del período consultado.");
+    });
+
+    const withLimits = async <T,>(limits: Partial<typeof PROGRESS_QUERY_LIMITS>, fn: () => Promise<T>): Promise<T> => {
+      const saved = { ...PROGRESS_QUERY_LIMITS };
+      Object.assign(PROGRESS_QUERY_LIMITS, limits);
+      try {
+        return await fn();
+      } finally {
+        Object.assign(PROGRESS_QUERY_LIMITS, saved);
+      }
+    };
+
+    it("G7c H2 asistencia por encima del máximo: 'Datos incompletos', sin totales ni promedio", async () => {
+      jwt(a.userId, "client");
+      // A tiene 4 asistencias en el período (02-10, 03-02, 03-04 tarde, 03-09 ausente).
+      const html = await withLimits({ pageSize: 2, maxAttendanceRows: 3 }, () => render());
+      expect(html).toContain("Datos incompletos");
+      expect(html).toContain("no se calculan los totales, el promedio semanal ni el gráfico");
+      expect(html).not.toMatch(/\d+ en 8 semanas/);
+      expect(html).not.toMatch(/Esta semana<\/p><p[^>]*>\d/);
+      expect(html).toContain("Llegó tarde"); // últimas clases: consulta propia, completa
+      expect(html).toMatch(/Cumplimiento<\/p><p[^>]*>29%</); // el resumen de planes no se ve afectado
+    });
+
+    it("G7d H2 planes del período por encima del máximo: 'Datos incompletos', sin porcentaje, totales ni evolución", async () => {
+      jwt(a.userId, "client");
+      // A tiene 3 planes que tocan el período de 8 semanas (enero desactivado, febrero, marzo).
+      const html = await withLimits({ pageSize: 1, maxWindowPlans: 2 }, () => render());
+      expect(html).toContain("Datos incompletos");
+      expect(html).not.toMatch(/Cumplimiento<\/p><p[^>]*>\d+%</);
+      expect(html).not.toMatch(/Programados vencidos<\/p><p[^>]*>\d/);
+      expect(html).not.toContain("Ver datos en tabla");
+      expect(html).toContain("Evolución de planes"); // cada plan conserva su cálculo propio
+      expect(html).toContain("3 en 8 semanas"); // la asistencia no se ve afectada
+    });
+
+    it("G7e paginación exacta: con páginas de 1 fila el resultado es idéntico", async () => {
+      jwt(a.userId, "client");
+      const normal = await render();
+      const paged = await withLimits({ pageSize: 1 }, () => render());
+      expect(paged).toBe(normal);
+      expect(paged).toMatch(/Cumplimiento<\/p><p[^>]*>29%</);
+      expect(paged).toContain("3 en 8 semanas");
+    });
+
+    it("G7f límite exacto: justo en el máximo NO es incompleto", async () => {
+      jwt(a.userId, "client");
+      const html = await withLimits({ pageSize: 2, maxAttendanceRows: 4, maxWindowPlans: 3 }, () => render());
+      expect(html).not.toContain("Datos incompletos");
+      expect(html).toContain("3 en 8 semanas");
     });
   });
 });

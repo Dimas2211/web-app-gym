@@ -196,31 +196,44 @@ describe("GYM-5B — inicio del seguimiento (métricas históricas)", () => {
     ...MONDAYS,
     executions: [exec("d1", "2026-03-02", { t: "completed" })],
   };
+  const range = { start: "2026-03-02", end: "2026-03-30" };
 
-  it("antes del inicio solo cuentan las ocurrencias con registro; el resto va a untracked", () => {
-    // Lunes vencidos: 02 (completado) y 09 (sin registro). Inicio del seguimiento: 05-mar.
-    const c = complianceInRange([plan], { start: "2026-03-02", end: "2026-03-30" }, TODAY, { trackingStart: "2026-03-05" });
-    expect(c).toMatchObject({ scheduled: 2, completed: 1, pending: 1, untracked: 0, compliancePct: 50 });
-    const late = complianceInRange([{ ...plan, executions: [] }], { start: "2026-03-02", end: "2026-03-30" }, TODAY, { trackingStart: "2026-03-05" });
-    expect(late).toMatchObject({ scheduled: 1, pending: 1, untracked: 1, sufficiency: "NO_RECORDS" });
-  });
-
-  it("inicio posterior a hoy (sin registros en el tenant): nada vencido cuenta sin registro", () => {
-    const c = complianceInRange([{ ...plan, executions: [] }], { start: "2026-03-02", end: "2026-03-30" }, TODAY, { trackingStart: "2026-03-12" });
-    expect(c).toMatchObject({ scheduled: 0, untracked: 2, compliancePct: null, sufficiency: "NONE_SCHEDULED" });
-  });
-
-  it("un registro retroactivo anterior al inicio sí cuenta (en numerador y denominador)", () => {
-    const c = complianceInRange([plan], { start: "2026-03-02", end: "2026-03-30" }, TODAY, { trackingStart: "2026-03-10" });
-    expect(c).toMatchObject({ scheduled: 1, completed: 1, untracked: 1, compliancePct: 100 });
-  });
-
-  it("sin corte el resultado es idéntico a summarizeCompliance (GYM-5A)", () => {
+  it("el corte NO cambia los conteos: siempre iguales a summarizeCompliance (GYM-5A)", () => {
     const base = summarizeCompliance(plan.days, { start: plan.start, end: plan.end }, TODAY, plan.executions);
-    const c = complianceInRange([plan], { start: plan.start, end: plan.end }, TODAY, { trackingStart: plan.start });
-    expect(c.scheduled).toBe(base.scheduled);
-    expect(c.compliancePct).toBe(base.compliancePct);
-    expect(c.untracked).toBe(0);
+    for (const trackingStart of [undefined, "2026-03-01", "2026-03-05", "2026-03-10", "2026-03-12"]) {
+      const c = complianceInRange([plan], range, TODAY, { trackingStart });
+      expect(c).toMatchObject({ scheduled: base.scheduled, completed: base.completed, pending: base.pending, compliancePct: base.compliancePct });
+    }
+  });
+
+  it("identifica los pendientes anteriores al inicio, sin sacarlos del denominador", () => {
+    // Lunes vencidos: 02 (completado) y 09 (sin registro).
+    expect(complianceInRange([plan], range, TODAY, { trackingStart: "2026-03-05" }).pendingBeforeTracking).toBe(0);
+    expect(complianceInRange([plan], range, TODAY, { trackingStart: "2026-03-10" })).toMatchObject({
+      scheduled: 2,
+      pending: 1,
+      pendingBeforeTracking: 1,
+      compliancePct: 50,
+    });
+  });
+
+  it("inicio posterior a hoy (sin registros en el tenant): todos los pendientes son anteriores", () => {
+    const c = complianceInRange([{ ...plan, executions: [] }], range, TODAY, { trackingStart: "2026-03-12" });
+    expect(c).toMatchObject({ scheduled: 2, pending: 2, pendingBeforeTracking: 2, sufficiency: "NO_RECORDS" });
+  });
+
+  it("caso Sofía: 4 vencidos, 2 parciales, inicio el 22-oct ⇒ 25 % como GYM-5A, 2 pendientes anteriores", () => {
+    const sofia: ProgressPlanInput = {
+      id: "s",
+      start: "2026-10-19",
+      end: "2026-11-15",
+      days: [1, 2, 3, 4].map((w) => ({ id: `d${w}`, weekday: w })),
+      executions: [exec("d3", "2026-10-21", { t: "partial" }), exec("d4", "2026-10-22", { t: "partial" })],
+    };
+    const base = summarizeCompliance(sofia.days, { start: sofia.start, end: sofia.end }, "2026-10-22", sofia.executions);
+    const c = complianceInRange([sofia], { start: sofia.start, end: sofia.end }, "2026-10-22", { trackingStart: "2026-10-22" });
+    expect(base).toMatchObject({ scheduled: 4, partial: 2, pending: 2, compliancePct: 25 });
+    expect(c).toMatchObject({ scheduled: 4, partial: 2, pending: 2, compliancePct: 25, pendingBeforeTracking: 2 });
   });
 });
 

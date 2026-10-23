@@ -16,9 +16,10 @@
 //    nunca se suma a las ejecuciones ni las ejecuciones a la asistencia.
 //  - "Sin datos suficientes": no hay programados vencidos, o los hay pero
 //    ninguno tiene registro efectivo. En ese caso NO se muestra porcentaje.
-//  - INICIO DEL SEGUIMIENTO: ocurrencias anteriores a la primera ejecución
-//    registrada en el tenant (nadie podía registrarlas) solo entran en el
-//    denominador si tienen registro; si no, se informan aparte ("untracked").
+//  - INICIO DEL SEGUIMIENTO: primera ejecución registrada en el tenant. El
+//    denominador NO cambia (es el de GYM-5A: todas las ocurrencias vencidas);
+//    los pendientes anteriores a esa fecha solo se IDENTIFICAN aparte
+//    (pendingBeforeTracking), sin otro porcentaje.
 //  - PLANES SOLAPADOS (heredados, anteriores al lock de GYM-5A): en los
 //    indicadores generales cada fecha cuenta una sola vez, gobernada por el
 //    plan más reciente (inicio mayor, luego creación mayor).
@@ -121,15 +122,18 @@ export interface ComplianceCounts {
   skipped: number;
   pending: number;
   selfReportedOnly: number;
-  /** Ocurrencias vencidas anteriores al inicio del seguimiento y sin registro: fuera del denominador. */
-  untracked: number;
+  /**
+   * De los `pending`, cuántos son anteriores al inicio del seguimiento (no se
+   * podían registrar). Informativo: siguen en el denominador, como en GYM-5A.
+   */
+  pendingBeforeTracking: number;
   /** Fórmula de GYM-5A sobre los conteos sumados; null si no hay programados vencidos. */
   compliancePct: number | null;
   sufficiency: Sufficiency;
 }
 
 export function emptyCounts(): ComplianceCounts {
-  return { scheduled: 0, completed: 0, partial: 0, skipped: 0, pending: 0, selfReportedOnly: 0, untracked: 0, compliancePct: null, sufficiency: "NONE_SCHEDULED" };
+  return { scheduled: 0, completed: 0, partial: 0, skipped: 0, pending: 0, selfReportedOnly: 0, pendingBeforeTracking: 0, compliancePct: null, sufficiency: "NONE_SCHEDULED" };
 }
 
 /** Porcentaje que se puede mostrar: solo con datos suficientes. */
@@ -139,21 +143,19 @@ export function displayablePct(c: ComplianceCounts): number | null {
 
 export interface ComplianceOptions {
   /**
-   * Primer día con seguimiento por fecha (local). Antes de esa fecha solo
-   * cuentan las ocurrencias con registro efectivo; las demás van a `untracked`.
-   * undefined = sin corte.
+   * Primer día con seguimiento por fecha (local). Solo sirve para identificar
+   * los pendientes anteriores (pendingBeforeTracking); no altera los conteos.
+   * undefined = sin identificación.
    */
   trackingStart?: string;
 }
 
-function addSummary(total: ComplianceCounts, s: ReturnType<typeof summarizeCompliance>, recordedOnly: boolean) {
-  const recorded = s.completed + s.partial + s.skipped;
-  total.scheduled += recordedOnly ? recorded : s.scheduled;
+function addSummary(total: ComplianceCounts, s: ReturnType<typeof summarizeCompliance>) {
+  total.scheduled += s.scheduled;
   total.completed += s.completed;
   total.partial += s.partial;
   total.skipped += s.skipped;
-  total.pending += recordedOnly ? 0 : s.pending;
-  total.untracked += recordedOnly ? s.pending : 0;
+  total.pending += s.pending;
   total.selfReportedOnly += s.selfReportedOnly;
 }
 
@@ -175,12 +177,10 @@ export function complianceInRange(
       const start = seg.start > range.start ? seg.start : range.start;
       const end = seg.end < range.end ? seg.end : range.end;
       if (start > end || start > today) continue;
+      addSummary(total, summarizeCompliance(p.days, { start, end }, today, p.executions));
       if (trackingStart && start < trackingStart) {
         const preEnd = addDays(trackingStart, -1) < end ? addDays(trackingStart, -1) : end;
-        addSummary(total, summarizeCompliance(p.days, { start, end: preEnd }, today, p.executions), true);
-        if (trackingStart <= end) addSummary(total, summarizeCompliance(p.days, { start: trackingStart, end }, today, p.executions), false);
-      } else {
-        addSummary(total, summarizeCompliance(p.days, { start, end }, today, p.executions), false);
+        total.pendingBeforeTracking += summarizeCompliance(p.days, { start, end: preEnd }, today, p.executions).pending;
       }
     }
   }

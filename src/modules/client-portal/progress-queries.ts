@@ -13,14 +13,16 @@
 //  - ClientWeeklyPlan: sin `notes` (no se muestran al alumno en el portal).
 //
 // Consultas (sin N+1):
-//  - planes que se cruzan con el período (todos, hasta un tope de seguridad)
-//    + los PROGRESS_PLANS_LIMIT más recientes para el historial;
+//  - planes que se cruzan con el período (todos, paginados por id hasta un
+//    máximo) + los PROGRESS_PLANS_LIMIT más recientes para el historial y el
+//    total exacto de planes del alumno (count);
 //  - ejecuciones de esos planes + inicio del seguimiento del tenant
 //    (primera ejecución registrada, convertida a fecha local);
-//  - asistencias del período en una consulta liviana (solo id/estado/fecha)
-//    y las RECENT_CLASSES_LIMIT últimas asistidas aparte (solo con
-//    gym.classes habilitado). Si se alcanza un tope, se avisa en vez de
-//    mostrar cifras recortadas en silencio.
+//  - asistencias del período en una consulta liviana (solo id/estado/fecha,
+//    paginada por id hasta un máximo) y las RECENT_CLASSES_LIMIT últimas
+//    asistidas aparte (solo con gym.classes habilitado).
+// Si se supera un máximo, el bloque afectado se marca `incomplete` y la UI
+// muestra "Datos incompletos" EN LUGAR de porcentajes y totales.
 // ─────────────────────────────────────────────────────────────────
 
 import type { PrismaClient } from "@prisma/client";
@@ -47,9 +49,28 @@ import {
 export const PROGRESS_PLANS_LIMIT = 24;
 export const RECENT_CLASSES_LIMIT = 8;
 export const RECENT_FEEDBACK_LIMIT = 5;
-/** Topes de seguridad: muy por encima del uso real (13 meses de planes y clases). */
-export const WINDOW_PLANS_CAP = 200;
-export const ATTENDANCE_ROWS_CAP = 5000;
+/**
+ * Paginación controlada (por id): lectura exacta hasta el máximo, muy por
+ * encima del uso real de 13 meses. Mutable solo para pruebas.
+ */
+export const PROGRESS_QUERY_LIMITS = { pageSize: 500, maxWindowPlans: 2000, maxAttendanceRows: 20000 };
+
+/** Lee todas las filas por páginas; `complete` = false si hay más de `max`. */
+async function readAllPaged<T extends { id: string }>(
+  page: (args: { take: number; cursor?: { id: string }; skip?: number }) => Promise<T[]>,
+  max: number
+): Promise<{ rows: T[]; complete: boolean }> {
+  const rows: T[] = [];
+  let cursor: string | undefined;
+  for (;;) {
+    const take = Math.min(PROGRESS_QUERY_LIMITS.pageSize, max + 1 - rows.length);
+    const batch = await page({ take, ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}) });
+    rows.push(...batch);
+    if (rows.length > max) return { rows: rows.slice(0, max), complete: false };
+    if (batch.length < take) return { rows, complete: true };
+    cursor = batch[batch.length - 1].id;
+  }
+}
 
 export interface ProgressPlanView {
   planId: string;
@@ -96,8 +117,10 @@ export interface PortalProgress {
     trackingUnavailable: boolean;
     /** Primer día local con seguimiento en el tenant; null si aún no hay registros. */
     trackingStart: string | null;
-    /** Se alcanzó WINDOW_PLANS_CAP: el resumen podría estar incompleto. */
+    /** Más planes en el período que el máximo legible: resumen y evolución NO se calculan. */
     incomplete: boolean;
+    /** Total exacto de planes del alumno (el historial puede mostrar menos). */
+    totalPlans: number;
   } | null;
   plansHiddenByMembership: { expiredOn: string } | null;
   /** null si gym.classes no está habilitado (no se consultó asistencia). */
@@ -140,16 +163,21 @@ export async function loadPortalProgress(input: {
   let attendance: PortalProgress["attendance"] = null;
   if (input.includeClasses) {
     const scope = { client_id: clientId, OR: [{ tenant_id: tenantId }, { tenant_id: null }] };
-    const [rows, recentRows] = await Promise.all([
-      db.classAttendance.findMany({
-        where: {
-          ...scope,
-          attendance_status: { in: ["attended", "late", "absent"] },
-          scheduled_class: { class_date: { gte: dateColumn(attendanceQueryStart(buckets, today)), lte: dateColumn(today) } },
-        },
-        select: { id: true, attendance_status: true, scheduled_class: { select: { class_date: true } } },
-        take: ATTENDANCE_ROWS_CAP,
-      }),
+    const [read, recentRows] = await Promise.all([
+      readAllPaged(
+        (page) =>
+          db.classAttendance.findMany({
+            where: {
+              ...scope,
+              attendance_status: { in: ["attended", "late", "absent"] },
+              scheduled_class: { class_date: { gte: dateColumn(attendanceQueryStart(buckets, today)), lte: dateColumn(today) } },
+            },
+            select: { id: true, attendance_status: true, scheduled_class: { select: { class_date: true } } },
+            orderBy: { id: "asc" },
+            ...page,
+          }),
+        PROGRESS_QUERY_LIMITS.maxAttendanceRows
+      ),
       db.classAttendance.findMany({
         where: {
           ...scope,
@@ -165,7 +193,7 @@ export async function loadPortalProgress(input: {
       }),
     ]);
     const frequency = attendanceFrequency(
-      rows.map((r) => ({ id: r.id, date: dateKey(r.scheduled_class.class_date), status: r.attendance_status })),
+      read.rows.map((r) => ({ id: r.id, date: dateKey(r.scheduled_class.class_date), status: r.attendance_status })),
       buckets,
       today
     );
@@ -176,7 +204,7 @@ export async function loadPortalProgress(input: {
       typeName: r.scheduled_class.class_type?.name ?? null,
       late: r.attendance_status === "late",
     }));
-    attendance = { frequency, recent, incomplete: rows.length >= ATTENDANCE_ROWS_CAP };
+    attendance = { frequency, recent, incomplete: !read.complete };
   }
 
   return {
@@ -211,15 +239,21 @@ async function loadTraining(
   } as const;
   // Planes del período: TODOS los que se cruzan con él (el resumen no puede
   // depender del tope del historial). Historial: los más recientes.
-  const [windowPlans, recentPlans] = await Promise.all([
-    db.clientWeeklyPlan.findMany({
-      where: { ...ownPlans, end_date: { gte: dateColumn(buckets[0].start) }, start_date: { lte: dateColumn(today) } },
-      select: planSelect,
-      orderBy: { start_date: "desc" },
-      take: WINDOW_PLANS_CAP,
-    }),
+  const [windowRead, recentPlans, totalPlans] = await Promise.all([
+    readAllPaged(
+      (page) =>
+        db.clientWeeklyPlan.findMany({
+          where: { ...ownPlans, end_date: { gte: dateColumn(buckets[0].start) }, start_date: { lte: dateColumn(today) } },
+          select: planSelect,
+          orderBy: { id: "asc" },
+          ...page,
+        }),
+      PROGRESS_QUERY_LIMITS.maxWindowPlans
+    ),
     db.clientWeeklyPlan.findMany({ where: ownPlans, select: planSelect, orderBy: { start_date: "desc" }, take: PROGRESS_PLANS_LIMIT }),
+    db.clientWeeklyPlan.count({ where: ownPlans }),
   ]);
+  const windowPlans = windowRead.rows;
   // Precedencia (también orden del historial): inicio desc, creación desc, id desc.
   const plans = [...new Map([...windowPlans, ...recentPlans].map((p) => [p.id, p])).values()].sort(
     (a, b) =>
@@ -320,7 +354,8 @@ async function loadTraining(
     feedback,
     trackingUnavailable,
     trackingStart,
-    incomplete: windowPlans.length >= WINDOW_PLANS_CAP,
+    incomplete: !windowRead.complete,
+    totalPlans,
   };
 }
 

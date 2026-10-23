@@ -106,7 +106,9 @@ export default async function ProgresoPage({ searchParams }: { searchParams: Sea
               trackingStart={training.trackingStart}
               incomplete={training.incomplete}
             />
-            <EvolutionSection buckets={progress.buckets} perBucket={training.perBucket} />
+            {!training.incomplete && (
+              <EvolutionSection buckets={progress.buckets} perBucket={training.perBucket} trackingStart={training.trackingStart} />
+            )}
           </div>
         )}
 
@@ -120,7 +122,7 @@ export default async function ProgresoPage({ searchParams }: { searchParams: Sea
               incomplete={progress.attendance.incomplete}
             />
           ) : null}
-          {training && !training.trackingUnavailable && <PlansSection plans={training.plans} />}
+          {training && !training.trackingUnavailable && <PlansSection plans={training.plans} totalPlans={training.totalPlans} />}
           <GoalSection goal={goal} feedback={training && !training.trackingUnavailable ? training.feedback : null} />
         </div>
       </div>

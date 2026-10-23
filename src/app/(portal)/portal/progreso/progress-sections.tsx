@@ -19,6 +19,7 @@ import {
 import type { ProgressClassView, ProgressFeedbackView, ProgressPlanView } from "@/modules/client-portal/progress-queries";
 
 export const NOT_ENOUGH_DATA = "Sin datos suficientes";
+export const INCOMPLETE = "Datos incompletos";
 
 const short = (d: string) => formatCalendarDate(d, { day: "2-digit", month: "short" });
 const long = (d: string) => formatCalendarDate(d, { day: "2-digit", month: "short", year: "numeric" });
@@ -93,6 +94,16 @@ export function SummarySection({
   incomplete: boolean;
 }) {
   const pct = displayablePct(summary);
+  if (incomplete) {
+    return (
+      <Card title="Resumen personal" subtitle={`Entrenamientos de tus planes · período: ${rangeLabel}, hasta hoy.`}>
+        <Notice tone="amber">
+          {INCOMPLETE}: tienes más planes en este período de los que se pueden leer de una vez, así que no se calculan el
+          cumplimiento, los totales ni la evolución del período. Cada plan del historial conserva su propio cálculo.
+        </Notice>
+      </Card>
+    );
+  }
   return (
     <Card title="Resumen personal" subtitle={`Entrenamientos de tus planes · período: ${rangeLabel}, hasta hoy.`}>
       {summary.sufficiency === "NONE_SCHEDULED" ? (
@@ -116,14 +127,13 @@ export function SummarySection({
           )}
         </>
       )}
-      {summary.untracked > 0 && (
+      {summary.pendingBeforeTracking > 0 && (
         <p className="text-xs text-zinc-500">
-          {summary.untracked} entrenamientos programados{" "}
-          {trackingStart ? `antes del ${long(trackingStart)}, cuando empezó` : "antes de que empiece"} el seguimiento por fecha
-          en tu gimnasio, no tienen registro y no se incluyen en el cálculo.
+          {summary.pendingBeforeTracking} de los pendientes son anteriores al inicio del seguimiento por fecha en tu gimnasio
+          {trackingStart ? ` (${long(trackingStart)})` : " (aún sin registros)"}: no se pudieron registrar con este sistema y
+          cuentan como pendientes, igual que en tu plan semanal.
         </p>
       )}
-      {incomplete && <Notice tone="amber">Tienes demasiados planes en este período: el resumen puede estar incompleto.</Notice>}
       <p className="text-[11px] text-zinc-400">
         {COMPLIANCE_FORMULA}. Si tu entrenador registró un entrenamiento, su registro prevalece sobre tu autorreporte. Los
         entrenamientos futuros no cuentan.
@@ -134,8 +144,19 @@ export function SummarySection({
 
 // ── 2. Evolución ─────────────────────────────────────────────────
 
-export function EvolutionSection({ buckets, perBucket }: { buckets: ProgressBucket[]; perBucket: ComplianceCounts[] }) {
+export function EvolutionSection({
+  buckets,
+  perBucket,
+  trackingStart,
+}: {
+  buckets: ProgressBucket[];
+  perBucket: ComplianceCounts[];
+  trackingStart: string | null;
+}) {
   const anyData = perBucket.some((c) => c.sufficiency === "OK");
+  // Intervalo entero anterior al seguimiento y sin registros: no verificable (no es "0 %" ni un dato del alumno).
+  const beforeTracking = (b: ProgressBucket, c: ComplianceCounts) =>
+    c.sufficiency === "NO_RECORDS" && (trackingStart === null || b.end < trackingStart);
   const granularity = buckets[0]?.granularity === "week" ? "semana" : "mes";
   return (
     <Card title="Evolución" subtitle={`Cumplimiento por ${granularity} (entrenamientos vencidos con registro).`}>
@@ -149,7 +170,13 @@ export function EvolutionSection({ buckets, perBucket }: { buckets: ProgressBuck
               const pct = displayablePct(c);
               const title =
                 pct === null
-                  ? `${bucketTitle(b)}: ${c.scheduled === 0 ? "sin entrenamientos programados" : `sin registros (${c.pending} pendientes)`}`
+                  ? `${bucketTitle(b)}: ${
+                      c.scheduled === 0
+                        ? "sin entrenamientos programados"
+                        : beforeTracking(b, c)
+                          ? "anterior al inicio del seguimiento (no verificable)"
+                          : `sin registros (${c.pending} pendientes)`
+                    }`
                   : `${bucketTitle(b)}: ${pct}% · completados ${c.completed}, parciales ${c.partial}, omitidos ${c.skipped}, pendientes ${c.pending}`;
               return (
                 <div key={b.start} className="flex-1 min-w-0 h-full flex flex-col justify-end items-center" title={title}>
@@ -176,8 +203,8 @@ export function EvolutionSection({ buckets, perBucket }: { buckets: ProgressBuck
             ))}
           </div>
           <p className="text-[11px] text-zinc-400">
-            Línea punteada: sin entrenamientos programados o sin registros en ese intervalo. El intervalo actual se muestra más
-            claro porque aún no termina.
+            Línea punteada: sin entrenamientos programados, sin registros o anterior al inicio del seguimiento por fecha (no
+            verificable) en ese intervalo. El intervalo actual se muestra más claro porque aún no termina.
           </p>
           <details className="text-xs">
             <summary className="cursor-pointer text-zinc-500 hover:text-zinc-700">Ver datos en tabla</summary>
@@ -204,7 +231,7 @@ export function EvolutionSection({ buckets, perBucket }: { buckets: ProgressBuck
                         <td className="py-1 pr-3">{c.completed}</td>
                         <td className="py-1 pr-3">{c.partial}</td>
                         <td className="py-1 pr-3">{c.skipped}</td>
-                        <td className="py-1">{pct === null ? "—" : `${pct}%`}</td>
+                        <td className="py-1">{pct === null ? (beforeTracking(b, c) ? "Antes del seguimiento" : "—") : `${pct}%`}</td>
                       </tr>
                     );
                   })}
@@ -239,6 +266,13 @@ export function AttendanceSection({
       title="Asistencia a clases"
       subtitle="Clases en las que el gimnasio confirmó tu asistencia (a tiempo o con tardanza). Tus autorreportes del plan no cuentan aquí."
     >
+      {incomplete ? (
+        <Notice tone="amber">
+          {INCOMPLETE}: hay más registros de asistencia en este período de los que se pueden leer de una vez, así que no se
+          calculan los totales, el promedio semanal ni el gráfico. Las últimas clases asistidas sí están completas.
+        </Notice>
+      ) : (
+        <>
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
         <Stat label="Esta semana" value={frequency.thisWeek} hint="lunes a domingo" />
         <Stat label="Este mes" value={frequency.thisMonth} />
@@ -252,7 +286,6 @@ export function AttendanceSection({
       {frequency.absent > 0 && (
         <p className="text-xs text-zinc-500">Ausencias registradas en el período: {frequency.absent}.</p>
       )}
-      {incomplete && <Notice tone="amber">Hay demasiados registros en este período: las cifras pueden estar incompletas.</Notice>}
 
       {frequency.confirmed === 0 ? (
         <Notice>No hay asistencias confirmadas en este período.</Notice>
@@ -293,6 +326,8 @@ export function AttendanceSection({
             </span>
           </div>
         </div>
+      )}
+        </>
       )}
 
       {recent.length > 0 && (
@@ -383,7 +418,7 @@ function PlanRow({ plan }: { plan: ProgressPlanView }) {
   );
 }
 
-export function PlansSection({ plans }: { plans: ProgressPlanView[] }) {
+export function PlansSection({ plans, totalPlans }: { plans: ProgressPlanView[]; totalPlans: number }) {
   const current = plans.filter((p) => p.phase === "CURRENT");
   const others = plans.filter((p) => p.phase !== "CURRENT");
   return (
@@ -400,6 +435,11 @@ export function PlansSection({ plans }: { plans: ProgressPlanView[] }) {
                 <PlanRow key={p.planId} plan={p} />
               ))}
             </ul>
+          )}
+          {totalPlans > plans.length && (
+            <p className="text-xs text-zinc-500">
+              Se muestran {plans.length} de {totalPlans} planes: los más recientes y los del período consultado.
+            </p>
           )}
           {others.length > 0 && (
             <div>
