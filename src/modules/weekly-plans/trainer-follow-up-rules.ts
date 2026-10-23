@@ -168,8 +168,8 @@ export interface FollowUpSummary {
   pending: QueueItem[];
 }
 
-/** Precedencia de GYM-5B: inicio más reciente, luego creación más reciente, luego id. */
-function byPrecedence(a: FollowUpPlanInput, b: FollowUpPlanInput): number {
+/** Precedencia de GYM-5B: inicio más reciente, luego creación más reciente, luego id. (También la usa GYM-5D.) */
+export function byPrecedence<P extends { start: string; createdAt: number; id: string }>(a: P, b: P): number {
   return b.start.localeCompare(a.start) || b.createdAt - a.createdAt || (a.id < b.id ? 1 : a.id > b.id ? -1 : 0);
 }
 

@@ -12,6 +12,10 @@ interface ReportEntry {
   description: string;
   roles: UserRole[];
   badge?: string;
+  /** GYM-5D — módulo requerido para mostrar la tarjeta (la página lo vuelve a exigir). */
+  moduleCode?: string;
+  /** GYM-5D — false si el reporte no ofrece exportación (no se muestran los iconos XLSX/PDF). */
+  exportable?: boolean;
 }
 
 interface ReportSection {
@@ -101,6 +105,22 @@ const REPORT_SECTIONS: ReportSection[] = [
     ],
   },
   {
+    title: "Entrenamiento",
+    icon: "M13 7h8m0 0v8m0-8l-8 8-4-4-6 6",
+    requiredVerticalCode: "GYM",
+    reports: [
+      {
+        href: "/dashboard/reports/training-analytics",
+        label: "Analítica de entrenamiento",
+        description: "Cumplimiento de planes semanales, registros pendientes, sucursales, entrenadores, asistencia y modalidades.",
+        roles: ["super_admin", "branch_admin"],
+        moduleCode: "gym.weekly_plans",
+        exportable: false,
+        badge: "Nuevo",
+      },
+    ],
+  },
+  {
     title: "Asistencia",
     icon: "M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4",
     requiredVerticalCode: "GYM",
@@ -126,12 +146,17 @@ export default async function ReportsPage() {
   // requieren la vertical efectiva GYM — nunca se filtran por
   // sessionUser.tenant_id directo cuando puede existir una sesión runtime
   // "Operar como cliente". Comercial es transversal, sin requisito de vertical.
-  const { context, dispose } = await resolveEffectiveDashboardContext(user, []);
+  const moduleCodes = [...new Set(REPORT_SECTIONS.flatMap((s) => s.reports.flatMap((r) => (r.moduleCode ? [r.moduleCode] : []))))];
+  const { context, dispose } = await resolveEffectiveDashboardContext(user, moduleCodes);
   await dispose();
+  // GYM-5D: tarjetas con moduleCode solo si el módulo está habilitado en el tenant
+  // efectivo (mismo criterio que el menú lateral, LEGACY_UNMANAGED incluido).
 
   const visibleSections = REPORT_SECTIONS.map((section) => ({
     ...section,
-    reports: section.reports.filter((r) => r.roles.includes(user.role)),
+    reports: section.reports.filter(
+      (r) => r.roles.includes(user.role) && (!r.moduleCode || context.enabledModuleCodes.has(r.moduleCode)),
+    ),
   }))
     .filter((s) => s.reports.length > 0)
     .filter(
@@ -197,6 +222,7 @@ export default async function ReportsPage() {
                   <p className="text-zinc-400 text-sm leading-snug">
                     {report.description}
                   </p>
+                  {report.exportable !== false && (
                   <div className="mt-3 flex items-center gap-3 text-xs text-zinc-600">
                     <span className="flex items-center gap-1">
                       <svg xmlns="http://www.w3.org/2000/svg" className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
@@ -211,6 +237,7 @@ export default async function ReportsPage() {
                       PDF
                     </span>
                   </div>
+                  )}
                 </Link>
               ))}
             </div>
