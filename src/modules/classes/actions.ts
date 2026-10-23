@@ -25,6 +25,7 @@ import {
   validateTrainerOverlap,
 } from "./scheduling/scheduling-guards";
 import { resolveSessionSetup } from "./scheduling/scheduling-rules";
+import { gymAdminScope } from "./scheduling/admin-support";
 import {
   requireOperationalContext,
   OperationalContextError,
@@ -264,6 +265,10 @@ export async function createScheduledClassAction(
   const { context, dispose } = handle;
 
   try {
+    // LIVE-1: el JWT (requireAdmin) no basta; el rol LIVE debe seguir siendo SA/BA.
+    const liveScope = gymAdminScope(context);
+    if (!liveScope.ok) return { error: liveScope.error };
+
     const effectiveRole = context.effectiveUser.role;
     const raw = parseClassFormData(formData);
 
@@ -391,6 +396,10 @@ export async function updateScheduledClassAction(
   const { context, dispose } = handle;
 
   try {
+    // LIVE-1: canManageClass admite recepción; programar exige rol LIVE SA/BA.
+    const liveScope = gymAdminScope(context);
+    if (!liveScope.ok) return { error: liveScope.error };
+
     const id = formData.get("id") as string;
     if (!id) return { error: "ID requerido." };
 
@@ -625,6 +634,9 @@ export async function toggleScheduledClassStatusAction(
   const { context, dispose } = handle;
 
   try {
+    // LIVE-1: canManageClass admite recepción; cancelar/reactivar la sesión exige rol LIVE SA/BA.
+    if (!gymAdminScope(context).ok) return;
+
     const id = formData.get("id") as string;
     if (!id) return;
 
@@ -705,7 +717,8 @@ export async function deleteScheduledClassAction(
   let shouldRedirectTo: string | null = null;
 
   try {
-    if (!id) return;
+    // LIVE-1: canManageClass admite recepción; borrar la sesión exige rol LIVE SA/BA.
+    if (!id || !gymAdminScope(context).ok) return;
 
     const target = await context.client.scheduledClass.findFirst({
       where: { id, tenant_id: context.tenantId },
