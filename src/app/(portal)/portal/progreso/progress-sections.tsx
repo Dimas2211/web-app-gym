@@ -337,7 +337,7 @@ export function AttendanceSection({
             {recent.map((c, i) => (
               <li key={`${c.date}-${c.startTime}-${i}`} className="py-2 flex items-center justify-between gap-2">
                 <div className="min-w-0">
-                  <p className="text-sm font-medium text-zinc-800 break-words">{c.typeName ?? c.title}</p>
+                  <p className="text-sm font-medium text-zinc-800 break-words">{c.title}{c.typeName && c.typeName !== c.title ? ` — ${c.typeName}` : ""}</p>
                   <p className="text-xs text-zinc-500">
                     {long(c.date)} · {c.startTime}
                   </p>
