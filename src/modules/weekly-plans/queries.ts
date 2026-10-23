@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/db/prisma";
 import type { PrismaClient } from "@prisma/client";
 import type { SessionUser } from "@/lib/permissions/guards";
+import { resolveLinkedTrainer } from "@/modules/classes/trainer/trainer-access";
 import type { Status } from "@prisma/client";
 
 // PASO 6C — `client` opcional en toda query exportada: en modo normal
@@ -21,6 +22,17 @@ function branchScope(user: SessionUser): Record<string, unknown> {
     return { branch_id: user.location_id! };
   }
   return {};
+}
+
+/**
+ * GYM-5C H1: alcance de LECTURA del rol trainer = el mismo predicado que
+ * authorizePlan aplica a las escrituras: Trainer ACTIVO vinculado al usuario
+ * en el tenant efectivo, plan.trainer_id = ese Trainer y plan.branch_id = su
+ * sede. Sin perfil activo no ve ningún plan.
+ */
+async function trainerPlanScope(user: SessionUser, client: PrismaClient): Promise<Record<string, unknown>> {
+  const trainer = await resolveLinkedTrainer(client, user.id, user.tenant_id);
+  return trainer ? { trainer_id: trainer.id, branch_id: trainer.branch_id } : { trainer_id: "__none__" };
 }
 
 // ── Filtros ───────────────────────────────────────────────────
@@ -152,10 +164,9 @@ export async function getClientWeeklyPlans(
     where.branch_id = filters.branch_id;
   }
 
-  // trainer: solo sus planes asignados
+  // trainer: solo sus planes asignados y de la sede de su perfil (GYM-5C H1)
   if (user.role === "trainer") {
-    const linked = await getLinkedTrainerId(user.id, user.tenant_id, client);
-    where.trainer_id = linked ?? "__none__";
+    Object.assign(where, await trainerPlanScope(user, client));
   } else if (filters.trainer_id) {
     where.trainer_id = filters.trainer_id;
   }
@@ -203,10 +214,9 @@ export async function getClientWeeklyPlanById(id: string, user: SessionUser, cli
     ...branchScope(user),
   };
 
-  // trainer: solo sus planes
+  // trainer: solo sus planes y de la sede de su perfil (GYM-5C H1)
   if (user.role === "trainer") {
-    const linked = await getLinkedTrainerId(user.id, user.tenant_id, client);
-    where.trainer_id = linked ?? "__none__";
+    Object.assign(where, await trainerPlanScope(user, client));
   }
 
   return client.clientWeeklyPlan.findFirst({

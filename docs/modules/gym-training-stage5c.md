@@ -156,9 +156,7 @@ Resultados: ver §9.
 
 1. **Validación visual pendiente** (360, 390, 768 y 1280 px) en `app.getzolvi.com` tras la publicación autorizada; aquí
    se certificó el HTML de la página real, no el render en navegador.
-2. El detalle 5A (`getClientWeeklyPlanById`) para el rol trainer filtra por `trainer_id` pero no por sede; un plan
-   inconsistente (asignado al entrenador en otra sede) no aparece en el panel ni se puede escribir (`authorizePlan`), pero
-   su detalle sí se puede leer por URL directa. Comportamiento previo de 5A, no modificado (fuera de alcance).
+2. ~~El detalle 5A permitía leer por URL directa un plan del entrenador de otra sede~~ — **corregido (H1, §11)**.
 3. Indicadores y colas cubren solo planes vigentes: los pendientes y autorreportes de planes finalizados se ven en su fila
    (filtro "Finalizados"), no en los indicadores.
 4. Asistencia contada con `tenant_id` estricto (como el detalle 5A); asistencias heredadas con `tenant_id` NULL no cuentan.
@@ -194,3 +192,29 @@ Creados: `src/modules/weekly-plans/trainer-follow-up-rules.ts`, `trainer-follow-
 `src/app/(dashboard)/dashboard/weekly-plans/seguimiento/page.tsx` y `follow-up-sections.tsx`; este documento.
 Modificados: `src/lib/navigation/dashboard-nav.ts` (+1 enlace), `src/lib/navigation/dashboard-nav.test.ts` (+2 pruebas),
 `docs/context/current-state.md`.
+
+## 11. Corrección previa al merge — H1 (revisión externa)
+
+Sin schema nuevo ni migración. Base de pruebas: PostgreSQL 18.3 desechable en `127.0.0.1:54399`; no se tocó
+`DATABASE_URL`, `DIRECT_URL` ni ninguna base remota.
+
+| Id | Defecto | RED → FIX → GREEN |
+|----|---------|-------------------|
+| H1 | `getClientWeeklyPlanById` y `getClientWeeklyPlans` (`weekly-plans/queries.ts`, heredado de GYM-5A) acotaban el rol trainer solo por `plan.trainer_id = Trainer vinculado`, sin `plan.branch_id = Trainer.branch_id`. `authorizePlan` (escrituras) y el panel 5C sí exigían ambas: un plan inconsistente asignado al entrenador en otra sede se leía por URL directa del detalle y aparecía en el listado de 5A | RED contra `f3b3b0b`: fallan H1a (el detalle mostraba nombre, días y seguimiento del alumno de la otra sede) y H1c (el listado lo incluía); las otras 9 pasaban. FIX: helper `trainerPlanScope` en `queries.ts` que reutiliza `resolveLinkedTrainer` y aplica `{ trainer_id, branch_id }` del perfil activo (sin perfil ⇒ ningún plan) en ambos lectores — mismo predicado que `authorizePlan`. GREEN: 11/11 |
+
+Prueba: `src/modules/weekly-plans/trainer-branch-scope.integration.test.tsx` (11, páginas reales): H1a detalle 404,
+H1b edición 404, H1c listado 5A sin el plan (vista operativa y con filtro de estado), H1d panel 5C sin el plan, H1e
+escritura rechazada (`authorizePlanDay` como `recordPlanExecutionAction`); controles H1f plan correcto visible, H1g otro
+entrenador y otro tenant 404, H1h perfil inactivo 404 y listado vacío, H1i rol LIVE degradado sin datos, H1j
+administración sin cambios (super_admin global; branch_admin de la sede del plan sí, de otra sede no), H1k Support
+Session solo lectura.
+
+Lectores auditados: el detalle, la edición y las páginas de días nuevo/editar usan `getClientWeeklyPlanById` (quedan
+corregidos; las de edición ya exigían además `canManageClientWeeklyPlan`). `loadPlanTracking` solo se invoca tras ese
+lector. `getClientWeeklyPlansByClientId` (ficha del cliente) **no** es alcanzable por el entrenador
+(`requireClientManager` lo redirige y la página autoriza con el rol del JWT, nunca `trainer`): sin cambios. El portal y
+5B leen por el Client de la sesión: sin cambios. No cambian permisos de administración, recepción ni alumnos, ni
+cálculos, acciones de escritura o datos.
+
+Resultados: `prisma validate` válido · `tsc --noEmit` 0 errores · `vitest` 271 archivos / 3066 pruebas pasan, 0 omitidas
+(3055 + 11) · `lint` 0 errores, 43 advertencias preexistentes · `build` OK.
