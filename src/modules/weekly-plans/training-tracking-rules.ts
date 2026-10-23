@@ -201,8 +201,16 @@ export function summarizeCompliance(
     }
   }
   s.pending = s.scheduled - s.completed - s.partial - s.skipped;
-  s.compliancePct = s.scheduled > 0 ? Math.round((100 * (s.completed + PARTIAL_WEIGHT * s.partial)) / s.scheduled) : null;
+  s.compliancePct = compliancePct(s);
   return s;
+}
+
+/**
+ * Única implementación de COMPLIANCE_FORMULA (GYM-5B la reutiliza para agregar
+ * varios planes o intervalos sumando conteos, nunca promediando porcentajes).
+ */
+export function compliancePct(c: Pick<ComplianceSummary, "scheduled" | "completed" | "partial">): number | null {
+  return c.scheduled > 0 ? Math.round((100 * (c.completed + PARTIAL_WEIGHT * c.partial)) / c.scheduled) : null;
 }
 
 // ── Actividades GYM-4 sin duplicados ─────────────────────────────

@@ -9,6 +9,7 @@ const PORTAL_LINKS = [
   { href: "/portal/membresias", label: "Membresía", exact: false },
   { href: "/portal/clases", label: "Clases", exact: false },
   { href: "/portal/plan-semanal", label: "Mi Plan", exact: false },
+  { href: "/portal/progreso", label: "Mi Progreso", exact: false },
   { href: "/portal/historial", label: "Historial", exact: false },
   { href: "/portal/credencial", label: "Mi Carnet", exact: false },
 ];
@@ -32,7 +33,7 @@ export function PortalNavBar() {
   return (
     <>
       {/* Desktop nav */}
-      <nav className="hidden sm:flex items-center gap-0.5">
+      <nav className="hidden lg:flex items-center gap-0.5">
         {PORTAL_LINKS.map((link) => (
           <Link key={link.href} href={link.href} className={linkClass(isActive(link))}>
             {link.label}
@@ -43,7 +44,7 @@ export function PortalNavBar() {
       {/* Mobile hamburger button */}
       <button
         onClick={() => setOpen(!open)}
-        className="sm:hidden p-2 rounded-md text-white/70 hover:text-white hover:bg-white/10 transition-colors"
+        className="lg:hidden p-2 rounded-md text-white/70 hover:text-white hover:bg-white/10 transition-colors"
         aria-label={open ? "Cerrar menú" : "Abrir menú"}
       >
         {open ? (
@@ -59,7 +60,7 @@ export function PortalNavBar() {
 
       {/* Mobile dropdown */}
       {open && (
-        <div className="sm:hidden fixed top-14 left-0 right-0 z-50 bg-brand-navy border-t border-white/10 shadow-lg">
+        <div className="lg:hidden fixed top-14 left-0 right-0 z-50 bg-brand-navy border-t border-white/10 shadow-lg">
           <nav className="flex flex-col px-4 py-3 gap-1">
             {PORTAL_LINKS.map((link) => (
               <Link
