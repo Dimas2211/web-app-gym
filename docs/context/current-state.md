@@ -44,6 +44,12 @@
   - Runtime Shared sigue **sin** la migración de 5A.
 
   **Piloto productivo NO ejecutado.** `assignment_type` es `individual | segmented` (no existe `group`). Ver docs/modules/gym-modalities-production-certification.md.
+  - **LIVE-2 (2026-10-22)**, misma rama.
+    - Defecto reproducido con el contexto operacional real: en `PLATFORM_NATIVE` (Power Gym) las 4 acciones de agenda confiaban en el JWT. Un usuario degradado, reasignado de sede, desactivado o movido de tenant, o con su sede inactiva, seguía creando, editando, cancelando y borrando sesiones.
+    - En `RUNTIME_CLIENT` fallaba solo la sede reasignada.
+    - Corrección: `liveGymAdminScope` revalida al usuario en la base efectiva (activo, tenant, rol = sesión, SA/BA, sede vigente y activa).
+    - Sin cambios en `requireOperationalContext`; sin migración. Suite 3124/3124; navegador GYM-4 61/61.
+    - Residual: las demás escrituras administrativas GYM siguen con el contrato de plataforma (JWT en modo nativo).
 - commerce/cash cerrado y operativo — apertura/cierre de sesión, movimientos manuales, corte de caja, historial, exportación PDF/Excel, asociación automática venta → sesión. Ver docs/modules/cash-summary.md.
 
 ## Identidad activa

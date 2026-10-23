@@ -989,8 +989,10 @@ describe.skipIf(!IT_ENABLED)("GYM · certificación operativa PERSONALIZED / GRO
       }
       evidence.F3_5b = outcome;
       expect(Object.fromEntries(Object.entries(outcome).map(([k, v]) => [k, v.wrote]))).toEqual({ create: false, update: false, toggle: false, delete: false });
-      expect(outcome.create.result).toEqual({ error: "Sin permisos para esta operación." });
-      expect(outcome.update.result).toEqual({ error: "Sin permisos para esta operación." });
+      // LIVE-2: el rol de la sesión (reception) ya no coincide con la identidad vigente → fail closed.
+      const changed = { error: "Tu rol o tu sede cambiaron. Vuelve a iniciar sesión para continuar." };
+      expect(outcome.create.result).toEqual(changed);
+      expect(outcome.update.result).toEqual(changed);
       expect(await db.scheduledClass.findUniqueOrThrow({ where: { id: live.id } })).toMatchObject({ title: "SG-live", status: "scheduled" });
       // Control positivo: con el rol LIVE vigente, el mismo BA sí opera.
       expect(await act(U.ba, () => deleteScheduledClassAction(fd({ id: live.id })))).toMatchObject({ redirect: expect.stringContaining("/dashboard/classes") });

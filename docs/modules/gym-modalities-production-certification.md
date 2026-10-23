@@ -151,6 +151,73 @@ ejecuciones, series y hash de `gym_settings`) antes y después: **cero escritura
 | No cambia | Permisos con JWT y rol LIVE coherentes (SA/BA siguen operando), motor 2B, reservas, asistencia, `canManageClass` y sede LIVE (residual de GYM-4 §19.6, tarea de plataforma) |
 | Esquema / migración | Ninguno |
 
+## 4b. Auditoría LIVE-2 — identidad vigente (rol, sede, estado y tenant)
+
+Origen: revisión externa de LIVE-1. `gymAdminScope(context)` solo es correcto si `context.effectiveUser.role` es el
+rol vigente, y eso no se cumple en todos los modos.
+
+**Contrato real verificado en el código:**
+
+| Modo | Qué revalida `requireOperationalContext` | Qué NO revalida |
+|---|---|---|
+| `PLATFORM_NATIVE` (Power Gym) | nada: rol, tenant y sede salen del JWT (hasta 8 h; `auth.ts` solo copia los datos al iniciar sesión) | estado, rol, tenant, sede y sede activa |
+| `RUNTIME_CLIENT` | `requireRuntimeOrganizationContext`: usuario existente y activo, tenant, rol LIVE, y que la sede del JWT exista y esté activa | que la sede del JWT siga siendo `users.branch_id` |
+| `SUPPORT_RUNTIME` | `readOnly = true`: toda escritura rechazada | — |
+
+**Pruebas rojas** (`src/modules/classes/certification/live-identity.integration.test.ts`, 17 pruebas):
+
+- Corren `requireOperationalContext`, `resolveEffectiveTenantContext` y `requireRuntimeOrganizationContext` **reales**.
+- La identidad cambia en PostgreSQL (`UPDATE users` / `branches`) mientras el JWT antiguo sigue vigente.
+- Solo se sustituye infraestructura: la cookie de Auth.js, el Prisma de la instancia y del Control Plane (base
+  desechable), el router físico runtime, la cookie de Support Session, el entitlement (`LEGACY_UNMANAGED`) y la puerta
+  de licencia.
+- En cada caso se intentan las 4 operaciones (create, update, toggle y delete) y se mide si escribieron: número de
+  sesiones, y título y estado de la sesión objetivo. El objetivo es una sesión OPEN sin reservas, es decir, el camino
+  OPEN heredado.
+
+| Caso | PLATFORM_NATIVE en `7b0c585` | RUNTIME_CLIENT en `7b0c585` | Tras LIVE-2 (ambos modos) |
+|---|---|---|---|
+| Control: BA y SA vigentes | 4/4 escriben | 4/4 escriben | 4/4 escriben (sin regresión) |
+| A. `users.role` branch_admin → reception | **4/4 escriben** | 0 | 0 |
+| B. `users.branch_id` A → B (sesión en A) | **4/4 escriben** | **create, toggle y delete escriben** | 0 |
+| C. super_admin → reception | **4/4 escriben** | 0 | 0 |
+| Usuario desactivado | **4/4 escriben** | 0 | 0 |
+| Usuario movido a otro tenant | **4/4 escriben** | 0 | 0 |
+| Sede de la sesión desactivada | **4/4 escriben** | 0 | 0 |
+| Identidad restaurada | 4/4 | 4/4 | 4/4 (el bloqueo es reversible) |
+| Support Session | — | — | 0 (ya bloqueada por `readOnly`) |
+
+Contra el código anterior: **7 de 17 fallan** (6 en PLATFORM_NATIVE y B en RUNTIME_CLIENT). Con la corrección: **17/17**.
+
+**Corrección mínima** (`src/modules/classes/scheduling/admin-support.ts` → `liveGymAdminScope`):
+
+- Lee al usuario en la **base efectiva** de la operación (`context.client`).
+- Falla cerrado con «Tu rol o tu sede cambiaron. Vuelve a iniciar sesión para continuar.» (el texto de GYM-4) si:
+  - el usuario no existe o no está activo;
+  - su tenant ≠ tenant efectivo;
+  - su rol vigente ≠ rol de la sesión;
+  - el rol vigente no es SA ni BA;
+  - para BA: `users.branch_id` ≠ sede de la sesión, o esa sede está inactiva.
+- Bajo Support Session, sin permisos.
+- Reutiliza `gymAdminScope` con el rol vigente.
+- Las 4 acciones de agenda la llaman en lugar de `gymAdminScope(context)`.
+
+**No cambia:**
+
+- `requireOperationalContext` ni el contrato de plataforma.
+- Permisos de recepción, entrenadores o alumnos.
+- Reglas OPEN (el control certifica toggle/delete OPEN).
+- Motor de reservas, membresías, contadores y reglas de negocio.
+- Esquema y migraciones.
+
+Costo: hasta 2 lecturas por PK por acción.
+
+Ajustes de pruebas existentes:
+
+- `actions.bookings.test.ts`: el mock de la base ahora incluye la identidad vigente coherente con cada contexto. Sus
+  expectativas no cambian.
+- F3.5b: espera el mensaje de identidad cambiada; las 4 aserciones de cero escrituras se mantienen.
+
 ## 5. Contadores de reservas y sesiones (fin del escenario)
 
 | Membresía | `sessions_used` | Motivo |
@@ -293,6 +360,17 @@ desactivados. **No se borra nada** de forma destructiva.
 | `npm run build` | OK |
 | Navegador real (Chromium, Playwright en caché de npx, sin dependencias nuevas): suite E2E de GYM-4 reutilizada sobre `next build` + `next start` de esta rama, Auth.js real, base desechable con las 62 migraciones | **61/61** a 1280 y 390 px (agenda, asistencia GROUP, actividades, notas, PERSONALIZED móvil, ids manipulados, recepción, portal sin notas) |
 
+**Tras LIVE-2:**
+
+| Validación | Resultado |
+|---|---|
+| `npx prisma validate` / `npx tsc --noEmit` | válido / 0 errores |
+| `npx vitest run` (con PostgreSQL desechable) | **273 archivos, 3124/3124** (3107 + 17 LIVE-2), 0 omitidas |
+| Certificación funcional (41) + LIVE-2 (17) + `src/modules/classes` completo | 445/445 |
+| `npm run lint` | 0 errores (0 en archivos tocados) |
+| `npm run build` | OK |
+| Navegador GYM-4 sobre el build nuevo | **61/61** |
+
 **Omitido y registrado:**
 
 - La suite E2E de navegador de 3C (portal multimodalidad con Control Plane, Shared y Dedicated por hostname) **no se
@@ -308,8 +386,14 @@ desactivados. **No se borra nada** de forma destructiva.
 
 ## 13. Riesgos
 
-- **Sede LIVE** en las acciones heredadas de clases: siguen usando la sede del JWT validada, no la sede vigente (residual
-  GYM-4 §19.6, tarea de plataforma). LIVE-1 cierra el **rol**, no la sede.
+- **LIVE-2, alcance**: la identidad vigente se exige en las 4 acciones de agenda. **Otras escrituras administrativas
+  GYM** (series, actividades, ausencias, política, planes, membresías y modalidad del cliente) siguen usando
+  `gymAdminScope(context)` o guards del JWT. En `PLATFORM_NATIVE` (Power Gym) confían en el rol, la sede y el estado
+  del JWT hasta su expiración (8 h). En `RUNTIME_CLIENT`, en la sede del JWT. Es el contrato vigente de plataforma
+  (`requireOperationalContext`). Cerrarlo de forma global (revalidar identidad en modo nativo, o reemplazar
+  `gymAdminScope` por `liveGymAdminScope` en esas acciones) es una tarea separada, que no se amplió aquí.
+- **Ventana de exposición** en esas otras acciones: hasta que caduque el JWT (8 h). No hay revocación por usuario (JWT
+  sin estado). Cambiar la contraseña no invalida el token; rotar `AUTH_SECRET` sí, pero cierra **todas** las sesiones.
 - Runtime Shared sin la migración de 5A: los tenants de esa base ven el aviso «seguimiento no disponible» en 5B/5C.
 - Power Gym tiene 3 de 4 entrenadores sin usuario: no pueden usar «Mi agenda» ni el canal TRAINER hasta vincularlos.
 - Reactivación tras cancelación del staff (§9-D) abierta.
@@ -325,8 +409,14 @@ desactivados. **No se borra nada** de forma destructiva.
 
 ## 15. Dictamen técnico
 
-PERSONALIZED y GROUP cumplen técnicamente el alcance aprobado (2A–5C), con un defecto de autorización LIVE (LIVE-1)
-reproducido y corregido en esta rama.
+PERSONALIZED y GROUP cumplen técnicamente el alcance aprobado (2A–5C). En esta rama se reprodujeron y corrigieron dos
+defectos de autorización:
+
+- **LIVE-1**: rol LIVE en la agenda.
+- **LIVE-2**: identidad vigente (estado, tenant, rol y sede) en las 4 acciones de agenda, incluido PLATFORM_NATIVE, que
+  es el modo de Power Gym.
+
+Las demás escrituras administrativas GYM conservan el contrato de plataforma (§13).
 
 - La certificación es **local** (integración real y navegador GYM-4) y se complementa con un preflight productivo de
   solo lectura.

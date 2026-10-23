@@ -81,6 +81,8 @@ const SES = "eeb1d1e1-e1c8-4958-9d16-db8129862c8e";
 const CLI = "0b7c8a3e-36a9-4c8e-9d61-3f8a2b1c4d5e";
 const KEY = "4d3c2b1a-aaaa-bbbb-cccc-000000000001";
 
+let liveUser = { status: "active", tenant_id: "tenant-1", role: "reception", branch_id: "loc-1" as string | null };
+
 const db: Record<string, unknown> & {
   classBooking: Record<string, ReturnType<typeof vi.fn>>;
   classAttendance: Record<string, ReturnType<typeof vi.fn>>;
@@ -98,6 +100,9 @@ const db: Record<string, unknown> & {
   branch: { findFirst: vi.fn(async () => ({ id: "loc-1" })) },
   classType: { findFirst: vi.fn(async () => ({ capacity_default: null })) },
   trainerTimeOff: { findMany: vi.fn(async () => []) },
+  // LIVE-2: identidad vigente del usuario, coherente con handle() (la discrepancia
+  // se certifica con el contexto real en certification/live-identity.integration.test.ts).
+  user: { findUnique: vi.fn(async () => liveUser) },
   // H03: alta/edición de clases en transacción con lock del entrenador (la
   // concurrencia real se certifica en actions.scheduling.integration.test.ts).
   $queryRaw: vi.fn(async () => []),
@@ -105,6 +110,7 @@ const db: Record<string, unknown> & {
 db.$transaction = vi.fn(async (fn: (tx: typeof db) => unknown) => fn(db));
 
 function handle(role = "reception", locationId: string | null = "loc-1") {
+  liveUser = { status: "active", tenant_id: "tenant-1", role, branch_id: locationId };
   return {
     context: {
       effectiveUser: { id: "u1", role, location_id: locationId },
