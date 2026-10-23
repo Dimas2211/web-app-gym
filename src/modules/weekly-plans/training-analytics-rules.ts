@@ -63,12 +63,18 @@ export interface AnalyticsPlanInput {
 
 export type GovernedPlan = AnalyticsPlanInput & { segments: DateSegment[] };
 
-/** Reparte las fechas de los planes de cada alumno (precedencia de GYM-5B). */
-export function governPlans(plans: AnalyticsPlanInput[]): { governed: GovernedPlan[]; overlap: boolean } {
+/**
+ * Reparte las fechas de los planes de cada alumno (precedencia de GYM-5B).
+ * `crossBranchOverlap`: algún alumno tiene planes solapados de sucursales
+ * distintas DENTRO de los planes recibidos. Solo se detecta con lo ya leído
+ * (nunca se consultan otras sedes): en una vista de una sede es siempre false.
+ */
+export function governPlans(plans: AnalyticsPlanInput[]): { governed: GovernedPlan[]; overlap: boolean; crossBranchOverlap: boolean } {
   const byClient = new Map<string, AnalyticsPlanInput[]>();
   for (const p of plans) byClient.set(p.clientId, [...(byClient.get(p.clientId) ?? []), p]);
   const governed: GovernedPlan[] = [];
   let overlap = false;
+  let crossBranchOverlap = false;
   for (const list of byClient.values()) {
     const sorted = [...list].sort(byPrecedence);
     const segs = governingSegments(sorted.map((p) => ({ id: p.id, start: p.start, end: p.end })));
@@ -77,8 +83,10 @@ export function governPlans(plans: AnalyticsPlanInput[]): { governed: GovernedPl
       if (!(own.length === 1 && own[0].start === p.start && own[0].end === p.end)) overlap = true;
       governed.push({ ...p, segments: own });
     }
+    if (!crossBranchOverlap)
+      crossBranchOverlap = sorted.some((a, i) => sorted.slice(i + 1).some((b) => a.branchId !== b.branchId && a.start <= b.end && b.start <= a.end));
   }
-  return { governed, overlap };
+  return { governed, overlap, crossBranchOverlap };
 }
 
 export interface GroupMetrics {
@@ -121,6 +129,8 @@ export const NO_TRAINER = "__none__";
 export interface CurrentAnalytics {
   overview: GroupMetrics;
   overlap: boolean;
+  /** Solapes de un mismo alumno entre sucursales, entre los planes del alcance consultado. */
+  crossBranchOverlap: boolean;
   byBranch: Map<string, GroupMetrics>;
   /** Clave = trainer_id o NO_TRAINER. */
   byTrainer: Map<string, GroupMetrics>;
@@ -141,13 +151,14 @@ function groupBy<K>(governed: GovernedPlan[], key: (p: GovernedPlan) => K): Map<
  */
 export function currentAnalytics(plans: AnalyticsPlanInput[], today: string, trackingStart?: string): CurrentAnalytics {
   const current = plans.filter((p) => planPhase(p, today) === "CURRENT");
-  const { governed, overlap } = governPlans(current);
+  const { governed, overlap, crossBranchOverlap } = governPlans(current);
   const metricsOf = (list: GovernedPlan[]) => groupMetrics(list, today, trackingStart);
   const map = <K>(m: Map<K, GovernedPlan[]>) => new Map([...m].map(([k, v]) => [k, metricsOf(v)] as const));
   const modality = groupBy(governed, (p) => p.modality);
   return {
     overview: metricsOf(governed),
     overlap,
+    crossBranchOverlap,
     byBranch: map(groupBy(governed, (p) => p.branchId)),
     byTrainer: map(groupBy(governed, (p) => p.trainerId ?? NO_TRAINER)),
     byModality: MODALITIES.map((m) => ({ key: m, metrics: metricsOf(modality.get(m) ?? []) })),

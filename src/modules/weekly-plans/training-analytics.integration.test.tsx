@@ -112,6 +112,7 @@ import { ANALYTICS_QUERY_LIMITS } from "./training-analytics-queries";
 import { loadTrainerFollowUp } from "./trainer-follow-up-queries";
 import { loadPortalProgress } from "@/modules/client-portal/progress-queries";
 import AnalyticsPage from "@/app/(dashboard)/dashboard/reports/training-analytics/page";
+import { CROSS_BRANCH_DETECTED, CROSS_BRANCH_SCOPE } from "@/app/(dashboard)/dashboard/reports/training-analytics/analytics-sections";
 
 const NOW = "2026-03-11T15:00:00.000Z"; // miércoles 09:00 en El Salvador
 const TODAY = "2026-03-11";
@@ -336,6 +337,9 @@ describe.skipIf(!IT_ENABLED)("GYM-5D — analítica de entrenamiento (PostgreSQL
       expect(row(html, "W Sede 2")).toEqual(["W Sede 2", "1", "1", "2", "1", "0", "25%", "1"]);
       expect(row(html, "Sede 1A")).toEqual(["Sede 1A", "0", "0", "0", "0", "0", "Sin datos suficientes", "0"]);
       expect(html).not.toContain("W Sede T2");
+      // §8: sin solapes entre sedes en estos datos ⇒ ninguna nota de solape ni de alcance.
+      expect(html).not.toContain(CROSS_BRANCH_DETECTED);
+      expect(html).not.toContain(CROSS_BRANCH_SCOPE);
     });
 
     it("G1e entrenadores: atribución por ClientWeeklyPlan.trainer_id, orden alfabético, sin ranking", async () => {
@@ -392,6 +396,9 @@ describe.skipIf(!IT_ENABLED)("GYM-5D — analítica de entrenamiento (PostgreSQL
       expect(html).not.toContain("W Sede 2");
       expect(html).not.toContain("Sede, Carla");
       expect(html).not.toContain('name="sede"');
+      // §8: nota fija de alcance (no se leen planes de otras sedes para reconciliar).
+      expect(html).toContain(CROSS_BRANCH_SCOPE);
+      expect(html).not.toContain(CROSS_BRANCH_DETECTED);
     });
 
     it("G2b branch_admin con ?sede= de otra sucursal: se ignora", async () => {
@@ -541,6 +548,10 @@ describe.skipIf(!IT_ENABLED)("GYM-5D — analítica de entrenamiento (PostgreSQL
       expect(html).not.toContain("Asistencias por tipo de sesión");
       expect(row(html, "W Sede 1")).toEqual(["W Sede 1", "3", "4", "8", "3", "1", "44%"]);
       expect(row(html, "Total del período")).toHaveLength(8);
+      // Sin enlaces a reportes que dependen de clases; Planes semanales se conserva.
+      expect(html).not.toContain('href="/dashboard/reports/trainers/classes-taught"');
+      expect(html).not.toContain('href="/dashboard/reports/attendance/by-period"');
+      expect(html).toContain('href="/dashboard/weekly-plans/client-plans"');
     });
   });
 

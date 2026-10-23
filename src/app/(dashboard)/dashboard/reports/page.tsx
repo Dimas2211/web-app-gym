@@ -172,10 +172,10 @@ export default async function ReportsPage() {
     <main className="p-4 md:p-8 max-w-5xl mx-auto">
       {/* Header */}
       <div className="mb-8">
-        <h1 className="text-2xl font-bold text-white">Reportes</h1>
-        <p className="text-zinc-400 text-sm mt-1">
+        <h1 className="text-2xl font-bold text-brand-navy">Reportes</h1>
+        <p className="text-zinc-600 text-sm mt-1">
           {totalReports} {totalReports === 1 ? "reporte disponible" : "reportes disponibles"}.
-          Exportación a PDF y XLSX en cada reporte.
+          Los reportes exportables muestran PDF y XLSX en su tarjeta.
         </p>
       </div>
 

@@ -14,6 +14,10 @@ import type { AnalyticsBranch, TrainingAnalytics } from "@/modules/weekly-plans/
 export const NOT_ENOUGH_DATA = "Sin datos suficientes";
 export const INCOMPLETE = "Datos incompletos";
 export const BASE = "/dashboard/reports/training-analytics";
+export const CROSS_BRANCH_DETECTED =
+  "Algunos alumnos tienen planes heredados solapados en distintas sucursales: cada fecha cuenta una sola vez, en la sucursal del plan más reciente. La fila de una sucursal puede diferir de la vista de esa sucursal por separado.";
+export const CROSS_BRANCH_SCOPE =
+  "Cifras calculadas solo con los planes de esta sucursal. Si un alumno tiene planes heredados solapados con otra sucursal, la comparación entre sucursales puede asignar esas fechas a la otra sede y mostrar cifras distintas.";
 
 const long = (d: string) => formatCalendarDate(d, { day: "2-digit", month: "short", year: "numeric" });
 
@@ -333,13 +337,17 @@ export function BranchesSection({ data, title, single }: { data: TrainingAnalyti
           Un alumno con planes vigentes en dos sucursales cuenta en ambas filas; los demás conteos suman exactamente el panorama.
         </p>
       )}
+      {/* §8 GYM-5D: solapes heredados entre sedes. Solo se detectan con los planes ya leídos;
+          en la vista de una sede no se consultan otras sedes, así que la nota es fija. */}
+      {!single && c.crossBranchOverlap && <p className="text-xs text-zinc-400">{CROSS_BRANCH_DETECTED}</p>}
+      {single && <p className="text-xs text-zinc-400">{CROSS_BRANCH_SCOPE}</p>}
     </Card>
   );
 }
 
 // ── D. Entrenadores ──────────────────────────────────────────────
 
-export function TrainersSection({ data }: { data: TrainingAnalytics }) {
+export function TrainersSection({ data, classes }: { data: TrainingAnalytics; classes: boolean }) {
   const c = data.current;
   if (!c) return null;
   const rows = [...c.byTrainer.entries()]
@@ -394,11 +402,17 @@ export function TrainersSection({ data }: { data: TrainingAnalytics }) {
       <p className="text-xs text-zinc-500">
         La atribución es la del plan (entrenador asignado al plan semanal). Impartir una clase al alumno no convierte al
         entrenador en responsable de su plan. Estas cifras describen el registro de los planes; no son una evaluación del
-        desempeño. Las clases impartidas se consultan en{" "}
-        <Link href="/dashboard/reports/trainers/classes-taught" className="underline">
-          Clases impartidas
-        </Link>
-        .
+        desempeño.
+        {/* gym.classes apagado ⇒ sin enlace a un reporte que depende de clases. */}
+        {classes && (
+          <>
+            {" "}Las clases impartidas se consultan en{" "}
+            <Link href="/dashboard/reports/trainers/classes-taught" className="underline">
+              Clases impartidas
+            </Link>
+            .
+          </>
+        )}
       </p>
     </Card>
   );
@@ -494,19 +508,24 @@ export function ModalitiesSection({ data }: { data: TrainingAnalytics }) {
 
 // ── Enlaces ──────────────────────────────────────────────────────
 
-export function RelatedLinks() {
+/** `classes` = gym.classes habilitado en el tenant efectivo; sin él no se enlazan reportes de clases. */
+export function RelatedLinks({ classes }: { classes: boolean }) {
   const cls = "text-xs font-semibold text-zinc-700 border border-zinc-300 rounded-lg px-3 py-1.5 hover:bg-zinc-50";
   return (
     <div className="flex flex-wrap gap-2">
       <Link href="/dashboard/weekly-plans/client-plans" className={cls}>
         Planes semanales
       </Link>
-      <Link href="/dashboard/reports/attendance/by-period" className={cls}>
-        Asistencia por período
-      </Link>
-      <Link href="/dashboard/reports/trainers/classes-taught" className={cls}>
-        Clases impartidas
-      </Link>
+      {classes && (
+        <>
+          <Link href="/dashboard/reports/attendance/by-period" className={cls}>
+            Asistencia por período
+          </Link>
+          <Link href="/dashboard/reports/trainers/classes-taught" className={cls}>
+            Clases impartidas
+          </Link>
+        </>
+      )}
     </div>
   );
 }

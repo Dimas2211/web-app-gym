@@ -106,10 +106,10 @@ export default async function TrainingAnalyticsPage({ searchParams }: { searchPa
           title={!isSuperAdmin ? "Tu sucursal" : branchId ? "Sucursal seleccionada" : "Comparación entre sucursales"}
           single={!isSuperAdmin || branchId !== null}
         />
-        <TrainersSection data={data} />
+        <TrainersSection data={data} classes={includeClasses} />
         <AttendanceSection data={data} />
         <ModalitiesSection data={data} />
-        <RelatedLinks />
+        <RelatedLinks classes={includeClasses} />
       </main>
     );
   } finally {

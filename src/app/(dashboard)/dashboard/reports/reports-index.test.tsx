@@ -77,4 +77,12 @@ describe("Índice de Reportes — Analítica de entrenamiento (GYM-5D)", () => {
     h.vertical = null;
     expect(card(await render())).toBeNull();
   });
+
+  it("encabezado: legible sobre el canvas claro y sin afirmar que todos los reportes exportan", async () => {
+    const html = await render();
+    expect(html).toMatch(/<h1 class="[^"]*text-brand-navy[^"]*">Reportes<\/h1>/);
+    expect(html).not.toMatch(/<h1 class="[^"]*text-white/);
+    expect(html).not.toContain("Exportación a PDF y XLSX en cada reporte");
+    expect(html).toContain("Los reportes exportables muestran PDF y XLSX en su tarjeta.");
+  });
 });

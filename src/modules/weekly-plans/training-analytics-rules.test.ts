@@ -233,3 +233,35 @@ describe("GYM-5D reglas — parámetros", () => {
     expect(resolveBranchFilter(null, ["B1"])).toBeNull();
   });
 });
+
+describe("GYM-5D reglas — solapes heredados entre sucursales (§8)", () => {
+  const legacy = () => {
+    const old = plan({ clientId: "lu", branchId: "B1", start: "2026-02-23", end: "2026-03-15", days: [{ id: "o1", weekday: 1 }], executions: [ex("o1", "2026-03-02", { trainer_status: "completed" })], createdAt: 1 });
+    const recent = plan({ clientId: "lu", branchId: "B2", start: "2026-03-02", end: "2026-03-29", days: [{ id: "n1", weekday: 1 }], createdAt: 2 });
+    return { old, recent };
+  };
+
+  it("R13 se detecta solo con planes de distintas sedes ya leídos; mismo alumno, rangos que se cruzan", () => {
+    const { old, recent } = legacy();
+    expect(governPlans([old, recent]).crossBranchOverlap).toBe(true);
+    // Vista de una sede: los planes de la otra nunca se leen ⇒ no detectable (queda como riesgo residual).
+    expect(governPlans([old]).crossBranchOverlap).toBe(false);
+    // Solape dentro de la misma sede: overlap sí, entre sedes no.
+    const same = governPlans([old, { ...recent, branchId: "B1" }]);
+    expect(same).toMatchObject({ overlap: true, crossBranchOverlap: false });
+    // Sedes distintas sin cruce de fechas, o alumnos distintos: no hay solape entre sedes.
+    expect(governPlans([old, { ...recent, start: "2026-03-16" }]).crossBranchOverlap).toBe(false);
+    expect(governPlans([old, { ...recent, clientId: "otro" }]).crossBranchOverlap).toBe(false);
+  });
+
+  it("R14 el filtro de seguridad no cambia: la fila B1 del tenant completo puede diferir de la vista solo-B1", () => {
+    const { old, recent } = legacy();
+    const tenant = currentAnalytics([old, recent], TODAY);
+    const onlyB1 = currentAnalytics([old], TODAY);
+    expect(tenant.crossBranchOverlap).toBe(true);
+    expect(onlyB1.crossBranchOverlap).toBe(false);
+    // En el tenant, 02 y 09-mar los gobierna el plan de B2; la vista de B1 cuenta sus tres fechas.
+    expect(tenant.byBranch.get("B1")!.counts).toMatchObject({ scheduled: 1, completed: 0 });
+    expect(onlyB1.byBranch.get("B1")!.counts).toMatchObject({ scheduled: 3, completed: 1 });
+  });
+});

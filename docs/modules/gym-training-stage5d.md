@@ -1,7 +1,8 @@
 # GYM-5D — Analítica gerencial de entrenamiento
 
-Estado: **IMPLEMENTED_LOCAL · TESTED_LOCAL · READY_FOR_INDEPENDENT_CODE_REVIEW**. Rama publicada en `origin` solo para
-revisión técnica independiente (2026-10-23); sin merge a `main`, despliegue ni certificación visual en producción.
+Estado: **REVIEWED · REVIEW_FIXES_APPLIED · READY_FOR_MERGE** (revisión independiente de `ecb7fba` cerrada y
+correcciones en §10). Rama publicada en `origin` solo para revisión; sin merge a `main`, despliegue ni certificación visual
+en producción. El merge requiere autorización explícita.
 Rama: `feat/gym-training-stage5d`, creada desde `origin/main` = `5e484c797a38b13fc722f48cb611d8fbfaca736f` (verificado con
 `git fetch` el 2026-10-23; coincide con el baseline productivo conocido). Sin upstream configurado, para que un push
 accidental no apunte a `main`. Se dejaron intactos `audit-gym4/` y `docs/reports/`, que no tienen seguimiento.
@@ -207,13 +208,19 @@ Revisión responsive local (no es certificación visual en producción):
 1. **Validación visual pendiente** en `app.getzolvi.com` con sesión real, tras una publicación autorizada.
 2. Un `branch_admin` no ve planes de otras sedes. Si un alumno tiene planes heredados solapados en dos sedes, la fila
    de esa sede en la vista de super_admin puede contar menos fechas que la vista del branch_admin, porque el gobierno se
-   calcula sobre el alcance consultado. Ocurre solo con datos heredados anteriores al lock de 5A.
+   calcula sobre el alcance consultado. Ocurre solo con datos heredados anteriores al lock de 5A. **Se mantiene el
+   filtro de seguridad** (no se leen planes de otras sedes para reconciliar). Mitigación visual (revisión independiente,
+   §10): la comparación de todo el tenant avisa cuando detecta el solape entre los planes que ya leyó; la vista de una
+   sola sede (branch_admin, o super_admin con `sede`) muestra siempre una nota fija de alcance, porque ahí el solape no
+   puede detectarse de forma segura. La UI no afirma que ambas vistas coincidan.
 3. La modalidad usada es la **actual** del alumno (`Client.modality`), no la que tenía cuando se asignó el plan.
 4. Solo cuentan los planes y asistencias con `tenant_id` del contexto, igual que en 5C. Los planes heredados con
    `tenant_id` NULL no cuentan.
-5. La exportación PDF/XLSX está fuera de alcance; la tarjeta no la anuncia.
+5. La exportación PDF/XLSX está fuera de alcance; la tarjeta no la anuncia y el encabezado del índice ya no afirma que
+   todos los reportes exportan (§10).
 6. Observación ajena a 5D, sin cambios: `ReportPageHeader` usa `text-white` sobre el canvas claro de la app, así que los
-   títulos de los demás reportes pueden no leerse bien.
+   títulos de los demás reportes pueden no leerse bien. Solo se corrigió el encabezado del índice `/dashboard/reports`
+   (§10); los demás reportes no se rediseñaron.
 
 ### Impacto en bases de datos y sincronización local/remota
 
@@ -230,8 +237,42 @@ Revisar en `app.getzolvi.com` después de publicar, con un tenant de prueba **si
    `periodo` y `sede`.
 2. Como branch_admin: solo su sede, sin selector de sucursal.
 3. Como recepción o entrenador: aviso "exclusiva de la administración".
-4. Con `gym.classes` apagado: sin secciones de asistencia.
+4. Con `gym.classes` apagado: sin secciones de asistencia ni enlaces a "Asistencia por período" o "Clases impartidas".
 5. Si el runtime no tiene la migración de 5A: aviso sin error.
+6. Encabezado del índice de Reportes legible (azul marino de marca) y texto de exportación preciso.
 
 Publicación recomendada: tras la revisión técnica, merge a `main` y despliegue normal. No requiere migración ni
 cambios de configuración.
+
+## 10. Correcciones de la revisión independiente (2026-10-23)
+
+La revisión independiente de `ecb7fba` confirmó arquitectura de solo lectura, reutilización de las fórmulas 5A/5B/5C,
+guardas LIVE, aislamiento y ausencia de DDL. Se corrigieron solo los cuatro puntos pedidos; los cálculos no cambian.
+
+| # | Punto | Corrección | Prueba |
+|---|---|---|---|
+| 1 | Enlaces con `gym.classes` apagado | `TrainersSection` y `RelatedLinks` reciben `classes` (el mismo `includeClasses` de la página) y omiten "Clases impartidas" y "Asistencia por período"; "Planes semanales" se conserva | `analytics-sections.test.tsx` (2), G4b |
+| 2 | Texto de exportación del índice | "Exportación a PDF y XLSX en cada reporte" → "Los reportes exportables muestran PDF y XLSX en su tarjeta." 5D sigue sin exportación | `reports-index.test.tsx` |
+| 3 | Contraste del encabezado del índice | Título `text-white` → `text-brand-navy`; descripción `text-zinc-400` → `text-zinc-600`, sobre `bg-brand-canvas`. Tarjetas y demás reportes sin cambios | `reports-index.test.tsx` |
+| 4 | Solapes heredados entre sedes (§8.2) | `governPlans` devuelve `crossBranchOverlap`, calculado solo con los planes ya leídos del alcance. Comparación del tenant: nota discreta si se detecta. Vista de una sede: nota fija de alcance (no detectable sin leer otras sedes). Filtro de seguridad intacto; no se consultan otras sedes | R13, R14, `analytics-sections.test.tsx` (3), G1d, G2a |
+
+Archivos modificados: `training-analytics-rules.ts`, `analytics-sections.tsx`, `training-analytics/page.tsx`,
+`reports/page.tsx`, sus pruebas (`training-analytics-rules.test.ts`, `training-analytics.integration.test.tsx`,
+`reports-index.test.tsx`), `analytics-sections.test.tsx` (nuevo) y este documento.
+
+Regresión (PostgreSQL 18.3 desechable en `127.0.0.1:54399`, data dir en el scratchpad):
+
+```
+npx prisma validate        → válido
+npx tsc --noEmit           → 0 errores
+npx vitest run --testTimeout=120000 --hookTimeout=180000 (con PostgreSQL desechable)
+                           → 279 archivos / 3268 pruebas pasan, 0 fallos (3260 previas + 8 nuevas)
+npm run lint               → 0 errores; advertencias preexistentes, 0 en archivos de 5D
+npm run build              → OK (ƒ /dashboard/reports y ƒ /dashboard/reports/training-analytics)
+```
+
+Con el `hookTimeout` por defecto (10 s), 12 archivos de integración previos (2B, GYM-4, 5A) fallan en su `afterAll`
+(borrado de la base desechable) bajo carga paralela; sus pruebas pasan. No es un defecto de 5D.
+
+Impacto en bases de datos: ninguno. Sin cambios en `schema.prisma` ni migraciones; solo bases `zolvi_it*` en el
+PostgreSQL desechable. No se tocaron `DATABASE_URL`, `DIRECT_URL`, el Control Plane, el Runtime Shared ni Power Gym.
