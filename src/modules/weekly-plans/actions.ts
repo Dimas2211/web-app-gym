@@ -38,10 +38,10 @@ import {
 } from "./plan-service";
 import { liveLocationMatches, LIVE_IDENTITY_CHANGED_MESSAGE, resolveLinkedTrainer } from "@/modules/classes/trainer/trainer-access";
 import {
-  requireOperationalContext,
   OperationalContextError,
   type EffectiveOperationalUser,
 } from "@/modules/platform/runtime/require-operational-context";
+import { requireLiveOperationalContext } from "@/modules/platform/runtime/require-live-operational-context";
 
 export type WeeklyPlanActionState =
   | { errors?: Record<string, string[]>; error?: string }
@@ -88,7 +88,7 @@ export async function createTemplateAction(
 
   let handle;
   try {
-    handle = await requireOperationalContext(sessionUser, { module: "gym.weekly_plans", write: true });
+    handle = await requireLiveOperationalContext(sessionUser, { module: "gym.weekly_plans", write: true });
   } catch (err) {
     if (err instanceof OperationalContextError) return { error: err.userMessage };
     throw err;
@@ -164,7 +164,7 @@ export async function updateTemplateAction(
 
   let handle;
   try {
-    handle = await requireOperationalContext(sessionUser, { module: "gym.weekly_plans", write: true });
+    handle = await requireLiveOperationalContext(sessionUser, { module: "gym.weekly_plans", write: true });
   } catch (err) {
     if (err instanceof OperationalContextError) return { error: err.userMessage };
     throw err;
@@ -215,7 +215,7 @@ export async function toggleTemplateStatusAction(
 
   let handle;
   try {
-    handle = await requireOperationalContext(sessionUser, { module: "gym.weekly_plans", write: true });
+    handle = await requireLiveOperationalContext(sessionUser, { module: "gym.weekly_plans", write: true });
   } catch {
     return;
   }
@@ -253,7 +253,7 @@ export async function upsertTemplateDayAction(
 
   let handle;
   try {
-    handle = await requireOperationalContext(sessionUser, { module: "gym.weekly_plans", write: true });
+    handle = await requireLiveOperationalContext(sessionUser, { module: "gym.weekly_plans", write: true });
   } catch (err) {
     if (err instanceof OperationalContextError) return { error: err.userMessage };
     throw err;
@@ -310,7 +310,7 @@ export async function deleteTemplateDayAction(
 
   let handle;
   try {
-    handle = await requireOperationalContext(sessionUser, { module: "gym.weekly_plans", write: true });
+    handle = await requireLiveOperationalContext(sessionUser, { module: "gym.weekly_plans", write: true });
   } catch (err) {
     if (err instanceof OperationalContextError) return { error: err.userMessage };
     throw err;
@@ -365,7 +365,7 @@ export async function createClientPlanAction(
 
   let handle;
   try {
-    handle = await requireOperationalContext(sessionUser, { module: "gym.weekly_plans", write: true });
+    handle = await requireLiveOperationalContext(sessionUser, { module: "gym.weekly_plans", write: true });
   } catch (err) {
     if (err instanceof OperationalContextError) return { error: err.userMessage };
     throw err;
@@ -498,7 +498,7 @@ export async function updateClientPlanAction(
 
   let handle;
   try {
-    handle = await requireOperationalContext(sessionUser, { module: "gym.weekly_plans", write: true });
+    handle = await requireLiveOperationalContext(sessionUser, { module: "gym.weekly_plans", write: true });
   } catch (err) {
     if (err instanceof OperationalContextError) return { error: err.userMessage };
     throw err;
@@ -573,7 +573,7 @@ export async function toggleClientPlanStatusAction(
 
   let handle;
   try {
-    handle = await requireOperationalContext(sessionUser, { module: "gym.weekly_plans", write: true });
+    handle = await requireLiveOperationalContext(sessionUser, { module: "gym.weekly_plans", write: true });
   } catch {
     return;
   }
@@ -609,7 +609,7 @@ export async function updateClientPlanDayAction(
 
   let handle;
   try {
-    handle = await requireOperationalContext(sessionUser, { module: "gym.weekly_plans", write: true });
+    handle = await requireLiveOperationalContext(sessionUser, { module: "gym.weekly_plans", write: true });
   } catch (err) {
     if (err instanceof OperationalContextError) return { error: err.userMessage };
     throw err;
@@ -666,7 +666,7 @@ export async function recordPlanExecutionAction(
 
   let handle;
   try {
-    handle = await requireOperationalContext(sessionUser, { module: "gym.weekly_plans", write: true });
+    handle = await requireLiveOperationalContext(sessionUser, { module: "gym.weekly_plans", write: true });
   } catch (err) {
     if (err instanceof OperationalContextError) return { error: err.userMessage };
     throw err;
@@ -740,7 +740,7 @@ export async function addClientPlanDayAction(
 
   let handle;
   try {
-    handle = await requireOperationalContext(sessionUser, { module: "gym.weekly_plans", write: true });
+    handle = await requireLiveOperationalContext(sessionUser, { module: "gym.weekly_plans", write: true });
   } catch (err) {
     if (err instanceof OperationalContextError) return { error: err.userMessage };
     throw err;
@@ -815,7 +815,7 @@ export async function assignTemplateSegmentedAction(
 
   let handle;
   try {
-    handle = await requireOperationalContext(sessionUser, { module: "gym.weekly_plans", write: true });
+    handle = await requireLiveOperationalContext(sessionUser, { module: "gym.weekly_plans", write: true });
   } catch (err) {
     if (err instanceof OperationalContextError) return { error: err.userMessage };
     throw err;
@@ -989,7 +989,7 @@ export async function deleteTemplateAction(
 
   let handle;
   try {
-    handle = await requireOperationalContext(sessionUser, { module: "gym.weekly_plans", write: true });
+    handle = await requireLiveOperationalContext(sessionUser, { module: "gym.weekly_plans", write: true });
   } catch (err) {
     if (err instanceof OperationalContextError) return { error: err.userMessage };
     throw err;
@@ -1047,7 +1047,7 @@ export async function deleteClientPlanAction(
 
   let handle;
   try {
-    handle = await requireOperationalContext(sessionUser, { module: "gym.weekly_plans", write: true });
+    handle = await requireLiveOperationalContext(sessionUser, { module: "gym.weekly_plans", write: true });
   } catch (err) {
     if (err instanceof OperationalContextError) return { error: err.userMessage };
     throw err;

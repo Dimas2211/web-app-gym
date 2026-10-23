@@ -19,10 +19,10 @@ import { revalidatePath } from "next/cache";
 import { Prisma } from "@prisma/client";
 import { requireAdmin } from "@/lib/permissions/guards";
 import {
-  requireOperationalContext,
   OperationalContextError,
   type OperationalContextHandle,
 } from "@/modules/platform/runtime/require-operational-context";
+import { requireLiveOperationalContext } from "@/modules/platform/runtime/require-live-operational-context";
 import { trainerTimeOffSchema, type TrainerTimeOffInput } from "./schemas";
 import { lockTrainerForScheduling } from "@/modules/classes/scheduling/scheduling-guards";
 import { dbDate, timeOffCoversSlot, timeOffWindowsOverlap } from "@/modules/classes/scheduling/scheduling-rules";
@@ -46,7 +46,7 @@ async function openTrainersWriteContext(): Promise<
 > {
   const sessionUser = await requireAdmin();
   try {
-    return { ok: true, handle: await requireOperationalContext(sessionUser, { module: "gym.trainers", write: true }) };
+    return { ok: true, handle: await requireLiveOperationalContext(sessionUser, { module: "gym.trainers", write: true }) };
   } catch (err) {
     if (err instanceof OperationalContextError) return { ok: false, error: err.userMessage };
     throw err;

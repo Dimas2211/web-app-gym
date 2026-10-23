@@ -46,6 +46,13 @@ const { service, activities, requireOperationalContextMock, disposeMock, FakeOpe
   };
 });
 
+// LIVE-3: el envoltorio de identidad vigente delega en el mock de arriba; la identidad
+// (usuario activo, tenant, rol y sede vigentes) se certifica con el contexto real en
+// src/modules/classes/certification/live-*.integration.test.ts.
+vi.mock("@/modules/platform/runtime/require-live-operational-context", async () => {
+  const ctx = await import("@/modules/platform/runtime/require-operational-context");
+  return { requireLiveOperationalContext: (...args: Parameters<typeof ctx.requireOperationalContext>) => ctx.requireOperationalContext(...args) };
+});
 vi.mock("@/modules/platform/runtime/require-operational-context", () => ({
   requireOperationalContext: requireOperationalContextMock,
   OperationalContextError: FakeOperationalContextError,

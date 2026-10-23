@@ -25,11 +25,11 @@ import {
   validateTrainerOverlap,
 } from "./scheduling/scheduling-guards";
 import { resolveSessionSetup } from "./scheduling/scheduling-rules";
-import { liveGymAdminScope } from "./scheduling/admin-support";
+import { gymAdminScope, liveGymAdminScope } from "./scheduling/admin-support";
 import {
-  requireOperationalContext,
   OperationalContextError,
 } from "@/modules/platform/runtime/require-operational-context";
+import { requireLiveOperationalContext } from "@/modules/platform/runtime/require-live-operational-context";
 import {
   createGymBookingService,
   loadGymBookingPolicy,
@@ -64,7 +64,7 @@ export async function createClassTypeAction(
 
   let handle;
   try {
-    handle = await requireOperationalContext(sessionUser, { module: "gym.classes", write: true });
+    handle = await requireLiveOperationalContext(sessionUser, { module: "gym.classes", write: true });
   } catch (err) {
     if (err instanceof OperationalContextError) return { error: err.userMessage };
     throw err;
@@ -72,6 +72,9 @@ export async function createClassTypeAction(
   const { context, dispose } = handle;
 
   try {
+    // LIVE-3: la misma capacidad que exige requireAdmin (JWT), con el rol LIVE (identidad ya vigente).
+    if (!gymAdminScope(context).ok) return { error: "Sin permisos para esta operación." };
+
     const raw = {
       code: n(formData.get("code")),
       name: formData.get("name"),
@@ -106,7 +109,7 @@ export async function updateClassTypeAction(
 
   let handle;
   try {
-    handle = await requireOperationalContext(sessionUser, { module: "gym.classes", write: true });
+    handle = await requireLiveOperationalContext(sessionUser, { module: "gym.classes", write: true });
   } catch (err) {
     if (err instanceof OperationalContextError) return { error: err.userMessage };
     throw err;
@@ -114,6 +117,9 @@ export async function updateClassTypeAction(
   const { context, dispose } = handle;
 
   try {
+    // LIVE-3: la misma capacidad que exige requireAdmin (JWT), con el rol LIVE (identidad ya vigente).
+    if (!gymAdminScope(context).ok) return { error: "Sin permisos para esta operación." };
+
     const id = formData.get("id") as string;
     if (!id) return { error: "ID requerido." };
 
@@ -149,13 +155,16 @@ export async function toggleClassTypeStatusAction(
 
   let handle;
   try {
-    handle = await requireOperationalContext(sessionUser, { module: "gym.classes", write: true });
+    handle = await requireLiveOperationalContext(sessionUser, { module: "gym.classes", write: true });
   } catch {
     return;
   }
   const { context, dispose } = handle;
 
   try {
+    // LIVE-3: la misma capacidad que exige requireAdmin (JWT), con el rol LIVE (identidad ya vigente).
+    if (!gymAdminScope(context).ok) return;
+
     const id = formData.get("id") as string;
     if (!id) return;
 
@@ -257,7 +266,7 @@ export async function createScheduledClassAction(
 
   let handle;
   try {
-    handle = await requireOperationalContext(sessionUser, { module: "gym.classes", write: true });
+    handle = await requireLiveOperationalContext(sessionUser, { module: "gym.classes", write: true });
   } catch (err) {
     if (err instanceof OperationalContextError) return { error: err.userMessage };
     throw err;
@@ -388,7 +397,7 @@ export async function updateScheduledClassAction(
 
   let handle;
   try {
-    handle = await requireOperationalContext(sessionUser, { module: "gym.classes", write: true });
+    handle = await requireLiveOperationalContext(sessionUser, { module: "gym.classes", write: true });
   } catch (err) {
     if (err instanceof OperationalContextError) return { error: err.userMessage };
     throw err;
@@ -627,7 +636,7 @@ export async function toggleScheduledClassStatusAction(
 
   let handle;
   try {
-    handle = await requireOperationalContext(sessionUser, { module: "gym.classes", write: true });
+    handle = await requireLiveOperationalContext(sessionUser, { module: "gym.classes", write: true });
   } catch {
     return;
   }
@@ -699,7 +708,7 @@ export async function deleteScheduledClassAction(
 
   let handle;
   try {
-    handle = await requireOperationalContext(sessionUser, { module: "gym.classes", write: true });
+    handle = await requireLiveOperationalContext(sessionUser, { module: "gym.classes", write: true });
   } catch {
     return;
   }
@@ -776,7 +785,7 @@ export async function createBookingAction(
 
   let handle;
   try {
-    handle = await requireOperationalContext(sessionUser, { module: "gym.classes", write: true });
+    handle = await requireLiveOperationalContext(sessionUser, { module: "gym.classes", write: true });
   } catch (err) {
     if (err instanceof OperationalContextError) return { error: err.userMessage };
     throw err;
@@ -821,7 +830,7 @@ export async function cancelBookingAction(formData: FormData): Promise<void> {
 
   let handle;
   try {
-    handle = await requireOperationalContext(sessionUser, { module: "gym.classes", write: true });
+    handle = await requireLiveOperationalContext(sessionUser, { module: "gym.classes", write: true });
   } catch {
     return;
   }
@@ -872,7 +881,7 @@ export async function recordAttendanceAction(
 
   let handle;
   try {
-    handle = await requireOperationalContext(sessionUser, { module: "gym.classes", write: true });
+    handle = await requireLiveOperationalContext(sessionUser, { module: "gym.classes", write: true });
   } catch {
     return;
   }

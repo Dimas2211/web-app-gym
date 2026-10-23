@@ -12,9 +12,9 @@ import {
   planDayFeedbackSchema,
 } from "./schemas";
 import {
-  requireOperationalContext,
   OperationalContextError,
 } from "@/modules/platform/runtime/require-operational-context";
+import { requireLiveOperationalContext } from "@/modules/platform/runtime/require-live-operational-context";
 import { createGymBookingService, resolveIdempotencyKey } from "@/modules/classes/booking/booking-service";
 import { gymBookingErrorMessage } from "@/modules/classes/booking/booking-messages";
 import {
@@ -62,7 +62,7 @@ export async function bookClassAction(
 
   let handle;
   try {
-    handle = await requireOperationalContext(sessionUser, { module: "gym.classes", write: true });
+    handle = await requireLiveOperationalContext(sessionUser, { module: "gym.classes", write: true });
   } catch (err) {
     if (err instanceof OperationalContextError) return { error: err.userMessage };
     throw err;
@@ -113,7 +113,7 @@ export async function cancelBookingAction(
 
   let handle;
   try {
-    handle = await requireOperationalContext(sessionUser, { module: "gym.classes", write: true });
+    handle = await requireLiveOperationalContext(sessionUser, { module: "gym.classes", write: true });
   } catch (err) {
     if (err instanceof OperationalContextError) return { error: err.userMessage };
     throw err;
@@ -168,7 +168,7 @@ export async function submitPlanDayAction(
 
   let handle;
   try {
-    handle = await requireOperationalContext(sessionUser, { module: "gym.weekly_plans", write: true });
+    handle = await requireLiveOperationalContext(sessionUser, { module: "gym.weekly_plans", write: true });
   } catch (err) {
     if (err instanceof OperationalContextError) return { error: err.userMessage };
     throw err;

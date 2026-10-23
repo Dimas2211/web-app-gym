@@ -29,10 +29,10 @@ import { gymAdminScope } from "@/modules/classes/scheduling/admin-support";
 import { updateCoreUser } from "@/core/modules/users/actions";
 import { suggestNextClientCode, generateQrToken } from "@/lib/utils/operational-codes";
 import {
-  requireOperationalContext,
   OperationalContextError,
   type OperationalContext,
 } from "@/modules/platform/runtime/require-operational-context";
+import { requireLiveOperationalContext } from "@/modules/platform/runtime/require-live-operational-context";
 
 export type ClientActionState =
   | { errors?: Record<string, string[]>; error?: string }
@@ -83,7 +83,7 @@ export async function createClientAction(
   const requestedModality = normalizeEmpty(formData.get("modality")) ?? "NORMAL";
   let handle;
   try {
-    handle = await requireOperationalContext(sessionUser, {
+    handle = await requireLiveOperationalContext(sessionUser, {
       write: true,
       ...(requestedModality !== "NORMAL" ? { module: "gym.classes" } : {}),
     });
@@ -94,6 +94,11 @@ export async function createClientAction(
   const { context, dispose } = handle;
 
   try {
+    // LIVE-3: la misma capacidad que exige requireClientManager (JWT), con el rol LIVE.
+    if (!getCapabilities(context.effectiveUser.role as UserRole).canManageMembers) {
+      return { error: "Sin permisos para esta operación." };
+    }
+
     const raw = parseFormData(formData);
 
     // reception solo puede crear en su sucursal — evaluado con el ROL/location LIVE.
@@ -159,7 +164,7 @@ export async function updateClientAction(
 
   let handle;
   try {
-    handle = await requireOperationalContext(sessionUser, { write: true });
+    handle = await requireLiveOperationalContext(sessionUser, { write: true });
   } catch (err) {
     if (err instanceof OperationalContextError) return { error: err.userMessage };
     throw err;
@@ -234,7 +239,7 @@ export async function changeClientModalityAction(
 
   let handle;
   try {
-    handle = await requireOperationalContext(sessionUser, { module: "gym.classes", write: true });
+    handle = await requireLiveOperationalContext(sessionUser, { module: "gym.classes", write: true });
   } catch (err) {
     if (err instanceof OperationalContextError) return { error: err.userMessage };
     throw err;
@@ -347,7 +352,7 @@ export async function enableClientPortalAction(
 
   let handle;
   try {
-    handle = await requireOperationalContext(sessionUser, { write: true });
+    handle = await requireLiveOperationalContext(sessionUser, { write: true });
   } catch (err) {
     if (err instanceof OperationalContextError) return { error: err.userMessage };
     throw err;
@@ -436,7 +441,7 @@ export async function toggleClientPortalStatusAction(
 
   let handle;
   try {
-    handle = await requireOperationalContext(sessionUser, { write: true });
+    handle = await requireLiveOperationalContext(sessionUser, { write: true });
   } catch {
     return;
   }
@@ -548,7 +553,7 @@ export async function updateClientPortalEmailAction(
 
   let handle;
   try {
-    handle = await requireOperationalContext(sessionUser, { write: true });
+    handle = await requireLiveOperationalContext(sessionUser, { write: true });
   } catch (err) {
     if (err instanceof OperationalContextError) return { error: err.userMessage };
     throw err;
@@ -619,7 +624,7 @@ export async function resetClientPortalPasswordAction(
 
   let handle;
   try {
-    handle = await requireOperationalContext(sessionUser, { write: true });
+    handle = await requireLiveOperationalContext(sessionUser, { write: true });
   } catch (err) {
     if (err instanceof OperationalContextError) return { error: err.userMessage };
     throw err;
@@ -682,7 +687,7 @@ export async function deleteClientAction(
 
   let handle;
   try {
-    handle = await requireOperationalContext(sessionUser, { write: true });
+    handle = await requireLiveOperationalContext(sessionUser, { write: true });
   } catch (err) {
     if (err instanceof OperationalContextError) return { error: err.userMessage };
     throw err;
@@ -760,7 +765,7 @@ export async function toggleClientStatusAction(formData: FormData): Promise<void
 
   let handle;
   try {
-    handle = await requireOperationalContext(sessionUser, { write: true });
+    handle = await requireLiveOperationalContext(sessionUser, { write: true });
   } catch {
     return;
   }

@@ -22,10 +22,10 @@ import {
 import { localDate } from "@/modules/classes/booking/booking-eligibility";
 import { loadGymBookingPolicy } from "@/modules/classes/booking/booking-service";
 import {
-  requireOperationalContext,
   OperationalContextError,
   type OperationalContextHandle,
 } from "@/modules/platform/runtime/require-operational-context";
+import { requireLiveOperationalContext } from "@/modules/platform/runtime/require-live-operational-context";
 import { getCapabilities } from "@/core/permissions/role-capabilities";
 import { requireEffectiveVertical } from "@/modules/platform/runtime/effective-vertical";
 
@@ -54,7 +54,7 @@ async function openTenantSettingsWriteContext(module?: string): Promise<
   const sessionUser = await requireGlobalAdmin();
   let handle: OperationalContextHandle;
   try {
-    handle = await requireOperationalContext(sessionUser, { write: true, ...(module ? { module } : {}) });
+    handle = await requireLiveOperationalContext(sessionUser, { write: true, ...(module ? { module } : {}) });
   } catch (err) {
     if (err instanceof OperationalContextError) return { ok: false, error: err.userMessage };
     throw err;
@@ -141,7 +141,7 @@ export async function createSportAction(
   // solo lectura) se bloquea igual que cualquier write operativo.
   let handle;
   try {
-    handle = await requireOperationalContext(user, { write: true });
+    handle = await requireLiveOperationalContext(user, { write: true });
   } catch (err) {
     if (err instanceof OperationalContextError) return { error: err.userMessage };
     throw err;
@@ -184,7 +184,7 @@ export async function updateSportAction(
 
   let handle;
   try {
-    handle = await requireOperationalContext(user, { write: true });
+    handle = await requireLiveOperationalContext(user, { write: true });
   } catch (err) {
     if (err instanceof OperationalContextError) return { error: err.userMessage };
     throw err;
@@ -231,7 +231,7 @@ export async function toggleSportStatusAction(formData: FormData): Promise<void>
 
   let handle;
   try {
-    handle = await requireOperationalContext(user, { write: true });
+    handle = await requireLiveOperationalContext(user, { write: true });
   } catch {
     return;
   }
@@ -270,7 +270,7 @@ export async function createGoalAction(
   // bloquea igual que cualquier write operativo.
   let handle;
   try {
-    handle = await requireOperationalContext(user, { write: true });
+    handle = await requireLiveOperationalContext(user, { write: true });
   } catch (err) {
     if (err instanceof OperationalContextError) return { error: err.userMessage };
     throw err;
@@ -313,7 +313,7 @@ export async function updateGoalAction(
 
   let handle;
   try {
-    handle = await requireOperationalContext(user, { write: true });
+    handle = await requireLiveOperationalContext(user, { write: true });
   } catch (err) {
     if (err instanceof OperationalContextError) return { error: err.userMessage };
     throw err;
@@ -360,7 +360,7 @@ export async function toggleGoalStatusAction(formData: FormData): Promise<void> 
 
   let handle;
   try {
-    handle = await requireOperationalContext(user, { write: true });
+    handle = await requireLiveOperationalContext(user, { write: true });
   } catch {
     return;
   }
@@ -544,7 +544,7 @@ export async function updateUserOperationalCodeAction(
 
   let handle;
   try {
-    handle = await requireOperationalContext(sessionUser, { module: "core.users", write: true });
+    handle = await requireLiveOperationalContext(sessionUser, { module: "core.users", write: true });
   } catch (err) {
     if (err instanceof OperationalContextError) return { error: err.userMessage };
     throw err;
@@ -616,7 +616,7 @@ export async function updateClientOperationalCodeAction(
 
   let handle;
   try {
-    handle = await requireOperationalContext(sessionUser, { write: true });
+    handle = await requireLiveOperationalContext(sessionUser, { write: true });
   } catch (err) {
     if (err instanceof OperationalContextError) return { error: err.userMessage };
     throw err;
@@ -714,7 +714,7 @@ export async function generateClientQrTokenAction(
 
   let handle;
   try {
-    handle = await requireOperationalContext(sessionUser, { write: true });
+    handle = await requireLiveOperationalContext(sessionUser, { write: true });
   } catch (err) {
     if (err instanceof OperationalContextError) return { error: err.userMessage };
     throw err;

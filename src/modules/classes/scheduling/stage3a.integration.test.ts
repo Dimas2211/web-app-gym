@@ -464,7 +464,8 @@ describe.skipIf(!IT_ENABLED)("GYM-3A · administración de modalidades (PostgreS
       BA1();
       expect(await run(() => updateGymBookingPolicyAction(undefined, policy()))).toEqual({ redirect: "/dashboard" });
       as(U.sa1, "super_admin", T1, null, "branch_admin");
-      expect(await run(() => updateGymBookingPolicyAction(undefined, policy()))).toEqual({ error: "Sin permisos para esta operación." });
+      // LIVE-3: el rol de la sesión ya no es el vigente en la base → identidad cambiada (sigue denegado).
+      expect(await run(() => updateGymBookingPolicyAction(undefined, policy()))).toEqual({ error: "Tu rol o tu sede cambiaron. Vuelve a iniciar sesión para continuar." });
     });
 
     it("S4 crear el gimnasio sin fila de settings: el upsert fija tenant_id y flags del formulario", async () => {
@@ -751,7 +752,8 @@ describe.skipIf(!IT_ENABLED)("GYM-3A · administración de modalidades (PostgreS
         h.disabledModules = [];
       }
       as(U.sa1, "super_admin", T1, B1, "reception");
-      expect(await run(() => createGymActivityAction(undefined, act({ name: "Bloqueada" })))).toEqual({ error: "Sin permisos para esta operación." });
+      // LIVE-3: identidad cambiada (rol LIVE ≠ rol vigente en la base) → denegado antes de la capacidad.
+      expect(await run(() => createGymActivityAction(undefined, act({ name: "Bloqueada" })))).toEqual({ error: "Tu rol o tu sede cambiaron. Vuelve a iniciar sesión para continuar." });
       expect(await db.gymActivity.count({ where: { name: "Bloqueada" } })).toBe(0);
     });
   });

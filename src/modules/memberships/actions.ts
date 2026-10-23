@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { Prisma, type GymClientModality, type UserRole } from "@prisma/client";
+import { getCapabilities } from "@/core/permissions/role-capabilities";
 import {
   requireAdmin,
   requireMembershipManager,
@@ -20,9 +21,9 @@ import {
   updateClientMembershipSchema,
 } from "./schemas";
 import {
-  requireOperationalContext,
   OperationalContextError,
 } from "@/modules/platform/runtime/require-operational-context";
+import { requireLiveOperationalContext } from "@/modules/platform/runtime/require-live-operational-context";
 import { membershipSnapshotFromPlan, saleModalityFailure } from "./modality-rules";
 import { GYM_BOOKING_MAX_CONCURRENCY_RETRIES } from "@/modules/classes/booking/booking-contracts";
 
@@ -153,7 +154,7 @@ export async function createPlanAction(
   // el tenant EFECTIVO, nunca sobre el tenant_id crudo del JWT.
   let handle;
   try {
-    handle = await requireOperationalContext(sessionUser, { module: "gym.memberships", write: true });
+    handle = await requireLiveOperationalContext(sessionUser, { module: "gym.memberships", write: true });
   } catch (err) {
     if (err instanceof OperationalContextError) return { error: err.userMessage };
     throw err;
@@ -162,6 +163,10 @@ export async function createPlanAction(
 
   try {
     const effectiveRole = context.effectiveUser.role;
+    // LIVE-3: la misma capacidad que exige requireAdmin (JWT), con el rol LIVE.
+    if (!getCapabilities(effectiveRole as UserRole).canManageStaff) {
+      return { error: "Sin permisos para esta operación." };
+    }
 
     const raw = {
       code: norm(formData.get("code")),
@@ -229,7 +234,7 @@ export async function updatePlanAction(
 
   let handle;
   try {
-    handle = await requireOperationalContext(sessionUser, { module: "gym.memberships", write: true });
+    handle = await requireLiveOperationalContext(sessionUser, { module: "gym.memberships", write: true });
   } catch (err) {
     if (err instanceof OperationalContextError) return { error: err.userMessage };
     throw err;
@@ -325,7 +330,7 @@ export async function togglePlanStatusAction(formData: FormData): Promise<void> 
 
   let handle;
   try {
-    handle = await requireOperationalContext(sessionUser, { module: "gym.memberships", write: true });
+    handle = await requireLiveOperationalContext(sessionUser, { module: "gym.memberships", write: true });
   } catch {
     return;
   }
@@ -365,7 +370,7 @@ export async function createClientMembershipAction(
 
   let handle;
   try {
-    handle = await requireOperationalContext(sessionUser, { module: "gym.memberships", write: true });
+    handle = await requireLiveOperationalContext(sessionUser, { module: "gym.memberships", write: true });
   } catch (err) {
     if (err instanceof OperationalContextError) return { error: err.userMessage };
     throw err;
@@ -374,6 +379,10 @@ export async function createClientMembershipAction(
 
   try {
     const effectiveRole = context.effectiveUser.role;
+    // LIVE-3: la misma capacidad que exige requireMembershipManager (JWT), con el rol LIVE.
+    if (!getCapabilities(effectiveRole as UserRole).canManageMembers) {
+      return { error: "Sin permisos para esta operación." };
+    }
 
     const raw = {
       client_id: formData.get("client_id"),
@@ -506,7 +515,7 @@ export async function updateClientMembershipAction(
 
   let handle;
   try {
-    handle = await requireOperationalContext(sessionUser, { module: "gym.memberships", write: true });
+    handle = await requireLiveOperationalContext(sessionUser, { module: "gym.memberships", write: true });
   } catch (err) {
     if (err instanceof OperationalContextError) return { error: err.userMessage };
     throw err;
@@ -666,7 +675,7 @@ export async function deletePlanAction(
 
   let handle;
   try {
-    handle = await requireOperationalContext(sessionUser, { module: "gym.memberships", write: true });
+    handle = await requireLiveOperationalContext(sessionUser, { module: "gym.memberships", write: true });
   } catch (err) {
     if (err instanceof OperationalContextError) return { error: err.userMessage };
     throw err;
@@ -724,7 +733,7 @@ export async function deleteClientMembershipAction(
 
   let handle;
   try {
-    handle = await requireOperationalContext(sessionUser, { module: "gym.memberships", write: true });
+    handle = await requireLiveOperationalContext(sessionUser, { module: "gym.memberships", write: true });
   } catch (err) {
     if (err instanceof OperationalContextError) return { error: err.userMessage };
     throw err;
@@ -774,7 +783,7 @@ export async function toggleClientMembershipStatusAction(
 
   let handle;
   try {
-    handle = await requireOperationalContext(sessionUser, { module: "gym.memberships", write: true });
+    handle = await requireLiveOperationalContext(sessionUser, { module: "gym.memberships", write: true });
   } catch {
     return;
   }

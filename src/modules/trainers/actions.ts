@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import type { UserRole } from "@prisma/client";
+import { getCapabilities } from "@/core/permissions/role-capabilities";
 import {
   requireAdmin,
   canManageTrainer,
@@ -20,9 +21,9 @@ import {
 } from "./schemas";
 import { checkAvailabilitySlotCanBeRemoved } from "./availability-validator";
 import {
-  requireOperationalContext,
   OperationalContextError,
 } from "@/modules/platform/runtime/require-operational-context";
+import { requireLiveOperationalContext } from "@/modules/platform/runtime/require-live-operational-context";
 
 export type TrainerActionState =
   | { errors?: Record<string, string[]>; error?: string }
@@ -59,7 +60,7 @@ export async function createTrainerAction(
 
   let handle;
   try {
-    handle = await requireOperationalContext(sessionUser, { module: "gym.trainers", write: true });
+    handle = await requireLiveOperationalContext(sessionUser, { module: "gym.trainers", write: true });
   } catch (err) {
     if (err instanceof OperationalContextError) return { error: err.userMessage };
     throw err;
@@ -68,6 +69,10 @@ export async function createTrainerAction(
 
   try {
     const effectiveRole = context.effectiveUser.role;
+    // LIVE-3: la misma capacidad que exige requireAdmin (JWT), con el rol LIVE.
+    if (!getCapabilities(effectiveRole as UserRole).canManageStaff) {
+      return { error: "Sin permisos para esta operación." };
+    }
     const raw = parseTrainerFormData(formData);
 
     // branch_admin solo puede crear en su sucursal
@@ -137,7 +142,7 @@ export async function updateTrainerAction(
 
   let handle;
   try {
-    handle = await requireOperationalContext(sessionUser, { module: "gym.trainers", write: true });
+    handle = await requireLiveOperationalContext(sessionUser, { module: "gym.trainers", write: true });
   } catch (err) {
     if (err instanceof OperationalContextError) return { error: err.userMessage };
     throw err;
@@ -220,7 +225,7 @@ export async function deleteTrainerAction(
 
   let handle;
   try {
-    handle = await requireOperationalContext(sessionUser, { module: "gym.trainers", write: true });
+    handle = await requireLiveOperationalContext(sessionUser, { module: "gym.trainers", write: true });
   } catch (err) {
     if (err instanceof OperationalContextError) return { error: err.userMessage };
     throw err;
@@ -298,7 +303,7 @@ export async function toggleTrainerStatusAction(
 
   let handle;
   try {
-    handle = await requireOperationalContext(sessionUser, { module: "gym.trainers", write: true });
+    handle = await requireLiveOperationalContext(sessionUser, { module: "gym.trainers", write: true });
   } catch {
     return;
   }
@@ -340,7 +345,7 @@ export async function addAvailabilitySlotAction(
 
   let handle;
   try {
-    handle = await requireOperationalContext(sessionUser, { module: "gym.trainers", write: true });
+    handle = await requireLiveOperationalContext(sessionUser, { module: "gym.trainers", write: true });
   } catch (err) {
     if (err instanceof OperationalContextError) return { error: err.userMessage };
     throw err;
@@ -423,7 +428,7 @@ export async function removeAvailabilitySlotAction(
 
   let handle;
   try {
-    handle = await requireOperationalContext(sessionUser, { module: "gym.trainers", write: true });
+    handle = await requireLiveOperationalContext(sessionUser, { module: "gym.trainers", write: true });
   } catch (err) {
     if (err instanceof OperationalContextError) return { error: err.userMessage };
     throw err;

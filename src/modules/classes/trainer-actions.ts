@@ -21,10 +21,10 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireClassViewer } from "@/lib/permissions/guards";
 import {
-  requireOperationalContext,
   OperationalContextError,
   type OperationalContextHandle,
 } from "@/modules/platform/runtime/require-operational-context";
+import { requireLiveOperationalContext } from "@/modules/platform/runtime/require-live-operational-context";
 import { createGymBookingService, resolveIdempotencyKey } from "./booking/booking-service";
 import { createSessionActivityService } from "./booking/session-activities";
 import { gymBookingErrorMessage } from "./booking/booking-messages";
@@ -70,7 +70,7 @@ async function openTrainerOperation(opts: { allowAdmin: boolean }): Promise<Open
   const sessionUser = await requireClassViewer();
   let handle: OperationalContextHandle;
   try {
-    handle = await requireOperationalContext(sessionUser, { module: "gym.classes", write: true });
+    handle = await requireLiveOperationalContext(sessionUser, { module: "gym.classes", write: true });
   } catch (err) {
     if (err instanceof OperationalContextError) return { ok: false, error: err.userMessage };
     throw err;

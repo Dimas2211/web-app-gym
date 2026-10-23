@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import type { UserRole } from "@prisma/client";
+import { getCapabilities } from "@/core/permissions/role-capabilities";
 import {
   requireAdmin,
   canManageUser,
@@ -21,9 +22,9 @@ import {
   toggleCoreUserStatus,
 } from "@/core/modules/users/actions";
 import {
-  requireOperationalContext,
   OperationalContextError,
 } from "@/modules/platform/runtime/require-operational-context";
+import { requireLiveOperationalContext } from "@/modules/platform/runtime/require-live-operational-context";
 import { CommercialEnforcementError } from "@/modules/platform/runtime/commercial-enforcement";
 import { resolveOptionalGymForTenant } from "@/modules/platform/lib/provisioning/resolve-optional-gym-for-tenant";
 
@@ -58,7 +59,7 @@ export async function createUserAction(
 
   let handle;
   try {
-    handle = await requireOperationalContext(sessionUser, { module: "core.users", write: true });
+    handle = await requireLiveOperationalContext(sessionUser, { module: "core.users", write: true });
   } catch (err) {
     if (err instanceof OperationalContextError) return { error: err.userMessage };
     throw err;
@@ -67,6 +68,10 @@ export async function createUserAction(
 
   try {
     const gymUser = toGymSessionUser(context.effectiveUser);
+    // LIVE-3: la misma capacidad que exige requireAdmin (JWT), con el rol LIVE.
+    if (!getCapabilities(gymUser.role).canManageStaff) {
+      return { error: "Sin permisos para esta operación." };
+    }
 
     const raw = {
       email: formData.get("email"),
@@ -157,7 +162,7 @@ export async function updateUserAction(
 
   let handle;
   try {
-    handle = await requireOperationalContext(sessionUser, { module: "core.users", write: true });
+    handle = await requireLiveOperationalContext(sessionUser, { module: "core.users", write: true });
   } catch (err) {
     if (err instanceof OperationalContextError) return { error: err.userMessage };
     throw err;
@@ -290,7 +295,7 @@ export async function deleteUserAction(
 
   let handle;
   try {
-    handle = await requireOperationalContext(sessionUser, { module: "core.users", write: true });
+    handle = await requireLiveOperationalContext(sessionUser, { module: "core.users", write: true });
   } catch (err) {
     if (err instanceof OperationalContextError) return { error: err.userMessage };
     throw err;
@@ -359,7 +364,7 @@ export async function toggleUserStatusAction(formData: FormData): Promise<void> 
 
   let handle;
   try {
-    handle = await requireOperationalContext(sessionUser, { module: "core.users", write: true });
+    handle = await requireLiveOperationalContext(sessionUser, { module: "core.users", write: true });
   } catch {
     // Fail closed silencioso — este action retorna void (sin canal de
     // error); el estado no cambia.

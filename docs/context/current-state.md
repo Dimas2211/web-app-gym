@@ -49,7 +49,14 @@
     - En `RUNTIME_CLIENT` fallaba solo la sede reasignada.
     - Corrección: `liveGymAdminScope` revalida al usuario en la base efectiva (activo, tenant, rol = sesión, SA/BA, sede vigente y activa).
     - Sin cambios en `requireOperationalContext`; sin migración. Suite 3124/3124; navegador GYM-4 61/61.
-    - Residual: las demás escrituras administrativas GYM siguen con el contrato de plataforma (JWT en modo nativo).
+    - Residual (cerrado por LIVE-3): las demás escrituras administrativas GYM seguían con el contrato de plataforma (JWT en modo nativo).
+  - **LIVE-3 (2026-10-23)**, misma rama.
+    - Los **80 entry points de escritura GYM** (`classes`, `clients`, `memberships`, `trainers`, `settings`, `weekly-plans`, `client-portal`, `users`) usan `requireLiveOperationalContext` (`platform/runtime/require-live-operational-context.ts`): identidad vigente en la base efectiva (usuario activo, tenant, rol = sesión; BA y recepción con su sede vigente y activa). `requireOperationalContext` no cambió.
+    - Rojo contra `81ba338`, con contexto real: en PLATFORM_NATIVE, 36 operaciones escribían tras la revocación; en RUNTIME_CLIENT, 30 (sede reasignada, y 7 acciones sin capacidad LIVE).
+    - Las 7 acciones corregidas con la capacidad de su guard: alta de cliente, plan, membresía, usuario, entrenador y tipos de clase.
+    - Recepción, entrenadores y alumnos conservan sus permisos.
+    - Suite 3213/3213; navegador GYM-4 61/61; sin migración.
+    - Riesgos de plataforma que permanecen: sin revocación global de sesión, lecturas, otros módulos y TOCTOU.
 - commerce/cash cerrado y operativo — apertura/cierre de sesión, movimientos manuales, corte de caja, historial, exportación PDF/Excel, asociación automática venta → sesión. Ver docs/modules/cash-summary.md.
 
 ## Identidad activa

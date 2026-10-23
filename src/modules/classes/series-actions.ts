@@ -12,10 +12,10 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireAdmin } from "@/lib/permissions/guards";
 import {
-  requireOperationalContext,
   OperationalContextError,
   type OperationalContextHandle,
 } from "@/modules/platform/runtime/require-operational-context";
+import { requireLiveOperationalContext } from "@/modules/platform/runtime/require-live-operational-context";
 import { createClassSeriesSchema, updateClassSeriesSchema } from "./schemas";
 import { loadGymBookingPolicy } from "./booking/booking-service";
 import { dateOnly } from "./booking/booking-eligibility";
@@ -35,7 +35,7 @@ function n(v: FormDataEntryValue | null): string | null {
 async function openClassesWriteContext(): Promise<{ ok: true; handle: OperationalContextHandle } | { ok: false; error: string }> {
   const sessionUser = await requireAdmin();
   try {
-    return { ok: true, handle: await requireOperationalContext(sessionUser, { module: "gym.classes", write: true }) };
+    return { ok: true, handle: await requireLiveOperationalContext(sessionUser, { module: "gym.classes", write: true }) };
   } catch (err) {
     if (err instanceof OperationalContextError) return { ok: false, error: err.userMessage };
     throw err;

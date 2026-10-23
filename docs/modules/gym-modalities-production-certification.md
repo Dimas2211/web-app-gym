@@ -218,6 +218,227 @@ Ajustes de pruebas existentes:
   expectativas no cambian.
 - F3.5b: espera el mensaje de identidad cambiada; las 4 aserciones de cero escrituras se mantienen.
 
+## 4c. LIVE-3 — perímetro de escritura GYM con identidad vigente
+
+Alcance: **80 entry points de escritura** (Server Actions) en:
+
+- `classes`, `clients`, `memberships`, `trainers`, `settings`, `weekly-plans`;
+- `client-portal` y `users` (alta de usuarios y su vínculo con entrenadores).
+
+Todos pasan por `requireOperationalContext`. No hay escrituras fuera de él.
+
+### Dos conceptos separados
+
+| Concepto | Qué garantiza | Dónde |
+|---|---|---|
+| **A. Identidad vigente** | usuario existente y activo en la base efectiva, del tenant efectivo, con el rol de la sesión. Para roles de sede (`branch_admin`, `reception`), además, su sede vigente (`users.branch_id`) es la de la sesión y está activa | `assertLiveIdentity` / `requireLiveOperationalContext` (`src/modules/platform/runtime/require-live-operational-context.ts`, módulo nuevo y opcional) |
+| **B. Autorización de la operación** | capacidad del rol, módulo, sede y recurso | cada acción, sin cambios salvo las 7 brechas de la tabla siguiente |
+
+Con A garantizado, las comprobaciones existentes de B, que usan `context.effectiveUser.role` y `context.locationId`, operan
+sobre el rol y la sede **vigentes** también en PLATFORM_NATIVE.
+
+- `trainer` y `client` no tienen chequeo de sede: el alcance del entrenador es su perfil `Trainer` (activo, vinculado y
+  de su sede) y el del alumno, su `Client`.
+- Support Session conserva `readOnly`: `requireOperationalContext` rechaza sus escrituras antes de llegar aquí.
+- `requireOperationalContext` no se modificó, ni tampoco sus consumidores de lectura, Commerce, DTE ni plataforma.
+
+### Matriz de escrituras (80)
+
+L2 = `live-identity.integration.test.ts`; L3 = `live-perimeter.integration.test.ts`. Ambas usan contexto operacional real
+y cambian la identidad en PostgreSQL. «Envoltorio común» = la misma capa A, ejercida en L3 por 41 operaciones en ambos
+modos; su autorización B ya tenía pruebas en suites previas.
+
+| Archivo | Acción | Guard JWT | Roles permitidos (rol LIVE) | Módulo | Identidad vigente | Prueba con contexto real |
+|---|---|---|---|---|---|---|
+| clients/actions.ts | `createClientAction` | requireClientManager | SA · BA · RC (su sede) | gym.classes | sí | L3 (NORMAL rc, GROUP ba) |
+| clients/actions.ts | `updateClientAction` | requireClientManager | SA · BA · RC (su sede) | — | sí | L3 |
+| clients/actions.ts | `changeClientModalityAction` | requireClientManager | SA · BA · RC (su sede) | gym.classes | sí | L3 |
+| clients/actions.ts | `enableClientPortalAction` | requireClientManager | SA · BA · RC (su sede) | — | sí | L3 |
+| clients/actions.ts | `toggleClientPortalStatusAction` | requireClientManager | SA · BA · RC (su sede) | — | sí | envoltorio común · suites previas |
+| clients/actions.ts | `updateClientPortalEmailAction` | requireClientManager | SA · BA · RC (su sede) | — | sí | envoltorio común · suites previas |
+| clients/actions.ts | `resetClientPortalPasswordAction` | requireClientManager | SA · BA · RC (su sede) | — | sí | envoltorio común · suites previas |
+| clients/actions.ts | `deleteClientAction` | getSessionOrRedirect | según el recurso (`canManage*` / `authorizePlan`) con el rol LIVE | — | sí | envoltorio común · suites previas |
+| clients/actions.ts | `toggleClientStatusAction` | requireClientManager | SA · BA · RC (su sede) | — | sí | L3 |
+| memberships/actions.ts | `createPlanAction` | requireAdmin | SA · BA (su sede) | gym.memberships | sí | L3 |
+| memberships/actions.ts | `updatePlanAction` | requireAdmin | SA · BA (su sede) | gym.memberships | sí | L3 |
+| memberships/actions.ts | `togglePlanStatusAction` | requireAdmin | SA · BA (su sede) | gym.memberships | sí | L3 |
+| memberships/actions.ts | `createClientMembershipAction` | requireMembershipManager | SA · BA · RC (su sede) | gym.memberships | sí | L3 |
+| memberships/actions.ts | `updateClientMembershipAction` | requireMembershipManager | SA · BA · RC (su sede) | gym.memberships | sí | L3 |
+| memberships/actions.ts | `deletePlanAction` | getSessionOrRedirect | según el recurso (`canManage*` / `authorizePlan`) con el rol LIVE | gym.memberships | sí | envoltorio común · suites previas |
+| memberships/actions.ts | `deleteClientMembershipAction` | getSessionOrRedirect | según el recurso (`canManage*` / `authorizePlan`) con el rol LIVE | gym.memberships | sí | envoltorio común · suites previas |
+| memberships/actions.ts | `toggleClientMembershipStatusAction` | requireMembershipManager | SA · BA · RC (su sede) | gym.memberships | sí | L3 |
+| settings/actions.ts | `updateGymAction` | requireGlobalAdmin | SA | (helper) | sí | envoltorio común · suites previas |
+| settings/actions.ts | `createSportAction` | requireSuperAdmin | SA de plataforma (PLATFORM) | — | sí | envoltorio común · suites previas |
+| settings/actions.ts | `updateSportAction` | requireSuperAdmin | SA de plataforma (PLATFORM) | — | sí | envoltorio común · suites previas |
+| settings/actions.ts | `toggleSportStatusAction` | requireSuperAdmin | SA de plataforma (PLATFORM) | — | sí | envoltorio común · suites previas |
+| settings/actions.ts | `createGoalAction` | requireSuperAdmin | SA de plataforma (PLATFORM) | — | sí | envoltorio común · suites previas |
+| settings/actions.ts | `updateGoalAction` | requireSuperAdmin | SA de plataforma (PLATFORM) | — | sí | envoltorio común · suites previas |
+| settings/actions.ts | `toggleGoalStatusAction` | requireSuperAdmin | SA de plataforma (PLATFORM) | — | sí | envoltorio común · suites previas |
+| settings/actions.ts | `updateGymSettingsAction` | requireGlobalAdmin | SA | (helper) | sí | envoltorio común · suites previas |
+| settings/actions.ts | `updateGymBookingPolicyAction` | requireGlobalAdmin | SA | (helper) | sí | L3 |
+| settings/actions.ts | `updateUserOperationalCodeAction` | requireAdmin | SA · BA (su sede) | core.users | sí | envoltorio común · suites previas |
+| settings/actions.ts | `updateClientOperationalCodeAction` | requireClientManager | SA · BA · RC (su sede) | — | sí | envoltorio común · suites previas |
+| settings/actions.ts | `generateClientQrTokenAction` | requireClientManager | SA · BA · RC (su sede) | — | sí | envoltorio común · suites previas |
+| trainers/actions.ts | `createTrainerAction` | requireAdmin | SA · BA (su sede) | gym.trainers | sí | L3 |
+| trainers/actions.ts | `updateTrainerAction` | requireAdmin | SA · BA (su sede) | gym.trainers | sí | L3 |
+| trainers/actions.ts | `deleteTrainerAction` | getSessionOrRedirect | según el recurso (`canManage*` / `authorizePlan`) con el rol LIVE | gym.trainers | sí | envoltorio común · suites previas |
+| trainers/actions.ts | `toggleTrainerStatusAction` | requireAdmin | SA · BA (su sede) | gym.trainers | sí | L3 |
+| trainers/actions.ts | `addAvailabilitySlotAction` | requireAdmin | SA · BA (su sede) | gym.trainers | sí | L3 |
+| trainers/actions.ts | `removeAvailabilitySlotAction` | requireAdmin | SA · BA (su sede) | gym.trainers | sí | L3 |
+| trainers/time-off-actions.ts | `createTrainerTimeOffAction` | requireAdmin | SA · BA (su sede) | gym.trainers | sí | L3 |
+| trainers/time-off-actions.ts | `updateTrainerTimeOffAction` | requireAdmin | SA · BA (su sede) | gym.trainers | sí | L3 |
+| trainers/time-off-actions.ts | `deactivateTrainerTimeOffAction` | requireAdmin | SA · BA (su sede) | gym.trainers | sí | L3 |
+| users/actions.ts | `createUserAction` | requireAdmin | SA · BA (su sede) | core.users | sí | L3 (rol trainer) |
+| users/actions.ts | `updateUserAction` | requireAdmin | SA · BA (su sede) | core.users | sí | envoltorio común · suites previas |
+| users/actions.ts | `deleteUserAction` | getSessionOrRedirect | según el recurso (`canManage*` / `authorizePlan`) con el rol LIVE | core.users | sí | envoltorio común · suites previas |
+| users/actions.ts | `toggleUserStatusAction` | requireAdmin | SA · BA (su sede) | core.users | sí | envoltorio común · suites previas |
+| classes/actions.ts | `createClassTypeAction` | requireAdmin | SA · BA (su sede) | gym.classes | sí | L3 |
+| classes/actions.ts | `updateClassTypeAction` | requireAdmin | SA · BA (su sede) | gym.classes | sí | L3 |
+| classes/actions.ts | `toggleClassTypeStatusAction` | requireAdmin | SA · BA (su sede) | gym.classes | sí | L3 |
+| classes/actions.ts | `createScheduledClassAction` | requireAdmin | SA · BA (su sede) | gym.classes | sí | L2 + L3 |
+| classes/actions.ts | `updateScheduledClassAction` | requireAdmin | SA · BA (su sede) | gym.classes | sí | L2 + L3 |
+| classes/actions.ts | `toggleScheduledClassStatusAction` | requireAdmin | SA · BA (su sede) | gym.classes | sí | L2 + L3 |
+| classes/actions.ts | `deleteScheduledClassAction` | requireAdmin | SA · BA (su sede) | gym.classes | sí | L2 + L3 |
+| classes/actions.ts | `createBookingAction` | requireMembershipManager | SA · BA · RC (su sede) | gym.classes | sí | L3 |
+| classes/actions.ts | `cancelBookingAction` | requireMembershipManager | SA · BA · RC (su sede) | gym.classes | sí | L3 |
+| classes/actions.ts | `recordAttendanceAction` | requireMembershipManager | SA · BA · RC (su sede) | gym.classes | sí | L3 |
+| classes/series-actions.ts | `createClassSeriesAction` | requireAdmin | SA · BA (su sede) | gym.classes | sí | L3 |
+| classes/series-actions.ts | `updateClassSeriesAction` | requireAdmin | SA · BA (su sede) | gym.classes | sí | L3 |
+| classes/series-actions.ts | `toggleClassSeriesStatusAction` | requireAdmin | SA · BA (su sede) | gym.classes | sí | L3 |
+| classes/series-actions.ts | `generateClassSeriesSessionsAction` | requireAdmin | SA · BA (su sede) | gym.classes | sí | L3 |
+| classes/activities-actions.ts | `createGymActivityAction` | requireAdmin | SA · BA (su sede) | gym.classes | sí | L3 |
+| classes/activities-actions.ts | `updateGymActivityAction` | requireAdmin | SA · BA (su sede) | gym.classes | sí | L3 |
+| classes/activities-actions.ts | `toggleGymActivityStatusAction` | requireAdmin | SA · BA (su sede) | gym.classes | sí | L3 |
+| classes/trainer-actions.ts | `trainerRecordAttendanceAction` | requireClassViewer | SA · BA · RC · TR (según la acción) | gym.classes | sí | L3 |
+| classes/trainer-actions.ts | `saveTrainingNotesAction` | requireClassViewer | SA · BA · RC · TR (según la acción) | gym.classes | sí | L3 |
+| classes/trainer-actions.ts | `addSessionActivityAction` | requireClassViewer | SA · BA · RC · TR (según la acción) | gym.classes | sí | L3 |
+| classes/trainer-actions.ts | `addAttendanceActivityAction` | requireClassViewer | SA · BA · RC · TR (según la acción) | gym.classes | sí | envoltorio común · suites previas |
+| weekly-plans/actions.ts | `createTemplateAction` | requireAdmin | SA · BA (su sede) | gym.weekly_plans | sí | L3 |
+| weekly-plans/actions.ts | `updateTemplateAction` | requireAdmin | SA · BA (su sede) | gym.weekly_plans | sí | envoltorio común · suites previas |
+| weekly-plans/actions.ts | `toggleTemplateStatusAction` | requireAdmin | SA · BA (su sede) | gym.weekly_plans | sí | envoltorio común · suites previas |
+| weekly-plans/actions.ts | `upsertTemplateDayAction` | requireAdmin | SA · BA (su sede) | gym.weekly_plans | sí | envoltorio común · suites previas |
+| weekly-plans/actions.ts | `deleteTemplateDayAction` | getSessionOrRedirect | según el recurso (`canManage*` / `authorizePlan`) con el rol LIVE | gym.weekly_plans | sí | envoltorio común · suites previas |
+| weekly-plans/actions.ts | `createClientPlanAction` | requireClassViewer | SA · BA · RC · TR (según la acción) | gym.weekly_plans | sí | L3 |
+| weekly-plans/actions.ts | `updateClientPlanAction` | requireClassViewer | SA · BA · RC · TR (según la acción) | gym.weekly_plans | sí | envoltorio común · suites previas |
+| weekly-plans/actions.ts | `toggleClientPlanStatusAction` | requireClassViewer | SA · BA · RC · TR (según la acción) | gym.weekly_plans | sí | L3 |
+| weekly-plans/actions.ts | `updateClientPlanDayAction` | requireClassViewer | SA · BA · RC · TR (según la acción) | gym.weekly_plans | sí | envoltorio común · suites previas |
+| weekly-plans/actions.ts | `recordPlanExecutionAction` | requireClassViewer | SA · BA · RC · TR (según la acción) | gym.weekly_plans | sí | L3 |
+| weekly-plans/actions.ts | `addClientPlanDayAction` | requireClassViewer | SA · BA · RC · TR (según la acción) | gym.weekly_plans | sí | envoltorio común · suites previas |
+| weekly-plans/actions.ts | `assignTemplateSegmentedAction` | requireAdmin | SA · BA (su sede) | gym.weekly_plans | sí | L3 |
+| weekly-plans/actions.ts | `deleteTemplateAction` | getSessionOrRedirect | según el recurso (`canManage*` / `authorizePlan`) con el rol LIVE | gym.weekly_plans | sí | envoltorio común · suites previas |
+| weekly-plans/actions.ts | `deleteClientPlanAction` | getSessionOrRedirect | según el recurso (`canManage*` / `authorizePlan`) con el rol LIVE | gym.weekly_plans | sí | envoltorio común · suites previas |
+| client-portal/actions.ts | `bookClassAction` | requireClient | Alumno | gym.classes | sí | L3 |
+| client-portal/actions.ts | `cancelBookingAction` | requireClient | Alumno | gym.classes | sí | envoltorio común · 3B |
+| client-portal/actions.ts | `submitPlanDayAction` | requireClient | Alumno | gym.weekly_plans | sí | L3 |
+
+Sedes:
+
+- BA y recepción están limitados a su sede: la identidad vigente exige que sea la de la sesión, y la acción acota los
+  recursos a ella.
+- SA opera todo el tenant.
+- El entrenador, su perfil (`Trainer.branch_id`).
+- El alumno, su `Client` en el tenant del contexto.
+
+### Escenarios (contexto real, PLATFORM_NATIVE y RUNTIME_CLIENT)
+
+| Escenario | Cambio en la base con el JWT antiguo vigente | Esperado |
+|---|---|---|
+| G / H / I legítimo | ninguno. H = operaciones de recepción (alta de cliente, venta, edición y estado de membresía, portal, reservas y asistencia del staff). I = operaciones del entrenador (asistencia, notas y actividad TRAINER, plan 5A y ejecución) | **escribe** |
+| A / B rol degradado | BA→recepción, SA→recepción, recepción→entrenador, entrenador→recepción (→alumno donde recepción tiene el permiso legítimamente: crear o alternar planes 5A), alumno→recepción | 0 escrituras |
+| C sede reasignada | `users.branch_id` A → B (BA y recepción) | 0 |
+| D usuario inactivo | `users.status = inactive` | 0 |
+| E otro tenant | usuario movido a otro tenant | 0 |
+| F sede inactiva | sede A desactivada (BA y recepción) | 0 |
+
+Cada intento prepara datos propios. Se compara una huella md5 de 22 tablas GYM e identidad antes y después: users,
+clients, historial de modalidad, class_types, planes, membresías, gym_settings, trainers, disponibilidad, ausencias,
+series, sesiones, actividades, reservas, eventos, operaciones, asistencia, plantillas, planes, días y ejecuciones 5A.
+
+**41 operaciones × 2 modos = 82 pruebas y 464 intentos** (82 legítimos y 382 revocados).
+
+### Defectos confirmados (ROJO contra `81ba338`)
+
+| Modo | Operaciones que escribían tras la revocación | Casos |
+|---|---|---|
+| PLATFORM_NATIVE | **36 de 38** medidas (todas salvo las 2 de agenda ya cubiertas por LIVE-2): A/B 36, C 29, D 36, E 36, F 28 | 165 |
+| RUNTIME_CLIENT | **30 de 41**. C (sede reasignada): 27 operaciones de BA/recepción. A/B (rol LIVE degradado): 7 | 34 |
+
+Las 3 operaciones agregadas al final (alta de entrenador, alta de tipo de clase y edición/alternancia de tipo de clase)
+se midieron en rojo con la capa A ya aplicada: no tienen medición nativa contra `81ba338`.
+
+Brechas de autorización (concepto B, RUNTIME_CLIENT) con rol LIVE sin la capacidad. Solo las verificaba el guard JWT:
+
+| Acción | Rol LIVE que escribía | Capacidad exigida por su guard JWT |
+|---|---|---|
+| `createClientAction` | trainer | `canManageMembers` (`requireClientManager`) |
+| `createPlanAction` | reception | `canManageStaff` (`requireAdmin`) |
+| `createClientMembershipAction` | trainer | `canManageMembers` (`requireMembershipManager`) |
+| `createUserAction` | reception | `canManageStaff` (`requireAdmin`) |
+| `createTrainerAction` | reception | `canManageStaff` (`requireAdmin`) |
+| `createClassTypeAction`, `updateClassTypeAction`, `toggleClassTypeStatusAction` | reception | `canManageStaff` (`requireAdmin`) |
+
+**No son defectos** (con evidencia, sin ajustar la prueba para obtener verde):
+
+- Un entrenador degradado a recepción que crea un plan 5A, o un BA degradado a recepción que alterna un plan 5A: es un
+  permiso **legítimo de recepción** en su sede (contrato 5A). El escenario de esas dos operaciones degrada a alumno.
+- Deportes y objetivos: `requireSuperAdmin` exige `auth_scope = PLATFORM`, así que son inalcanzables desde
+  RUNTIME_CLIENT. En modo nativo los cubre la capa A.
+
+### Correcciones
+
+1. `requireLiveOperationalContext` en los 80 entry points: un reemplazo mecánico de la llamada y del import, sin otros
+   cambios de lógica.
+2. Capacidad LIVE en las 7 acciones de la tabla: la misma que ya exige su guard JWT, evaluada con el rol LIVE.
+   - **Recepción conserva**: alta de cliente NORMAL, venta, edición y estado de membresía, portal, y reservas y
+     asistencia del staff.
+   - **El entrenador conserva**: canal TRAINER y planes 5A propios.
+3. `liveGymAdminScope` (LIVE-2) se reescribió sobre `assertLiveIdentity`: una sola fuente de verdad, mismo
+   comportamiento.
+
+### Pruebas añadidas y ajustadas
+
+- `live-perimeter.integration.test.ts`: 82 pruebas (464 intentos).
+- `require-live-operational-context.test.ts`: 7 unitarias. Cubren cada regla, la promoción posterior al login, el
+  entrenador y el alumno sin sede, el usuario heredado con `tenant_id` NULL y Support Session.
+- 12 suites unitarias que simulan `requireOperationalContext` ahora simulan también el envoltorio, que delega en su
+  mock. **Sin cambiar expectativas.**
+- `stage3a.integration.test.ts` S3 / A5: simulan un rol LIVE degradado con la base intacta. El rechazo llega ahora con
+  «Tu rol o tu sede cambiaron…» en lugar de «Sin permisos…». Sigue denegado y sin escrituras.
+
+### Resultados
+
+| Validación | Resultado |
+|---|---|
+| `npx prisma validate` / `npx tsc --noEmit` | válido / 0 errores |
+| `npx vitest run` (PostgreSQL desechable) | **275 archivos, 3213/3213**, 0 omitidas (3124 + 82 + 7) |
+| Certificación 41 + LIVE-2 17 + LIVE-3 82 | verdes (incluidos en la suite) |
+| Suites GYM-3 / GYM-4 / GYM-5A / 5B / 5C, recepción (`clients`, `memberships`, `classes`), usuarios (`role-escalation`), Commerce y DTE | verdes (incluidas en la suite). **Sin cambios** en `commerce/`, `dte/` ni `prisma/` |
+| `npm run lint` | 0 errores (0 en archivos tocados) |
+| `npm run build` | OK |
+| Navegador GYM-4 (Chromium real) sobre el build final | **61/61** |
+
+### Alcance de la revocación LIVE (lo que esta fase NO es)
+
+- **No hay revocación instantánea global de sesión.** El JWT sigue vigente hasta 8 h. Lo que cambia es que las **80
+  escrituras auditadas** revalidan la identidad en cada petición.
+- **Lecturas y páginas** (listados, fichas, panel 5C, portal) no pasan por la capa A. Las páginas de clases y planes ya
+  usan rol y sede LIVE (GYM-4 H01, 5A, 5C). El resto de lecturas sigue con el contrato de plataforma.
+- **Fuera de los módulos auditados**: otros entry points de escritura de Commerce, DTE y plataforma no se tocaron.
+  Commerce ya tiene su frontera (`assertCommerceOperatorAccess`).
+- **Ventana residual (TOCTOU)**: la identidad se lee al inicio de la acción, sin lock. Una revocación que confirme
+  durante la misma petición, en milisegundos, no la detiene. No se agregó un lock de `users`, para no alterar el orden
+  global de locks del motor.
+
+### Compatibilidad
+
+- **PLATFORM_NATIVE** (Power Gym): el JWT copia `users.role/tenant_id/branch_id` al iniciar sesión. Un usuario sin
+  cambios desde su login sigue operando igual. Cualquier cambio de rol (también una **promoción**), sede, estado o
+  tenant exige iniciar sesión de nuevo. Los usuarios heredados con `tenant_id` NULL coherente siguen operando.
+- **RUNTIME_CLIENT**: la plataforma ya revalidaba estado, tenant y rol. LIVE-3 añade la sede asignada vigente y las 7
+  comprobaciones de capacidad.
+- **Support Session**: sin cambios (solo lectura).
+- **NORMAL / OPEN**: sin cambios de reglas (controles legítimos de reserva, cancelación y asistencia OPEN en L3).
+
 ## 5. Contadores de reservas y sesiones (fin del escenario)
 
 | Membresía | `sessions_used` | Motivo |
@@ -386,14 +607,21 @@ desactivados. **No se borra nada** de forma destructiva.
 
 ## 13. Riesgos
 
-- **LIVE-2, alcance**: la identidad vigente se exige en las 4 acciones de agenda. **Otras escrituras administrativas
-  GYM** (series, actividades, ausencias, política, planes, membresías y modalidad del cliente) siguen usando
-  `gymAdminScope(context)` o guards del JWT. En `PLATFORM_NATIVE` (Power Gym) confían en el rol, la sede y el estado
-  del JWT hasta su expiración (8 h). En `RUNTIME_CLIENT`, en la sede del JWT. Es el contrato vigente de plataforma
-  (`requireOperationalContext`). Cerrarlo de forma global (revalidar identidad en modo nativo, o reemplazar
-  `gymAdminScope` por `liveGymAdminScope` en esas acciones) es una tarea separada, que no se amplió aquí.
-- **Ventana de exposición** en esas otras acciones: hasta que caduque el JWT (8 h). No hay revocación por usuario (JWT
-  sin estado). Cambiar la contraseña no invalida el token; rotar `AUTH_SECRET` sí, pero cierra **todas** las sesiones.
+**Corregido en esta rama** (ya no es riesgo): el residual de LIVE-2 («otras escrituras GYM confían en el JWT»). LIVE-3
+exige la identidad vigente en los 80 entry points de escritura auditados (§4c).
+
+**Riesgos de plataforma que permanecen:**
+
+- **Sin revocación global de sesión**: el JWT dura 8 h y no hay revocación por usuario (JWT sin estado). Cambiar la
+  contraseña no invalida el token; rotar `AUTH_SECRET` sí, pero cierra **todas** las sesiones. LIVE-3 protege solo los
+  80 entry points auditados.
+- **Lecturas**: las páginas y consultas fuera de clases y planes siguen con el contrato de plataforma (rol y sede del
+  JWT en PLATFORM_NATIVE). Podrían **mostrar** datos a un usuario revocado hasta que expire su sesión; no pueden
+  escribirlos.
+- **Otros módulos** (Commerce, DTE, plataforma) no se auditaron en LIVE-3.
+- **TOCTOU**: una revocación que confirme durante la misma petición no se detiene (milisegundos; sin lock de `users`).
+- **Efecto operativo**: en PLATFORM_NATIVE, todo cambio de rol, sede, estado o tenant de un usuario (incluida una
+  promoción) le exige volver a iniciar sesión para escribir.
 - Runtime Shared sin la migración de 5A: los tenants de esa base ven el aviso «seguimiento no disponible» en 5B/5C.
 - Power Gym tiene 3 de 4 entrenadores sin usuario: no pueden usar «Mi agenda» ni el canal TRAINER hasta vincularlos.
 - Reactivación tras cancelación del staff (§9-D) abierta.
@@ -405,18 +633,22 @@ desactivados. **No se borra nada** de forma destructiva.
 3. Corrección o retiro de actividades (§9-C).
 4. Re-reserva tras cancelación del staff (§9-D).
 5. Autorización del piloto en Power Gym (§10) y de la forma de venta de prueba (precio 0 o pago simulado).
-6. Publicación de esta rama (LIVE-1) antes del piloto.
+6. Publicación de esta rama (LIVE-1/2/3) antes del piloto.
+7. Si se quiere extender la identidad vigente a las lecturas y a otros módulos, o una revocación de sesión por usuario
+   (tarea de plataforma).
 
 ## 15. Dictamen técnico
 
-PERSONALIZED y GROUP cumplen técnicamente el alcance aprobado (2A–5C). En esta rama se reprodujeron y corrigieron dos
+PERSONALIZED y GROUP cumplen técnicamente el alcance aprobado (2A–5C). En esta rama se reprodujeron y corrigieron tres
 defectos de autorización:
 
 - **LIVE-1**: rol LIVE en la agenda.
 - **LIVE-2**: identidad vigente (estado, tenant, rol y sede) en las 4 acciones de agenda, incluido PLATFORM_NATIVE, que
   es el modo de Power Gym.
+- **LIVE-3**: identidad vigente en los **80 entry points de escritura GYM**, más la capacidad LIVE en 7 acciones que
+  solo la verificaban con el JWT. Recepción, entrenadores y alumnos conservan sus permisos legítimos.
 
-Las demás escrituras administrativas GYM conservan el contrato de plataforma (§13).
+Los riesgos de plataforma restantes (sin revocación global, lecturas, otros módulos y TOCTOU) están en §13.
 
 - La certificación es **local** (integración real y navegador GYM-4) y se complementa con un preflight productivo de
   solo lectura.
