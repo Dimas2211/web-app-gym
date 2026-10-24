@@ -47,6 +47,12 @@ import type {
   CustomersImportDryRunResult,
   CustomersImportResult,
 } from "../../../types/platform.types";
+import {
+  DATA_ONBOARDING_TX_OPTIONS,
+  createManyInBatches,
+  assertWholeFileCreatable,
+  indexParsedRows,
+} from "./batch-write";
 
 // ── Status válidos para importación ──────────────────────────────
 // "deleted" está excluido deliberadamente en E1C-C por seguridad.
@@ -105,7 +111,9 @@ export async function runCustomersImport(
   const { parsedPreview, dbAwareResult, prismaClient, tenantId, isDryRun } = input;
 
   // ── 1. Reunir solo las filas que el DB-aware marcó como CREATE ─
+  assertWholeFileCreatable(parsedPreview, dbAwareResult);
   const createRows = dbAwareResult.rows.filter((r) => r.resolution === "CREATE");
+  const parsedByNumber = indexParsedRows(parsedPreview);
 
   interface RowToCreate {
     rowNumber:      number;
@@ -133,7 +141,7 @@ export async function runCustomersImport(
   type PreparedRow = RowToCreate | RowBlocked;
 
   const prepared: PreparedRow[] = createRows.map((dbRow) => {
-    const parsedRow = parsedPreview.rows.find((r) => r.rowNumber === dbRow.rowNumber);
+    const parsedRow = parsedByNumber.get(dbRow.rowNumber);
     const name       = strVal(parsedRow?.data.name ?? "");
     const customerCode = strVal(parsedRow?.data.customer_code ?? "");
 
@@ -334,10 +342,12 @@ export async function runCustomersImport(
 
   const now = new Date();
 
+  // ONBOARDING-5K: INSERT multi-fila por lotes dentro de la misma transacción.
   await prismaClient.$transaction(async (tx) => {
-    for (const row of finalRows) {
-      await tx.customer.create({
-        data: {
+    await createManyInBatches(
+      finalRows,
+      (batch) => tx.customer.createMany({
+        data: batch.map((row) => ({
           tenant_id:          tenantId,
           customer_code:      row.finalCode,
           name:               row.name,
@@ -350,10 +360,11 @@ export async function runCustomersImport(
           status:             row.status as "active" | "inactive" | "suspended" | "deleted",
           created_at:         now,
           updated_at:         now,
-        },
-      });
-    }
-  });
+        })),
+      }),
+      "clientes",
+    );
+  }, DATA_ONBOARDING_TX_OPTIONS);
 
   const rowResults: CustomersImportRowResult[] = finalRows.map((r) => ({
     rowNumber:  r.rowNumber,

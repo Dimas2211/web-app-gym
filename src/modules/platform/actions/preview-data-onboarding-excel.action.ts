@@ -16,6 +16,11 @@
 //  5. Desconectar Prisma temporal.
 //  6. Retornar preview combinado (archivo + DB-aware).
 //
+// ONBOARDING-5K: el parseo y el análisis DB-aware cubren TODAS las filas
+// del archivo (hasta DATA_ONBOARDING_MAX_IMPORT_ROWS; más → rechazo
+// explícito). Al navegador viajan los conteos completos y solo una
+// muestra acotada de filas (data-onboarding-view.ts).
+//
 // SHARED-OPS-PARITY-1: el destino se resuelve SERVER-SIDE por
 // organizationId (Shared o Dedicated) — organizationId →
 // PlatformOrganization.tenant_id → Runtime Router. profileId solo se
@@ -44,16 +49,29 @@ import { sanitizeDataOnboardingError }
 import { sanitizeDatabaseError }    from "../lib/database-profile-url";
 import { withTemporaryPrismaClient } from "../lib/client-prisma";
 import {
+  DATA_ONBOARDING_MAX_FILE_BYTES,
+  dataOnboardingFileTooLargeMessage,
+} from "../lib/data-onboarding/data-onboarding-limits";
+import {
+  toPreviewResultView,
+  toDbAwareResultView,
+} from "../lib/data-onboarding/data-onboarding-view";
+import {
   resolveOrganizationRuntime,
   isOrganizationRuntimeResolutionError,
 } from "../runtime/resolve-organization-runtime";
 import { getRuntimeDatabaseUrlFromProfile } from "../runtime/runtime-database-router";
+import { CommercialEnforcementError } from "../runtime/commercial-enforcement";
+import { isGymDataOnboardingDataset } from "../lib/data-onboarding/data-onboarding-definitions";
+import {
+  resolveDataOnboardingGymAccess,
+  evaluateGymDataOnboardingAccess,
+} from "../lib/data-onboarding/gym-data-onboarding-access";
 import type {
   DataOnboardingDatasetKey,
   DataOnboardingPreviewActionState,
+  DataOnboardingGymAccess,
 } from "../types/platform.types";
-
-const MAX_FILE_SIZE_BYTES = 5 * 1024 * 1024; // 5 MB
 
 function formString(formData: FormData, key: string): string | null {
   const v = formData.get(key);
@@ -96,11 +114,8 @@ export async function previewDataOnboardingExcelAction(
     if (file.size === 0) {
       return { success: false, error: "El archivo está vacío." };
     }
-    if (file.size > MAX_FILE_SIZE_BYTES) {
-      return {
-        success: false,
-        error: `El archivo excede el tamaño máximo de 5 MB (${(file.size / 1024 / 1024).toFixed(2)} MB recibidos).`,
-      };
+    if (file.size > DATA_ONBOARDING_MAX_FILE_BYTES) {
+      return { success: false, error: dataOnboardingFileTooLargeMessage(file.size) };
     }
 
     // ── 5. Leer buffer y parsear en memoria ───────────────────
@@ -121,13 +136,30 @@ export async function previewDataOnboardingExcelAction(
       databaseUrl = getRuntimeDatabaseUrlFromProfile(resolved.profile);
     } catch (err) {
       if (isOrganizationRuntimeResolutionError(err)) {
+        const message = `No se pudo resolver la base destino de la organización: ${sanitizeDataOnboardingError(err.message)}`;
+        // GYM-ONBOARDING: sin organización resuelta no se puede verificar
+        // la vertical GYM — no se devuelve ni el análisis del archivo.
+        if (isGymDataOnboardingDataset(datasetKey)) return { success: false, error: message };
         return {
           success:      true,
-          result,
-          dbAwareError: `No se pudo resolver la base destino de la organización: ${sanitizeDataOnboardingError(err.message)}`,
+          result:       toPreviewResultView(result),
+          dbAwareError: message,
         };
       }
       throw err;
+    }
+
+    // ── 6b. GYM-ONBOARDING: vertical GYM efectiva de la organización destino ─
+    let gymAccess: DataOnboardingGymAccess | undefined;
+    if (isGymDataOnboardingDataset(datasetKey)) {
+      try {
+        gymAccess = await resolveDataOnboardingGymAccess(tenantId);
+      } catch (err) {
+        if (err instanceof CommercialEnforcementError) return { success: false, error: err.userMessage };
+        throw err;
+      }
+      const access = evaluateGymDataOnboardingAccess(gymAccess, datasetKey);
+      if (!access.allowed) return { success: false, error: access.reason };
     }
 
     // ── 7. Análisis DB-aware (solo lecturas, WHERE tenant_id) ─
@@ -142,6 +174,7 @@ export async function previewDataOnboardingExcelAction(
           importPolicy:  DEFAULT_IMPORT_POLICY,
           prismaClient:  client,
           tenantId,
+          ...(gymAccess ? { gymOptions: { classesModuleEnabled: gymAccess.classesModuleEnabled } } : {}),
         });
       });
     } catch (dbErr) {
@@ -151,8 +184,8 @@ export async function previewDataOnboardingExcelAction(
 
     return {
       success: true,
-      result,
-      ...(dbAwareResult ? { dbAwareResult } : {}),
+      result:  toPreviewResultView(result),
+      ...(dbAwareResult ? { dbAwareResult: toDbAwareResultView(dbAwareResult) } : {}),
       ...(dbAwareError  ? { dbAwareError  } : {}),
     };
 

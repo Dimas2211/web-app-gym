@@ -11,6 +11,12 @@
 // - No escribe en bases cliente.
 // - No expone credenciales ni DATABASE_URL.
 // - Opera solo en memoria con el buffer recibido.
+//
+// ONBOARDING-5K: sin truncamiento. El resultado contiene TODAS las filas
+// no vacías del archivo; si exceden DATA_ONBOARDING_MAX_IMPORT_ROWS se
+// lanza DataOnboardingRowLimitError (rechazo entero, antes de cualquier
+// análisis o escritura). La muestra para el navegador la arma
+// data-onboarding-view.ts — el parser nunca acota filas.
 // ─────────────────────────────────────────────────────────────────
 
 import * as XLSX from "xlsx";
@@ -21,12 +27,45 @@ import type {
   DataOnboardingRowError,
   DataOnboardingRowWarning,
 } from "../../types/platform.types";
+import {
+  strVal as gymStrVal,
+  normalizeKey,
+  normalizeDocument,
+  normalizePhone,
+  normalizeOperationalCode,
+  personKey,
+  parseGender,
+  parseBirthDate,
+  parseModality,
+  parseGymStatus,
+  parsePersonalizedCapacity,
+  isValidEmail,
+  GYM_CLIENT_MAX_LENGTH,
+  GYM_TRAINER_MAX_LENGTH,
+  PERSONALIZED_CAPACITY_MIN,
+  PERSONALIZED_CAPACITY_MAX,
+} from "./gym-onboarding-fields";
+import {
+  DATA_ONBOARDING_MAX_IMPORT_ROWS,
+  dataOnboardingRowLimitMessage,
+} from "./data-onboarding-limits";
 
 // ── Constantes ────────────────────────────────────────────────────
 
-const DATA_SHEET_NAME     = "Datos";
-const MAX_ROWS_TO_PROCESS = 1000;
-const MAX_ROWS_IN_RESULT  = 200;
+const DATA_SHEET_NAME = "Datos";
+
+/** El archivo excede DATA_ONBOARDING_MAX_IMPORT_ROWS: se rechaza entero. */
+export class DataOnboardingRowLimitError extends Error {
+  constructor(public readonly nonEmptyRows: number) {
+    super(dataOnboardingRowLimitMessage(nonEmptyRows));
+    this.name = "DataOnboardingRowLimitError";
+  }
+}
+
+const GYM_REQUIRED_HEADERS: Partial<Record<DataOnboardingDatasetKey, string[]>> = {
+  gym_clients:  ["first_name", "last_name", "branch_name"],
+  gym_trainers: ["first_name", "last_name", "branch_name"],
+};
 
 // ── Input público ─────────────────────────────────────────────────
 
@@ -301,6 +340,163 @@ function validateInventoryInitialRow(data: RowData, seenKeys: Set<string>): Vali
   return { errors, warnings };
 }
 
+// ── GYM-ONBOARDING: Clientes GYM y Entrenadores ───────────────────
+
+interface GymSeen {
+  codes:    Map<string, number>; // operational_code normalizado → fila
+  docs:     Map<string, number>; // document_id normalizado → fila
+  emails:   Map<string, number>; // email normalizado → fila (entrenadores)
+  persons:  Map<string, number>; // nombre+apellido (+dato fiable) → fila
+  names:    Map<string, number>; // nombre+apellido → fila
+}
+
+function newGymSeen(): GymSeen {
+  return { codes: new Map(), docs: new Map(), emails: new Map(), persons: new Map(), names: new Map() };
+}
+
+function checkMaxLengths(data: RowData, limits: Record<string, number>, errors: DataOnboardingRowError[]) {
+  for (const [field, max] of Object.entries(limits)) {
+    const v = gymStrVal(data[field]);
+    if (v.length > max) {
+      errors.push({ code: "MAX_LENGTH", field, message: `'${field}' excede ${max} caracteres (${v.length}).` });
+    }
+  }
+}
+
+function requireGymPersonFields(data: RowData, errors: DataOnboardingRowError[]) {
+  if (isEmpty(data.first_name))  errors.push({ code: "REQUIRED_FIELD", field: "first_name",  message: "El campo 'first_name' es requerido." });
+  if (isEmpty(data.last_name))   errors.push({ code: "REQUIRED_FIELD", field: "last_name",   message: "El campo 'last_name' es requerido." });
+  if (isEmpty(data.branch_name)) errors.push({ code: "REQUIRED_FIELD", field: "branch_name", message: "El campo 'branch_name' es requerido (sucursal existente)." });
+}
+
+function validateGymClientsRow(data: RowData, rowNumber: number, seen: GymSeen): ValidationResult {
+  const errors:   DataOnboardingRowError[]   = [];
+  const warnings: DataOnboardingRowWarning[] = [];
+
+  requireGymPersonFields(data, errors);
+  checkMaxLengths(data, GYM_CLIENT_MAX_LENGTH, errors);
+
+  if (!isValidEmail(data.email)) {
+    errors.push({ code: "INVALID_EMAIL", field: "email", message: `Formato de email inválido: '${data.email}'.` });
+  }
+  if (parseGender(data.gender) === "INVALID") {
+    errors.push({ code: "INVALID_ENUM", field: "gender", message: `Valor '${data.gender}' inválido en 'gender'. Permitidos: male, female, other, prefer_not_to_say.` });
+  }
+  if (parseBirthDate(data.birth_date) === "INVALID") {
+    errors.push({ code: "INVALID_DATE", field: "birth_date", message: `Fecha '${data.birth_date}' inválida. Use AAAA-MM-DD o DD/MM/AAAA (no futura, desde 1900).` });
+  }
+  if (parseModality(data.modality) === "INVALID") {
+    errors.push({ code: "INVALID_ENUM", field: "modality", message: `Valor '${data.modality}' inválido en 'modality'. Permitidos: NORMAL, PERSONALIZED, GROUP.` });
+  }
+  if (parseGymStatus(data.status) === "INVALID") {
+    errors.push({ code: "INVALID_ENUM", field: "status", message: `Valor '${data.status}' inválido en 'status'. Permitidos: active, inactive.` });
+  }
+  if (!isEmpty(data.operational_code) && /\s/.test(gymStrVal(data.operational_code))) {
+    errors.push({ code: "INVALID_VALUE", field: "operational_code", message: "'operational_code' no puede contener espacios." });
+  }
+
+  // Duplicados dentro del archivo — llaves fuertes bloquean.
+  if (!isEmpty(data.operational_code)) {
+    const key = normalizeOperationalCode(data.operational_code);
+    const prev = seen.codes.get(key);
+    if (prev) errors.push({ code: "DUPLICATE_IN_FILE", field: "operational_code", message: `'operational_code' "${data.operational_code}" repetido (fila ${prev}).` });
+    else seen.codes.set(key, rowNumber);
+  }
+  if (!isEmpty(data.document_id)) {
+    const key = normalizeDocument(data.document_id);
+    const prev = seen.docs.get(key);
+    if (prev) errors.push({ code: "DUPLICATE_IN_FILE", field: "document_id", message: `'document_id' "${data.document_id}" repetido (fila ${prev}).` });
+    else seen.docs.set(key, rowNumber);
+  }
+
+  // Misma persona con un dato fiable (email/teléfono/fecha de nacimiento) → bloquea.
+  // Solo nombre y apellido → advertencia (nunca se asume duplicado por nombre).
+  if (!isEmpty(data.first_name) && !isEmpty(data.last_name)) {
+    const name = personKey(data.first_name, data.last_name);
+    const birth = parseBirthDate(data.birth_date);
+    const strongKeys = [
+      !isEmpty(data.email)      ? `${name}|email:${normalizeKey(data.email)}` : null,
+      normalizePhone(data.phone) ? `${name}|phone:${normalizePhone(data.phone)}` : null,
+      birth && birth !== "INVALID" ? `${name}|birth:${birth}` : null,
+    ].filter((k): k is string => k !== null);
+
+    const strongPrev = strongKeys.map((k) => seen.persons.get(k)).find((r) => r !== undefined);
+    if (strongPrev) {
+      errors.push({ code: "DUPLICATE_IN_FILE", field: "first_name+last_name", message: `Misma persona (nombre + email/teléfono/fecha de nacimiento) que la fila ${strongPrev}.` });
+    } else {
+      const namePrev = seen.names.get(name);
+      if (namePrev) warnings.push({ code: "POSSIBLE_DUPLICATE_IN_FILE", field: "first_name+last_name", message: `Mismo nombre y apellido que la fila ${namePrev}. Verifique que no sea la misma persona.` });
+    }
+    strongKeys.forEach((k) => { if (!seen.persons.has(k)) seen.persons.set(k, rowNumber); });
+    if (!seen.names.has(name)) seen.names.set(name, rowNumber);
+  }
+
+  return { errors, warnings };
+}
+
+function validateGymTrainersRow(data: RowData, rowNumber: number, seen: GymSeen): ValidationResult {
+  const errors:   DataOnboardingRowError[]   = [];
+  const warnings: DataOnboardingRowWarning[] = [];
+
+  requireGymPersonFields(data, errors);
+  checkMaxLengths(data, GYM_TRAINER_MAX_LENGTH, errors);
+
+  if (!isValidEmail(data.email)) {
+    errors.push({ code: "INVALID_EMAIL", field: "email", message: `Formato de email inválido: '${data.email}'.` });
+  }
+  if (parsePersonalizedCapacity(data.personalized_capacity) === "INVALID") {
+    errors.push({
+      code: "INVALID_NUMBER", field: "personalized_capacity",
+      message: `'personalized_capacity' debe ser un entero entre ${PERSONALIZED_CAPACITY_MIN} y ${PERSONALIZED_CAPACITY_MAX}. Recibido: '${data.personalized_capacity}'.`,
+    });
+  }
+  if (parseGymStatus(data.status) === "INVALID") {
+    errors.push({ code: "INVALID_ENUM", field: "status", message: `Valor '${data.status}' inválido en 'status'. Permitidos: active, inactive.` });
+  }
+
+  // Entrenadores: sin código ni documento — email y nombre completo identifican.
+  if (!isEmpty(data.email)) {
+    const key = normalizeKey(data.email);
+    const prev = seen.emails.get(key);
+    if (prev) errors.push({ code: "DUPLICATE_IN_FILE", field: "email", message: `Email "${data.email}" repetido (fila ${prev}).` });
+    else seen.emails.set(key, rowNumber);
+  }
+  if (!isEmpty(data.first_name) && !isEmpty(data.last_name)) {
+    const name = personKey(data.first_name, data.last_name);
+    const prev = seen.names.get(name);
+    if (prev) errors.push({ code: "DUPLICATE_IN_FILE", field: "first_name+last_name", message: `Entrenador "${data.first_name} ${data.last_name}" repetido (fila ${prev}).` });
+    else seen.names.set(name, rowNumber);
+  }
+
+  return { errors, warnings };
+}
+
+// ── Rango efectivo de la hoja ─────────────────────────────────────
+// Una hoja con formato aplicado a filas vacías puede declarar un rango
+// (!ref) de cientos de miles de filas. Se recalcula el rango a partir de
+// las celdas con valor real para no materializar filas inexistentes.
+// No descarta datos: conserva el inicio declarado y solo recorta el final
+// hasta la última fila/columna con valor dentro del rango declarado.
+
+function trimSheetToValues(ws: XLSX.WorkSheet): void {
+  const ref = ws["!ref"];
+  if (!ref) return;
+  const declared = XLSX.utils.decode_range(ref);
+  let maxRow = -1;
+  let maxCol = -1;
+  for (const addr of Object.keys(ws)) {
+    if (addr.charCodeAt(0) === 33 /* "!" */) continue;
+    const cell = ws[addr] as XLSX.CellObject | undefined;
+    if (!cell || cell.v === undefined || cell.v === null || cell.v === "") continue;
+    const { r, c } = XLSX.utils.decode_cell(addr);
+    if (r > declared.e.r || c > declared.e.c) continue;
+    if (r > maxRow) maxRow = r;
+    if (c > maxCol) maxCol = c;
+  }
+  if (maxRow < declared.s.r || maxCol < declared.s.c) return; // sin valores: se conserva el rango (hoja vacía)
+  ws["!ref"] = XLSX.utils.encode_range({ s: declared.s, e: { r: maxRow, c: maxCol } });
+}
+
 // ── Parser principal ──────────────────────────────────────────────
 
 export function parseDataOnboardingWorkbook(
@@ -324,6 +520,7 @@ export function parseDataOnboardingWorkbook(
   }
 
   const ws = wb.Sheets[DATA_SHEET_NAME];
+  trimSheetToValues(ws);
 
   // 3. Leer como array de arrays (raw: true para tipos nativos de Excel)
   const aoa = XLSX.utils.sheet_to_json<unknown[]>(ws, {
@@ -341,20 +538,38 @@ export function parseDataOnboardingWorkbook(
   const headerKeys       = rawHeaders.map(normalizeHeaderKey);  // para lookup interno
   const displayHeaders   = rawHeaders.map(displayHeader);       // para mostrar en UI
 
+  // GYM-ONBOARDING: encabezados requeridos obligatorios (solo datasets GYM;
+  // los datasets Commerce conservan su contrato histórico por fila).
+  const requiredHeaders = GYM_REQUIRED_HEADERS[datasetKey];
+  if (requiredHeaders) {
+    const missing = requiredHeaders.filter((h) => !headerKeys.includes(h));
+    if (missing.length > 0) {
+      throw new Error(
+        `Faltan columnas requeridas en la hoja "${DATA_SHEET_NAME}": ${missing.join(", ")}. Use la plantilla oficial descargada desde el sistema.`,
+      );
+    }
+  }
+
   // 5. Procesar filas de datos
   const dataRows = aoa.slice(1);
 
+  // ONBOARDING-5K: el límite se evalúa sobre el TOTAL de filas no vacías
+  // antes de validar — un archivo que excede la capacidad se rechaza
+  // entero (nunca se procesa un subconjunto).
+  const nonEmptyRows = dataRows.reduce<number>((n, r) => (isRowEmpty(r as unknown[]) ? n : n + 1), 0);
+  if (nonEmptyRows > DATA_ONBOARDING_MAX_IMPORT_ROWS) {
+    throw new DataOnboardingRowLimitError(nonEmptyRows);
+  }
+
   let emptyRowsIgnored = 0;
-  let truncated        = false;
   const allRows: DataOnboardingPreviewRow[] = [];
 
-  // Conjuntos para detección de duplicados (por dataset)
+  // Conjuntos para detección de duplicados (por dataset) — cubren TODAS las filas.
   const seenCodes = new Set<string>();
   const seenKeys  = new Set<string>();
   const seenDocs  = new Set<string>();
   const seenNits  = new Set<string>();
-
-  let processedCount = 0;
+  const seenGym   = newGymSeen();
 
   for (let i = 0; i < dataRows.length; i++) {
     const rawRow = dataRows[i] as unknown[];
@@ -363,12 +578,6 @@ export function parseDataOnboardingWorkbook(
       emptyRowsIgnored++;
       continue;
     }
-
-    if (processedCount >= MAX_ROWS_TO_PROCESS) {
-      truncated = true;
-      break;
-    }
-    processedCount++;
 
     // Construir objeto con keys normalizados
     const data: RowData = {};
@@ -388,6 +597,8 @@ export function parseDataOnboardingWorkbook(
       case "customers":         ({ errors, warnings } = validateCustomersRow(data, seenDocs));           break;
       case "suppliers":         ({ errors, warnings } = validateSuppliersRow(data, seenNits));           break;
       case "inventory_initial": ({ errors, warnings } = validateInventoryInitialRow(data, seenKeys));   break;
+      case "gym_clients":       ({ errors, warnings } = validateGymClientsRow(data, i + 2, seenGym));   break;
+      case "gym_trainers":      ({ errors, warnings } = validateGymTrainersRow(data, i + 2, seenGym));  break;
       default:
         warnings.push({ code: "NO_VALIDATION", message: `No hay validaciones específicas para '${datasetKey}'.` });
     }
@@ -406,10 +617,15 @@ export function parseDataOnboardingWorkbook(
     });
   }
 
-  // 6. Calcular summary
-  const validRows   = allRows.filter((r) => r.status === "VALID").length;
-  const invalidRows = allRows.filter((r) => r.status === "ERROR").length;
-  const warningRows = allRows.filter((r) => r.status === "WARNING").length;
+  // 6. Calcular summary (archivo completo)
+  let validRows = 0;
+  let invalidRows = 0;
+  let warningRows = 0;
+  for (const r of allRows) {
+    if (r.status === "VALID") validRows++;
+    else if (r.status === "ERROR") invalidRows++;
+    else warningRows++;
+  }
 
   const status: DataOnboardingPreviewResult["status"] =
     invalidRows > 0
@@ -418,12 +634,9 @@ export function parseDataOnboardingWorkbook(
         ? "VALID_WITH_WARNINGS"
         : "VALID";
 
-  // 7. Truncar filas en el resultado (MAX_ROWS_IN_RESULT)
-  const isTruncated = truncated || allRows.length > MAX_ROWS_IN_RESULT;
-  const rowsForResult = isTruncated
-    ? allRows.slice(0, MAX_ROWS_IN_RESULT)
-    : allRows;
-
+  // 7. ONBOARDING-5K: se devuelven TODAS las filas. La UI recibe una
+  // muestra armada por data-onboarding-view.ts; el análisis DB-aware y
+  // los runners operan siempre sobre el conjunto completo.
   return {
     datasetKey,
     status,
@@ -434,8 +647,7 @@ export function parseDataOnboardingWorkbook(
       warningRows,
       emptyRowsIgnored,
     },
-    columns:   displayHeaders.filter(Boolean),
-    rows:      rowsForResult,
-    truncated: isTruncated,
+    columns: displayHeaders.filter(Boolean),
+    rows:    allRows,
   };
 }

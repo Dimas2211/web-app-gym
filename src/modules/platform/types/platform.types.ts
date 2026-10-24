@@ -1350,7 +1350,16 @@ export type DataOnboardingDatasetKey =
   | "tax_rates"
   | "sales"
   | "dte_documents"
-  | "dte_catalogs";
+  | "dte_catalogs"
+  // GYM-ONBOARDING: vertical GYM (Client / Trainer), nunca Customer commerce.
+  | "gym_clients"
+  | "gym_trainers";
+
+/**
+ * Dominio del dataset en el Data Onboarding Center. COMMERCE (default) se
+ * muestra siempre; GYM solo para organizaciones con vertical GYM efectiva.
+ */
+export type DataOnboardingDatasetDomain = "COMMERCE" | "GYM";
 
 /** Dirección de la operación de datos */
 export type DataOnboardingDirection = "IMPORT" | "EXPORT" | "BOTH";
@@ -1376,6 +1385,22 @@ export interface DataOnboardingDatasetDefinition {
   optionalFields:  string[];
   dependencies:    DataOnboardingDatasetKey[];
   notes?:          string;
+  /** Ausente = COMMERCE (contrato histórico de los datasets existentes). */
+  domain?:         DataOnboardingDatasetDomain;
+}
+
+/**
+ * GYM-ONBOARDING. Acceso efectivo de la organización destino a los datasets
+ * GYM, resuelto SERVER-SIDE desde el Control Plane (vertical efectiva +
+ * módulos). Solo booleanos — sin ids ni configuración comercial cruda.
+ */
+export interface DataOnboardingGymAccess {
+  /** La organización opera la vertical GYM (gym_clients habilitado). */
+  gymVerticalEnabled:    boolean;
+  /** gym.trainers habilitado (gym_trainers exige además la vertical). */
+  trainersModuleEnabled: boolean;
+  /** gym.classes habilitado (modalidades PERSONALIZED/GROUP en gym_clients). */
+  classesModuleEnabled:  boolean;
 }
 
 /** Metadatos seguros del perfil para el header del Data Onboarding Center */
@@ -1453,8 +1478,20 @@ export interface DataOnboardingPreviewResult {
   status:     DataOnboardingPreviewStatus;
   summary:    DataOnboardingPreviewSummary;
   columns:    string[];
+  /**
+   * Server-side: TODAS las filas no vacías del archivo (hasta
+   * DATA_ONBOARDING_MAX_IMPORT_ROWS). En la respuesta al navegador puede
+   * ser una muestra — ver `sample`.
+   */
   rows:       DataOnboardingPreviewRow[];
-  truncated?: boolean;
+  /** ONBOARDING-5K: presente solo cuando `rows` es una muestra para la vista. Los summary siempre cubren el archivo completo. */
+  sample?:    DataOnboardingRowsSample;
+}
+
+/** ONBOARDING-5K: muestra de filas enviada al navegador (nunca usada para analizar ni importar). */
+export interface DataOnboardingRowsSample {
+  shownRows: number;
+  totalRows: number;
 }
 
 export type DataOnboardingPreviewActionState =
@@ -1507,6 +1544,8 @@ export interface DataOnboardingDbAwareRow {
 
 /** Resumen del análisis DB-aware */
 export interface DataOnboardingDbAwarePreviewSummary {
+  /** ONBOARDING-5K: filas analizadas contra la base (= filas no vacías del archivo). */
+  analyzedRows:         number;
   createRows:           number;
   updateRows:           number;
   skipRows:             number;
@@ -1522,6 +1561,8 @@ export interface DataOnboardingDbAwarePreviewResult {
   status:        DataOnboardingDbAwareStatus;
   summary:       DataOnboardingDbAwarePreviewSummary;
   rows:          DataOnboardingDbAwareRow[];
+  /** ONBOARDING-5K: presente solo cuando `rows` es una muestra para la vista. */
+  sample?:       DataOnboardingRowsSample;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1916,6 +1957,72 @@ export type InventoryImportActionState =
       blocked?:       boolean;
       safetyBlockers?: string[];
     };
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GYM-ONBOARDING: Clientes GYM (Client) y Entrenadores (Trainer)
+// Runners controlados de la vertical GYM. Solo política CREATE_ONLY.
+// gym_clients escribe solo en clients; gym_trainers solo en trainers.
+// Nunca crean User, membresías, pagos, asistencias ni reservas.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Resultado por fila de los imports GYM (clientes y entrenadores). */
+export interface GymImportRowResult {
+  rowNumber:  number;
+  name:       string;
+  /** Código operativo final (clientes). "" para entrenadores (sin código). */
+  code:       string;
+  branchName: string;
+  resolution: "CREATED" | "SKIPPED" | "ERROR";
+  reason?:    string;
+}
+
+export interface GymImportDryRunResult {
+  wouldCreate: number;
+  blocked:     number;
+  totalRows:   number;
+  rows:        GymImportRowResult[];
+}
+
+export interface GymClientsImportResult {
+  created:      number;
+  skipped:      number;
+  errors:       number;
+  totalRows:    number;
+  importPolicy: DataOnboardingImportPolicy;
+  datasetKey:   "gym_clients";
+  rows:         GymImportRowResult[];
+}
+
+export interface GymTrainersImportResult {
+  created:      number;
+  skipped:      number;
+  errors:       number;
+  totalRows:    number;
+  importPolicy: DataOnboardingImportPolicy;
+  datasetKey:   "gym_trainers";
+  rows:         GymImportRowResult[];
+}
+
+type GymImportActionState<TImp> =
+  | {
+      success:        true;
+      mode:           "DRY_RUN" | "EXECUTE";
+      profileLabel:   string;
+      safetyMessages: string[];
+      safetyWarnings: string[];
+      dryRunResult?:  GymImportDryRunResult;
+      importResult?:  TImp;
+      error?:         never;
+    }
+  | {
+      success:        false;
+      error:          string;
+      blocked?:       boolean;
+      safetyBlockers?: string[];
+    };
+
+export type GymClientsImportActionState  = GymImportActionState<GymClientsImportResult>;
+export type GymTrainersImportActionState = GymImportActionState<GymTrainersImportResult>;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // F1-B1: Support Session — crear venta de prueba por perfil de base de datos

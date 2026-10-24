@@ -76,13 +76,13 @@
 - **Login**: `hostname → PlatformOrganization.domain → runtime authentication → RUNTIME_CLIENT → Runtime Router → tenant aislado`. `RUNTIME_CLIENT` está **habilitado** en producción. Wildcard Vercel `*.getzolvi.com` aplicado — no se requiere DNS por cliente. Dominios operativos: `getzolvi.com`, `app.getzolvi.com`, `trustme.getzolvi.com`, `commerce-pilot.getzolvi.com`, `metatraining.getzolvi.com`.
 - **Provisioning**: desde Platform Admin (Shared o Dedicated), retry-safe (operación CP + receipt runtime). Crea tenant + location + admin (+ Gym solo en modo GYM) + baseline Commerce en una sola transacción runtime.
 - **Baseline Commerce**: `ensureCommerceTenantBaseline()` — IVA 13%, ProductCategory GENERAL, TenantFiscalConfig por `tenant_id`; idempotente. Reparación para organizaciones existentes: `ensureOrganizationRuntimeBaselineAction()`. No duplica catálogos globales de la base física.
-- **Data Onboarding**: organization-scoped (`/dashboard/platform/data-onboarding/org/[organizationId]`; legacy `/[profileId]` converge en el mismo resolver). 7 datasets. PRODUCTION: DRY_RUN permitido; EXECUTE permitido bajo guardas (super_admin, CREATE_ONLY, módulo habilitado, conexión verificada, análisis limpio, confirmación `IMPORT <DATASET> <organization.code>`, tenantId server-side).
+- **Data Onboarding**: organization-scoped (`/dashboard/platform/data-onboarding/org/[organizationId]`; legacy `/[profileId]` converge en el mismo resolver). 7 datasets. PRODUCTION: DRY_RUN permitido; EXECUTE permitido bajo guardas (super_admin, CREATE_ONLY, módulo habilitado, conexión verificada, análisis limpio, confirmación `IMPORT <DATASET> <organization.code>`, tenantId server-side). **ONBOARDING-5K + GYM-ONBOARDING (2026-10-23, rama `feat/gym-training-stage5d` publicada para revisión, sin merge a `main`, no desplegada)**: hasta 5,000 registros y 4 MB por archivo en los 9 datasets (7 Commerce + 2 GYM), sin truncamiento (antes: 200 filas en el resultado importado por Commerce); >5,000 se rechaza entero; escritura `createMany` por lotes de 500 en una sola transacción; UI con muestra de 200 filas y totales completos. Certificado contra PostgreSQL real desechable. Ver docs/modules/data-onboarding-5k.md.
 - **Operar como cliente**: Platform Admin → Shared Runtime Targets → Organizaciones → organización → Operar como cliente. Support Session `readOnly = true`.
 - **Clientes Shared**: Commerce Pilot (`commerce-pilot-0001`, COMMERCE_ONLY, certificado, aislamiento vs TrustMe PASS) y Metatraining (`meta-training`, primer cliente Shared real; primer Data Onboarding EXECUTE en PRODUCTION: `categories`, created = 1).
 - **CAT-022**: solo `02`, `03`, `13`, `36`, `37`. `00 — Consumidor final` retirado; Consumidor Final es `taxpayer_type = FINAL_CONSUMER`.
 - **DTE Shared**: onboarding fiscal **DEFERRED**. Metatraining sin `DteIssuerConfig`/`DteCredential`/`DteCorrelative`/`DteOutgoingDocument`. No emitir/transmitir DTE desde Support Session (readOnly).
 - **Licencia runtime**: enforcement real vigente — `evaluateOrganizationAccess()` en login + revalidación live por request; bloqueo → `/access-restricted`; solo afecta `RUNTIME_CLIENT`. Deuda: `provisioning-validator.ts` aún no delega en la política. Ver `docs/modules/platform-runtime-license-enforcement.md`.
-- **Deuda diferida (no bloqueante)**: onboarding fiscal Shared, credenciales MH por tenant, pruebas de volumen y concurrencia de Data Onboarding, RLS.
+- **Deuda diferida (no bloqueante)**: onboarding fiscal Shared, credenciales MH por tenant, concurrencia de Data Onboarding (volumen 5K certificado en ONBOARDING-5K), RLS.
 
 ## Estado vigente — DTE (fuente rápida de verdad, 2026-10-12)
 
@@ -1234,7 +1234,7 @@ Auditoría + cierre de gaps puntuales, no construcción desde cero. Ver
   real (fase futura, fuera de alcance de VI-E7/E8 por decisión explícita).
 - ~~Runner controlado `SEED_TENANT_BASE`~~ — *SUPERADO*: provisioning controlado desde Platform Admin (Shared/Dedicated, retry-safe, con baseline Commerce). Ver docs/context/shared-pilot-4c-closure.md.
 - Onboarding fiscal DTE de clientes Shared (DteIssuerConfig/DteCredential/DteCorrelative por tenant, credenciales MH reales) — **DEFERRED**, bloque explícito futuro. Metatraining no tiene configuración fiscal.
-- Pruebas de volumen alto y de concurrencia real de Data Onboarding.
+- Pruebas de concurrencia real de Data Onboarding (volumen hasta 5,000 registros certificado en ONBOARDING-5K).
 - RLS como capa adicional de aislamiento Shared — deuda arquitectónica futura.
 - Fase futura de operación editable completa desde plataforma (products, customers, suppliers, purchases, sales, inventory, cash, DTE) — solo mencionada como pendiente, no diseñada todavía.
 - Vista global /dashboard/dte/outgoing (lista de DTEs emitidos).

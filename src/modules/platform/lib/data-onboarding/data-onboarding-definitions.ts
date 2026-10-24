@@ -239,6 +239,54 @@ export const DATA_ONBOARDING_DATASETS: DataOnboardingDatasetDefinition[] = [
     dependencies:   [],
     notes: "Modelo: DteCatalogItem. Seed controlado disponible desde D1A.",
   },
+
+  // ── GYM — vertical gimnasio (solo organizaciones con vertical GYM) ──
+  // Client y Trainer son modelos GYM, distintos de Customer (commerce).
+
+  {
+    key:         "gym_clients",
+    label:       "Clientes GYM",
+    description: "Socios del gimnasio (expediente operativo). No crea acceso al portal, membresías, pagos, asistencias ni reservas.",
+    direction:   "IMPORT",
+    status:      "AVAILABLE",
+    risk:        "MEDIUM",
+    domain:      "GYM",
+    requiredFields: ["first_name", "last_name", "branch_name"],
+    optionalFields: [
+      "operational_code",
+      "document_id",
+      "birth_date",
+      "gender",
+      "email",
+      "phone",
+      "address",
+      "emergency_contact_name",
+      "emergency_contact_phone",
+      "sport_name",
+      "goal_name",
+      "modality",
+      "notes",
+      "status",
+    ],
+    dependencies: [],
+    notes: "Modelo: Client (GYM). gym_id se resuelve por Gym.tenant_id; la sucursal (Branch) debe existir. " +
+      "operational_code se genera con la configuración de códigos del gimnasio si no se provee.",
+  },
+
+  {
+    key:         "gym_trainers",
+    label:       "Entrenadores",
+    description: "Perfiles operativos de entrenadores por sucursal. Sin usuario de sistema, horarios, sesiones ni clases.",
+    direction:   "IMPORT",
+    status:      "AVAILABLE",
+    risk:        "LOW",
+    domain:      "GYM",
+    requiredFields: ["first_name", "last_name", "branch_name"],
+    optionalFields: ["email", "phone", "specialty", "personalized_capacity", "notes", "status"],
+    dependencies: [],
+    notes: "Modelo: Trainer (GYM). Requiere el módulo gym.trainers. Se crea sin user_id: la cuenta con rol " +
+      "trainer se vincula después desde la interfaz de entrenadores.",
+  },
 ];
 
 // ── Índice por key ───────────────────────────────────────────────
@@ -259,6 +307,16 @@ export const IMPORT_DATASETS = DATA_ONBOARDING_DATASETS.filter(
 export const EXPORT_DATASETS = DATA_ONBOARDING_DATASETS.filter(
   (d) => d.direction === "EXPORT" || d.direction === "BOTH",
 );
+
+/** Datasets de la vertical GYM — solo visibles/operables con vertical GYM efectiva. */
+export const GYM_DATASETS = DATA_ONBOARDING_DATASETS.filter((d) => d.domain === "GYM");
+
+/** Catálogo histórico (Commerce/core) — ausencia de domain = COMMERCE. */
+export const COMMERCE_DATASETS = DATA_ONBOARDING_DATASETS.filter((d) => d.domain !== "GYM");
+
+export function isGymDataOnboardingDataset(key: string): key is "gym_clients" | "gym_trainers" {
+  return key === "gym_clients" || key === "gym_trainers";
+}
 
 // Orden recomendado de importación (respeta dependencias)
 export const IMPORT_ORDER: DataOnboardingDatasetKey[] = [

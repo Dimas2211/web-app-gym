@@ -26,6 +26,7 @@ import type {
   DataOnboardingRowWarning,
 } from "../../types/platform.types";
 import { applyImportPolicy } from "./import-policy";
+import { analyzeGymClients, analyzeGymTrainers, type GymAnalyzerOptions } from "./gym-db-aware-analyzer";
 
 // ── Input del analyzer ────────────────────────────────────────────
 
@@ -35,6 +36,8 @@ export interface AnalyzeDbAwareInput {
   importPolicy:  DataOnboardingImportPolicy;
   prismaClient:  PrismaClient;
   tenantId:      string;
+  /** GYM-ONBOARDING: acceso GYM resuelto server-side (solo gym_clients lo usa). */
+  gymOptions?:   GymAnalyzerOptions;
 }
 
 // ── Helpers internos ──────────────────────────────────────────────
@@ -59,6 +62,23 @@ function isEmpty(v: unknown): boolean {
   return String(v).trim() === "";
 }
 
+/**
+ * ONBOARDING-5K: índice clave normalizada → candidatos (lista completa, sin
+ * sobrescritura), para resolver 0/1/2+ coincidencias en O(1) por fila en vez
+ * de recorrer el catálogo completo por cada fila del archivo.
+ */
+function indexByKeys<T>(items: T[], keysOf: (item: T) => string[]): Map<string, T[]> {
+  const map = new Map<string, T[]>();
+  for (const item of items) {
+    for (const key of new Set(keysOf(item))) {
+      const list = map.get(key);
+      if (list) list.push(item);
+      else map.set(key, [item]);
+    }
+  }
+  return map;
+}
+
 // ── Función pública ───────────────────────────────────────────────
 
 export async function analyzeDataOnboardingPreviewAgainstDatabase(
@@ -81,6 +101,10 @@ export async function analyzeDataOnboardingPreviewAgainstDatabase(
       return analyzeSuppliers(parsedPreview, importPolicy, prismaClient, tenantId);
     case "inventory_initial":
       return analyzeInventoryInitial(parsedPreview, importPolicy, prismaClient, tenantId);
+    case "gym_clients":
+      return analyzeGymClients(parsedPreview, importPolicy, prismaClient, tenantId, input.gymOptions);
+    case "gym_trainers":
+      return analyzeGymTrainers(parsedPreview, importPolicy, prismaClient, tenantId);
     default:
       return buildUnsupportedResult(datasetKey, importPolicy);
   }
@@ -100,7 +124,7 @@ function buildSummaryFromRows(rows: DataOnboardingDbAwareRow[]) {
     r.errors.some((e) => e.code === "DUPLICATE_IN_DATABASE"),
   ).length;
 
-  return { createRows, updateRows, skipRows, errorRows, missingDependencies, duplicatesInDatabase };
+  return { analyzedRows: rows.length, createRows, updateRows, skipRows, errorRows, missingDependencies, duplicatesInDatabase };
 }
 
 function buildStatus(
@@ -119,7 +143,7 @@ function buildUnsupportedResult(
     datasetKey,
     importPolicy,
     status:  "BLOCKED",
-    summary: { createRows: 0, updateRows: 0, skipRows: 0, errorRows: 0, missingDependencies: 0, duplicatesInDatabase: 0 },
+    summary: { analyzedRows: 0, createRows: 0, updateRows: 0, skipRows: 0, errorRows: 0, missingDependencies: 0, duplicatesInDatabase: 0 },
     rows:    [],
   };
 }
@@ -470,6 +494,13 @@ async function analyzeProducts(
 
   const productMap = new Map(existingProducts.map((p) => [p.product_code.toUpperCase(), p]));
 
+  const categoriesByKey = indexByKeys(categories, (c) => [normalizeKey(c.name)]);
+  const unitsByKey      = indexByKeys(units, (u) => [normalizeKey(u.name), normalizeKey(u.symbol)]);
+  const linesByKey      = indexByKeys(lines, (l) => [normalizeKey(l.name)]);
+  const sublinesByKey   = indexByKeys(sublines, (sl) => [normalizeKey(sl.name)]);
+  const taxRatesByKey   = indexByKeys(taxRates, (t) => [normalizeKey(t.name)]);
+  const suppliersByKey  = indexByKeys(suppliers, (sp) => [normalizeKey(sp.name)]);
+
   // SKUs existentes en la base para detectar duplicados por SKU
   const existingSkus = new Set(
     existingProducts.map((p) => normalizeKey(p.sku ?? "")).filter(Boolean),
@@ -494,7 +525,7 @@ async function analyzeProducts(
 
     // Dep: categoría (requerida) — 0/1/2+ candidatos por nombre normalizado
     const catName    = strVal(row.data.category_name);
-    const catMatches = categories.filter((c) => normalizeKey(c.name) === normalizeKey(catName));
+    const catMatches = categoriesByKey.get(normalizeKey(catName)) ?? [];
     const catResult  = resolveUniqueDependency({
       dependencyType:   "category",
       lookupField:      "category_name",
@@ -510,7 +541,7 @@ async function analyzeProducts(
     // Dep: unidad de medida (requerida) — candidatos por nombre O símbolo, 0/1/2+
     const unitName    = strVal(row.data.unit_name);
     const unitKey      = normalizeKey(unitName);
-    const unitMatches = units.filter((u) => normalizeKey(u.name) === unitKey || normalizeKey(u.symbol) === unitKey);
+    const unitMatches = unitsByKey.get(unitKey) ?? [];
     const unitResult  = resolveUniqueDependency({
       dependencyType:   "unit_of_measure",
       lookupField:      "unit_name",
@@ -527,7 +558,7 @@ async function analyzeProducts(
     if (!isEmpty(row.data.line_name)) {
       const lineName = strVal(row.data.line_name);
       const lineKey  = normalizeKey(lineName);
-      const byName   = lines.filter((l) => normalizeKey(l.name) === lineKey);
+      const byName   = linesByKey.get(lineKey) ?? [];
 
       if (!catId) {
         const msg = `No se puede validar la línea "${lineName}" sin una categoría resuelta.`;
@@ -558,7 +589,7 @@ async function analyzeProducts(
     if (!isEmpty(row.data.subline_name)) {
       const sublineName = strVal(row.data.subline_name);
       const sublineKey  = normalizeKey(sublineName);
-      const byName      = sublines.filter((s) => normalizeKey(s.name) === sublineKey);
+      const byName      = sublinesByKey.get(sublineKey) ?? [];
 
       if (!resolvedLineId) {
         const msg = `No se puede validar la sublínea "${sublineName}" sin una línea resuelta.`;
@@ -587,7 +618,7 @@ async function analyzeProducts(
     // Dep: tasa de impuesto (opcional) — 0/1/2+ candidatos por nombre normalizado
     if (!isEmpty(row.data.tax_rate_name)) {
       const taxName    = strVal(row.data.tax_rate_name);
-      const taxMatches = taxRates.filter((t) => normalizeKey(t.name) === normalizeKey(taxName));
+      const taxMatches = taxRatesByKey.get(normalizeKey(taxName)) ?? [];
       const taxResult  = resolveUniqueDependency({
         dependencyType:   "tax_rate",
         lookupField:      "tax_rate_name",
@@ -603,7 +634,7 @@ async function analyzeProducts(
     // Dep: proveedor (opcional) — 0/1/2+ candidatos por nombre normalizado
     if (!isEmpty(row.data.supplier_name)) {
       const supplierName    = strVal(row.data.supplier_name);
-      const supplierMatches = suppliers.filter((s) => normalizeKey(s.name) === normalizeKey(supplierName));
+      const supplierMatches = suppliersByKey.get(normalizeKey(supplierName)) ?? [];
       const supplierResult  = resolveUniqueDependency({
         dependencyType:   "supplier",
         lookupField:      "supplier_name",

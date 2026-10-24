@@ -24,6 +24,8 @@ import { generateDataOnboardingTemplate, TEMPLATE_AVAILABLE_KEYS }
 import { DATA_ONBOARDING_DATASETS_BY_KEY }
   from "@/modules/platform/lib/data-onboarding/data-onboarding-definitions";
 import type { DataOnboardingDatasetKey }    from "@/modules/platform/types/platform.types";
+import { denyGymTemplateIfNotAllowed }
+  from "@/modules/platform/lib/data-onboarding/gym-template-access";
 
 // ── Route handler ─────────────────────────────────────────────────
 
@@ -56,12 +58,16 @@ export async function GET(
   // 4. Validar que el perfil existe — sin cargar credenciales
   const profile = await prisma.platformDatabaseProfile.findUnique({
     where:  { id: profileId },
-    select: { id: true, label: true },
+    select: { id: true, label: true, organization: { select: { tenant_id: true } } },
   });
 
   if (!profile) {
     return NextResponse.json({ error: "Perfil de base de datos no encontrado." }, { status: 404 });
   }
+
+  // GYM-ONBOARDING: plantillas GYM solo para organizaciones con vertical GYM.
+  const gymDenied = await denyGymTemplateIfNotAllowed(datasetKey, profile.organization?.tenant_id ?? null);
+  if (gymDenied) return gymDenied;
 
   // 5. Generar workbook en memoria — sin consultar base cliente
   let buffer: Buffer;

@@ -35,6 +35,12 @@ import type {
   SublinesImportDryRunResult,
   SublinesImportResult,
 } from "../../../types/platform.types";
+import {
+  DATA_ONBOARDING_TX_OPTIONS,
+  createManyInBatches,
+  assertWholeFileCreatable,
+  indexParsedRows,
+} from "./batch-write";
 
 // ── Status válidos para importación ──────────────────────────────
 // "deleted" está excluido deliberadamente en E1C-B por seguridad.
@@ -83,7 +89,9 @@ export async function runSublinesImport(
   const { parsedPreview, dbAwareResult, prismaClient, tenantId, isDryRun } = input;
 
   // ── 1. Reunir solo las filas que el DB-aware marcó como CREATE ─
+  assertWholeFileCreatable(parsedPreview, dbAwareResult);
   const createRows = dbAwareResult.rows.filter((r) => r.resolution === "CREATE");
+  const parsedByNumber = indexParsedRows(parsedPreview);
 
   interface RowToCreate {
     rowNumber: number;
@@ -107,7 +115,7 @@ export async function runSublinesImport(
   type PreparedRow = RowToCreate | RowBlocked;
 
   const prepared: PreparedRow[] = createRows.map((dbRow) => {
-    const parsedRow = parsedPreview.rows.find((r) => r.rowNumber === dbRow.rowNumber);
+    const parsedRow = parsedByNumber.get(dbRow.rowNumber);
     const name       = strVal(parsedRow?.data.name ?? "");
     const lineName   = strVal(parsedRow?.data.line_name ?? "");
 
@@ -170,13 +178,14 @@ export async function runSublinesImport(
   }
 
   const allBlocked = [...blocked, ...duplicatesInFile];
+  const duplicateRowNumbers = new Set(duplicatesInFile.map((d) => d.rowNumber));
 
   // ── 3. Si hay cualquier fila bloqueada → abortar todo (sin import parcial) ─
 
   if (allBlocked.length > 0) {
     const allRowResults: SublinesImportRowResult[] = [
       ...toCreate
-        .filter((r) => !duplicatesInFile.find((d) => d.rowNumber === r.rowNumber))
+        .filter((r) => !duplicateRowNumbers.has(r.rowNumber))
         .map((r) => ({ rowNumber: r.rowNumber, name: r.name, lineName: r.lineName, code: r.code, resolution: "SKIPPED" as const, reason: "Bloqueado por otras filas con error." })),
       ...allBlocked.map((r) => ({ rowNumber: r.rowNumber, name: r.name, lineName: r.lineName, code: r.code, resolution: "ERROR" as const, reason: r.reason })),
     ].sort((a, b) => a.rowNumber - b.rowNumber);
@@ -255,10 +264,12 @@ export async function runSublinesImport(
 
   const now = new Date();
 
+  // ONBOARDING-5K: INSERT multi-fila por lotes dentro de la misma transacción.
   await prismaClient.$transaction(async (tx) => {
-    for (const row of toCreate) {
-      await tx.productSubline.create({
-        data: {
+    await createManyInBatches(
+      toCreate,
+      (batch) => tx.productSubline.createMany({
+        data: batch.map((row) => ({
           tenant_id:  tenantId,
           line_id:    row.lineId,
           code:       row.code,
@@ -266,10 +277,11 @@ export async function runSublinesImport(
           status:     row.status as "active" | "inactive" | "suspended" | "deleted",
           created_at: now,
           updated_at: now,
-        },
-      });
-    }
-  });
+        })),
+      }),
+      "sublíneas",
+    );
+  }, DATA_ONBOARDING_TX_OPTIONS);
 
   const rowResults: SublinesImportRowResult[] = toCreate.map((r) => ({
     rowNumber: r.rowNumber,

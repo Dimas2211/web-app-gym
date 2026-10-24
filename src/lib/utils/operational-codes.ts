@@ -46,6 +46,18 @@ async function getSettings(tenantId: string, db: PrismaClient = prisma) {
 }
 
 /**
+ * Configuración efectiva de códigos de cliente (GymSettings o defaults).
+ * GYM-ONBOARDING: la usa la importación masiva para asignar N códigos en
+ * lote con el mismo prefijo/dígitos/inicio que suggestNextClientCode.
+ */
+export async function getClientCodeSettings(
+  tenantId: string,
+  db: PrismaClient = prisma
+): Promise<{ prefix: string; digits: number; start: number }> {
+  return (await getSettings(tenantId, db)).client;
+}
+
+/**
  * Sugiere el siguiente código de personal (staff) disponible para el gym.
  * Busca el número más alto ya usado con el mismo prefijo y lo incrementa.
  */

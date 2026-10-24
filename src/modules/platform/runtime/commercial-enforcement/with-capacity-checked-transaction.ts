@@ -29,6 +29,12 @@ function isPrismaSerializationConflict(err: unknown): boolean {
 export interface WithCapacityCheckedTransactionOptions {
   /** Máximo de reintentos ADICIONALES ante conflicto de serialización. Default 2 (3 intentos totales). */
   maxRetries?: number;
+  /**
+   * ONBOARDING-5K: maxWait/timeout de la transacción interactiva (default
+   * de Prisma: 2 s / 5 s). Lo usan escrituras por lotes grandes (Data
+   * Onboarding). El isolationLevel sigue siendo siempre Serializable.
+   */
+  transactionOptions?: { maxWait?: number; timeout?: number };
 }
 
 /**
@@ -57,7 +63,7 @@ export async function withCapacityCheckedTransaction<T>(
           }
           return write(tx);
         },
-        { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+        { ...opts?.transactionOptions, isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
       );
     } catch (err) {
       if (isPrismaSerializationConflict(err) && attempt < maxRetries) continue;

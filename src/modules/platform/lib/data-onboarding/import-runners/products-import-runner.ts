@@ -43,6 +43,12 @@ import type {
   ProductsImportResult,
 } from "../../../types/platform.types";
 import {
+  DATA_ONBOARDING_TX_OPTIONS,
+  createManyInBatches,
+  assertWholeFileCreatable,
+  indexParsedRows,
+} from "./batch-write";
+import {
   withCapacityCheckedTransaction,
   assertCapacityAvailable,
   isProductCountedForCapacity,
@@ -103,7 +109,9 @@ export async function runProductsImport(
   const { parsedPreview, dbAwareResult, prismaClient, tenantId, isDryRun, commercialCtx } = input;
 
   // ── 1. Reunir solo las filas que el DB-aware marcó como CREATE ─
+  assertWholeFileCreatable(parsedPreview, dbAwareResult);
   const createRows = dbAwareResult.rows.filter((r) => r.resolution === "CREATE");
+  const parsedByNumber = indexParsedRows(parsedPreview);
 
   interface RowToCreate {
     rowNumber:     number;
@@ -140,7 +148,7 @@ export async function runProductsImport(
   type PreparedRow = RowToCreate | RowBlocked;
 
   const prepared: PreparedRow[] = createRows.map((dbRow) => {
-    const parsedRow = parsedPreview.rows.find((r) => r.rowNumber === dbRow.rowNumber);
+    const parsedRow = parsedByNumber.get(dbRow.rowNumber);
     const code = strVal(parsedRow?.data.product_code ?? "").toUpperCase();
     const name = strVal(parsedRow?.data.name ?? "");
 
@@ -353,10 +361,13 @@ export async function runProductsImport(
       "commerce.products.max",
       capacityDeltaTotal,
       commercialCtx,
+      // ONBOARDING-5K: INSERT multi-fila por lotes dentro de la misma
+      // transacción Serializable que verificó la capacidad.
       async (tx) => {
-        for (const row of toCreate) {
-          await tx.product.create({
-            data: {
+        await createManyInBatches(
+          toCreate,
+          (batch) => tx.product.createMany({
+            data: batch.map((row) => ({
               tenant_id:      tenantId,
               product_code:   row.code,
               name:           row.name,
@@ -379,10 +390,12 @@ export async function runProductsImport(
               tax_rate_id:    row.taxRateId,
               created_at:     now,
               updated_at:     now,
-            },
-          });
-        }
+            })),
+          }),
+          "productos",
+        );
       },
+      { transactionOptions: DATA_ONBOARDING_TX_OPTIONS },
     );
   } catch (err) {
     if (err instanceof CommercialEnforcementError) {

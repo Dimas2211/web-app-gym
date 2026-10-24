@@ -13,7 +13,9 @@
 //       organizationId (+ profileId opcional, solo Dedicated histórico)
 //       → PlatformOrganization → tenant_id → Runtime Router.
 //     Nunca se acepta tenantId/host/user/password/URL del navegador.
-//  4. Commercial Enforcement de la organización DESTINO.
+//  4. Commercial Enforcement de la organización DESTINO. Datasets GYM
+//     (GYM-ONBOARDING): además vertical GYM efectiva (+ gym.trainers para
+//     entrenadores) en cualquier ambiente.
 //  5. Re-parsear el archivo server-side.
 //  6. Análisis DB-aware server-side (solo lecturas, WHERE tenant_id).
 //  7. Bloquear si hay filas ERROR o no-CREATE.
@@ -22,6 +24,13 @@
 //     incluye organization.code).
 //  9. Runner (DRY_RUN o EXECUTE, transacción) con el tenantId de la org.
 // 10. PlatformDeploymentLog (solo EXECUTE exitoso).
+//
+// ONBOARDING-5K: hasta DATA_ONBOARDING_MAX_IMPORT_ROWS registros por
+// archivo, sin truncamiento: el parser devuelve todas las filas o rechaza
+// el archivo entero; antes del runner se verifica que el análisis cubra
+// exactamente todas las filas, y tras el EXECUTE que lo creado coincida
+// con lo analizado. La respuesta al navegador lleva solo una muestra de
+// filas (los conteos siempre corresponden al archivo completo).
 // ─────────────────────────────────────────────────────────────────
 
 if (typeof window !== "undefined") {
@@ -43,6 +52,12 @@ import { getRuntimeDatabaseUrlFromProfile } from "../../runtime/runtime-database
 import { withTemporaryPrismaClient } from "../client-prisma";
 import { sanitizeDatabaseError } from "../database-profile-url";
 import { parseDataOnboardingWorkbook } from "./excel-preview-parser";
+import {
+  DATA_ONBOARDING_MAX_FILE_BYTES,
+  dataOnboardingFileTooLargeMessage,
+} from "./data-onboarding-limits";
+import { toRunnerResultView } from "./data-onboarding-view";
+import { analysisCoverageError } from "./data-onboarding-coverage";
 import { analyzeDataOnboardingPreviewAgainstDatabase } from "./db-aware-preview-analyzer";
 import {
   evaluateDataOnboardingExecutionPolicy,
@@ -55,12 +70,16 @@ import {
   CommercialEnforcementError,
   type CommercialEnforcementContext,
 } from "../../runtime/commercial-enforcement";
+import { isGymDataOnboardingDataset } from "./data-onboarding-definitions";
+import {
+  resolveDataOnboardingGymAccessFromContext,
+  evaluateGymDataOnboardingAccess,
+} from "./gym-data-onboarding-access";
 import type {
   DataOnboardingPreviewResult,
   DataOnboardingDbAwarePreviewResult,
+  DataOnboardingGymAccess,
 } from "../../types/platform.types";
-
-const MAX_FILE_SIZE_BYTES = 5 * 1024 * 1024; // 5 MB
 
 const SENSITIVE_PATTERNS: [RegExp, string][] = [
   [/postgresql:\/\/[^\s]*/gi,           "***"],
@@ -130,7 +149,7 @@ export async function runDataOnboardingImport<TDry, TImp>(
 ): Promise<DataOnboardingImportState<TDry, TImp>> {
   try {
     // ── 1. Autenticación ──────────────────────────────────────────
-    await requireSuperAdmin();
+    const superAdmin = await requireSuperAdmin();
 
     // ── 2. Parámetros ─────────────────────────────────────────────
     // Solo identificadores de destino: organizationId (identidad
@@ -171,11 +190,8 @@ export async function runDataOnboardingImport<TDry, TImp>(
     if (file.size === 0) {
       return { success: false, error: "El archivo está vacío." };
     }
-    if (file.size > MAX_FILE_SIZE_BYTES) {
-      return {
-        success: false,
-        error: `El archivo excede el tamaño máximo de 5 MB (${(file.size / 1024 / 1024).toFixed(2)} MB recibidos).`,
-      };
+    if (file.size > DATA_ONBOARDING_MAX_FILE_BYTES) {
+      return { success: false, error: dataOnboardingFileTooLargeMessage(file.size) };
     }
 
     // ── 3. Cifrado + destino runtime server-side ──────────────────
@@ -213,10 +229,21 @@ export async function runDataOnboardingImport<TDry, TImp>(
       }
       throw err;
     }
-    const moduleEnabled = hasOrganizationModule(
-      commercialCtx,
-      DATA_ONBOARDING_DATASET_MODULE[config.datasetKey],
-    );
+    const requiredModule = DATA_ONBOARDING_DATASET_MODULE[config.datasetKey];
+    let moduleEnabled = requiredModule === null || hasOrganizationModule(commercialCtx, requiredModule);
+
+    // GYM-ONBOARDING: los datasets GYM exigen la vertical GYM efectiva
+    // (y gym.trainers para entrenadores) en CUALQUIER ambiente — una
+    // organización Commerce-only nunca llega al análisis ni al runner.
+    let gymAccess: DataOnboardingGymAccess | undefined;
+    if (isGymDataOnboardingDataset(config.datasetKey)) {
+      gymAccess = await resolveDataOnboardingGymAccessFromContext(commercialCtx);
+      const access = evaluateGymDataOnboardingAccess(gymAccess, config.datasetKey);
+      if (!access.allowed) {
+        return { success: false, blocked: true, safetyBlockers: [access.reason], error: access.reason };
+      }
+      moduleEnabled = true;
+    }
     // Contrato histórico E1C-D: productos exige commerce.products en
     // cualquier ambiente. El resto de datasets lo exige la política de
     // PRODUCTION (evaluateDataOnboardingExecutionPolicy).
@@ -239,6 +266,9 @@ export async function runDataOnboardingImport<TDry, TImp>(
         error:   "El archivo Excel tiene errores estructurales. Verifique el formato antes de importar.",
       };
     }
+    // ONBOARDING-5K: un archivo sobre DATA_ONBOARDING_MAX_IMPORT_ROWS ya fue
+    // rechazado por el parser (DataOnboardingRowLimitError) — nunca llega
+    // aquí un subconjunto de filas.
 
     // ── 6. Análisis DB-aware server-side (solo lecturas) ──────────
     let dbAwareResult: DataOnboardingDbAwarePreviewResult;
@@ -250,6 +280,7 @@ export async function runDataOnboardingImport<TDry, TImp>(
           importPolicy: "CREATE_ONLY",
           prismaClient: client,
           tenantId,
+          ...(gymAccess ? { gymOptions: { classesModuleEnabled: gymAccess.classesModuleEnabled } } : {}),
         }),
       );
     } catch (dbErr) {
@@ -257,6 +288,14 @@ export async function runDataOnboardingImport<TDry, TImp>(
         success: false,
         error:   `Error al analizar la base destino: ${sanitizeDatabaseError(dbErr)}`,
       };
+    }
+
+    // ── 6b. ONBOARDING-5K: el análisis cubre TODAS las filas ──────
+    // Ninguna fila del archivo puede quedar fuera del análisis (y por
+    // tanto de la escritura) en silencio.
+    const coverageError = analysisCoverageError(parsedPreview, dbAwareResult);
+    if (coverageError) {
+      return { success: false, error: coverageError };
     }
 
     // ── 7. Análisis limpio obligatorio ────────────────────────────
@@ -305,12 +344,26 @@ export async function runDataOnboardingImport<TDry, TImp>(
         profileLabel:   header.runtimeLabel,
         safetyMessages: safety.messages,
         safetyWarnings: safety.warnings,
-        dryRunResult:   runnerResult as TDry,
+        dryRunResult:   toRunnerResultView(runnerResult as TDry),
+      };
+    }
+
+    // ── 9b. ONBOARDING-5K: lo creado debe coincidir con lo analizado ─
+    // Los runners ya verifican cada lote dentro de la transacción; esto
+    // es defensa en profundidad: nunca se informa éxito si no cuadra.
+    const imp = runnerResult as TImp;
+    const createdCount = config.created(imp);
+    if (createdCount !== parsedPreview.summary.totalRows) {
+      return {
+        success: false,
+        error:
+          `La importación informó ${createdCount} registro(s) creado(s) de ${parsedPreview.summary.totalRows} ` +
+          "analizado(s). Verifique la base destino antes de reintentar: el reintento con política " +
+          "CREATE_ONLY bloquea los registros que ya existan.",
       };
     }
 
     // ── 10. Log en Control Plane (solo EXECUTE exitoso) ───────────
-    const imp = runnerResult as TImp;
     try {
       await controlPlanePrisma.platformDeploymentLog.create({
         data: {
@@ -330,6 +383,8 @@ export async function runDataOnboardingImport<TDry, TImp>(
             tenantId,
             datasetKey:       config.datasetKey,
             importPolicy:     "CREATE_ONLY",
+            // Solo el id del super_admin ejecutor — sin email ni datos del archivo.
+            executedByUserId: superAdmin?.id ?? null,
           },
         },
       });
@@ -343,7 +398,7 @@ export async function runDataOnboardingImport<TDry, TImp>(
       profileLabel:   header.runtimeLabel,
       safetyMessages: safety.messages,
       safetyWarnings: safety.warnings,
-      importResult:   imp,
+      importResult:   toRunnerResultView(imp),
     };
   } catch (err) {
     const raw = err instanceof Error ? err.message : config.unexpectedErrorMessage;

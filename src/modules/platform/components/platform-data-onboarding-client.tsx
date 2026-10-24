@@ -44,6 +44,8 @@ import {
   Loader2,
   ChevronDown,
   ChevronUp,
+  Dumbbell,
+  UserCheck,
 } from "lucide-react";
 
 import type {
@@ -70,14 +72,23 @@ import type {
   ProductsImportRowResult,
   InventoryImportActionState,
   InventoryImportRowResult,
+  GymClientsImportActionState,
+  GymTrainersImportActionState,
+  GymImportRowResult,
+  DataOnboardingGymAccess,
 } from "../types/platform.types";
 import { importPolicyLabel, ENABLED_IMPORT_POLICIES } from "../lib/data-onboarding/import-policy";
 import {
-  DATA_ONBOARDING_DATASETS,
-  IMPORT_DATASETS,
-  EXPORT_DATASETS,
+  COMMERCE_DATASETS,
+  GYM_DATASETS,
 } from "../lib/data-onboarding/data-onboarding-definitions";
 import { TEMPLATE_AVAILABLE_KEYS } from "../lib/data-onboarding/excel-template-generator";
+import {
+  DATA_ONBOARDING_MAX_FILE_BYTES,
+  DATA_ONBOARDING_MAX_IMPORT_ROWS,
+  dataOnboardingFileTooLargeMessage,
+  formatDataOnboardingCount,
+} from "../lib/data-onboarding/data-onboarding-limits";
 import { previewDataOnboardingExcelAction } from "../actions/preview-data-onboarding-excel.action";
 import { importDataOnboardingCategoriesAction } from "../actions/import-data-onboarding-categories.action";
 import { importDataOnboardingLinesAction } from "../actions/import-data-onboarding-lines.action";
@@ -86,6 +97,8 @@ import { importDataOnboardingCustomersAction } from "../actions/import-data-onbo
 import { importDataOnboardingSuppliersAction } from "../actions/import-data-onboarding-suppliers.action";
 import { importDataOnboardingProductsAction } from "../actions/import-data-onboarding-products.action";
 import { importDataOnboardingInventoryAction } from "../actions/import-data-onboarding-inventory.action";
+import { importDataOnboardingGymClientsAction } from "../actions/import-data-onboarding-gym-clients.action";
+import { importDataOnboardingGymTrainersAction } from "../actions/import-data-onboarding-gym-trainers.action";
 import { IMPORT_CATEGORIES_CONFIRMATION_TEXT }
   from "../lib/data-onboarding/import-runners/categories-import.constants";
 import { IMPORT_LINES_CONFIRMATION_TEXT }
@@ -100,6 +113,10 @@ import { IMPORT_PRODUCTS_CONFIRMATION_TEXT }
   from "../lib/data-onboarding/import-runners/products-import.constants";
 import { IMPORT_INVENTORY_CONFIRMATION_TEXT }
   from "../lib/data-onboarding/import-runners/inventory-import.constants";
+import { IMPORT_GYM_CLIENTS_CONFIRMATION_TEXT }
+  from "../lib/data-onboarding/import-runners/gym-clients-import.constants";
+import { IMPORT_GYM_TRAINERS_CONFIRMATION_TEXT }
+  from "../lib/data-onboarding/import-runners/gym-trainers-import.constants";
 import {
   buildDataOnboardingConfirmationText,
   DATA_ONBOARDING_RECOMMENDED_ORDER,
@@ -107,7 +124,9 @@ import {
 
 // ── Datasets con importación real habilitada (E1C-A · E1C-B · E1C-C · E1C-D · E1C-E1) ──
 
-type ImportEnabledDatasetKey = "categories" | "lines" | "sublines" | "customers" | "suppliers" | "products" | "inventory_initial";
+type ImportEnabledDatasetKey =
+  | "categories" | "lines" | "sublines" | "customers" | "suppliers" | "products" | "inventory_initial"
+  | "gym_clients" | "gym_trainers";
 
 const IMPORT_CONFIRMATION_TEXT: Record<ImportEnabledDatasetKey, string> = {
   categories:        IMPORT_CATEGORIES_CONFIRMATION_TEXT,
@@ -117,12 +136,14 @@ const IMPORT_CONFIRMATION_TEXT: Record<ImportEnabledDatasetKey, string> = {
   suppliers:         IMPORT_SUPPLIERS_CONFIRMATION_TEXT,
   products:          IMPORT_PRODUCTS_CONFIRMATION_TEXT,
   inventory_initial: IMPORT_INVENTORY_CONFIRMATION_TEXT,
+  gym_clients:       IMPORT_GYM_CLIENTS_CONFIRMATION_TEXT,
+  gym_trainers:      IMPORT_GYM_TRAINERS_CONFIRMATION_TEXT,
 };
 
 function isImportEnabledDataset(key: DataOnboardingDatasetKey): key is ImportEnabledDatasetKey {
   return key === "categories" || key === "lines" || key === "sublines"
     || key === "customers" || key === "suppliers" || key === "products"
-    || key === "inventory_initial";
+    || key === "inventory_initial" || key === "gym_clients" || key === "gym_trainers";
 }
 
 type AnyImportActionState =
@@ -132,7 +153,9 @@ type AnyImportActionState =
   | CustomersImportActionState
   | SuppliersImportActionState
   | ProductsImportActionState
-  | InventoryImportActionState;
+  | InventoryImportActionState
+  | GymClientsImportActionState
+  | GymTrainersImportActionState;
 
 type AnyImportRowResult =
   | CategoriesImportRowResult
@@ -141,17 +164,20 @@ type AnyImportRowResult =
   | CustomersImportRowResult
   | SuppliersImportRowResult
   | ProductsImportRowResult
-  | InventoryImportRowResult;
+  | InventoryImportRowResult
+  | GymImportRowResult;
 
 function importRowParentLabel(datasetKey: DataOnboardingDatasetKey): string | null {
   if (datasetKey === "lines")    return "Categoría";
   if (datasetKey === "sublines") return "Línea";
+  if (datasetKey === "gym_clients" || datasetKey === "gym_trainers") return "Sucursal";
   return null;
 }
 
 function importRowParentValue(row: AnyImportRowResult): string | undefined {
   if ("categoryName" in row) return row.categoryName;
   if ("lineName" in row)     return row.lineName;
+  if ("branchName" in row)   return row.branchName;
   return undefined;
 }
 
@@ -159,6 +185,8 @@ function importRowParentValue(row: AnyImportRowResult): string | undefined {
 
 interface Props {
   header: OrganizationRuntimeHeader;
+  /** GYM-ONBOARDING: resuelto server-side; ausente = sin sección GYM. */
+  gymAccess?: DataOnboardingGymAccess;
 }
 
 /** Destino de las actions — solo identificadores; el servidor resuelve el resto. */
@@ -172,6 +200,8 @@ interface DataOnboardingTarget {
 interface DatasetCardProps {
   dataset: DataOnboardingDatasetDefinition;
   target:  DataOnboardingTarget;
+  /** GYM-ONBOARDING: si viene, la tarjeta se muestra deshabilitada con este motivo. */
+  disabledReason?: string;
 }
 
 function setTargetFields(fd: FormData, target: DataOnboardingTarget) {
@@ -224,7 +254,7 @@ function DbAwarePanel({
 
   if (!dbAwareResult) return null;
 
-  const { summary, rows, status, importPolicy } = dbAwareResult;
+  const { summary, rows, status, importPolicy, sample } = dbAwareResult;
   const displayRows = showAll ? rows : rows.slice(0, 50);
   const hasMore     = rows.length > 50 && !showAll;
 
@@ -260,8 +290,12 @@ function DbAwarePanel({
 
       {expanded && (
         <>
-          {/* Resumen DB-aware */}
-          <div className="grid grid-cols-3 gap-0 border-b border-indigo-100 bg-white">
+          {/* Resumen DB-aware — conteos del archivo completo */}
+          <div className="grid grid-cols-4 gap-0 border-b border-indigo-100 bg-white">
+            <div className="px-3 py-2 text-center border-r border-indigo-100">
+              <p className="text-base font-bold text-zinc-800">{formatDataOnboardingCount(summary.analyzedRows)}</p>
+              <p className="text-[10px] text-zinc-400">Analizadas</p>
+            </div>
             <div className="px-3 py-2 text-center border-r border-indigo-100">
               <p className="text-base font-bold text-green-600">{summary.createRows}</p>
               <p className="text-[10px] text-zinc-400">Crear</p>
@@ -291,6 +325,16 @@ function DbAwarePanel({
                   {summary.duplicatesInDatabase} fila(s) ya existen en la base (CREATE_ONLY)
                 </span>
               )}
+            </div>
+          )}
+
+          {sample && (
+            <div className="px-3 py-1.5 bg-indigo-50/60 border-b border-indigo-100">
+              <span className="text-[10px] text-indigo-600 flex items-center gap-1">
+                <Info size={10} />
+                Mostrando {formatDataOnboardingCount(sample.shownRows)} de {formatDataOnboardingCount(sample.totalRows)} filas
+                (primero las que tienen errores o advertencias). Los totales corresponden al archivo completo.
+              </span>
             </div>
           )}
 
@@ -374,7 +418,7 @@ function DbAwarePanel({
             <div className="px-3 py-2 border-t border-indigo-100 text-center">
               <button type="button" onClick={() => setShowAll(true)}
                 className="text-xs text-indigo-600 hover:text-indigo-800 underline">
-                Ver todas las filas ({rows.length})
+                {sample ? `Ver las ${rows.length} filas de la muestra` : `Ver todas las filas (${rows.length})`}
               </button>
             </div>
           )}
@@ -471,6 +515,8 @@ function DatasetIcon({ datasetKey }: { datasetKey: string }) {
     sales:             <BarChart3    size={16} />,
     dte_documents:     <FileText     size={16} />,
     dte_catalogs:      <List         size={16} />,
+    gym_clients:       <Dumbbell     size={16} />,
+    gym_trainers:      <UserCheck    size={16} />,
   };
   return <>{icons[datasetKey] ?? <FileSpreadsheet size={16} />}</>;
 }
@@ -563,6 +609,8 @@ const KEY_COLUMNS: Record<string, string[]> = {
   customers:         ["name", "email", "document_number"],
   suppliers:         ["name", "nit", "email"],
   inventory_initial: ["product_code", "location_name", "quantity"],
+  gym_clients:       ["first_name", "last_name", "branch_name", "operational_code"],
+  gym_trainers:      ["first_name", "last_name", "branch_name", "email"],
 };
 
 // ── Panel de preview ──────────────────────────────────────────────
@@ -616,7 +664,7 @@ function PreviewPanel({ result, datasetKey }: { result: DataOnboardingPreviewRes
           </div>
 
           {/* Info adicional */}
-          {(result.summary.emptyRowsIgnored > 0 || result.truncated) && (
+          {(result.summary.emptyRowsIgnored > 0 || result.sample) && (
             <div className="px-3 py-1.5 bg-zinc-50 border-b border-zinc-100 flex flex-wrap gap-2">
               {result.summary.emptyRowsIgnored > 0 && (
                 <span className="text-[10px] text-zinc-400 flex items-center gap-1">
@@ -624,10 +672,11 @@ function PreviewPanel({ result, datasetKey }: { result: DataOnboardingPreviewRes
                   {result.summary.emptyRowsIgnored} fila(s) vacías ignoradas
                 </span>
               )}
-              {result.truncated && (
-                <span className="text-[10px] text-amber-600 flex items-center gap-1">
-                  <AlertTriangle size={10} />
-                  Preview limitado a {result.rows.length} filas. El archivo puede tener más.
+              {result.sample && (
+                <span className="text-[10px] text-zinc-500 flex items-center gap-1">
+                  <Info size={10} />
+                  Mostrando {formatDataOnboardingCount(result.sample.shownRows)} de {formatDataOnboardingCount(result.sample.totalRows)} filas
+                  (primero las que tienen problemas). Se analizan e importan todas las filas.
                 </span>
               )}
             </div>
@@ -708,7 +757,7 @@ function PreviewPanel({ result, datasetKey }: { result: DataOnboardingPreviewRes
                 onClick={() => setShowAll(true)}
                 className="text-xs text-indigo-600 hover:text-indigo-800 underline"
               >
-                Ver todas las filas ({result.rows.length})
+                {result.sample ? `Ver las ${result.rows.length} filas de la muestra` : `Ver todas las filas (${result.rows.length})`}
               </button>
             </div>
           )}
@@ -720,10 +769,10 @@ function PreviewPanel({ result, datasetKey }: { result: DataOnboardingPreviewRes
 
 // ── Card de un dataset ────────────────────────────────────────────
 
-function DatasetCard({ dataset, target }: DatasetCardProps) {
+function DatasetCard({ dataset, target, disabledReason }: DatasetCardProps) {
   const canImport   = dataset.direction === "IMPORT" || dataset.direction === "BOTH";
   const canExport   = dataset.direction === "EXPORT" || dataset.direction === "BOTH";
-  const hasTemplate = canImport && TEMPLATE_AVAILABLE_KEYS.has(dataset.key);
+  const hasTemplate = !disabledReason && canImport && TEMPLATE_AVAILABLE_KEYS.has(dataset.key);
   const templateUrl = `/dashboard/platform/data-onboarding/org/${target.organizationId}/templates/${dataset.key}`;
   const isProduction = target.environment === "PRODUCTION";
 
@@ -740,7 +789,7 @@ function DatasetCard({ dataset, target }: DatasetCardProps) {
   const [isPendingImport, startImportTrans] = useTransition();
   const [dryRunState,     setDryRunState]   = useState<AnyImportActionState | null>(null);
 
-  const isImportEnabled       = isImportEnabledDataset(dataset.key);
+  const isImportEnabled       = !disabledReason && isImportEnabledDataset(dataset.key);
   const expectedConfirmation  = isImportEnabledDataset(dataset.key)
     ? buildDataOnboardingConfirmationText(
         IMPORT_CONFIRMATION_TEXT[dataset.key],
@@ -751,10 +800,12 @@ function DatasetCard({ dataset, target }: DatasetCardProps) {
 
   // DB-aware limpio = READY y solo filas CREATE (sin errores)
   const dbAwareResult = previewState?.success ? previewState.dbAwareResult : undefined;
+  // ONBOARDING-5K: `rows` puede ser una muestra — se decide con los conteos
+  // del archivo completo. El servidor vuelve a analizar todo al importar.
   const dbAwareClean  = isImportEnabled
     && dbAwareResult?.status === "READY"
     && dbAwareResult.summary.errorRows === 0
-    && dbAwareResult.rows.every((r) => r.resolution === "CREATE");
+    && dbAwareResult.summary.createRows === dbAwareResult.summary.analyzedRows;
 
   const confirmationMatches = expectedConfirmation !== null && confirmText.trim() === expectedConfirmation;
   const canRunImport = isImportEnabled && dbAwareClean && confirmationMatches && !isPendingImport && !isPending;
@@ -772,7 +823,11 @@ function DatasetCard({ dataset, target }: DatasetCardProps) {
                 ? importDataOnboardingSuppliersAction(fd)
                 : dataset.key === "products"
                   ? importDataOnboardingProductsAction(fd)
-                  : importDataOnboardingInventoryAction(fd);
+                  : dataset.key === "gym_clients"
+                    ? importDataOnboardingGymClientsAction(fd)
+                    : dataset.key === "gym_trainers"
+                      ? importDataOnboardingGymTrainersAction(fd)
+                      : importDataOnboardingInventoryAction(fd);
   }
 
   function buildImportFormData(mode: "DRY_RUN" | "EXECUTE"): FormData | null {
@@ -817,8 +872,15 @@ function DatasetCard({ dataset, target }: DatasetCardProps) {
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const f = e.target.files?.[0] ?? null;
     setSelectedFile(f);
-    setPreviewState(null);
     setDryRunState(null);
+    setImportState(null);
+    // ONBOARDING-5K: rechazo explícito antes de subir — un archivo sobre el
+    // límite de la Server Action fallaría con un error genérico de Next/Vercel.
+    setPreviewState(
+      f && f.size > DATA_ONBOARDING_MAX_FILE_BYTES
+        ? { success: false, error: dataOnboardingFileTooLargeMessage(f.size) }
+        : null,
+    );
     // Limpiar el input para permitir re-seleccionar el mismo archivo
     if (e.target) e.target.value = "";
   }
@@ -830,6 +892,10 @@ function DatasetCard({ dataset, target }: DatasetCardProps) {
 
   function handleValidate() {
     if (!selectedFile) return;
+    if (selectedFile.size > DATA_ONBOARDING_MAX_FILE_BYTES) {
+      setPreviewState({ success: false, error: dataOnboardingFileTooLargeMessage(selectedFile.size) });
+      return;
+    }
 
     const fd = new FormData();
     setTargetFields(fd, target);
@@ -861,7 +927,12 @@ function DatasetCard({ dataset, target }: DatasetCardProps) {
           </span>
           {dataset.label}
         </div>
-        {hasTemplate ? (
+        {disabledReason ? (
+          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs font-medium bg-amber-50 text-amber-700 whitespace-nowrap">
+            <AlertTriangle size={10} />
+            Módulo no habilitado
+          </span>
+        ) : hasTemplate ? (
           <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs font-medium bg-indigo-50 text-indigo-600 whitespace-nowrap">
             <FileSpreadsheet size={10} />
             Plantilla disponible
@@ -878,6 +949,13 @@ function DatasetCard({ dataset, target }: DatasetCardProps) {
       <p className="text-xs text-zinc-500 leading-relaxed">
         {dataset.description}
       </p>
+
+      {disabledReason && (
+        <div className="flex items-start gap-1.5 p-2 rounded border border-amber-200 bg-amber-50">
+          <AlertTriangle size={12} className="text-amber-500 shrink-0 mt-0.5" />
+          <p className="text-[11px] text-amber-700 leading-tight">{disabledReason}</p>
+        </div>
+      )}
 
       {/* Badges */}
       <div className="flex flex-wrap gap-1.5">
@@ -1003,6 +1081,8 @@ function DatasetCard({ dataset, target }: DatasetCardProps) {
                       dataset.key === "sublines"   ? "sublíneas" :
                       dataset.key === "customers"  ? "clientes" :
                       dataset.key === "suppliers"  ? "proveedores" :
+                      dataset.key === "gym_clients"  ? "clientes GYM" :
+                      dataset.key === "gym_trainers" ? "entrenadores" :
                       "productos"
                     }
                   </>
@@ -1145,7 +1225,8 @@ function DatasetCard({ dataset, target }: DatasetCardProps) {
           {dryRunState && (
             dryRunState.success && dryRunState.dryRunResult ? (
               <p className="text-[11px] text-sky-700">
-                Dry-run: {dryRunState.dryRunResult.wouldCreate} registro(s) se crearían ·{" "}
+                Dry-run: {formatDataOnboardingCount(dryRunState.dryRunResult.totalRows)} registro(s) analizado(s) ·{" "}
+                {formatDataOnboardingCount(dryRunState.dryRunResult.wouldCreate)} se crearían ·{" "}
                 {dryRunState.dryRunResult.blocked} bloqueado(s). No se escribió nada.
               </p>
             ) : !dryRunState.success ? (
@@ -1192,7 +1273,8 @@ function DatasetCard({ dataset, target }: DatasetCardProps) {
           <div className="flex items-center gap-2 px-3 py-2.5 bg-green-100">
             <CheckCircle2 size={13} className="text-green-600 shrink-0" />
             <span className="text-xs font-semibold text-green-800">
-              Importación completada — {importState.importResult.created} registro(s) creado(s)
+              Importación completada — {formatDataOnboardingCount(importState.importResult.created)} de{" "}
+              {formatDataOnboardingCount(importState.importResult.totalRows)} registro(s) creado(s)
             </span>
           </div>
           <div className="grid grid-cols-3 gap-0 border-t border-green-200 bg-white">
@@ -1209,6 +1291,12 @@ function DatasetCard({ dataset, target }: DatasetCardProps) {
               <p className="text-[10px] text-zinc-400">Errores</p>
             </div>
           </div>
+          {importState.importResult.rows.length < importState.importResult.totalRows && (
+            <p className="px-3 py-1.5 text-[10px] text-zinc-500 border-t border-green-100 bg-white">
+              Detalle: mostrando {importState.importResult.rows.length} de{" "}
+              {formatDataOnboardingCount(importState.importResult.totalRows)} filas creadas.
+            </p>
+          )}
           {importState.importResult.rows.length > 0 && (
             <div className="overflow-x-auto max-h-40 border-t border-green-100">
               <table className="w-full text-[11px]">
@@ -1231,7 +1319,7 @@ function DatasetCard({ dataset, target }: DatasetCardProps) {
                       {importRowParentLabel(dataset.key) && (
                         <td className="px-2 py-1 text-zinc-700 max-w-[120px] truncate">{importRowParentValue(row) ?? "—"}</td>
                       )}
-                      <td className="px-2 py-1 font-mono text-zinc-600">{row.code}</td>
+                      <td className="px-2 py-1 font-mono text-zinc-600">{row.code || "—"}</td>
                       <td className="px-2 py-1">
                         <span className={`text-[10px] font-semibold ${
                           row.resolution === "CREATED" ? "text-green-600" :
@@ -1258,7 +1346,7 @@ function DatasetCard({ dataset, target }: DatasetCardProps) {
       {hasTemplate && (
         <p className="text-[10px] text-indigo-500 border-t border-indigo-50 pt-2">
           {isImportEnabled
-            ? "E1C-A/E1C-B/E1C-C/E1C-D activo — importación real habilitada (CREATE_ONLY). Validar archivo para habilitar el botón."
+            ? `Importación real habilitada (CREATE_ONLY) — hasta ${formatDataOnboardingCount(DATA_ONBOARDING_MAX_IMPORT_ROWS)} registros y ${DATA_ONBOARDING_MAX_FILE_BYTES / 1024 / 1024} MB por archivo, sin importación parcial. Validar archivo para habilitar el botón.`
             : "Preview activo — E1B.1. Análisis contra base incluido. Importación real disponible en fases siguientes."
           }
         </p>
@@ -1277,7 +1365,12 @@ function DatasetCard({ dataset, target }: DatasetCardProps) {
 
 // ── Componente principal ──────────────────────────────────────────
 
-export function PlatformDataOnboardingClient({ header }: Props) {
+// El catálogo y los contadores históricos son solo Commerce: los datasets
+// GYM viven en su propia sección y no se muestran a organizaciones sin GYM.
+const COMMERCE_IMPORT_COUNT = COMMERCE_DATASETS.filter((d) => d.direction === "IMPORT" || d.direction === "BOTH").length;
+const COMMERCE_EXPORT_COUNT = COMMERCE_DATASETS.filter((d) => d.direction === "EXPORT" || d.direction === "BOTH").length;
+
+export function PlatformDataOnboardingClient({ header, gymAccess }: Props) {
   const target: DataOnboardingTarget = {
     organizationId:   header.organizationId,
     organizationCode: header.organizationCode,
@@ -1442,15 +1535,15 @@ export function PlatformDataOnboardingClient({ header }: Props) {
       {/* Resumen de datasets */}
       <div className="grid grid-cols-3 gap-4">
         <div className="border border-zinc-200 rounded-xl bg-white p-4 text-center">
-          <p className="text-2xl font-bold text-zinc-800">{DATA_ONBOARDING_DATASETS.length}</p>
+          <p className="text-2xl font-bold text-zinc-800">{COMMERCE_DATASETS.length}</p>
           <p className="text-xs text-zinc-500 mt-1">Datasets definidos</p>
         </div>
         <div className="border border-zinc-200 rounded-xl bg-white p-4 text-center">
-          <p className="text-2xl font-bold text-sky-700">{IMPORT_DATASETS.length}</p>
+          <p className="text-2xl font-bold text-sky-700">{COMMERCE_IMPORT_COUNT}</p>
           <p className="text-xs text-zinc-500 mt-1">Soportan importación</p>
         </div>
         <div className="border border-zinc-200 rounded-xl bg-white p-4 text-center">
-          <p className="text-2xl font-bold text-emerald-700">{EXPORT_DATASETS.length}</p>
+          <p className="text-2xl font-bold text-emerald-700">{COMMERCE_EXPORT_COUNT}</p>
           <p className="text-xs text-zinc-500 mt-1">Soportan exportación</p>
         </div>
       </div>
@@ -1459,11 +1552,47 @@ export function PlatformDataOnboardingClient({ header }: Props) {
       <div>
         <h2 className="text-base font-semibold text-zinc-800 mb-4">Datasets disponibles</h2>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {DATA_ONBOARDING_DATASETS.map((dataset) => (
+          {COMMERCE_DATASETS.map((dataset) => (
             <DatasetCard key={dataset.key} dataset={dataset} target={target} />
           ))}
         </div>
       </div>
+
+      {/* GYM-ONBOARDING — solo con vertical GYM efectiva (resuelta server-side) */}
+      {gymAccess?.gymVerticalEnabled && (
+        <div>
+          <div className="flex items-center gap-2 mb-1">
+            <Dumbbell size={16} className="text-zinc-500" />
+            <h2 className="text-base font-semibold text-zinc-800">GYM — Datos de gimnasio</h2>
+          </div>
+          <p className="text-xs text-zinc-500 mb-4">
+            Socios y entrenadores de la vertical GYM. Solo crean registros nuevos (CREATE_ONLY) en{" "}
+            <code className="font-mono">clients</code> y <code className="font-mono">trainers</code> del{" "}
+            <code className="font-mono">tenant_id</code> de la organización: no crean usuarios, acceso al portal,
+            membresías, pagos, asistencias, reservas ni horarios. Las sucursales deben existir previamente.
+          </p>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {GYM_DATASETS.map((dataset) => (
+              <DatasetCard
+                key={dataset.key}
+                dataset={dataset}
+                target={target}
+                disabledReason={
+                  dataset.key === "gym_trainers" && !gymAccess.trainersModuleEnabled
+                    ? "El módulo de entrenadores (gym.trainers) no está habilitado para esta organización."
+                    : undefined
+                }
+              />
+            ))}
+          </div>
+          {!gymAccess.classesModuleEnabled && (
+            <p className="text-[11px] text-amber-700 mt-2">
+              El módulo de clases (gym.classes) no está habilitado: los clientes con modalidad PERSONALIZED o GROUP
+              se bloquearán en el análisis. Use NORMAL o habilite el módulo.
+            </p>
+          )}
+        </div>
+      )}
 
       {/* Roadmap */}
       <div className="border border-zinc-200 rounded-xl bg-white p-5">

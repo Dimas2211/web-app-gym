@@ -32,6 +32,12 @@ import type {
   CategoriesImportDryRunResult,
   CategoriesImportResult,
 } from "../../../types/platform.types";
+import {
+  DATA_ONBOARDING_TX_OPTIONS,
+  createManyInBatches,
+  assertWholeFileCreatable,
+  indexParsedRows,
+} from "./batch-write";
 
 // ── Status válidos para importación ──────────────────────────────
 
@@ -92,7 +98,9 @@ export async function runCategoriesImport(
   const { parsedPreview, dbAwareResult, prismaClient, tenantId, isDryRun } = input;
 
   // ── 1. Reunir solo las filas que el DB-aware marcó como CREATE ─
+  assertWholeFileCreatable(parsedPreview, dbAwareResult);
   const createRows = dbAwareResult.rows.filter((r) => r.resolution === "CREATE");
+  const parsedByNumber = indexParsedRows(parsedPreview);
 
   // ── 2. Mapear a datos de creación con validación de status ─────
 
@@ -116,7 +124,7 @@ export async function runCategoriesImport(
   type PreparedRow = RowToCreate | RowBlocked;
 
   const prepared: PreparedRow[] = createRows.map((dbRow) => {
-    const parsedRow = parsedPreview.rows.find((r) => r.rowNumber === dbRow.rowNumber);
+    const parsedRow = parsedByNumber.get(dbRow.rowNumber);
     const name = strVal(parsedRow?.data.name ?? dbRow.naturalKey);
     const code = generateCategoryCode(name);
 
@@ -168,6 +176,7 @@ export async function runCategoriesImport(
   }
 
   const allBlocked = [...blocked, ...duplicatesInFile];
+  const duplicateRowNumbers = new Set(duplicatesInFile.map((d) => d.rowNumber));
 
   // ── 4. Si hay cualquier fila bloqueada → abortar todo ─────────
   // E1C-A no permite importación parcial.
@@ -175,7 +184,7 @@ export async function runCategoriesImport(
   if (allBlocked.length > 0) {
     const allRowResults: CategoriesImportRowResult[] = [
       ...toCreate
-        .filter((r) => !duplicatesInFile.find((d) => d.rowNumber === r.rowNumber))
+        .filter((r) => !duplicateRowNumbers.has(r.rowNumber))
         .map((r) => ({ rowNumber: r.rowNumber, name: r.name, code: r.code, resolution: "SKIPPED" as const, reason: "Bloqueado por otras filas con error." })),
       ...allBlocked.map((r) => ({ rowNumber: r.rowNumber, name: r.name, code: r.code, resolution: "ERROR" as const, reason: r.reason })),
     ].sort((a, b) => a.rowNumber - b.rowNumber);
@@ -252,10 +261,12 @@ export async function runCategoriesImport(
 
   const now = new Date();
 
+  // ONBOARDING-5K: INSERT multi-fila por lotes dentro de la misma transacción.
   await prismaClient.$transaction(async (tx) => {
-    for (const row of toCreate) {
-      await tx.productCategory.create({
-        data: {
+    await createManyInBatches(
+      toCreate,
+      (batch) => tx.productCategory.createMany({
+        data: batch.map((row) => ({
           tenant_id:   tenantId,
           code:        row.code,
           name:        row.name,
@@ -263,10 +274,11 @@ export async function runCategoriesImport(
           status:      row.status as "active" | "inactive" | "suspended" | "deleted",
           created_at:  now,
           updated_at:  now,
-        },
-      });
-    }
-  });
+        })),
+      }),
+      "categorías",
+    );
+  }, DATA_ONBOARDING_TX_OPTIONS);
 
   const rowResults: CategoriesImportRowResult[] = toCreate.map((r) => ({
     rowNumber:  r.rowNumber,

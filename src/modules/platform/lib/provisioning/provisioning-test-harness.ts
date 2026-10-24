@@ -158,6 +158,30 @@ export class InMemoryDb {
         });
         return project(row, select);
       },
+      // GYM-ONBOARDING — inserción en lote atómica (como un INSERT multi-fila).
+      createMany: async ({ data }: { data: Record<string, unknown>[] }) => {
+        await this.guard(table, "createMany");
+        const inserted: Row[] = [];
+        try {
+          for (const item of data) {
+            const row = { id: randomUUID(), ...(this.specs[table].defaults?.() ?? {}), ...item } as Row;
+            this.checkUniques(table, row);
+            this.checkForeignKeys(table, row);
+            rows().push(row);
+            inserted.push(row);
+          }
+        } catch (err) {
+          for (const row of inserted) rows().splice(rows().indexOf(row), 1);
+          throw err;
+        }
+        recordUndo(() => {
+          for (const row of inserted) {
+            const i = rows().indexOf(row);
+            if (i >= 0) rows().splice(i, 1);
+          }
+        });
+        return { count: inserted.length };
+      },
       findUnique: async ({ where, select }: { where: Where; select?: Record<string, boolean> }) => {
         await this.guard(table, "findUnique");
         const row = rows().find((r) => matches(r, where));

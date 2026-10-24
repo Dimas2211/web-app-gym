@@ -46,6 +46,12 @@ import type {
   SuppliersImportDryRunResult,
   SuppliersImportResult,
 } from "../../../types/platform.types";
+import {
+  DATA_ONBOARDING_TX_OPTIONS,
+  createManyInBatches,
+  assertWholeFileCreatable,
+  indexParsedRows,
+} from "./batch-write";
 
 // ── Status válidos para importación ──────────────────────────────
 // "deleted" está excluido deliberadamente en E1C-C por seguridad.
@@ -106,7 +112,9 @@ export async function runSuppliersImport(
   const { parsedPreview, dbAwareResult, prismaClient, tenantId, isDryRun } = input;
 
   // ── 1. Reunir solo las filas que el DB-aware marcó como CREATE ─
+  assertWholeFileCreatable(parsedPreview, dbAwareResult);
   const createRows = dbAwareResult.rows.filter((r) => r.resolution === "CREATE");
+  const parsedByNumber = indexParsedRows(parsedPreview);
 
   interface RowToCreate {
     rowNumber:         number;
@@ -137,7 +145,7 @@ export async function runSuppliersImport(
   type PreparedRow = RowToCreate | RowBlocked;
 
   const prepared: PreparedRow[] = createRows.map((dbRow) => {
-    const parsedRow = parsedPreview.rows.find((r) => r.rowNumber === dbRow.rowNumber);
+    const parsedRow = parsedByNumber.get(dbRow.rowNumber);
     const name = strVal(parsedRow?.data.name ?? "");
 
     if (!name) {
@@ -241,9 +249,13 @@ export async function runSuppliersImport(
   const finalRows = toCreate.map((row) => {
     let candidate = generateProvisionalSupplierCode(row.name);
     let attempts = 0;
-    while (usedCodes.has(candidate) && attempts < 10) {
+    while (usedCodes.has(candidate) && attempts < 50) {
       candidate = generateProvisionalSupplierCode(row.name);
       attempts += 1;
+    }
+    // ONBOARDING-5K: nunca se envía un código repetido (antes podía quedar tras 10 intentos).
+    if (usedCodes.has(candidate)) {
+      throw new Error(`No se pudo generar un supplier_code único para la fila ${row.rowNumber}. Intente nuevamente.`);
     }
     usedCodes.add(candidate);
     return { ...row, finalCode: candidate };
@@ -271,10 +283,12 @@ export async function runSuppliersImport(
 
   const now = new Date();
 
+  // ONBOARDING-5K: INSERT multi-fila por lotes dentro de la misma transacción.
   await prismaClient.$transaction(async (tx) => {
-    for (const row of finalRows) {
-      await tx.supplier.create({
-        data: {
+    await createManyInBatches(
+      finalRows,
+      (batch) => tx.supplier.createMany({
+        data: batch.map((row) => ({
           tenant_id:          tenantId,
           supplier_code:      row.finalCode,
           name:               row.name,
@@ -291,10 +305,11 @@ export async function runSuppliersImport(
           status:             row.status as "active" | "inactive" | "suspended" | "deleted",
           created_at:         now,
           updated_at:         now,
-        },
-      });
-    }
-  });
+        })),
+      }),
+      "proveedores",
+    );
+  }, DATA_ONBOARDING_TX_OPTIONS);
 
   const rowResults: SuppliersImportRowResult[] = finalRows.map((r) => ({
     rowNumber:  r.rowNumber,

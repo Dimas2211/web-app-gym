@@ -37,10 +37,18 @@ export type DataOnboardingImportDatasetKey =
   | "customers"
   | "suppliers"
   | "products"
-  | "inventory_initial";
+  | "inventory_initial"
+  | "gym_clients"
+  | "gym_trainers";
 
-/** Módulo comercial que debe estar habilitado para importar cada dataset. */
-export const DATA_ONBOARDING_DATASET_MODULE: Record<DataOnboardingImportDatasetKey, string> = {
+/**
+ * Módulo comercial que debe estar habilitado para importar cada dataset.
+ * null = el dataset no tiene module code propio: gym_clients depende de la
+ * vertical GYM efectiva (igual que la superficie Clientes — ver
+ * effective-vertical.ts), nunca de un module code ficticio "gym.clients".
+ * Los datasets GYM además pasan por evaluateGymDataOnboardingAccess.
+ */
+export const DATA_ONBOARDING_DATASET_MODULE: Record<DataOnboardingImportDatasetKey, string | null> = {
   categories:        "commerce.products",
   lines:             "commerce.products",
   sublines:          "commerce.products",
@@ -48,6 +56,8 @@ export const DATA_ONBOARDING_DATASET_MODULE: Record<DataOnboardingImportDatasetK
   suppliers:         "commerce.suppliers",
   customers:         "core.customers",
   inventory_initial: "commerce.inventory",
+  gym_clients:       null,
+  gym_trainers:      "gym.trainers",
 };
 
 export interface DataOnboardingExecutionPolicyInput {

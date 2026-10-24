@@ -16,6 +16,8 @@ import { generateDataOnboardingTemplate, TEMPLATE_AVAILABLE_KEYS }
 import { DATA_ONBOARDING_DATASETS_BY_KEY }
   from "@/modules/platform/lib/data-onboarding/data-onboarding-definitions";
 import type { DataOnboardingDatasetKey }    from "@/modules/platform/types/platform.types";
+import { denyGymTemplateIfNotAllowed }
+  from "@/modules/platform/lib/data-onboarding/gym-template-access";
 
 export async function GET(
   _request: Request,
@@ -43,11 +45,15 @@ export async function GET(
   // Solo metadata pública de la organización — sin credenciales ni runtime.
   const organization = await controlPlanePrisma.platformOrganization.findUnique({
     where:  { id: organizationId },
-    select: { id: true, code: true, name: true },
+    select: { id: true, code: true, name: true, tenant_id: true },
   });
   if (!organization) {
     return NextResponse.json({ error: "Organización no encontrada." }, { status: 404 });
   }
+
+  // GYM-ONBOARDING: plantillas GYM solo para organizaciones con vertical GYM.
+  const gymDenied = await denyGymTemplateIfNotAllowed(datasetKey, organization.tenant_id);
+  if (gymDenied) return gymDenied;
 
   let buffer: Buffer;
   try {

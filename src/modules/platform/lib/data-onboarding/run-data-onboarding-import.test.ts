@@ -36,10 +36,12 @@ vi.mock("../client-prisma", () => ({
   withTemporaryPrismaClient: (...a: unknown[]) => withTemporaryPrismaClientMock(...a),
 }));
 
+// ONBOARDING-5K: stub coherente — 2 filas parseadas (2 y 3) = 2 filas analizadas.
 vi.mock("./excel-preview-parser", () => ({
   parseDataOnboardingWorkbook: () => ({
-    datasetKey: "x", status: "VALID", columns: [], rows: [],
-    summary: { totalRows: 1, validRows: 1, invalidRows: 0, warningRows: 0, emptyRowsIgnored: 0 },
+    datasetKey: "x", status: "VALID", columns: [],
+    rows: [2, 3].map((rowNumber) => ({ rowNumber, status: "VALID", data: {}, errors: [], warnings: [] })),
+    summary: { totalRows: 2, validRows: 2, invalidRows: 0, warningRows: 0, emptyRowsIgnored: 0 },
   }),
 }));
 
@@ -103,7 +105,9 @@ beforeEach(() => {
   analysisRows = [{ resolution: "CREATE" }, { resolution: "CREATE" }];
   enabledModules = ["commerce.products", "commerce.suppliers", "commerce.inventory", "core.customers"];
   withTemporaryPrismaClientMock.mockImplementation((_url: string, cb: (c: unknown) => unknown) => cb({ fake: "client" }));
-  analyzerMock.mockImplementation(async () => ({ status: "READY", rows: analysisRows, summary: {} }));
+  analyzerMock.mockImplementation(async () => ({
+    status: "READY", rows: analysisRows.map((r, i) => ({ rowNumber: i + 2, ...r })), summary: {},
+  }));
   runMock.mockImplementation(async ({ isDryRun }: { isDryRun: boolean }) =>
     isDryRun ? { wouldCreate: 2, blocked: 0 } : { created: 2 });
 });
@@ -272,5 +276,26 @@ describe("Dedicated — regresión (SANDBOX, link histórico por perfil)", () =>
     const result = await runDataOnboardingImport(fd, config("products"));
     expect(result.success).toBe(false);
     expect(runMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("ONBOARDING-5K — sin importación parcial ni éxito falso", () => {
+  it("análisis que no cubre todas las filas parseadas → bloqueado, runner no se ejecuta", async () => {
+    analysisRows = [{ resolution: "CREATE" }];
+    const result = await runDataOnboardingImport(form({ organizationId: ORG_A.id, mode: "DRY_RUN" }), config());
+    expect(result.success).toBe(false);
+    if (!result.success) expect(result.error).toContain("1 de 2");
+    expect(runMock).not.toHaveBeenCalled();
+  });
+
+  it("EXECUTE que informa menos creados que analizados → error, sin log de éxito", async () => {
+    runMock.mockImplementation(async () => ({ created: 1 }));
+    const result = await runDataOnboardingImport(
+      form({ organizationId: ORG_A.id, mode: "EXECUTE", confirmationText: `IMPORT CATEGORIES ${ORG_A.code}` }),
+      config(),
+    );
+    expect(result.success).toBe(false);
+    if (!result.success) expect(result.error).toContain("1 registro(s) creado(s) de 2");
+    expect(logCreateMock).not.toHaveBeenCalled();
   });
 });

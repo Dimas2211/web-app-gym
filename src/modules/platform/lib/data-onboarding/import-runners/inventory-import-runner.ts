@@ -12,7 +12,8 @@
 // - Llave natural: product_code + location_name (Branch). No se resuelve
 //   ambigüedad aquí — eso ya lo bloqueó el analizador DB-aware.
 // - Por fila crea ProductLocation + InventoryMovement (INITIAL_LOAD) en
-//   una sola transacción — nunca solo uno de los dos.
+//   una sola transacción — nunca solo uno de los dos. ONBOARDING-5K: ambos
+//   con INSERT multi-fila por lotes de 500 dentro de esa transacción.
 // - Doble candado de idempotencia: bloquea si ya existe ProductLocation
 //   para (tenant, product, location) o InventoryMovement INITIAL_LOAD
 //   para el mismo trío. Revalidado aquí server-side, no solo en el
@@ -33,6 +34,7 @@ if (typeof window !== "undefined") {
   );
 }
 
+import { randomUUID } from "node:crypto";
 import { PrismaClient } from "@prisma/client";
 import type {
   DataOnboardingPreviewResult,
@@ -41,6 +43,12 @@ import type {
   InventoryImportDryRunResult,
   InventoryImportResult,
 } from "../../../types/platform.types";
+import {
+  DATA_ONBOARDING_TX_OPTIONS,
+  createManyInBatches,
+  assertWholeFileCreatable,
+  indexParsedRows,
+} from "./batch-write";
 
 // ── Helpers ───────────────────────────────────────────────────────
 
@@ -83,7 +91,9 @@ export async function runInventoryImport(
   const { parsedPreview, dbAwareResult, prismaClient, tenantId, isDryRun, performedBy } = input;
 
   // ── 1. Reunir solo las filas que el DB-aware marcó como CREATE ─
+  assertWholeFileCreatable(parsedPreview, dbAwareResult);
   const createRows = dbAwareResult.rows.filter((r) => r.resolution === "CREATE");
+  const parsedByNumber = indexParsedRows(parsedPreview);
 
   interface RowToCreate {
     rowNumber:   number;
@@ -108,7 +118,7 @@ export async function runInventoryImport(
   type PreparedRow = RowToCreate | RowBlocked;
 
   const prepared: PreparedRow[] = createRows.map((dbRow) => {
-    const parsedRow    = parsedPreview.rows.find((r) => r.rowNumber === dbRow.rowNumber);
+    const parsedRow    = parsedByNumber.get(dbRow.rowNumber);
     const code         = strVal(parsedRow?.data.product_code ?? "").toUpperCase();
     const locationName = strVal(parsedRow?.data.location_name ?? "");
 
@@ -276,10 +286,18 @@ export async function runInventoryImport(
 
   const now = new Date();
 
+  // ONBOARDING-5K: el id de cada ProductLocation se genera aquí (uuid,
+  // mismo formato que @default(uuid())) para insertar ambas tablas con
+  // INSERT multi-fila por lotes, sin una ida y vuelta por fila. Ambas
+  // inserciones ocurren en la MISMA transacción: nunca una sin la otra.
+  const withIds = toCreate.map((row) => ({ ...row, productLocationId: randomUUID() }));
+
   await prismaClient.$transaction(async (tx) => {
-    for (const row of toCreate) {
-      const productLocation = await tx.productLocation.create({
-        data: {
+    await createManyInBatches(
+      withIds,
+      (batch) => tx.productLocation.createMany({
+        data: batch.map((row) => ({
+          id:               row.productLocationId,
           tenant_id:        tenantId,
           location_id:      row.locationId,
           product_id:       row.productId,
@@ -291,15 +309,19 @@ export async function runInventoryImport(
           updated_by:       performedBy,
           created_at:       now,
           updated_at:       now,
-        },
-      });
+        })),
+      }),
+      "ubicaciones de producto",
+    );
 
-      await tx.inventoryMovement.create({
-        data: {
+    await createManyInBatches(
+      withIds,
+      (batch) => tx.inventoryMovement.createMany({
+        data: batch.map((row) => ({
           tenant_id:           tenantId,
           location_id:         row.locationId,
           product_id:          row.productId,
-          product_location_id: productLocation.id,
+          product_location_id: row.productLocationId,
           movement_type:       "INITIAL_LOAD",
           quantity:            row.quantity,
           unit_cost:           row.unitCost,
@@ -310,10 +332,11 @@ export async function runInventoryImport(
           notes:               row.notes,
           performed_by:        performedBy,
           created_at:          now,
-        },
-      });
-    }
-  });
+        })),
+      }),
+      "movimientos INITIAL_LOAD",
+    );
+  }, DATA_ONBOARDING_TX_OPTIONS);
 
   const rowResults: InventoryImportRowResult[] = toCreate.map((r) => ({
     rowNumber:  r.rowNumber,

@@ -480,6 +480,189 @@ const TEMPLATE_CONFIGS: Partial<Record<DataOnboardingDatasetKey, TemplateDefinit
       "La sucursal (location_name) se resuelve contra Branch.name, no contra un modelo Location genérico, y debe existir en la base de datos destino.",
     ],
   },
+
+  // ── GYM-ONBOARDING ──────────────────────────────────────────────
+
+  gym_clients: {
+    label: "Clientes GYM",
+    description:
+      "Socios del gimnasio (modelo Client de la vertical GYM — distinto de los clientes comerciales). " +
+      "Crea solo el expediente operativo: no crea acceso al portal, usuarios, membresías, pagos, asistencias ni reservas.",
+    columns: [
+      {
+        key: "first_name", required: true, type: "texto (máx. 100)",
+        description: "Nombre(s) del socio.",
+        example: "María",
+      },
+      {
+        key: "last_name", required: true, type: "texto (máx. 100)",
+        description: "Apellido(s) del socio.",
+        example: "López Rivas",
+      },
+      {
+        key: "branch_name", required: true, type: "texto",
+        description: "Nombre exacto de la sucursal activa de la organización. Debe existir — no se crea desde este import.",
+        example: "Sede Central",
+      },
+      {
+        key: "operational_code", required: false, type: "texto (máx. 30, sin espacios)",
+        description: "Código operativo del socio. Si se deja vacío se genera con la configuración de códigos del gimnasio (ej. C1010). No puede repetirse ni existir ya.",
+        example: "C1010",
+      },
+      {
+        key: "document_id", required: false, type: "texto (máx. 50)",
+        description: "Documento de identidad (DUI, pasaporte…). Recomendado: es la llave más fiable para detectar duplicados.",
+        example: "01234567-8",
+      },
+      {
+        key: "birth_date", required: false, type: "fecha",
+        description: "Fecha de nacimiento. Formato AAAA-MM-DD o DD/MM/AAAA. No puede ser futura.",
+        example: "1990-05-21",
+      },
+      {
+        key: "gender", required: false, type: "texto (valores permitidos)",
+        description: "Género del socio.",
+        example: "female",
+        allowedValues: "male | female | other | prefer_not_to_say (también M, F, masculino, femenino, otro)",
+      },
+      {
+        key: "email", required: false, type: "texto",
+        description: "Correo de contacto del expediente. NO crea acceso al portal.",
+        example: "maria.lopez@email.com",
+      },
+      {
+        key: "phone", required: false, type: "texto (máx. 30)",
+        description: "Teléfono de contacto.",
+        example: "7777-1234",
+      },
+      {
+        key: "address", required: false, type: "texto (máx. 255)",
+        description: "Dirección del socio.",
+        example: "Col. Escalón, San Salvador",
+      },
+      {
+        key: "emergency_contact_name", required: false, type: "texto (máx. 100)",
+        description: "Nombre del contacto de emergencia.",
+        example: "José López",
+      },
+      {
+        key: "emergency_contact_phone", required: false, type: "texto (máx. 30)",
+        description: "Teléfono del contacto de emergencia.",
+        example: "7000-0000",
+      },
+      {
+        key: "sport_name", required: false, type: "texto",
+        description: "Nombre exacto de un deporte ya existente en el catálogo. No se crea desde este import.",
+        example: "Crossfit",
+      },
+      {
+        key: "goal_name", required: false, type: "texto",
+        description: "Nombre exacto de un objetivo ya existente en el catálogo. No se crea desde este import.",
+        example: "Pérdida de peso",
+      },
+      {
+        key: "modality", required: false, type: "texto (valores permitidos)",
+        description: "Modalidad del socio. Vacío = NORMAL. PERSONALIZED y GROUP exigen el módulo de clases habilitado.",
+        example: "NORMAL",
+        allowedValues: "NORMAL | PERSONALIZED | GROUP",
+      },
+      {
+        key: "notes", required: false, type: "texto (máx. 1000)",
+        description: "Notas internas del expediente.",
+        example: "Lesión previa de rodilla",
+      },
+      {
+        key: "status", required: false, type: "texto (valores permitidos)",
+        description: "Estado del socio. Vacío = active.",
+        example: "active",
+        allowedValues: "active | inactive",
+      },
+    ],
+    dependencies: [
+      { dataset: "Sucursales (Branch)", note: "branch_name debe existir y estar activa en la organización destino." },
+      { dataset: "Deportes / Objetivos", note: "sport_name y goal_name (opcionales) deben existir en el catálogo." },
+    ],
+    extraNotes: [
+      "La fila 2 de la hoja 'Datos' es un EJEMPLO: elimínela o reemplácela antes de importar.",
+      "Solo crea registros nuevos (CREATE_ONLY). No actualiza ni elimina socios existentes.",
+      "Duplicados que BLOQUEAN: operational_code o document_id ya existentes (en el archivo o en el gimnasio), " +
+      "o misma persona con nombre + email/teléfono/fecha de nacimiento coincidentes.",
+      "Coincidir solo en nombre y apellido genera una advertencia (no bloquea): verifique antes de importar.",
+      "Sin operational_code ni document_id, volver a importar el mismo archivo puede duplicar socios: " +
+      "incluya document_id u operational_code siempre que sea posible.",
+      "El email es dato de contacto: no se crean usuarios ni acceso al portal (se habilita después desde Clientes).",
+      "No se asigna entrenador en esta versión. No se crean membresías, pagos, asistencias ni reservas.",
+      "Máximo 5,000 registros no vacíos y 4 MB por archivo. Si el archivo excede el límite, se rechaza entero (no hay import parcial).",
+    ],
+  },
+
+  gym_trainers: {
+    label: "Entrenadores",
+    description:
+      "Perfiles operativos de entrenadores (modelo Trainer de la vertical GYM). " +
+      "Se crean sin usuario de sistema; la cuenta con rol trainer se vincula después desde la interfaz.",
+    columns: [
+      {
+        key: "first_name", required: true, type: "texto (máx. 100)",
+        description: "Nombre(s) del entrenador.",
+        example: "Carlos",
+      },
+      {
+        key: "last_name", required: true, type: "texto (máx. 100)",
+        description: "Apellido(s) del entrenador.",
+        example: "Martínez",
+      },
+      {
+        key: "branch_name", required: true, type: "texto",
+        description: "Nombre exacto de la sucursal activa de la organización. Debe existir — no se crea desde este import.",
+        example: "Sede Central",
+      },
+      {
+        key: "email", required: false, type: "texto (máx. 200)",
+        description: "Correo de contacto. NO crea usuario ni acceso al sistema.",
+        example: "carlos.martinez@email.com",
+      },
+      {
+        key: "phone", required: false, type: "texto (máx. 30)",
+        description: "Teléfono de contacto.",
+        example: "7123-4567",
+      },
+      {
+        key: "specialty", required: false, type: "texto (máx. 200)",
+        description: "Especialidad del entrenador.",
+        example: "Funcional y movilidad",
+      },
+      {
+        key: "personalized_capacity", required: false, type: "número entero",
+        description: "Cupo de clientes PERSONALIZED simultáneos. Vacío = usar el cupo por defecto del gimnasio.",
+        example: "3",
+        allowedValues: "1 a 50",
+      },
+      {
+        key: "notes", required: false, type: "texto (máx. 1000)",
+        description: "Notas internas.",
+        example: "Certificación NSCA",
+      },
+      {
+        key: "status", required: false, type: "texto (valores permitidos)",
+        description: "Estado del entrenador. Vacío = active.",
+        example: "active",
+        allowedValues: "active | inactive",
+      },
+    ],
+    dependencies: [
+      { dataset: "Sucursales (Branch)", note: "branch_name debe existir y estar activa en la organización destino." },
+    ],
+    extraNotes: [
+      "La fila 2 de la hoja 'Datos' es un EJEMPLO: elimínela o reemplácela antes de importar.",
+      "Requiere el módulo de entrenadores (gym.trainers) habilitado para la organización.",
+      "Solo crea registros nuevos (CREATE_ONLY). No modifica entrenadores existentes.",
+      "Se bloquea un entrenador si ya existe otro en el gimnasio con el mismo email o el mismo nombre y apellido.",
+      "No se importan horarios de disponibilidad, sesiones, clases ni reservas.",
+      "No se crean usuarios del sistema: el vínculo con un usuario de rol trainer se hace después desde Entrenadores.",
+      "Máximo 5,000 registros no vacíos y 4 MB por archivo. Si el archivo excede el límite, se rechaza entero (no hay import parcial).",
+    ],
+  },
 };
 
 // ── Helpers de construcción de hojas ─────────────────────────────
