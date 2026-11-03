@@ -20,7 +20,7 @@ import type { ProductStatus } from "../types/product.types";
 import type { ProductListItem } from "../types/product.types";
 
 interface ProductStatusDialogProps {
-  product: Pick<ProductListItem, "id" | "product_code" | "name" | "status">;
+  product: Pick<ProductListItem, "id" | "product_code" | "name" | "status" | "allow_sale" | "allow_purchase">;
   onClose: () => void;
   onSuccess?: () => void;
 }
@@ -135,6 +135,19 @@ export function ProductStatusDialog({
                 ))}
               </div>
             </div>
+
+            {selectedStatus === "ACTIVE" && currentStatus === "BLOCKED_SALE" && !product.allow_sale && (
+              <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                Cambiar a Activo no habilita las ventas: la casilla &quot;Habilitado para venta&quot; está desmarcada.
+                Después, activala desde Editar producto con autorización de supervisor.
+              </p>
+            )}
+            {selectedStatus === "ACTIVE" && currentStatus === "BLOCKED_PURCHASE" && !product.allow_purchase && (
+              <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                Cambiar a Activo no habilita las compras: la casilla &quot;Habilitado para compra&quot; está desmarcada.
+                Después, activala desde Editar producto con autorización de supervisor.
+              </p>
+            )}
 
             {state?.error && (
               <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
