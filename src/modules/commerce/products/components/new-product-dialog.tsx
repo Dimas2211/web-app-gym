@@ -1,5 +1,7 @@
 "use client";
 
+import { normalizeProductAvailabilityFormData } from "../utils/product-availability-form-data";
+
 // ─────────────────────────────────────────────────────────────────
 // commerce/products — new-product-dialog.tsx
 //
@@ -132,6 +134,7 @@ export function NewProductDialog({
     ) => {
       // Inyectar campos de estado local que no vienen de inputs controlados
       formData.set("is_stockable", String(isStockable));
+      normalizeProductAvailabilityFormData(formData);
       const result = await createProductAction(prev, formData);
       if (result === undefined) {
         // undefined = éxito (action no retornó error)
