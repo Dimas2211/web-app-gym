@@ -108,6 +108,12 @@ function IdentityBlock({
   onRequestStatusChange,
   onRequestEdit,
 }: IdentityBlockProps) {
+  // Disponibilidad efectiva: ambas capas (estado + permiso) deben autorizar.
+  const saleAvailable = summary.allow_sale &&
+    !["BLOCKED_SALE", "INACTIVE", "DISCONTINUED"].includes(summary.status);
+  const purchaseAvailable = summary.allow_purchase &&
+    !["BLOCKED_PURCHASE", "INACTIVE", "DISCONTINUED"].includes(summary.status);
+
   return (
     <div className="p-4">
       {/* Identidad */}
@@ -141,16 +147,22 @@ function IdentityBlock({
             Controla stock
           </span>
         )}
-        {summary.allow_sale && (
-          <span className="text-xs bg-emerald-50 text-emerald-700 border border-emerald-200 px-2 py-0.5 rounded-full">
-            Venta
-          </span>
-        )}
-        {summary.allow_purchase && (
-          <span className="text-xs bg-violet-50 text-violet-700 border border-violet-200 px-2 py-0.5 rounded-full">
-            Compra
-          </span>
-        )}
+        <span
+          title={!summary.allow_sale ? "Deshabilitada en Editar producto" : "La disponibilidad depende del estado del producto"}
+          className={`text-xs border px-2 py-0.5 rounded-full ${saleAvailable
+            ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+            : "bg-amber-50 text-amber-800 border-amber-200"}`}
+        >
+          {saleAvailable ? "Venta habilitada" : "Venta no disponible"}
+        </span>
+        <span
+          title={!summary.allow_purchase ? "Deshabilitada en Editar producto" : "La disponibilidad depende del estado del producto"}
+          className={`text-xs border px-2 py-0.5 rounded-full ${purchaseAvailable
+            ? "bg-violet-50 text-violet-700 border-violet-200"
+            : "bg-amber-50 text-amber-800 border-amber-200"}`}
+        >
+          {purchaseAvailable ? "Compra habilitada" : "Compra no disponible"}
+        </span>
       </div>
 
       {/* Clasificación */}
