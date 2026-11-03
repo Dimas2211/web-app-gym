@@ -1,5 +1,7 @@
 "use client";
 
+import { normalizeProductAvailabilityFormData } from "../utils/product-availability-form-data";
+
 // ─────────────────────────────────────────────────────────────────
 // commerce/products — edit-product-dialog.tsx
 //
@@ -160,6 +162,7 @@ export function EditProductDialog({
     ): Promise<ProductUpdateActionState> => {
       // is_stockable se inyecta desde estado local (checkbox controlado)
       formData.set("is_stockable", String(isStockable));
+      normalizeProductAvailabilityFormData(formData);
       const result = await updateProductAction(prev, formData);
       if (result === undefined) {
         // undefined = éxito
