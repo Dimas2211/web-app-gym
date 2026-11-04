@@ -40,6 +40,7 @@ import {
   invalidationStatusCls,
 } from "../utils/dte-status.utils";
 import { DteOutgoingActionBar } from "./dte-outgoing-action-bar";
+import { DteJsonActions, DTE_JSON_MISSING_HINT } from "./dte-json-actions";
 
 // ── Helpers de formato ────────────────────────────────────────────
 
@@ -179,6 +180,12 @@ function IdentificationSection({ d }: { d: DteOutgoingDetail }) {
       <DataRow label="Actualizado">
         <MonoValue value={fmtDateTime(d.updated_at)} />
       </DataRow>
+      <div className="mt-1.5 space-y-0.5">
+        <DteJsonActions dteId={d.id} hasJson={d.has_json_document} />
+        {!d.has_json_document && (
+          <p className="text-[9px] text-zinc-600">{DTE_JSON_MISSING_HINT}</p>
+        )}
+      </div>
     </div>
   );
 }

@@ -81,6 +81,8 @@ export async function getSaleDetailById(
           rejected_at:      true,
           invalidated_at:   true,
           created_at:       true,
+          // Solo para calcular has_json_document — el JSON no se retorna.
+          json_document:    true,
           // NC 05 vinculadas como "nota de crédito de este DTE"
           related_in_relations: {
             where: { relation_type: "CREDIT_NOTE_OF" },
@@ -95,6 +97,8 @@ export async function getSaleDetailById(
                   dte_status:      true,
                   reception_stamp: true,
                   created_at:      true,
+                  // Solo para has_json_document — no se retorna.
+                  json_document:   true,
                 },
               },
             },
@@ -268,6 +272,7 @@ export async function getSaleDetailById(
           invalidated_at:   row.dte_documents[0].invalidated_at,
           created_at:       row.dte_documents[0].created_at,
           can_retry_signature: canRetrySignature,
+          has_json_document:   row.dte_documents[0].json_document != null,
         }
       : null,
 
@@ -282,6 +287,7 @@ export async function getSaleDetailById(
         dte_status:      rel.dte_status,
         reception_stamp: rel.reception_stamp,
         created_at:      rel.created_at,
+        has_json_document: rel.json_document != null,
       } satisfies SaleDteRelatedNc;
     })(),
 

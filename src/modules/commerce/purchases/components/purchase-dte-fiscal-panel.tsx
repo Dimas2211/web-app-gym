@@ -42,6 +42,7 @@ import {
   dteStatusLabel, dteStatusCls, envLabel, envCls, dteTypeLabelFull,
 } from "@/modules/commerce/dte/outgoing/utils/dte-status.utils";
 import { isFiscallyReceivedByMh } from "@/modules/commerce/dte/utils/dte-fiscal-receipt.utils";
+import { DteJsonActions, DTE_JSON_MISSING_HINT } from "@/modules/commerce/dte/outgoing/components/dte-json-actions";
 
 const lbl  = "block text-[10px] font-medium uppercase tracking-wider text-zinc-500 truncate";
 const val  = "block text-xs text-zinc-200 truncate font-mono";
@@ -81,7 +82,6 @@ export function PurchaseDteFiscalPanel({ detail, correlativeStatus, isSuperAdmin
   const [validationErrors, setValidationErrors] = useState<string[]>([]);
   const [showTransmitConfirm, setShowTransmitConfirm] = useState(false);
   const [showTechnical, setShowTechnical] = useState(false);
-  const [showJson, setShowJson] = useState(false);
 
   const isFseEligible = detail.document_type === "FSE";
   const isConfirmed    = detail.status === "CONFIRMED";
@@ -533,19 +533,10 @@ export function PurchaseDteFiscalPanel({ detail, correlativeStatus, isSuperAdmin
               </div>
               <p className="text-[10px] text-zinc-600">{dteTypeLabelFull(dte.dte_type_code)}. Nunca se muestra JWS, tokens ni credenciales.</p>
 
-              <div>
-                <button
-                  type="button"
-                  onClick={() => setShowJson((v) => !v)}
-                  disabled={dte.json_document == null}
-                  className="h-6 px-2 text-[10px] text-zinc-400 hover:text-zinc-200 border border-zinc-700 hover:border-zinc-600 rounded transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-                >
-                  {dte.json_document == null ? "Sin JSON generado" : showJson ? "Ocultar JSON" : "Ver JSON"}
-                </button>
-                {showJson && dte.json_document != null && (
-                  <pre className="mt-1.5 text-[10px] text-zinc-400 whitespace-pre-wrap break-words bg-zinc-950/60 rounded p-2 max-h-64 overflow-y-auto">
-                    {JSON.stringify(dte.json_document, null, 2)}
-                  </pre>
+              <div className="flex items-center gap-2">
+                <DteJsonActions dteId={dte.id} hasJson={dte.json_document != null} />
+                {dte.json_document == null && (
+                  <span className="text-[10px] text-zinc-600">{DTE_JSON_MISSING_HINT}</span>
                 )}
               </div>
             </div>

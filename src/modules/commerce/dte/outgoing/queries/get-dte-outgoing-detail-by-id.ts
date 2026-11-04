@@ -51,7 +51,9 @@ export async function getDteOutgoingDetailById(params: {
         rejection_reason: true,
         created_at:       true,
         updated_at:       true,
-        // EXCLUIDOS: signed_jws, json_document, mh_response, observations
+        // json_document: solo para calcular has_json_document — NUNCA se retorna.
+        json_document:    true,
+        // EXCLUIDOS: signed_jws, mh_response, observations
 
         // Venta relacionada con datos fiscales y receptor
         sale: {
@@ -289,6 +291,7 @@ export async function getDteOutgoingDetailById(params: {
     created_at:       row.created_at,
     updated_at:       row.updated_at,
     rejection_reason: row.rejection_reason,
+    has_json_document: row.json_document != null,
 
     sale_code:    row.sale?.sale_code ?? null,
     sale_status:  row.sale?.status    ?? null,

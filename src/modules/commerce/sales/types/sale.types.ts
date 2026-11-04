@@ -78,6 +78,8 @@ export interface SaleDteDocument {
    * el botón "Reintentar firma" (reopen-rejected-dte-for-resign).
    */
   can_retry_signature: boolean;
+  /** true si json_document está persistido (habilita Ver/Descargar JSON). */
+  has_json_document:   boolean;
 }
 
 // ── NC 05 relacionada con la venta (desde related_in_relations CREDIT_NOTE_OF) ──
@@ -90,6 +92,8 @@ export interface SaleDteRelatedNc {
   dte_status:      string;
   reception_stamp: string | null;
   created_at:      Date;
+  /** true si json_document de la NC está persistido. */
+  has_json_document: boolean;
 }
 
 // ── Resumen de entrega externa DTE ───────────────────────────────

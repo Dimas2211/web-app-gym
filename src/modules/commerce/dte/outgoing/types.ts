@@ -181,6 +181,9 @@ export interface DteOutgoingDetail {
   created_at:       Date;
   updated_at:       Date;
   rejection_reason: string | null;
+  /** true si json_document está persistido — el JSON nunca viaja aquí;
+   *  se obtiene aparte vía GET /api/dte/outgoing/:id/json. */
+  has_json_document: boolean;
 
   // 2. Venta relacionada
   sale_code:    string | null;

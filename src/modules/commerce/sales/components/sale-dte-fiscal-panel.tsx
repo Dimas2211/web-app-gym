@@ -19,6 +19,7 @@ import { useState } from "react";
 import type { SaleDetail } from "../types/sale.types";
 import { getDteShortCode } from "../utils/dte-type-labels";
 import { isFiscallyReceivedByMh } from "@/modules/commerce/dte/utils/dte-fiscal-receipt.utils";
+import { DteJsonActions } from "@/modules/commerce/dte/outgoing/components/dte-json-actions";
 
 // ── Props ─────────────────────────────────────────────────────────
 
@@ -27,6 +28,8 @@ interface SaleDteFiscalPanelProps {
   showTabs?:                       boolean;
   onDeliverExternal?:              () => void;
   onDeliverExternalInvalidation?:  () => void;
+  /** Habilita Ver/Descargar JSON (read-only). Servidor revalida permiso. */
+  canViewDteJson?:                 boolean;
 }
 
 // ── Estilos ───────────────────────────────────────────────────────
@@ -112,6 +115,7 @@ export function SaleDteFiscalPanel({
   showTabs = false,
   onDeliverExternal,
   onDeliverExternalInvalidation,
+  canViewDteJson = false,
 }: SaleDteFiscalPanelProps) {
   const [activeTab, setActiveTab] = useState<Tab>("fiscal");
 
@@ -188,6 +192,14 @@ export function SaleDteFiscalPanel({
           <span className={`text-[10px] font-semibold ${dteStatusCls(dte.dte_status)}`}>
             · {dteStatusLabel(dte.dte_status)}
           </span>
+          {canViewDteJson && (
+            <DteJsonActions
+              dteId={dte.id}
+              hasJson={dte.has_json_document}
+              compact
+              className="ml-auto"
+            />
+          )}
         </div>
 
         {/* Fila 1: tipo, n° control, código gen, creado */}
@@ -285,9 +297,19 @@ export function SaleDteFiscalPanel({
                 )}
                 {nc && (
                   <div>
-                    <span className="block text-[10px] font-semibold uppercase tracking-widest text-zinc-500 mb-0.5">
-                      Nota de Crédito 05 relacionada
-                    </span>
+                    <div className="flex items-center gap-2 mb-0.5">
+                      <span className="block text-[10px] font-semibold uppercase tracking-widest text-zinc-500">
+                        Nota de Crédito 05 relacionada
+                      </span>
+                      {canViewDteJson && (
+                        <DteJsonActions
+                          dteId={nc.id}
+                          hasJson={nc.has_json_document}
+                          labelPrefix="NC"
+                          compact
+                        />
+                      )}
+                    </div>
                     <div className="grid grid-cols-4 gap-x-2">
                       <div className="min-w-0">
                         <span className={lbl}>Estado NC</span>
