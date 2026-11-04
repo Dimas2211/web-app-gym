@@ -181,7 +181,11 @@ function IdentificationSection({ d }: { d: DteOutgoingDetail }) {
         <MonoValue value={fmtDateTime(d.updated_at)} />
       </DataRow>
       <div className="mt-1.5 space-y-0.5">
-        <DteJsonActions dteId={d.id} hasJson={d.has_json_document} />
+        <DteJsonActions
+          dteId={d.id}
+          hasJson={d.has_json_document}
+          externalDelivered={d.delivery.hasSuccessfulDelivery}
+        />
         {!d.has_json_document && (
           <p className="text-[9px] text-zinc-600">{DTE_JSON_MISSING_HINT}</p>
         )}

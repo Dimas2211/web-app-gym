@@ -1,0 +1,1392 @@
+From 3ff592b9d29b9c362a578949e363c7d546daaa55 Mon Sep 17 00:00:00 2001
+From: Dimas2211 <rodrigodimas2211@gmail.com>
+Date: Wed, 21 Oct 2026 13:48:50 -0600
+Subject: [PATCH 2/2] test(gym): certify stage 4 trainer operations
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+- stage4.integration.test.ts (PostgreSQL real, 38): identity, agenda,
+  attendance window R32, activities, private notes, concurrency C1-C10,
+  Shared and Dedicated isolation.
+- trainer-actions.test.ts (13): LIVE role, entitlement, Support read-only,
+  injected form fields, idempotency key, translated errors.
+- trainer-rules.test.ts (6): pure operator rules, trainer role not widened,
+  PERSONALIZED capacity DEFAULT_ONLY, static R36 checks.
+- docs: gym-bookings-stage4.md, summary §15 and current-state.
+
+Full suite 2801/2801; browser validation 61/61 (local, synthetic data).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ docs/context/current-state.md                 |   7 +
+ docs/modules/gym-bookings-stage4.md           | 228 ++++++
+ docs/modules/gym-bookings-summary.md          |  16 +
+ src/modules/classes/trainer-actions.test.ts   | 252 ++++++
+ .../trainer/stage4.integration.test.ts        | 719 ++++++++++++++++++
+ .../classes/trainer/trainer-rules.test.ts     |  91 +++
+ 6 files changed, 1313 insertions(+)
+ create mode 100644 docs/modules/gym-bookings-stage4.md
+ create mode 100644 src/modules/classes/trainer-actions.test.ts
+ create mode 100644 src/modules/classes/trainer/stage4.integration.test.ts
+ create mode 100644 src/modules/classes/trainer/trainer-rules.test.ts
+
+diff --git a/docs/context/current-state.md b/docs/context/current-state.md
+index a2c2c81..2ad6150 100644
+--- a/docs/context/current-state.md
++++ b/docs/context/current-state.md
+@@ -25,6 +25,13 @@
+ - gym/bookings — **Etapa 3A (2026-10-20): administración multimodalidad** (clientes e historial, planes, snapshots de venta, entrenador PERSONALIZED, GymSettings, sesiones OPEN/PERSONALIZED/GROUP, ausencias, series y actividades). Implementada y auditada, incluida en el release Etapa 3; sin migraciones ni activación automática de nuevas modalidades. Ver docs/modules/gym-bookings-stage3a.md.
+ - gym/bookings — **Etapa 3B (2026-10-20): portal del alumno multimodalidad** (calendario y agenda autorizados, elegibilidad, membresías/saldos, reservas, cancelaciones, historial, asistencia y controles LIVE/tenant). Implementada, auditada y validada posteriormente en navegador durante 3C; incluida en el release Etapa 3. Sin migración ni activación automática. Ver docs/modules/gym-bookings-stage3b.md.
+ - gym/bookings — **Etapa 3C (2026-10-21): certificación integral 2A/2B/3A/3B** (rama de release `feat/gym-bookings-stage3c`). Pruebas locales reportadas: 209/209 verificaciones E2E en navegador con Auth.js y runtimes Shared/Dedicated sintéticos, 112 vistas responsive y 2744/2744 tests; sin defectos P0/P1/P2 reportados. Certificación local completada y publicación controlada por SHA/estado de Vercel y smoke productivo independientes; sin migración ni activación de modalidades. Ver docs/modules/gym-bookings-stage3c.md.
++- gym/bookings — **Etapa 4 (2026-10-21): operación del entrenador** (rama local `feat/gym-bookings-stage4`, **no publicada**). Incluye:
++  - "Mi agenda" en `/dashboard/classes` con rol LIVE y Trainer activo vinculado;
++  - asistencia por canal TRAINER del motor;
++  - actividades comunes (`ScheduledClassActivity`) e individuales (`ClassAttendanceActivity`), solo alta;
++  - notas privadas R36 sin re-registrar asistencia (`GymBookingService.updateTrainingNotes`).
++
++  Sin migración ni cambios en `schema.prisma`; `PERSONALIZED_CAPACITY_RULE = DEFAULT_ONLY` sin cambios. Pruebas locales: 2801/2801 y 61/61 en navegador (PLATFORM_NATIVE local). Ver docs/modules/gym-bookings-stage4.md.
+ - commerce/cash cerrado y operativo — apertura/cierre de sesión, movimientos manuales, corte de caja, historial, exportación PDF/Excel, asociación automática venta → sesión. Ver docs/modules/cash-summary.md.
+ 
+ ## Identidad activa
+diff --git a/docs/modules/gym-bookings-stage4.md b/docs/modules/gym-bookings-stage4.md
+new file mode 100644
+index 0000000..b799cff
+--- /dev/null
++++ b/docs/modules/gym-bookings-stage4.md
+@@ -0,0 +1,228 @@
++# GYM · Reservas — Etapa 4: portal y operación del entrenador
++
++Rama `feat/gym-bookings-stage4`, creada desde `main` en `6d848aa`. Etapa de implementación y certificación local: agenda, asistencia (4A), actividades y notas privadas (4B) y certificación (4C).
++
++**Sin migración y sin cambios en `schema.prisma`.** Sin push, merge, despliegue, Vercel Preview ni escrituras en bases reales. No se activan modalidades en ninguna organización.
++
++Vale para cualquier gimnasio de la vertical GYM (Shared o Dedicated): no hay lógica ni ids de ninguna organización concreta.
++
++## 1. Baseline
++
++| Dato | Valor |
++| --- | --- |
++| HEAD inicial | `6d848aa4c8e8aa6ef6820a51df7f1ca6890e44cb` (`main`), árbol limpio |
++| `origin/main` | `6d848aa` (alineado tras `git fetch`; 0 por delante, 0 por detrás) |
++| Rama de trabajo | `feat/gym-bookings-stage4` |
++
++## 2. Auditoría diferencial (solo experiencia del entrenador)
++
++| Funcionalidad | Estado previo | Brecha real | Cambio mínimo | Prueba | Resultado |
++| --- | --- | --- | --- | --- | --- |
++| Agenda propia | PARTIAL | Vista del día filtrada por `trainer_id`, pero decidida con el rol del **JWT**. El "hoy" salía de la fecha UTC del servidor. Sin pestaña de anteriores. Si el rol vigente cambiaba, la agenda se mostraba sin alcance de sede | "Mi agenda" dentro de `/dashboard/classes`: rol LIVE, Trainer activo vinculado, fecha local del gimnasio, pestañas hoy / próximas / anteriores. Falla cerrado si JWT y rol LIVE discrepan | D–J, V01–V03 | PASS |
++| Identidad del entrenador | PARTIAL | `getLinkedTrainerId` existe; el motor comparaba solo `trainer.user_id` y no veía si el Trainer estaba **inactivo** | `trainerOwnsSession`: Trainer asignado, activo y vinculado, verificado bajo el lock de la sesión | A–C, C7 | PASS |
++| Asistencia del entrenador | MISSING (funcional) | `recordAttendanceAction` exige `canManageMembers` y canal STAFF: el rol trainer no podía usarla | `trainerRecordAttendanceAction`: canal TRAINER del motor; actor y canal salen del contexto | M–T, C1–C4, O01 | PASS |
++| Ventana R32 | IMPLEMENTED (motor) | Sin presentación en la UI | Banner de ventana con `checkAttendanceAccess`; la autoridad final sigue en el motor | Q, R, S, V05–V06 | PASS |
++| Actividades comunes | MISSING | Modelo de 2A sin escritor | `addSessionActivity` (`ScheduledClassActivity`) | U, W–Y, C5 | PASS |
++| Actividades individuales | MISSING | Modelo de 2A sin escritor | `addAttendanceActivity` (`ClassAttendanceActivity`) | V, W–Y, C6 | PASS |
++| Notas privadas | PARTIAL | Solo se escribían junto con un check-in (`recordAttendance`). Sin forma de guardar la nota sin re-registrar asistencia | `GymBookingService.updateTrainingNotes` (extensión mínima del motor) | Z, C8 | PASS |
++| R36 en consultas compartidas | PARTIAL | `getScheduledClassById` traía `training_notes` (con `include`) en una consulta que también usan recepción y la edición; no se mostraba | Selección explícita sin `training_notes` | estático Z | PASS |
++| Catálogo de actividades | IMPLEMENTED (3A) | — | Sin cambios; el entrenador solo lee el catálogo activo | Y | PASS |
++| Ausencias, series, política, venta | IMPLEMENTED (3A) | — | Fuera de alcance; el entrenador no obtiene acceso | K, L | OUT_OF_SCOPE |
++
++## 3. Agenda
++
++- Ruta: la misma `/dashboard/classes`. No hay calendario ni layout nuevos. Si el rol LIVE es `trainer`, se muestra `TrainerAgendaView`. Si el JWT dice trainer pero el rol LIVE ya no lo es, se muestra un aviso y nada más.
++- Datos: `getTrainerAgenda` (`src/modules/classes/trainer/trainer-queries.ts`). Filtra por `tenant_id` + `trainer_id` del Trainer vinculado, en las tres modalidades sin filtrar por modalidad, e incluye las canceladas con su estado. Hoy = `localDate(now, GymSettings.timezone)`. Límites: 60 próximas y 30 anteriores, con aviso.
++- Por sesión muestra: fecha, hora, sede, sala, modalidad, tipo, capacidad, reservas confirmadas (`booked_count`), estado y asistencia registrada.
++- Escritorio: grilla de 2–3 columnas. Móvil: lista diaria.
++- Sin perfil Trainer activo vinculado: «Tu cuenta no tiene un perfil de entrenador activo vinculado…». No se muestran clases y no se conceden permisos.
++
++## 4. Asistencia
++
++- `trainerRecordAttendanceAction` (`src/modules/classes/trainer-actions.ts`) → `GymBookingService.recordAttendance` con `channel = "TRAINER"` y `actor = { userId: effectiveUser.id, role: "trainer" }`, ambos derivados del contexto autorizado. No hay escritura directa de `ClassAttendance` ni un segundo motor.
++- Solo el rol LIVE trainer con perfil activo vinculado. SA/BA siguen usando `recordAttendanceAction` (STAFF), sin cambios.
++- El motor valida bajo lock: reserva del tenant, sesión asignada a un Trainer **activo** vinculado al usuario, reserva confirmada, sesión no cancelada y ventana R32.
++- Idempotencia: cada botón lleva su `idempotency_key` (UUID por render). Doble clic o reenvío → replay sin segundo evento (P, C2, O05 en navegador).
++- **Refactor interno:** el protocolo de locks de `recordAttendance` se extrajo a `lockAttendanceTarget`, que comparte con `updateTrainingNotes`. Mismo orden, mismos rechazos. La regresión 2B/3A/3B/3C pasa sin cambiar expectativas (456/456).
++
++## 5. Actividades comunes
++
++`createSessionActivityService(context.client).addSessionActivity` (`src/modules/classes/booking/session-activities.ts`):
++
++- Locks: `scheduled_classes FOR SHARE` → `gym_activities FOR SHARE` → `INSERT … ON CONFLICT DO NOTHING`, dentro del orden global.
++- Una vez por sesión y actividad (`@@unique([scheduled_class_id, activity_id])`). Repetir o enviar en paralelo deja una sola fila; la UI muestra «La actividad ya estaba registrada».
++- Guarda el `tenant_id` del contexto, la sesión autorizada, una actividad del mismo tenant, `activity_name` como snapshot, las notas opcionales y `created_by` (usuario efectivo).
++- No se copia a cada alumno.
++
++## 6. Actividades individuales
++
++`addAttendanceActivity`:
++
++- Locks: `scheduled_classes` → `class_bookings` → `class_attendance` → `gym_activities` (todos FOR SHARE) → INSERT.
++- Exige asistencia `attended` / `late`, vinculada a una reserva **confirmada** de la misma sesión. Un ausente, una asistencia heredada sin reserva o una reserva cancelada → `ATTENDANCE_REQUIRED` / `NOT_CONFIRMED`.
++- Nunca crea asistencia ficticia ni marca al alumno como presente.
++- La autoridad es `ScheduledClass.trainer_id` + Trainer vinculado. `Client.assigned_trainer_id` no interviene.
++
++**Validación de la actividad (ambos tipos):** debe ser del tenant, estar activa y ser global o de la sede de la sesión; si no, `ACTIVITY_UNAVAILABLE`. Respaldos en la base: la FK compuesta por tenant y el trigger de sede de 2A. Desactivar o renombrar la actividad del catálogo conserva el historial y su snapshot (Y). El entrenador no puede cambiar el catálogo (`requireAdmin`).
++
++**Decisión conservadora (pendiente funcional):** las actividades registradas **no se editan ni se borran** (solo alta). No hay borrado destructivo de historial. Corregir una actividad mal registrada requiere una decisión de producto: retiro lógico auditado o borrado dentro de ventana.
++
++## 7. Notas privadas (R36)
++
++- `GymBookingService.updateTrainingNotes` es una extensión mínima del motor, no un servicio paralelo:
++  - mismos locks, canal/rol y ventana R32 que `recordAttendance`;
++  - exige la asistencia ya registrada (`ATTENDANCE_REQUIRED` si no existe);
++  - escribe solo `training_notes`: estado, `checked_in_at`, `recorded_by_user_id`, `recorded_at` y `notes` (operativa) quedan intactos.
++- Auditoría: operación `RECORD_ATTENDANCE` (enum existente, sin migración) cuya huella incluye `operation: "UPDATE_TRAINING_NOTES"`. Una clave de asistencia no se reutiliza para notas (`IDEMPOTENCY_KEY_REUSED`). El evento `ATTENDANCE_UPDATED` lleva `metadata.change = "training_notes"` **sin el texto de la nota**.
++- Quién puede: el entrenador de la sesión (TRAINER), SA o BA (STAFF). Recepción → `FORBIDDEN`. Otro entrenador → `FORBIDDEN`, y su detalle responde 404.
++- Dónde no aparece:
++  - portal (`/portal`, `/portal/clases`, `/portal/historial`, `/portal/membresias`): prueba estática + integración + navegador Z01;
++  - vista de recepción (R01);
++  - `getScheduledClassById` (selección explícita);
++  - `getSessionTrainingDetail` sin `includePrivateNotes`.
++- Máximo 2000 caracteres; texto vacío → `null` (borra la nota).
++
++## 8. Autorización y rol LIVE
++
++Orden en cada Server Action:
++
++1. `requireClassViewer` (puerta del JWT).
++2. `requireOperationalContext({ module: "gym.classes", write: true })`: base runtime, entitlement y Support Session en solo lectura.
++3. `resolveSessionOperator` con `effectiveUser.role` LIVE y el Trainer activo vinculado, leído en `context.client` con `context.tenantId`.
++4. El motor revalida bajo lock.
++
++Garantías:
++
++- Canal, actor, tenant y sede **nunca** salen del formulario; los ids del formulario solo identifican el objetivo. El redirect se sanea (`SAFE_ID`).
++- Sin cambios en `canManageClass`, `requireMembershipManager` ni `role-capabilities`. El entrenador no vende membresías, no cambia modalidades, no edita la política, no programa sesiones y no cancela reservas (K/L).
++- Sin vista de detalle propia para recepción. SA/BA ven en el detalle administrativo la sección «Registro de entrenamiento» (actividades y notas) y la escriben por canal STAFF; fuera de plazo queda como corrección administrativa.
++- La UI decide quién es entrenador con `context.effectiveRole` (LIVE). Un rol degradado pierde el acceso en la siguiente petición.
++
++## 9. Aislamiento Shared / Dedicated
++
++- Toda lectura y escritura usa `context.client` y `tenant_id` explícito; no se resuelve nada contra el Control Plane.
++- Shared (C9): dos tenants en la misma base reutilizan la misma `idempotencyKey` y el mismo nombre de actividad sin cruzarse. Ids de otro tenant → `NOT_FOUND` / `ACTIVITY_UNAVAILABLE`.
++- Dedicated (C10): dos bases físicas con **los mismos ids**. El servicio sobre la base dedicada escribe solo allí; la base Shared queda intacta, y desde ella la reserva dedicada no existe. El enrutamiento por organización ya está cubierto por el router runtime (3C §13) y no cambió.
++- Una organización COMMERCE_ONLY no tiene `gym.classes`: `MODULE_DISABLED` antes de leer datos (prueba de acción). La página aplica `requireOrganizationModule`.
++
++## 10. Ventanas temporales
++
++- Asistencia, notas y actividades usan `checkAttendanceAccess` (R32): desde el inicio hasta fin + `attendance_edit_window_hours`, o hasta que la sesión pase a `completed`. Después, solo SA/BA como corrección administrativa.
++- Sin excepciones nuevas para TRAINER: el canal TRAINER sigue R32 también en OPEN.
++- Los instantes salen de `starts_at` / `ends_at` o de la fecha + HH:mm en `GymSettings.timezone`. La agenda formatea `class_date` en UTC para no correr el día.
++- **Consecuencia documentada:** en un gimnasio **sin timezone configurada**, una sesión OPEN heredada sin instantes no tiene ventana derivable. El entrenador ve «La clase no tiene horario completo o el gimnasio no tiene zona horaria configurada» (`SCHEDULE_INCOMPLETE`), mientras que el staff conserva el registro heredado sin ventana. Es el contrato R32 vigente, no un defecto.
++
++## 11. Compatibilidad de modalidades
++
++OPEN, PERSONALIZED y GROUP se operan igual. Para la agenda manda la asignación de la sesión, no la modalidad. OPEN heredado por canal STAFF conserva su registro sin ventana (prueba «STAFF heredado intacto»). No se cambió ninguna regla de reserva, cancelación ni consumo.
++
++## 12. Regla de cupo PERSONALIZED
++
++`PERSONALIZED_CAPACITY_RULE = DEFAULT_ONLY`.
++
++- El cupo PERSONALIZED del entrenador es un **valor predeterminado**, no un máximo obligatorio.
++- Prioridad sin cambios (`resolveEffectiveCapacity`): sesión → serie → `Trainer.personalized_capacity` → `GymSettings.personalized_default_capacity`.
++- Una sesión puede fijar un cupo mayor que el del entrenador. No es un defecto: una prueba unitaria fija este contrato.
++- No se agregó un campo de máximo ni una migración, y no se tocaron los controles transaccionales de cupo.
++
++## 13. Pruebas
++
++| Suite | Base | Resultado |
++| --- | --- | --- |
++| `classes/trainer/stage4.integration.test.ts`: A–J, M–Z, C1–C10 | PostgreSQL 18.3 real desechable (127.0.0.1:55441, `data_directory` verificado) | 38/38, en 4 corridas seguidas |
++| `classes/trainer-actions.test.ts`: acciones con rol LIVE, entitlement, Support read-only, ids inyectados, idempotencia, mensajes | mocks | 13/13 |
++| `classes/trainer/trainer-rules.test.ts`: reglas puras, rol trainer sin ampliar, cupo DEFAULT_ONLY, R36 estático | — | 6/6 |
++| Regresión de integración 2B/3A/3B/3C (`classes`, `client-portal`, `memberships`, `trainers`, `prisma/scripts/gym-bookings`) tras el refactor del motor | PostgreSQL real | 456/456 |
++| Suite completa (`npx vitest run` con integración) | PostgreSQL real | **256 archivos, 2801/2801, 0 omitidas** |
++
++**Concurrencia.** Conexiones independientes y barreras observables (`pg_stat_activity`, `waitForLockWaiters`), sin sleeps:
++
++- C1: asistencia doble con claves distintas → 1 fila, 2 eventos, 0 reintentos;
++- C2: misma clave → 1 operación;
++- C3: cancelación concurrente → `NOT_CONFIRMED`, sin interbloqueo;
++- C4: sesión cancelada durante el registro → `SESSION_NOT_BOOKABLE`;
++- C5/C6: 3 altas simultáneas → 1 fila;
++- C6b: actividad individual y asistencia → se serializan por la sesión;
++- C7: reasignación de la sesión bajo lock → `FORBIDDEN`.
++
++No se alteró el orden global de locks.
++
++**Mutaciones de control.** Cada una falla y se restauró sin diff:
++
++| Mutación | Pruebas que fallan |
++| --- | --- |
++| Ignorar el estado del Trainer | C y C7 |
++| Quitar la autorización de actividades | 4 pruebas |
++| Quitar `skipDuplicates` (ON CONFLICT) | U, V, C5 y C6 |
++| Quitar los locks FOR SHARE de sesión/asistencia | C7, y **3 `deadlock detected`** en 3 corridas (la actividad bloquea la reserva antes que la sesión mientras la asistencia hace lo inverso) |
++
++Con el código real hubo **0** interbloqueos en todas las corridas. El lock de la sesión primero es necesario.
++
++## 14. Riesgos residuales
++
++- **Dedicated:** certificado a nivel de `PrismaClient` sobre dos bases físicas. El enrutamiento por hostname/organización en navegador no se repitió en GYM-4 (3C §13); no se probaron conexiones remotas (Supabase, pooler, SSL).
++- **Validación visual:** en modo PLATFORM_NATIVE local. No se repitió el login runtime por hostname (RUNTIME_CLIENT), cubierto en 3C y sin cambios en auth.
++- **Actividades:** solo alta (§6). Un error de captura requiere decisión de producto.
++- **Agenda:** muestra hasta 60 próximas y 30 anteriores, sin paginación.
++- **Ventana sin timezone** (§10): un gimnasio sin `GymSettings.timezone` no puede registrar desde el canal TRAINER las sesiones OPEN heredadas.
++- **P3 preexistente (fuera de alcance, sin tocar):** el encabezado del detalle **administrativo** formatea `class_date` sin `timeZone: "UTC"` y, en servidores con desfase negativo, muestra el día anterior (visto en la captura `d-admin-registro`: «martes 20» para una sesión del miércoles 21). La vista del entrenador no lo tiene.
++
++## 15. Pendientes funcionales
++
++1. Política de corrección/retiro de actividades registradas (§6).
++2. Si se quiere un campo de notas por actividad editable después del alta.
++3. Paginación del historial del entrenador si supera 30 sesiones.
++4. Corregir el P3 de fecha del detalle administrativo (microtarea aparte).
++
++## 16. Validación visual (navegador real)
++
++**Entorno**, todo local y desechable:
++
++- `next build` + `next start` del código final;
++- PostgreSQL 18.3 desechable, base `zolvi_e2e4` con las 61 migraciones (`psql -1`);
++- Auth.js real (login de credenciales por `localhost`);
++- Chromium de Playwright 1.62 desde la caché de npx, **sin dependencias nuevas**;
++- todas las claves de los `.env` del repositorio anuladas en el proceso, con valores sintéticos solo para BD, `AUTH_SECRET` y hosts;
++- semilla con fixtures 2B y el motor real (ninguna escritura directa a reservas).
++
++**Resultado: 61/61 verificaciones a 1280 px y 390 px.**
++
++- Agenda: hoy, próximas y anteriores.
++- Detalle GROUP: asistió / llegó tarde / no asistió, con verificación en BD.
++- Actividad común, también repetida.
++- Catálogo sin actividades desactivadas ni de otra sede.
++- Actividad individual; el ausente no tiene formulario.
++- Nota privada sin alterar la asistencia.
++- Doble clic real: 1 evento.
++- Hidden input manipulado con una reserva de otro entrenador: rechazo, sin escritura.
++- URL de una sesión ajena: 404.
++- Sesión vencida y sesión no iniciada.
++- PERSONALIZED en móvil: botones de 36 px o más.
++- Entrenador sin perfil.
++- BA con «Registro de entrenamiento».
++- Recepción sin notas.
++- Otro entrenador: 404.
++- Portal del alumno (`/portal`, `/portal/clases`, `/portal/historial`) sin notas.
++
++Sin desbordamiento horizontal en ninguna vista. Las capturas (22 PNG, solo datos sintéticos) están en el scratchpad de la sesión y **no** se agregaron al repositorio.
++
++**Correcciones de presentación hechas tras la revisión de capturas** (solo vistas nuevas): punto doble en el banner, mayúscula en cada palabra de la fecha, «Sala Sala 1» y orden de alumnos no determinista (ahora alfabético). Después se repitió la corrida completa sobre el build final.
++
++`VISUAL_VALIDATION = PASS` (PLATFORM_NATIVE local).
++
++## 17. Impacto de base de datos
++
++- `schema.prisma`: **sin cambios**. Migraciones nuevas: **ninguna** (`GYM_4_SCHEMA_MIGRATION_REQUIRED = NO`). Triggers y migraciones anteriores intactos.
++- Bases tocadas: solo el clúster desechable `127.0.0.1:55441` del scratchpad (`zolvi_it2b_*` creadas y borradas por las suites, 0 sobrantes; `zolvi_e2e4` para E2E).
++- Bases no tocadas: `DATABASE_URL` / `DIRECT_URL` reales, Control Plane, runtimes Shared/Dedicated, Supabase y MariaDB.
++- Sincronización local/remota: nada que alinear.
++
++## 18. Preparación de publicación (no ejecutada)
++
++- Alcance frente a `main`: solo `src/modules/classes/**`, `src/app/(dashboard)/dashboard/classes/**` y `docs/`. Sin Commerce, DTE, Platform, auth, `prisma/` ni variables nuevas.
++- Publicación (decisión del usuario): PR `feat/gym-bookings-stage4` → `main` y build de Vercel. No requiere `migrate deploy`.
++- Smoke sugerido, solo lectura o con datos autorizados:
++  - un entrenador real ve «Mi agenda» con sus sesiones;
++  - recepción no ve el «Registro de entrenamiento»;
++  - el portal del alumno no cambia.
++- Rollback: revertir el deploy o los commits. Sin rollback de esquema. Las filas de actividades creadas quedan en tablas de 2A que el código anterior tolera.
+diff --git a/docs/modules/gym-bookings-summary.md b/docs/modules/gym-bookings-summary.md
+index 25d10bb..91ae294 100644
+--- a/docs/modules/gym-bookings-summary.md
++++ b/docs/modules/gym-bookings-summary.md
+@@ -489,3 +489,19 @@ Detalle completo: `docs/modules/gym-bookings-stage3c.md`. **Sin cambios de códi
+ - Suite completa con integración: 253 archivos, 2744/2744. TypeScript, Prisma, lint (sin errores) y build: PASS.
+ - Hallazgos: ninguno P0/P1/P2. Cuatro P3 documentados (§20 de 3C).
+ - Gate: `GYM_3C_INTEGRAL_CERTIFIED = YES` y `READY_FOR_RELEASE_REVIEW = YES`, sin autorización de despliegue.
++
++## 15. Etapa 4 — operación del entrenador (resumen)
++
++Detalle completo: `docs/modules/gym-bookings-stage4.md`. **Sin cambios en `schema.prisma` ni migraciones.** Rama local `feat/gym-bookings-stage4`, sin publicar.
++
++- Agenda: "Mi agenda" en `/dashboard/classes`, decidida con el rol LIVE. Muestra las sesiones del Trainer **activo** vinculado (`Trainer.user_id`), en las tres modalidades, por fecha local del gimnasio.
++- Asistencia: `trainerRecordAttendanceAction` → `recordAttendance` por canal TRAINER (R32, sin excepciones). El motor ahora exige además que el Trainer asignado siga activo (`trainerOwnsSession`).
++- Notas privadas: `GymBookingService.updateTrainingNotes`. Exige asistencia previa, escribe solo `training_notes` y el evento no lleva el texto. Mismo protocolo de locks que `recordAttendance` (`lockAttendanceTarget`).
++- Actividades: `session-activities.ts`. Comunes (una por sesión) e individuales (alumno presente con reserva confirmada), con locks FOR SHARE en el orden global, idempotencia por clave natural y snapshot `activity_name`. Solo alta: sin edición ni borrado.
++- Códigos aditivos: `ATTENDANCE_REQUIRED` y `ACTIVITY_UNAVAILABLE`.
++- `PERSONALIZED_CAPACITY_RULE = DEFAULT_ONLY`: el cupo del entrenador es un valor predeterminado, no un máximo (sin cambios).
++- Pruebas:
++  - `stage4.integration.test.ts`: 38, PostgreSQL real, concurrencia C1–C10 y Shared/Dedicated;
++  - pruebas unitarias y estáticas: 19;
++  - suite completa: 2801/2801;
++  - navegador: 61/61 a 390 y 1280 px.
+diff --git a/src/modules/classes/trainer-actions.test.ts b/src/modules/classes/trainer-actions.test.ts
+new file mode 100644
+index 0000000..a30ba57
+--- /dev/null
++++ b/src/modules/classes/trainer-actions.test.ts
+@@ -0,0 +1,252 @@
++// ─────────────────────────────────────────────────────────────────
++// classes — trainer-actions.test.ts
++//
++// GYM-4: las acciones del entrenador DELEGAN en GymBookingService /
++// SessionActivityService. Certifica:
++//  - gym.classes + write antes de tocar datos (entitlement, Support read-only);
++//  - rol LIVE (effectiveUser.role) y Trainer activo vinculado resuelto en
++//    context.client con el tenant efectivo (nunca ids del formulario);
++//  - canal y actor desde el contexto; campos inyectados se ignoran;
++//  - clave de idempotencia del formulario hasta el servicio;
++//  - errores traducidos y dispose siempre.
++// ─────────────────────────────────────────────────────────────────
++
++import { describe, it, expect, vi, beforeEach } from "vitest";
++
++const { revalidatePathMock, redirectMock } = vi.hoisted(() => ({
++  revalidatePathMock: vi.fn(),
++  redirectMock: vi.fn(),
++}));
++vi.mock("next/cache", () => ({ revalidatePath: revalidatePathMock }));
++vi.mock("next/navigation", () => ({ redirect: redirectMock }));
++
++vi.mock("@/lib/permissions/guards", () => ({
++  // Puerta del JWT: el rol del JWT NO decide (el contexto trae el LIVE).
++  requireClassViewer: vi.fn(async () => ({ id: "u-trainer", tenant_id: "tenant-1", location_id: "loc-1", role: "trainer" })),
++}));
++
++const { service, activities, requireOperationalContextMock, disposeMock, FakeOperationalContextError } = vi.hoisted(() => {
++  class FakeOperationalContextError extends Error {
++    code: string;
++    httpStatus: number;
++    userMessage: string;
++    constructor(code: string, userMessage: string, httpStatus: number) {
++      super(userMessage);
++      this.code = code;
++      this.httpStatus = httpStatus;
++      this.userMessage = userMessage;
++    }
++  }
++  return {
++    service: { recordAttendance: vi.fn(), updateTrainingNotes: vi.fn() },
++    activities: { addSessionActivity: vi.fn(), addAttendanceActivity: vi.fn() },
++    requireOperationalContextMock: vi.fn(),
++    disposeMock: vi.fn().mockResolvedValue(undefined),
++    FakeOperationalContextError,
++  };
++});
++
++vi.mock("@/modules/platform/runtime/require-operational-context", () => ({
++  requireOperationalContext: requireOperationalContextMock,
++  OperationalContextError: FakeOperationalContextError,
++}));
++vi.mock("./booking/booking-service", () => ({
++  createGymBookingService: vi.fn(() => service),
++  resolveIdempotencyKey: (raw: unknown) => (typeof raw === "string" && raw.length >= 8 ? raw : "server-generated-key"),
++}));
++vi.mock("./booking/session-activities", () => ({
++  createSessionActivityService: vi.fn(() => activities),
++}));
++
++import {
++  addAttendanceActivityAction,
++  addSessionActivityAction,
++  saveTrainingNotesAction,
++  trainerRecordAttendanceAction,
++} from "./trainer-actions";
++
++const SES = "eeb1d1e1-e1c8-4958-9d16-db8129862c8e";
++const BOOKING = "b0000000-0000-4000-8000-000000000001";
++const KEY = "11111111-2222-4333-8444-555555555555";
++
++function context(role: string, linkedTrainer: { id: string } | null = { id: "trainer-1" }) {
++  const trainerFindFirst = vi.fn(async () =>
++    linkedTrainer ? { ...linkedTrainer, branch_id: "loc-1", first_name: "T", last_name: "A" } : null
++  );
++  const classBookingFindFirst = vi.fn(async () => ({ scheduled_class_id: SES }));
++  return {
++    trainerFindFirst,
++    handle: {
++      context: {
++        tenantId: "tenant-1",
++        locationId: "loc-1",
++        effectiveUser: { id: "u-trainer", role, tenant_id: "tenant-1", location_id: "loc-1" },
++        client: { trainer: { findFirst: trainerFindFirst }, classBooking: { findFirst: classBookingFindFirst } },
++      },
++      dispose: disposeMock,
++    },
++  };
++}
++
++function form(fields: Record<string, string>) {
++  const fd = new FormData();
++  for (const [k, v] of Object.entries(fields)) fd.set(k, v);
++  return fd;
++}
++
++const lastRedirect = () => String(redirectMock.mock.calls.at(-1)?.[0] ?? "");
++
++beforeEach(() => {
++  vi.clearAllMocks();
++  disposeMock.mockResolvedValue(undefined);
++});
++
++describe("trainerRecordAttendanceAction", () => {
++  it("rol LIVE trainer + Trainer vinculado → canal TRAINER con actor/scope del contexto; campos inyectados ignorados", async () => {
++    const c = context("trainer");
++    requireOperationalContextMock.mockResolvedValue(c.handle);
++    service.recordAttendance.mockResolvedValue({ ok: true, value: { attendanceId: "a1" }, operationId: "op", replayed: false });
++
++    await trainerRecordAttendanceAction(
++      form({
++        scheduled_class_id: SES,
++        booking_id: BOOKING,
++        attendance_status: "late",
++        idempotency_key: KEY,
++        channel: "STAFF",
++        role: "super_admin",
++        tenant_id: "tenant-evil",
++        trainer_id: "trainer-evil",
++      })
++    );
++
++    expect(requireOperationalContextMock).toHaveBeenCalledWith(expect.anything(), { module: "gym.classes", write: true });
++    expect(c.trainerFindFirst).toHaveBeenCalledWith(
++      expect.objectContaining({ where: { user_id: "u-trainer", tenant_id: "tenant-1", status: "active" } })
++    );
++    expect(service.recordAttendance).toHaveBeenCalledWith({
++      scope: { tenantId: "tenant-1", locationId: "loc-1" },
++      actor: { userId: "u-trainer", role: "trainer" },
++      channel: "TRAINER",
++      bookingId: BOOKING,
++      status: "late",
++      idempotencyKey: KEY,
++    });
++    expect(lastRedirect()).toBe(`/dashboard/classes/${SES}?notice=${encodeURIComponent("Asistencia registrada.")}`);
++    expect(disposeMock).toHaveBeenCalled();
++  });
++
++  it("JWT trainer degradado a recepción (LIVE) → sin servicio, rechazo", async () => {
++    requireOperationalContextMock.mockResolvedValue(context("reception").handle);
++    await trainerRecordAttendanceAction(form({ scheduled_class_id: SES, booking_id: BOOKING, attendance_status: "attended" }));
++    expect(service.recordAttendance).not.toHaveBeenCalled();
++    expect(lastRedirect()).toContain("?error=");
++    expect(disposeMock).toHaveBeenCalled();
++  });
++
++  it("SA/BA no usan el canal TRAINER (conservan la acción de staff)", async () => {
++    requireOperationalContextMock.mockResolvedValue(context("branch_admin").handle);
++    await trainerRecordAttendanceAction(form({ scheduled_class_id: SES, booking_id: BOOKING, attendance_status: "attended" }));
++    expect(service.recordAttendance).not.toHaveBeenCalled();
++  });
++
++  it("trainer sin perfil activo vinculado → mensaje de vinculación, sin permisos por defecto", async () => {
++    requireOperationalContextMock.mockResolvedValue(context("trainer", null).handle);
++    await trainerRecordAttendanceAction(form({ scheduled_class_id: SES, booking_id: BOOKING, attendance_status: "attended" }));
++    expect(service.recordAttendance).not.toHaveBeenCalled();
++    expect(decodeURIComponent(lastRedirect())).toContain("perfil de entrenador activo vinculado");
++  });
++
++  it("Support Session (solo lectura) y organización sin gym.classes → rechazo antes de leer datos", async () => {
++    for (const [code, msg] of [
++      ["READ_ONLY", "Modo solo lectura"],
++      ["MODULE_DISABLED", "Este módulo no está habilitado para tu organización."],
++    ] as const) {
++      requireOperationalContextMock.mockRejectedValueOnce(new FakeOperationalContextError(code, msg, 403));
++      await trainerRecordAttendanceAction(form({ scheduled_class_id: SES, booking_id: BOOKING, attendance_status: "attended" }));
++      expect(decodeURIComponent(lastRedirect())).toContain(msg);
++    }
++    expect(service.recordAttendance).not.toHaveBeenCalled();
++  });
++
++  it("estado fuera de contrato (cancelled) → INVALID_COMMAND sin servicio", async () => {
++    requireOperationalContextMock.mockResolvedValue(context("trainer").handle);
++    await trainerRecordAttendanceAction(form({ scheduled_class_id: SES, booking_id: BOOKING, attendance_status: "cancelled" }));
++    expect(service.recordAttendance).not.toHaveBeenCalled();
++    expect(decodeURIComponent(lastRedirect())).toContain("Datos inválidos.");
++  });
++
++  it("errores del motor traducidos (ventana cerrada) y redirect saneado", async () => {
++    requireOperationalContextMock.mockResolvedValue(context("trainer").handle);
++    service.recordAttendance.mockResolvedValue({ ok: false, code: "ATTENDANCE_WINDOW_CLOSED" });
++    await trainerRecordAttendanceAction(form({ scheduled_class_id: "../../admin", booking_id: BOOKING, attendance_status: "absent" }));
++    expect(lastRedirect().startsWith("/dashboard/classes?error=")).toBe(true);
++    expect(decodeURIComponent(lastRedirect())).toContain("Cerró el plazo");
++  });
++});
++
++describe("saveTrainingNotesAction", () => {
++  it("entrenador → canal TRAINER; vacío borra (null)", async () => {
++    requireOperationalContextMock.mockResolvedValue(context("trainer").handle);
++    service.updateTrainingNotes.mockResolvedValue({ ok: true, value: { attendanceId: "a1" }, operationId: "op", replayed: false });
++    await saveTrainingNotesAction(form({ scheduled_class_id: SES, booking_id: BOOKING, training_notes: "   ", idempotency_key: KEY }));
++    expect(service.updateTrainingNotes).toHaveBeenCalledWith(
++      expect.objectContaining({ channel: "TRAINER", actor: { userId: "u-trainer", role: "trainer" }, trainingNotes: null, idempotencyKey: KEY })
++    );
++  });
++
++  it("SA/BA (LIVE) → canal STAFF; recepción → rechazo sin servicio (R36)", async () => {
++    requireOperationalContextMock.mockResolvedValue(context("branch_admin").handle);
++    service.updateTrainingNotes.mockResolvedValue({ ok: true, value: { attendanceId: "a1" }, operationId: "op", replayed: false });
++    await saveTrainingNotesAction(form({ scheduled_class_id: SES, booking_id: BOOKING, training_notes: "ok" }));
++    expect(service.updateTrainingNotes).toHaveBeenCalledWith(expect.objectContaining({ channel: "STAFF", actor: { userId: "u-trainer", role: "branch_admin" } }));
++
++    service.updateTrainingNotes.mockClear();
++    requireOperationalContextMock.mockResolvedValue(context("reception").handle);
++    await saveTrainingNotesAction(form({ scheduled_class_id: SES, booking_id: BOOKING, training_notes: "x" }));
++    expect(service.updateTrainingNotes).not.toHaveBeenCalled();
++  });
++
++  it("nota mayor a 2000 caracteres → rechazo sin servicio", async () => {
++    requireOperationalContextMock.mockResolvedValue(context("trainer").handle);
++    await saveTrainingNotesAction(form({ scheduled_class_id: SES, booking_id: BOOKING, training_notes: "x".repeat(2001) }));
++    expect(service.updateTrainingNotes).not.toHaveBeenCalled();
++    expect(decodeURIComponent(lastRedirect())).toContain("2000 caracteres");
++  });
++});
++
++describe("actividades", () => {
++  it("actividad común: sesión del formulario como objetivo; canal/actor del contexto; repetida → aviso", async () => {
++    requireOperationalContextMock.mockResolvedValue(context("trainer").handle);
++    activities.addSessionActivity.mockResolvedValue({ ok: true, value: { id: "x", sessionId: SES, created: false } });
++    await addSessionActivityAction(form({ scheduled_class_id: SES, activity_id: "act-1", notes: "10 min", channel: "STAFF" }));
++    expect(activities.addSessionActivity).toHaveBeenCalledWith({
++      scope: { tenantId: "tenant-1", locationId: "loc-1" },
++      actor: { userId: "u-trainer", role: "trainer" },
++      channel: "TRAINER",
++      sessionId: SES,
++      activityId: "act-1",
++      notes: "10 min",
++    });
++    expect(decodeURIComponent(lastRedirect())).toContain("ya estaba registrada");
++  });
++
++  it("actividad individual: sin asistencia en el formulario → mensaje, sin servicio", async () => {
++    requireOperationalContextMock.mockResolvedValue(context("trainer").handle);
++    await addAttendanceActivityAction(form({ scheduled_class_id: SES, activity_id: "act-1" }));
++    expect(activities.addAttendanceActivity).not.toHaveBeenCalled();
++    expect(decodeURIComponent(lastRedirect())).toContain("Primero registra la asistencia");
++  });
++
++  it("actividad individual: ACTIVITY_UNAVAILABLE traducido; recepción rechazada", async () => {
++    requireOperationalContextMock.mockResolvedValue(context("trainer").handle);
++    activities.addAttendanceActivity.mockResolvedValue({ ok: false, code: "ACTIVITY_UNAVAILABLE" });
++    await addAttendanceActivityAction(form({ scheduled_class_id: SES, attendance_id: "att-1", activity_id: "act-x" }));
++    expect(decodeURIComponent(lastRedirect())).toContain("no está disponible");
++
++    activities.addAttendanceActivity.mockClear();
++    requireOperationalContextMock.mockResolvedValue(context("reception").handle);
++    await addAttendanceActivityAction(form({ scheduled_class_id: SES, attendance_id: "att-1", activity_id: "act-x" }));
++    expect(activities.addAttendanceActivity).not.toHaveBeenCalled();
++  });
++});
+diff --git a/src/modules/classes/trainer/stage4.integration.test.ts b/src/modules/classes/trainer/stage4.integration.test.ts
+new file mode 100644
+index 0000000..fddfe03
+--- /dev/null
++++ b/src/modules/classes/trainer/stage4.integration.test.ts
+@@ -0,0 +1,719 @@
++// ─────────────────────────────────────────────────────────────────
++// GYM-4 — operación del entrenador contra PostgreSQL REAL desechable
++// (se omite sin GYM_BOOKING_IT_*; ver testing/pg-it-harness.ts).
++//
++//  A–C   identidad: Trainer activo vinculado, sin usuario, inactivo
++//  D–J   agenda OPEN / PERSONALIZED / GROUP, asignación, sede, tenant
++//  M–T   asistencia por canal TRAINER, idempotencia, ventana R32, cierre,
++//        corrección administrativa
++//  U–Y   actividades comunes / individuales, tenant, sede, desactivada
++//  Z     notas privadas (R36) sin fingir check-in; portal sin notas
++//  C1–C10 concurrencia con conexiones independientes y sincronización
++//        observable (pg_stat_activity), sin sleeps; Shared y Dedicated
++// ─────────────────────────────────────────────────────────────────
++
++import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
++import type { GymSessionKind, Prisma, PrismaClient } from "@prisma/client";
++import { createGymBookingService } from "../booking/booking-service";
++import { createSessionActivityService } from "../booking/session-activities";
++import type { GymBookingActor, GymBookingScope } from "../booking/booking-contracts";
++import { createItDatabase, disconnectAdmin, IT_ENABLED, waitForLockWaiters, type ItDatabase } from "../booking/testing/pg-it-harness";
++import {
++  actor,
++  B1,
++  B1B,
++  BA1,
++  createMember,
++  createSession,
++  invariantViolations,
++  key,
++  MODALITIES_ON,
++  NO_VIOLATIONS,
++  RC1,
++  SA2,
++  seedBase,
++  setPolicy,
++  staffBook,
++  T1,
++  T2,
++  TRAINER_A,
++  TRAINER_C,
++  TRAINER_Z,
++  USERS,
++} from "../booking/testing/booking-fixtures";
++import { resolveLinkedTrainer, resolveSessionOperator } from "./trainer-access";
++import { getSessionTrainingDetail, getTrainerAgenda } from "./trainer-queries";
++import { getMyAttendance, loadPortalBookings } from "@/modules/client-portal/queries";
++
++const HOUR = 3_600_000;
++const TRAINER: GymBookingActor = actor(USERS.trainerA, "trainer");
++const TRAINER_OTHER: GymBookingActor = actor(USERS.trainerC, "trainer");
++const TSCOPE: GymBookingScope = { tenantId: T1, locationId: B1 };
++const SEDE: GymBookingScope = { tenantId: T1, locationId: B1 };
++const T2_SCOPE: GymBookingScope = { tenantId: T2, locationId: null };
++
++const ACT = {
++  warm: "it-act-warm", // global
++  circuit: "it-act-circuit", // sede B1
++  stretch: "it-act-stretch", // global
++  squat: "it-act-squat",
++  bench: "it-act-bench",
++  bike: "it-act-bike",
++  mobility: "it-act-mobility",
++  treadmill: "it-act-treadmill",
++  otherBranch: "it-act-b1b", // sede B1B
++  inactive: "it-act-off",
++  t2: "it-act-t2", // tenant 2, mismo nombre que warm
++};
++
++describe.skipIf(!IT_ENABLED)("GYM-4 — operación del entrenador (PostgreSQL real)", () => {
++  let it4: ItDatabase;
++  let db: PrismaClient;
++  let svc: ReturnType<typeof createGymBookingService>;
++  let acts: ReturnType<typeof createSessionActivityService>;
++  let retries = 0;
++
++  beforeAll(async () => {
++    it4 = await createItDatabase();
++    db = it4.db;
++    await seedBase(db);
++    await setPolicy(db, T1, MODALITIES_ON);
++    await setPolicy(db, T2, MODALITIES_ON);
++    const a = (id: string, name: string, extra: { tenant?: string; location?: string | null; status?: "active" | "inactive" } = {}) => ({
++      id,
++      tenant_id: extra.tenant ?? T1,
++      location_id: extra.location ?? null,
++      name,
++      status: extra.status ?? "active",
++    });
++    await db.gymActivity.createMany({
++      data: [
++        a(ACT.warm, "Calentamiento"),
++        a(ACT.circuit, "Circuito funcional", { location: B1 }),
++        a(ACT.stretch, "Estiramiento"),
++        a(ACT.squat, "Sentadilla"),
++        a(ACT.bench, "Press de banca"),
++        a(ACT.bike, "Bicicleta"),
++        a(ACT.mobility, "Movilidad"),
++        a(ACT.treadmill, "Caminadora"),
++        a(ACT.otherBranch, "Remo sede 1B", { location: B1B }),
++        a(ACT.inactive, "Actividad retirada", { status: "inactive" }),
++        a(ACT.t2, "Calentamiento", { tenant: T2 }),
++      ],
++    });
++    svc = createGymBookingService(db, { onRetry: () => void retries++ });
++    acts = createSessionActivityService(db);
++  }, 180_000);
++
++  afterEach(async () => {
++    expect(await invariantViolations(db)).toEqual(NO_VIOLATIONS);
++  });
++
++  afterAll(async () => {
++    await it4?.drop();
++    await disconnectAdmin();
++  });
++
++  // ── helpers ─────────────────────────────────────────────────────
++
++  /** Sesión del entrenador A con `n` alumnos reservados (reserva hecha antes del inicio). */
++  async function sessionWithMembers(kind: GymSessionKind, startsAt: Date, n = 1, extra: { trainer?: string; branch?: string } = {}) {
++    const ses = await createSession(db, {
++      kind,
++      trainer: extra.trainer ?? TRAINER_A,
++      branch: extra.branch,
++      startsAt,
++      durationMinutes: 60,
++      capacity: Math.max(n, 2),
++    });
++    const modality = kind === "OPEN" ? "NORMAL" : kind;
++    const members = [];
++    for (let i = 0; i < n; i++) {
++      const m = await createMember(db, {
++        modality,
++        branch: extra.branch,
++        sessionsTotal: kind === "OPEN" ? null : 8,
++        trainerId: kind === "PERSONALIZED" ? (extra.trainer ?? TRAINER_A) : null,
++      });
++      const b = await svc.bookSession({ ...staffBook(ses, m.clientId), now: new Date(startsAt.getTime() - 3 * HOUR) });
++      if (!b.ok) throw new Error(`booking ${b.code}`);
++      members.push({ ...m, bookingId: b.value.bookingId });
++    }
++    return { ses, members };
++  }
++
++  const startedAgo = (minutes: number) => new Date(Date.now() - minutes * 60_000);
++
++  const attend = (bookingId: string, status: "attended" | "late" | "absent", extra: Partial<Parameters<typeof svc.recordAttendance>[0]> = {}) =>
++    svc.recordAttendance({ scope: TSCOPE, actor: TRAINER, channel: "TRAINER", bookingId, status, idempotencyKey: key(), ...extra });
++
++  const attendanceOf = (sessionId: string, clientId: string) =>
++    db.classAttendance.findUnique({ where: { scheduled_class_id_client_id: { scheduled_class_id: sessionId, client_id: clientId } } });
++
++  /** Mantiene un lock desde una conexión independiente hasta release(). */
++  async function hold(sql: (tx: Prisma.TransactionClient) => Promise<unknown>) {
++    const c = it4.extraClient();
++    let release!: () => void;
++    const released = new Promise<void>((r) => (release = r));
++    let ready!: () => void;
++    const isReady = new Promise<void>((r) => (ready = r));
++    const done = c.$transaction(
++      async (tx) => {
++        await sql(tx);
++        ready();
++        await released;
++      },
++      { timeout: 60_000, maxWait: 15_000 }
++    );
++    await isReady;
++    return { release, done };
++  }
++
++  // ── A–C identidad ───────────────────────────────────────────────
++  describe("A–C · identidad del entrenador", () => {
++    it("A entrenador activo con usuario vinculado → canal TRAINER con su Trainer.id", async () => {
++      expect(await resolveLinkedTrainer(db, USERS.trainerA, T1)).toMatchObject({ id: TRAINER_A, branch_id: B1 });
++      const op = await resolveSessionOperator({ effectiveUser: { id: USERS.trainerA, role: "trainer" }, tenantId: T1, client: db }, { allowAdmin: true });
++      expect(op).toMatchObject({ ok: true, channel: "TRAINER", trainerId: TRAINER_A });
++    });
++
++    it("B usuario trainer sin perfil vinculado (o perfil sin usuario) → sin acceso y sin permisos por defecto", async () => {
++      await db.user.create({
++        data: { id: "it-user-trainer-nolink", tenant_id: T1, gym_id: T1, branch_id: B1, email: "nolink@it.invalid", password_hash: "x", first_name: "N", last_name: "L", role: "trainer" },
++      });
++      expect(await resolveLinkedTrainer(db, "it-user-trainer-nolink", T1)).toBeNull();
++      const op = await resolveSessionOperator({ effectiveUser: { id: "it-user-trainer-nolink", role: "trainer" }, tenantId: T1, client: db }, { allowAdmin: true });
++      expect(op.ok).toBe(false);
++      // Trainer "it-trainer-b" no tiene usuario: ningún usuario lo resuelve.
++      expect(await db.trainer.count({ where: { id: "it-trainer-b", user_id: { not: null } } })).toBe(0);
++    });
++
++    it("C entrenador inactivo → no se resuelve y el motor rechaza su canal TRAINER (FORBIDDEN)", async () => {
++      const { ses, members } = await sessionWithMembers("OPEN", startedAgo(20), 1, { trainer: TRAINER_C });
++      await db.trainer.update({ where: { id: TRAINER_C }, data: { status: "inactive" } });
++      try {
++        expect(await resolveLinkedTrainer(db, USERS.trainerC, T1)).toBeNull();
++        const r = await svc.recordAttendance({ scope: TSCOPE, actor: TRAINER_OTHER, channel: "TRAINER", bookingId: members[0].bookingId, status: "attended", idempotencyKey: key() });
++        expect(r).toMatchObject({ ok: false, code: "FORBIDDEN" });
++        const a = await acts.addSessionActivity({ scope: TSCOPE, actor: TRAINER_OTHER, channel: "TRAINER", sessionId: ses, activityId: ACT.warm });
++        expect(a).toMatchObject({ ok: false, code: "FORBIDDEN" });
++        expect(await attendanceOf(ses, members[0].clientId)).toBeNull();
++      } finally {
++        await db.trainer.update({ where: { id: TRAINER_C }, data: { status: "active" } });
++      }
++    });
++
++    it("roles sin canal: recepción y alumno no operan el registro de entrenamiento", async () => {
++      const ctx = (role: string) => ({ effectiveUser: { id: USERS.rc1, role }, tenantId: T1, client: db });
++      expect((await resolveSessionOperator(ctx("reception"), { allowAdmin: true })).ok).toBe(false);
++      expect((await resolveSessionOperator(ctx("client"), { allowAdmin: true })).ok).toBe(false);
++      expect((await resolveSessionOperator({ ...ctx("branch_admin"), effectiveUser: { id: USERS.ba1, role: "branch_admin" } }, { allowAdmin: false })).ok).toBe(false);
++    });
++  });
++
++  // ── D–J agenda ──────────────────────────────────────────────────
++  describe("D–J · agenda del entrenador", () => {
++    // 2026-10-22 03:00Z = 2026-10-21 21:00 en El Salvador: el día local NO es el día UTC.
++    const NOW = new Date("2026-10-22T03:00:00.000Z");
++
++    it("D/E/F hoy, próximas y anteriores con OPEN, PERSONALIZED y GROUP; solo sesiones asignadas", async () => {
++      const mk = (date: string, kind: GymSessionKind, trainer = TRAINER_A, tenant = T1) =>
++        createSession(db, { date, start: "18:00", end: "19:00", kind, trainer, tenant });
++      const todayOpen = await mk("2026-10-21", "OPEN");
++      const todayPers = await mk("2026-10-21", "PERSONALIZED");
++      const todayGroup = await mk("2026-10-21", "GROUP");
++      const upcoming = await mk("2026-10-22", "GROUP");
++      const past = await mk("2026-10-20", "PERSONALIZED");
++      const otherTrainer = await mk("2026-10-21", "OPEN", TRAINER_C);
++      const otherTenant = await mk("2026-10-21", "OPEN", TRAINER_Z, T2);
++      const cancelled = await mk("2026-10-21", "OPEN");
++      await db.scheduledClass.update({ where: { id: cancelled }, data: { status: "cancelled" } });
++
++      const agenda = await getTrainerAgenda(db, T1, TRAINER_A, NOW);
++      expect(agenda.today).toBe("2026-10-21");
++      const ids = (l: { id: string }[]) => l.map((s) => s.id);
++      expect(ids(agenda.todaySessions)).toEqual(expect.arrayContaining([todayOpen, todayPers, todayGroup, cancelled]));
++      expect(new Set(agenda.todaySessions.map((s) => s.session_kind))).toEqual(new Set(["OPEN", "PERSONALIZED", "GROUP"]));
++      expect(ids(agenda.upcoming)).toContain(upcoming);
++      expect(ids(agenda.past)).toContain(past);
++      const all = [...agenda.todaySessions, ...agenda.upcoming, ...agenda.past];
++      expect(ids(all)).not.toContain(otherTrainer);
++      expect(ids(all)).not.toContain(otherTenant);
++      // Cancelada visible con su estado (no se oculta al entrenador).
++      expect(agenda.todaySessions.find((s) => s.id === cancelled)?.status).toBe("cancelled");
++      // Campos de presentación: sede, tipo, cupo, reservas.
++      expect(agenda.todaySessions[0]).toMatchObject({ branch: { name: expect.any(String) }, class_type: { name: expect.any(String) } });
++    });
++
++    it("G/H detalle: sesión asignada visible; la de otro entrenador no pasa el filtro de asignación", async () => {
++      const mine = await createSession(db, { trainer: TRAINER_A });
++      const theirs = await createSession(db, { trainer: TRAINER_C });
++      const d1 = await getSessionTrainingDetail(db, T1, mine, { includePrivateNotes: false });
++      const d2 = await getSessionTrainingDetail(db, T1, theirs, { includePrivateNotes: false });
++      expect(d1?.session.trainer.id).toBe(TRAINER_A);
++      expect(d2?.session.trainer.id).not.toBe(TRAINER_A); // la página responde notFound
++    });
++
++    it("J sesión de otro tenant: el detalle no la resuelve (tenant explícito)", async () => {
++      const t2ses = await createSession(db, { tenant: T2 });
++      expect(await getSessionTrainingDetail(db, T1, t2ses, { includePrivateNotes: true })).toBeNull();
++    });
++  });
++
++  // ── M–T asistencia ──────────────────────────────────────────────
++  describe("M–T · asistencia por canal TRAINER", () => {
++    it("M/N/O asistió, llegó tarde, no asistió (GROUP en curso); checked_in_at solo en asistió", async () => {
++      const { ses, members } = await sessionWithMembers("GROUP", startedAgo(30), 3);
++      const statuses = ["attended", "late", "absent"] as const;
++      for (let i = 0; i < 3; i++) {
++        const r = await attend(members[i].bookingId, statuses[i]);
++        expect(r.ok).toBe(true);
++        const a = await attendanceOf(ses, members[i].clientId);
++        expect(a?.attendance_status).toBe(statuses[i]);
++        expect(a?.recorded_by_user_id).toBe(USERS.trainerA);
++        expect(a?.checked_in_at === null).toBe(statuses[i] !== "attended");
++      }
++      const ops = await db.gymBookingOperation.findMany({ where: { target_id: { in: members.map((m) => m.bookingId) } } });
++      expect(ops.every((o) => o.channel === "TRAINER" && o.actor_user_id === USERS.trainerA)).toBe(true);
++      // La asistencia no cambia la reserva ni el consumo (R31: el ausente sigue consumido).
++      const b = await db.classBooking.findUniqueOrThrow({ where: { id: members[2].bookingId } });
++      expect(b).toMatchObject({ booking_status: "confirmed", consumption: "CONSUMED" });
++    });
++
++    it("M PERSONALIZED y OPEN también se registran por el entrenador asignado", async () => {
++      for (const kind of ["PERSONALIZED", "OPEN"] as const) {
++        const { ses, members } = await sessionWithMembers(kind, startedAgo(15));
++        expect((await attend(members[0].bookingId, "attended")).ok).toBe(true);
++        expect((await attendanceOf(ses, members[0].clientId))?.attendance_status).toBe("attended");
++      }
++    });
++
++    it("P doble registro con la misma clave → replay, 1 operación y 1 evento", async () => {
++      const { members } = await sessionWithMembers("GROUP", startedAgo(30));
++      const k = key();
++      const r1 = await attend(members[0].bookingId, "attended", { idempotencyKey: k });
++      const r2 = await attend(members[0].bookingId, "attended", { idempotencyKey: k });
++      expect(r1).toMatchObject({ ok: true, replayed: false });
++      expect(r2).toMatchObject({ ok: true, replayed: true });
++      expect(await db.gymBookingOperation.count({ where: { tenant_id: T1, idempotency_key: k } })).toBe(1);
++      expect(await db.classBookingEvent.count({ where: { booking_id: members[0].bookingId, event_type: { in: ["ATTENDANCE_RECORDED", "ATTENDANCE_UPDATED"] } } })).toBe(1);
++    });
++
++    it("Q antes del inicio → ATTENDANCE_NOT_STARTED, sin asistencia", async () => {
++      const startsAt = new Date(Date.now() + 2 * HOUR);
++      const { ses, members } = await sessionWithMembers("GROUP", startsAt);
++      expect(await attend(members[0].bookingId, "attended")).toMatchObject({ ok: false, code: "ATTENDANCE_NOT_STARTED" });
++      expect(await attendanceOf(ses, members[0].clientId)).toBeNull();
++    });
++
++    it("R fuera de ventana (fin + 48 h) → ATTENDANCE_WINDOW_CLOSED; T: BA corrige como corrección administrativa", async () => {
++      const startsAt = new Date(Date.now() - 50 * HOUR);
++      const { ses, members } = await sessionWithMembers("GROUP", startsAt);
++      expect(await attend(members[0].bookingId, "attended")).toMatchObject({ ok: false, code: "ATTENDANCE_WINDOW_CLOSED" });
++      const r = await svc.recordAttendance({ scope: SEDE, actor: BA1, channel: "STAFF", bookingId: members[0].bookingId, status: "late", idempotencyKey: key() });
++      expect(r.ok).toBe(true);
++      const ev = await db.classBookingEvent.findFirstOrThrow({ where: { booking_id: members[0].bookingId, event_type: "ATTENDANCE_RECORDED" } });
++      expect(ev.metadata).toMatchObject({ administrative_correction: true });
++      // Tras la corrección, el entrenador sigue sin poder editar.
++      expect(await attend(members[0].bookingId, "attended")).toMatchObject({ ok: false, code: "ATTENDANCE_WINDOW_CLOSED" });
++      expect((await attendanceOf(ses, members[0].clientId))?.attendance_status).toBe("late");
++    });
++
++    it("S sesión cerrada (completed) → el entrenador no edita; recepción tampoco obtiene notas", async () => {
++      const { ses, members } = await sessionWithMembers("GROUP", startedAgo(30));
++      expect((await attend(members[0].bookingId, "attended")).ok).toBe(true);
++      await db.scheduledClass.update({ where: { id: ses }, data: { status: "completed", completed_at: new Date() } });
++      expect(await attend(members[0].bookingId, "absent")).toMatchObject({ ok: false, code: "ATTENDANCE_WINDOW_CLOSED" });
++      const n = await svc.updateTrainingNotes({ scope: TSCOPE, actor: TRAINER, channel: "TRAINER", bookingId: members[0].bookingId, trainingNotes: "tarde", idempotencyKey: key() });
++      expect(n).toMatchObject({ ok: false, code: "ATTENDANCE_WINDOW_CLOSED" });
++      const rc = await svc.updateTrainingNotes({ scope: SEDE, actor: RC1, channel: "STAFF", bookingId: members[0].bookingId, trainingNotes: "x", idempotencyKey: key() });
++      expect(rc).toMatchObject({ ok: false, code: "FORBIDDEN" });
++    });
++
++    it("H/I/J IDs manipulados: sesión de otro entrenador, otra sede y otro tenant", async () => {
++      const other = await sessionWithMembers("OPEN", startedAgo(20), 1, { trainer: TRAINER_C });
++      expect(await attend(other.members[0].bookingId, "attended")).toMatchObject({ ok: false, code: "FORBIDDEN" });
++      const otherBranch = await sessionWithMembers("OPEN", startedAgo(20), 1, { trainer: "it-trainer-b", branch: B1B });
++      expect(await attend(otherBranch.members[0].bookingId, "attended")).toMatchObject({ ok: false, code: "FORBIDDEN" });
++      // Tenant 2: la reserva no existe en el tenant del contexto.
++      const t2ses = await createSession(db, { tenant: T2, startsAt: startedAgo(20) });
++      const t2m = await createMember(db, { tenant: T2 });
++      const t2b = await svc.bookSession({ scope: T2_SCOPE, actor: SA2, channel: "STAFF", sessionId: t2ses, clientId: t2m.clientId, idempotencyKey: key() });
++      if (!t2b.ok) throw new Error(t2b.code);
++      expect(await attend(t2b.value.bookingId, "attended")).toMatchObject({ ok: false, code: "NOT_FOUND" });
++      expect(await db.classAttendance.count({ where: { booking_id: { in: [other.members[0].bookingId, otherBranch.members[0].bookingId, t2b.value.bookingId] } } })).toBe(0);
++    });
++
++    it("I asignación manda: sesión OPEN de otra sede asignada al entrenador A → la opera", async () => {
++      const { ses, members } = await sessionWithMembers("OPEN", startedAgo(20), 1, { branch: B1B });
++      expect((await attend(members[0].bookingId, "attended")).ok).toBe(true);
++      expect((await attendanceOf(ses, members[0].clientId))?.attendance_status).toBe("attended");
++    });
++
++    it("sesión cancelada → SESSION_NOT_BOOKABLE para asistencia, notas y actividades", async () => {
++      const { ses, members } = await sessionWithMembers("OPEN", startedAgo(20));
++      await db.scheduledClass.update({ where: { id: ses }, data: { status: "cancelled" } });
++      expect(await attend(members[0].bookingId, "attended")).toMatchObject({ ok: false, code: "SESSION_NOT_BOOKABLE" });
++      expect(await acts.addSessionActivity({ scope: TSCOPE, actor: TRAINER, channel: "TRAINER", sessionId: ses, activityId: ACT.warm })).toMatchObject({ ok: false, code: "SESSION_NOT_BOOKABLE" });
++    });
++
++    it("STAFF heredado intacto: recepción registra OPEN sin ventana por canal STAFF", async () => {
++      const ses = await createSession(db, { kind: "OPEN", date: "2026-01-05", start: "07:00", end: "08:00" });
++      const m = await createMember(db, {});
++      const b = await svc.bookSession(staffBook(ses, m.clientId));
++      if (!b.ok) throw new Error(b.code);
++      expect((await svc.recordAttendance({ scope: SEDE, actor: RC1, channel: "STAFF", bookingId: b.value.bookingId, status: "attended", idempotencyKey: key() })).ok).toBe(true);
++      // El mismo día pasado por canal TRAINER sí sigue R32.
++      expect(await attend(b.value.bookingId, "absent")).toMatchObject({ ok: false, code: "ATTENDANCE_WINDOW_CLOSED" });
++    });
++  });
++
++  // ── U–Y actividades ─────────────────────────────────────────────
++  describe("U–Y · actividades impartidas", () => {
++    const addCommon = (sessionId: string, activityId: string, extra: Partial<Parameters<typeof acts.addSessionActivity>[0]> = {}) =>
++      acts.addSessionActivity({ scope: TSCOPE, actor: TRAINER, channel: "TRAINER", sessionId, activityId, ...extra });
++    const addOwn = (attendanceId: string, activityId: string, extra: Partial<Parameters<typeof acts.addAttendanceActivity>[0]> = {}) =>
++      acts.addAttendanceActivity({ scope: TSCOPE, actor: TRAINER, channel: "TRAINER", attendanceId, activityId, ...extra });
++
++    it("U GROUP: 3 actividades comunes una sola vez por sesión, sin copias por alumno; repetir no duplica", async () => {
++      const { ses, members } = await sessionWithMembers("GROUP", startedAgo(30), 3);
++      for (const m of members) await attend(m.bookingId, "attended");
++      for (const a of [ACT.warm, ACT.circuit, ACT.stretch]) {
++        expect(await addCommon(ses, a, { notes: "10 min" })).toMatchObject({ ok: true, value: { created: true, sessionId: ses } });
++      }
++      expect(await addCommon(ses, ACT.warm)).toMatchObject({ ok: true, value: { created: false } });
++      const rows = await db.scheduledClassActivity.findMany({ where: { scheduled_class_id: ses }, orderBy: { activity_name: "asc" } });
++      expect(rows.map((r) => r.activity_name)).toEqual(["Calentamiento", "Circuito funcional", "Estiramiento"]);
++      expect(rows.every((r) => r.tenant_id === T1 && r.created_by === USERS.trainerA)).toBe(true);
++      const atts = await db.classAttendance.findMany({ where: { scheduled_class_id: ses }, select: { id: true } });
++      expect(await db.classAttendanceActivity.count({ where: { attendance_id: { in: atts.map((a) => a.id) } } })).toBe(0);
++    });
++
++    it("V PERSONALIZED: actividades individuales por alumno; ausente o sin asistencia → ATTENDANCE_REQUIRED sin check-in ficticio", async () => {
++      const { ses, members } = await sessionWithMembers("PERSONALIZED", startedAgo(30), 3);
++      const [A, B, C] = members;
++      await attend(A.bookingId, "attended");
++      await attend(B.bookingId, "late");
++      await attend(C.bookingId, "absent");
++      const aAtt = (await attendanceOf(ses, A.clientId))!;
++      const bAtt = (await attendanceOf(ses, B.clientId))!;
++      const cAtt = (await attendanceOf(ses, C.clientId))!;
++      for (const x of [ACT.squat, ACT.bench, ACT.bike]) expect((await addOwn(aAtt.id, x)).ok).toBe(true);
++      for (const x of [ACT.mobility, ACT.treadmill]) expect((await addOwn(bAtt.id, x)).ok).toBe(true);
++      expect(await addOwn(aAtt.id, ACT.squat)).toMatchObject({ ok: true, value: { created: false } });
++      expect(await addOwn(cAtt.id, ACT.squat)).toMatchObject({ ok: false, code: "ATTENDANCE_REQUIRED" });
++      const names = async (id: string) =>
++        (await db.classAttendanceActivity.findMany({ where: { attendance_id: id }, orderBy: { activity_name: "asc" } })).map((r) => r.activity_name);
++      expect(await names(aAtt.id)).toEqual(["Bicicleta", "Press de banca", "Sentadilla"]);
++      expect(await names(bAtt.id)).toEqual(["Caminadora", "Movilidad"]);
++      expect(await names(cAtt.id)).toEqual([]);
++      // La actividad no altera la asistencia (no hay registro automático).
++      expect((await attendanceOf(ses, C.clientId))?.attendance_status).toBe("absent");
++      expect(await db.scheduledClassActivity.count({ where: { scheduled_class_id: ses } })).toBe(0);
++    });
++
++    it("V asistencia heredada sin reserva vinculada → ATTENDANCE_REQUIRED", async () => {
++      const ses = await createSession(db, { startsAt: startedAgo(30) });
++      const m = await createMember(db, {});
++      const legacy = await db.classAttendance.create({
++        data: { tenant_id: T1, scheduled_class_id: ses, client_id: m.clientId, attendance_status: "attended" },
++      });
++      expect(await addOwn(legacy.id, ACT.squat)).toMatchObject({ ok: false, code: "ATTENDANCE_REQUIRED" });
++    });
++
++    it("W/X/Y actividad de otro tenant, de otra sede o desactivada → ACTIVITY_UNAVAILABLE, sin filas", async () => {
++      const { ses, members } = await sessionWithMembers("GROUP", startedAgo(30));
++      await attend(members[0].bookingId, "attended");
++      const att = (await attendanceOf(ses, members[0].clientId))!;
++      for (const a of [ACT.t2, ACT.otherBranch, ACT.inactive, "no-existe"]) {
++        expect(await addCommon(ses, a)).toMatchObject({ ok: false, code: "ACTIVITY_UNAVAILABLE" });
++        expect(await addOwn(att.id, a)).toMatchObject({ ok: false, code: "ACTIVITY_UNAVAILABLE" });
++      }
++      expect(await db.scheduledClassActivity.count({ where: { scheduled_class_id: ses } })).toBe(0);
++      expect(await db.classAttendanceActivity.count({ where: { attendance_id: att.id } })).toBe(0);
++    });
++
++    it("Y desactivar o renombrar el catálogo conserva el historial y su snapshot", async () => {
++      const { ses } = await sessionWithMembers("GROUP", startedAgo(30));
++      const temp = await db.gymActivity.create({ data: { tenant_id: T1, name: "Pliometría" } });
++      expect((await addCommon(ses, temp.id)).ok).toBe(true);
++      await db.gymActivity.update({ where: { id: temp.id }, data: { name: "Pliometría avanzada", status: "inactive" } });
++      const row = await db.scheduledClassActivity.findFirstOrThrow({ where: { scheduled_class_id: ses, activity_id: temp.id } });
++      expect(row.activity_name).toBe("Pliometría");
++      // Desactivada: no se ofrece para nuevas altas.
++      const other = await sessionWithMembers("GROUP", startedAgo(30));
++      expect(await addCommon(other.ses, temp.id)).toMatchObject({ ok: false, code: "ACTIVITY_UNAVAILABLE" });
++      const detail = await getSessionTrainingDetail(db, T1, other.ses, { includePrivateNotes: false });
++      expect(detail?.catalog.map((c) => c.id)).not.toContain(temp.id);
++      expect(detail?.catalog.map((c) => c.id)).not.toContain(ACT.otherBranch);
++    });
++
++    it("ventana: actividades antes del inicio o fuera de plazo → rechazo; SA/BA corrigen después", async () => {
++      const future = await sessionWithMembers("GROUP", new Date(Date.now() + 2 * HOUR));
++      expect(await addCommon(future.ses, ACT.warm)).toMatchObject({ ok: false, code: "ATTENDANCE_NOT_STARTED" });
++      const old = await sessionWithMembers("GROUP", new Date(Date.now() - 50 * HOUR));
++      expect(await addCommon(old.ses, ACT.warm)).toMatchObject({ ok: false, code: "ATTENDANCE_WINDOW_CLOSED" });
++      expect((await acts.addSessionActivity({ scope: SEDE, actor: BA1, channel: "STAFF", sessionId: old.ses, activityId: ACT.warm })).ok).toBe(true);
++      // Recepción no registra actividades (no adquiere privilegios de entrenador).
++      expect(await acts.addSessionActivity({ scope: SEDE, actor: RC1, channel: "STAFF", sessionId: old.ses, activityId: ACT.stretch })).toMatchObject({ ok: false, code: "FORBIDDEN" });
++      // BA de otra sede no alcanza la sesión.
++      expect(
++        await acts.addSessionActivity({ scope: { tenantId: T1, locationId: B1B }, actor: actor(USERS.ba1b, "branch_admin"), channel: "STAFF", sessionId: old.ses, activityId: ACT.stretch })
++      ).toMatchObject({ ok: false, code: "FORBIDDEN" });
++    });
++
++    it("otro entrenador o IDs de otro tenant no registran actividades", async () => {
++      const { ses } = await sessionWithMembers("GROUP", startedAgo(30));
++      expect(await acts.addSessionActivity({ scope: TSCOPE, actor: TRAINER_OTHER, channel: "TRAINER", sessionId: ses, activityId: ACT.warm })).toMatchObject({ ok: false, code: "FORBIDDEN" });
++      expect(await acts.addSessionActivity({ scope: T2_SCOPE, actor: SA2, channel: "STAFF", sessionId: ses, activityId: ACT.t2 })).toMatchObject({ ok: false, code: "NOT_FOUND" });
++    });
++  });
++
++  // ── Z notas privadas ────────────────────────────────────────────
++  describe("Z · notas privadas (R36)", () => {
++    it("guardar nota no cambia estado, check-in, quién registró ni la nota operativa; evento sin texto", async () => {
++      const { ses, members } = await sessionWithMembers("GROUP", startedAgo(30));
++      await svc.recordAttendance({ scope: SEDE, actor: RC1, channel: "STAFF", bookingId: members[0].bookingId, status: "attended", notes: "check-in recepción", idempotencyKey: key() });
++      const before = (await attendanceOf(ses, members[0].clientId))!;
++      const r = await svc.updateTrainingNotes({ scope: TSCOPE, actor: TRAINER, channel: "TRAINER", bookingId: members[0].bookingId, trainingNotes: "NOTA PRIVADA: rodilla izquierda", idempotencyKey: key() });
++      expect(r.ok).toBe(true);
++      const after = (await attendanceOf(ses, members[0].clientId))!;
++      expect(after).toMatchObject({
++        attendance_status: before.attendance_status,
++        checked_in_at: before.checked_in_at,
++        recorded_by_user_id: USERS.rc1,
++        recorded_at: before.recorded_at,
++        notes: "check-in recepción",
++        training_notes: "NOTA PRIVADA: rodilla izquierda",
++      });
++      const ev = await db.classBookingEvent.findFirstOrThrow({ where: { booking_id: members[0].bookingId, event_type: "ATTENDANCE_UPDATED" } });
++      expect(ev.metadata).toMatchObject({ change: "training_notes", attendance_from: "attended", attendance_to: "attended" });
++      expect(JSON.stringify(ev.metadata)).not.toContain("rodilla");
++      // Borrar la nota (texto vacío → null) también es una operación propia.
++      expect((await svc.updateTrainingNotes({ scope: TSCOPE, actor: TRAINER, channel: "TRAINER", bookingId: members[0].bookingId, trainingNotes: null, idempotencyKey: key() })).ok).toBe(true);
++      expect((await attendanceOf(ses, members[0].clientId))?.training_notes).toBeNull();
++    });
++
++    it("sin asistencia → ATTENDANCE_REQUIRED (no se crea check-in); otro entrenador y recepción → FORBIDDEN", async () => {
++      const { ses, members } = await sessionWithMembers("GROUP", startedAgo(30));
++      const n = await svc.updateTrainingNotes({ scope: TSCOPE, actor: TRAINER, channel: "TRAINER", bookingId: members[0].bookingId, trainingNotes: "x", idempotencyKey: key() });
++      expect(n).toMatchObject({ ok: false, code: "ATTENDANCE_REQUIRED" });
++      expect(await attendanceOf(ses, members[0].clientId)).toBeNull();
++      await attend(members[0].bookingId, "attended");
++      expect(await svc.updateTrainingNotes({ scope: TSCOPE, actor: TRAINER_OTHER, channel: "TRAINER", bookingId: members[0].bookingId, trainingNotes: "x", idempotencyKey: key() })).toMatchObject({ ok: false, code: "FORBIDDEN" });
++      expect(await svc.updateTrainingNotes({ scope: SEDE, actor: RC1, channel: "STAFF", bookingId: members[0].bookingId, trainingNotes: "x", idempotencyKey: key() })).toMatchObject({ ok: false, code: "FORBIDDEN" });
++      // Una key de asistencia no puede reutilizarse para notas.
++      const k = key();
++      await attend(members[0].bookingId, "late", { idempotencyKey: k });
++      expect(await svc.updateTrainingNotes({ scope: TSCOPE, actor: TRAINER, channel: "TRAINER", bookingId: members[0].bookingId, trainingNotes: "x", idempotencyKey: k })).toMatchObject({ ok: false, code: "IDEMPOTENCY_KEY_REUSED" });
++    });
++
++    it("el portal del alumno nunca recibe training_notes; el detalle sin autorización tampoco", async () => {
++      const { ses, members } = await sessionWithMembers("GROUP", startedAgo(30), 1);
++      await attend(members[0].bookingId, "attended");
++      await svc.updateTrainingNotes({ scope: TSCOPE, actor: TRAINER, channel: "TRAINER", bookingId: members[0].bookingId, trainingNotes: "NOTA PRIVADA Z", idempotencyKey: key() });
++      const history = await getMyAttendance(members[0].clientId, db, T1);
++      const client = await db.client.findUniqueOrThrow({ where: { id: members[0].clientId } });
++      const bookings = await loadPortalBookings({ db, tenantId: T1, client });
++      expect(JSON.stringify(history)).not.toContain("NOTA PRIVADA");
++      expect(JSON.stringify(bookings)).not.toContain("NOTA PRIVADA");
++      const detail = await getSessionTrainingDetail(db, T1, ses, { includePrivateNotes: false });
++      expect(JSON.stringify(detail)).not.toContain("NOTA PRIVADA");
++      expect(detail?.session.attendance[0]).not.toHaveProperty("training_notes");
++      const authorized = await getSessionTrainingDetail(db, T1, ses, { includePrivateNotes: true });
++      expect(authorized?.session.attendance[0].training_notes).toBe("NOTA PRIVADA Z");
++    });
++  });
++
++  // ── C1–C10 concurrencia e aislamiento ───────────────────────────
++  describe("C1–C10 · concurrencia (conexiones independientes, sin sleeps)", () => {
++    const lockSession = (id: string) => (tx: Prisma.TransactionClient) =>
++      tx.$queryRawUnsafe(`SELECT id FROM scheduled_classes WHERE id = $1 FOR UPDATE`, id);
++
++    it("C1 dos registros simultáneos (claves distintas) de la misma reserva → 1 asistencia, 2 eventos, 0 reintentos", async () => {
++      const { ses, members } = await sessionWithMembers("GROUP", startedAgo(30));
++      retries = 0;
++      const h = await hold(lockSession(ses));
++      const p = [attend(members[0].bookingId, "attended"), attend(members[0].bookingId, "late")];
++      await waitForLockWaiters(it4.name, 2);
++      h.release();
++      await h.done;
++      const rs = await Promise.all(p);
++      expect(rs.every((r) => r.ok)).toBe(true);
++      expect(await db.classAttendance.count({ where: { scheduled_class_id: ses } })).toBe(1);
++      const evs = await db.classBookingEvent.findMany({ where: { booking_id: members[0].bookingId, event_type: { in: ["ATTENDANCE_RECORDED", "ATTENDANCE_UPDATED"] } } });
++      expect(evs.map((e) => e.event_type).sort()).toEqual(["ATTENDANCE_RECORDED", "ATTENDANCE_UPDATED"]);
++      expect(retries).toBe(0);
++    });
++
++    it("C2 reintento simultáneo con la misma clave → una operación, un evento, un replay", async () => {
++      const { ses, members } = await sessionWithMembers("GROUP", startedAgo(30));
++      const k = key();
++      const h = await hold(lockSession(ses));
++      const p = [attend(members[0].bookingId, "attended", { idempotencyKey: k }), attend(members[0].bookingId, "attended", { idempotencyKey: k })];
++      await waitForLockWaiters(it4.name, 2); // la primera espera la sesión; la segunda, el advisory lock de la key
++      h.release();
++      await h.done;
++      const rs = await Promise.all(p);
++      expect(rs.filter((r) => r.ok && r.replayed)).toHaveLength(1);
++      expect(await db.gymBookingOperation.count({ where: { tenant_id: T1, idempotency_key: k } })).toBe(1);
++      expect(await db.classBookingEvent.count({ where: { booking_id: members[0].bookingId } })).toBe(2); // BOOKED + ATTENDANCE_RECORDED
++    });
++
++    it("C3 reserva cancelada durante el intento de asistencia → NOT_CONFIRMED, sin asistencia ni interbloqueo", async () => {
++      const { ses, members } = await sessionWithMembers("OPEN", startedAgo(30));
++      retries = 0;
++      const h = await hold(lockSession(ses));
++      const cancel = svc.cancelBooking({ scope: SEDE, actor: BA1, channel: "STAFF", bookingId: members[0].bookingId, reason: "baja", idempotencyKey: key() });
++      await waitForLockWaiters(it4.name, 1); // cancel: clients FOR UPDATE → espera la sesión
++      const att = attend(members[0].bookingId, "attended");
++      await waitForLockWaiters(it4.name, 2); // asistencia: clients KEY SHARE espera a la cancelación
++      h.release();
++      await h.done;
++      expect((await cancel).ok).toBe(true);
++      expect(await att).toMatchObject({ ok: false, code: "NOT_CONFIRMED" });
++      expect(await attendanceOf(ses, members[0].clientId)).toBeNull();
++      expect(retries).toBe(0);
++    });
++
++    it("C4 la sesión se cancela mientras se registra asistencia → SESSION_NOT_BOOKABLE", async () => {
++      const { ses, members } = await sessionWithMembers("OPEN", startedAgo(30));
++      const h = await hold((tx) => tx.$executeRawUnsafe(`UPDATE scheduled_classes SET status = 'cancelled' WHERE id = $1`, ses));
++      const att = attend(members[0].bookingId, "attended");
++      await waitForLockWaiters(it4.name, 1);
++      h.release();
++      await h.done;
++      expect(await att).toMatchObject({ ok: false, code: "SESSION_NOT_BOOKABLE" });
++      expect(await attendanceOf(ses, members[0].clientId)).toBeNull();
++    });
++
++    it("C5 dos altas simultáneas de la misma actividad común → una fila, una creada", async () => {
++      const { ses } = await sessionWithMembers("GROUP", startedAgo(30));
++      const h = await hold(lockSession(ses));
++      const p = [1, 2, 3].map(() => acts.addSessionActivity({ scope: TSCOPE, actor: TRAINER, channel: "TRAINER", sessionId: ses, activityId: ACT.warm }));
++      await waitForLockWaiters(it4.name, 3);
++      h.release();
++      await h.done;
++      const rs = await Promise.all(p);
++      expect(rs.every((r) => r.ok)).toBe(true);
++      expect(rs.filter((r) => r.ok && r.value.created)).toHaveLength(1);
++      expect(await db.scheduledClassActivity.count({ where: { scheduled_class_id: ses, activity_id: ACT.warm } })).toBe(1);
++    });
++
++    it("C6 dos altas simultáneas de la misma actividad individual → una fila", async () => {
++      const { ses, members } = await sessionWithMembers("PERSONALIZED", startedAgo(30));
++      await attend(members[0].bookingId, "attended");
++      const att = (await attendanceOf(ses, members[0].clientId))!;
++      const h = await hold(lockSession(ses));
++      const p = [1, 2, 3].map(() => acts.addAttendanceActivity({ scope: TSCOPE, actor: TRAINER, channel: "TRAINER", attendanceId: att.id, activityId: ACT.squat }));
++      await waitForLockWaiters(it4.name, 3);
++      h.release();
++      await h.done;
++      const rs = await Promise.all(p);
++      expect(rs.every((r) => r.ok)).toBe(true);
++      expect(rs.filter((r) => r.ok && r.value.created)).toHaveLength(1);
++      expect(await db.classAttendanceActivity.count({ where: { attendance_id: att.id, activity_id: ACT.squat } })).toBe(1);
++    });
++
++    it("C6b actividad individual y asistencia simultáneas: se serializan por la sesión sin interbloqueo", async () => {
++      const { ses, members } = await sessionWithMembers("GROUP", startedAgo(30));
++      await attend(members[0].bookingId, "attended");
++      const att = (await attendanceOf(ses, members[0].clientId))!;
++      retries = 0;
++      const h = await hold(lockSession(ses));
++      const p1 = acts.addAttendanceActivity({ scope: TSCOPE, actor: TRAINER, channel: "TRAINER", attendanceId: att.id, activityId: ACT.bike });
++      const p2 = attend(members[0].bookingId, "absent");
++      await waitForLockWaiters(it4.name, 2);
++      h.release();
++      await h.done;
++      const [r1, r2] = await Promise.all([p1, p2]);
++      expect(r2.ok).toBe(true);
++      // Si la actividad entró primero, quedó registrada con el alumno presente;
++      // si entró después, el alumno ya era ausente y se rechazó.
++      if (r1.ok) expect(await db.classAttendanceActivity.count({ where: { attendance_id: att.id, activity_id: ACT.bike } })).toBe(1);
++      else expect(r1.code).toBe("ATTENDANCE_REQUIRED");
++      expect(retries).toBe(0);
++    });
++
++    it("C7 el entrenador pierde la asignación entre la carga y el guardado → FORBIDDEN (bajo lock)", async () => {
++      const { ses, members } = await sessionWithMembers("OPEN", startedAgo(30));
++      const h = await hold((tx) => tx.$executeRawUnsafe(`UPDATE scheduled_classes SET trainer_id = $1 WHERE id = $2`, TRAINER_C, ses));
++      const att = attend(members[0].bookingId, "attended");
++      const act = acts.addSessionActivity({ scope: TSCOPE, actor: TRAINER, channel: "TRAINER", sessionId: ses, activityId: ACT.warm });
++      await waitForLockWaiters(it4.name, 2);
++      h.release();
++      await h.done;
++      expect(await att).toMatchObject({ ok: false, code: "FORBIDDEN" });
++      expect(await act).toMatchObject({ ok: false, code: "FORBIDDEN" });
++      // Y si el perfil se desactiva (sin reasignación), también pierde el acceso.
++      const s2 = await sessionWithMembers("OPEN", startedAgo(30));
++      await db.trainer.update({ where: { id: TRAINER_A }, data: { status: "inactive" } });
++      try {
++        expect(await attend(s2.members[0].bookingId, "attended")).toMatchObject({ ok: false, code: "FORBIDDEN" });
++      } finally {
++        await db.trainer.update({ where: { id: TRAINER_A }, data: { status: "active" } });
++      }
++    });
++
++    it("C8 otro entrenador no lee ni escribe notas ajenas", async () => {
++      const { ses, members } = await sessionWithMembers("GROUP", startedAgo(30));
++      await attend(members[0].bookingId, "attended");
++      const detail = await getSessionTrainingDetail(db, T1, ses, { includePrivateNotes: true });
++      // La página del entrenador solo muestra el detalle si la sesión es suya.
++      const linked = await resolveLinkedTrainer(db, USERS.trainerC, T1);
++      expect(detail?.session.trainer.id === linked?.id).toBe(false);
++      expect(await svc.updateTrainingNotes({ scope: TSCOPE, actor: TRAINER_OTHER, channel: "TRAINER", bookingId: members[0].bookingId, trainingNotes: "x", idempotencyKey: key() })).toMatchObject({ ok: false, code: "FORBIDDEN" });
++    });
++
++    it("C9 Shared: dos tenants en la misma base reutilizan clave y nombre de actividad sin cruzarse", async () => {
++      const a = await sessionWithMembers("GROUP", startedAgo(30));
++      await attend(a.members[0].bookingId, "attended");
++      const t2ses = await createSession(db, { tenant: T2, kind: "OPEN", startsAt: startedAgo(30) });
++      const t2m = await createMember(db, { tenant: T2 });
++      const t2b = await svc.bookSession({ scope: T2_SCOPE, actor: SA2, channel: "STAFF", sessionId: t2ses, clientId: t2m.clientId, idempotencyKey: key() });
++      if (!t2b.ok) throw new Error(t2b.code);
++      await svc.recordAttendance({ scope: T2_SCOPE, actor: SA2, channel: "STAFF", bookingId: t2b.value.bookingId, status: "attended", idempotencyKey: key() });
++      const shared = key();
++      const r1 = await svc.updateTrainingNotes({ scope: TSCOPE, actor: TRAINER, channel: "TRAINER", bookingId: a.members[0].bookingId, trainingNotes: "T1", idempotencyKey: shared });
++      const r2 = await svc.updateTrainingNotes({ scope: T2_SCOPE, actor: SA2, channel: "STAFF", bookingId: t2b.value.bookingId, trainingNotes: "T2", idempotencyKey: shared });
++      expect(r1).toMatchObject({ ok: true, replayed: false });
++      expect(r2).toMatchObject({ ok: true, replayed: false });
++      // "Calentamiento" existe en ambos tenants: cada uno solo usa el suyo.
++      expect((await acts.addSessionActivity({ scope: T2_SCOPE, actor: SA2, channel: "STAFF", sessionId: t2ses, activityId: ACT.t2 })).ok).toBe(true);
++      expect(await acts.addSessionActivity({ scope: T2_SCOPE, actor: SA2, channel: "STAFF", sessionId: t2ses, activityId: ACT.warm })).toMatchObject({ ok: false, code: "ACTIVITY_UNAVAILABLE" });
++      // SA de T2 con ids de T1 → no encontrado.
++      expect(await svc.updateTrainingNotes({ scope: T2_SCOPE, actor: SA2, channel: "STAFF", bookingId: a.members[0].bookingId, trainingNotes: "x", idempotencyKey: key() })).toMatchObject({ ok: false, code: "NOT_FOUND" });
++      expect((await attendanceOf(a.ses, a.members[0].clientId))?.training_notes).toBe("T1");
++    });
++
++    it("C10 Dedicated: el servicio sobre la base propia escribe solo allí (mismos ids en dos bases físicas)", async () => {
++      const ded = await createItDatabase();
++      try {
++        await seedBase(ded.db);
++        await setPolicy(ded.db, T1, MODALITIES_ON);
++        const SID = "it-ses-dedicated";
++        const startsAt = startedAgo(30);
++        await createSession(db, { id: SID, startsAt });
++        await createSession(ded.db, { id: SID, startsAt });
++        const m = await createMember(ded.db, { id: "it-cli-dedicated" });
++        const dsvc = createGymBookingService(ded.db);
++        const b = await dsvc.bookSession({ ...staffBook(SID, m.clientId), now: new Date(startsAt.getTime() - HOUR) });
++        if (!b.ok) throw new Error(b.code);
++        expect((await dsvc.recordAttendance({ scope: TSCOPE, actor: TRAINER, channel: "TRAINER", bookingId: b.value.bookingId, status: "attended", idempotencyKey: key() })).ok).toBe(true);
++        await ded.db.gymActivity.create({ data: { id: ACT.warm, tenant_id: T1, name: "Calentamiento" } });
++        expect((await createSessionActivityService(ded.db).addSessionActivity({ scope: TSCOPE, actor: TRAINER, channel: "TRAINER", sessionId: SID, activityId: ACT.warm })).ok).toBe(true);
++        expect(await ded.db.classAttendance.count({ where: { scheduled_class_id: SID } })).toBe(1);
++        expect(await ded.db.scheduledClassActivity.count({ where: { scheduled_class_id: SID } })).toBe(1);
++        // La base Shared no recibió nada para la misma sesión.
++        expect(await db.classAttendance.count({ where: { scheduled_class_id: SID } })).toBe(0);
++        expect(await db.scheduledClassActivity.count({ where: { scheduled_class_id: SID } })).toBe(0);
++        expect(await db.client.count({ where: { id: "it-cli-dedicated" } })).toBe(0);
++        // Desde la base Shared, la reserva dedicada no existe.
++        expect(await attend(b.value.bookingId, "absent")).toMatchObject({ ok: false, code: "NOT_FOUND" });
++        expect(await invariantViolations(ded.db)).toEqual(NO_VIOLATIONS);
++      } finally {
++        await ded.drop();
++      }
++    });
++  });
++});
+diff --git a/src/modules/classes/trainer/trainer-rules.test.ts b/src/modules/classes/trainer/trainer-rules.test.ts
+new file mode 100644
+index 0000000..2f8c2cd
+--- /dev/null
++++ b/src/modules/classes/trainer/trainer-rules.test.ts
+@@ -0,0 +1,91 @@
++// GYM-4 — reglas puras del operador de sesión, capacidades del rol trainer
++// (sin ampliar) y protección estática R36 de training_notes.
++
++import { readFileSync, readdirSync, statSync } from "node:fs";
++import path from "node:path";
++import { describe, expect, it } from "vitest";
++import { getCapabilities } from "@/core/permissions/role-capabilities";
++import { checkSessionOperator, trainerOwnsSession } from "../booking/booking-eligibility";
++import { resolveEffectiveCapacity } from "../booking/booking-rules";
++import { GYM_BOOKING_POLICY_DEFAULTS, resolveGymBookingPolicy } from "../booking/booking-policy";
++
++const session = (over: Partial<{ branch_id: string; user_id: string | null; status: string }> = {}) => ({
++  branch_id: over.branch_id ?? "loc-1",
++  trainer: { user_id: over.user_id === undefined ? "u-t" : over.user_id, status: over.status ?? "active" },
++});
++
++describe("trainerOwnsSession / checkSessionOperator", () => {
++  it("solo el Trainer activo asignado y vinculado al usuario", () => {
++    expect(trainerOwnsSession({ userId: "u-t", role: "trainer" }, { user_id: "u-t", status: "active" })).toBe(true);
++    expect(trainerOwnsSession({ userId: "u-t", role: "trainer" }, { user_id: "u-x", status: "active" })).toBe(false);
++    expect(trainerOwnsSession({ userId: "u-t", role: "trainer" }, { user_id: "u-t", status: "inactive" })).toBe(false);
++    expect(trainerOwnsSession({ userId: "u-t", role: "trainer" }, { user_id: null, status: "active" })).toBe(false);
++    expect(trainerOwnsSession({ userId: "u-t", role: "reception" }, { user_id: "u-t", status: "active" })).toBe(false);
++  });
++
++  it("TRAINER por asignación (la sede no cuenta); STAFF solo SA o BA de la sede; recepción nunca", () => {
++    const op = (channel: "TRAINER" | "STAFF" | "PORTAL", role: string, scopeLocationId: string | null, s = session()) =>
++      checkSessionOperator({ channel, actor: { userId: "u-t", role }, scopeLocationId, session: s });
++    expect(op("TRAINER", "trainer", "loc-2")).toBe(true);
++    expect(op("TRAINER", "trainer", "loc-1", session({ user_id: "u-x" }))).toBe(false);
++    expect(op("STAFF", "super_admin", null)).toBe(true);
++    expect(op("STAFF", "branch_admin", "loc-1")).toBe(true);
++    expect(op("STAFF", "branch_admin", "loc-2")).toBe(false);
++    expect(op("STAFF", "branch_admin", null)).toBe(false);
++    expect(op("STAFF", "reception", "loc-1")).toBe(false);
++    expect(op("STAFF", "trainer", "loc-1")).toBe(false);
++    expect(op("PORTAL", "client", "loc-1")).toBe(false);
++  });
++});
++
++describe("K/L · el rol trainer no se amplía", () => {
++  it("sin administración: política, series, planes (requireAdmin) ni membresías (requireMembershipManager)", () => {
++    const caps = getCapabilities("trainer");
++    expect(caps.canManageStaff).toBe(false); // requireAdmin → política, series, planes, actividades
++    expect(caps.canManageMembers).toBe(false); // requireMembershipManager → vender/gestionar membresías, reservar, cancelar
++    expect(caps.canOperateCommerce).toBe(false);
++    // canManageClass / canManageMembership / canManagePlan derivan de estas
++    // capacidades (guards.ts): el entrenador no gestiona clases, membresías ni planes.
++    expect(caps.isGlobal).toBe(false);
++  });
++});
++
++describe("PERSONALIZED_CAPACITY_RULE = DEFAULT_ONLY (sin cambios)", () => {
++  it("sesión > serie > entrenador > GymSettings; el cupo del entrenador es predeterminado, no máximo", () => {
++    const policy = resolveGymBookingPolicy({ ...GYM_BOOKING_POLICY_DEFAULTS, personalized_default_capacity: 1 });
++    const cap = (over: Partial<Parameters<typeof resolveEffectiveCapacity>[0]>) =>
++      resolveEffectiveCapacity({ kind: "PERSONALIZED", policy, ...over });
++    expect(cap({ explicitCapacity: 5, seriesCapacity: 3, trainerPersonalizedCapacity: 2 })).toBe(5); // supera el del entrenador
++    expect(cap({ seriesCapacity: 3, trainerPersonalizedCapacity: 2 })).toBe(3);
++    expect(cap({ trainerPersonalizedCapacity: 2 })).toBe(2);
++    expect(cap({})).toBe(1);
++  });
++});
++
++describe("Z · R36 estático: training_notes fuera del portal y de consultas compartidas", () => {
++  const ROOT = path.resolve(__dirname, "../../../..");
++  const walk = (dir: string): string[] =>
++    readdirSync(dir).flatMap((n) => {
++      const p = path.join(dir, n);
++      return statSync(p).isDirectory() ? walk(p) : /\.(ts|tsx)$/.test(n) && !/\.test\./.test(n) ? [p] : [];
++    });
++  const codeLines = (file: string) =>
++    readFileSync(file, "utf8")
++      .split("\n")
++      .filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l));
++
++  it("ningún archivo del portal del alumno selecciona o lee training_notes", () => {
++    const files = [...walk(path.join(ROOT, "src/modules/client-portal")), ...walk(path.join(ROOT, "src/app/(portal)"))];
++    expect(files.length).toBeGreaterThan(5);
++    const offenders = files.filter((f) => codeLines(f).some((l) => l.includes("training_notes")));
++    expect(offenders).toEqual([]);
++  });
++
++  it("getScheduledClassById (recepción, edición) selecciona asistencia de forma explícita sin training_notes", () => {
++    const src = readFileSync(path.join(ROOT, "src/modules/classes/queries.ts"), "utf8");
++    const fn = src.slice(src.indexOf("export async function getScheduledClassById"), src.indexOf("// ── Form helpers"));
++    expect(fn).toMatch(/attendance:\s*\{\s*select:/);
++    expect(fn).not.toMatch(/attendance:\s*\{\s*include:/);
++    expect(codeLines(path.join(ROOT, "src/modules/classes/queries.ts")).some((l) => l.includes("training_notes"))).toBe(false);
++  });
++});
+-- 
+2.53.0.windows.2
+

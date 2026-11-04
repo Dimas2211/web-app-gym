@@ -534,7 +534,11 @@ export function PurchaseDteFiscalPanel({ detail, correlativeStatus, isSuperAdmin
               <p className="text-[10px] text-zinc-600">{dteTypeLabelFull(dte.dte_type_code)}. Nunca se muestra JWS, tokens ni credenciales.</p>
 
               <div className="flex items-center gap-2">
-                <DteJsonActions dteId={dte.id} hasJson={dte.json_document != null} />
+                <DteJsonActions
+                  dteId={dte.id}
+                  hasJson={dte.json_document != null}
+                  externalDelivered={detail.external_delivery.hasSuccessfulDelivery}
+                />
                 {dte.json_document == null && (
                   <span className="text-[10px] text-zinc-600">{DTE_JSON_MISSING_HINT}</span>
                 )}

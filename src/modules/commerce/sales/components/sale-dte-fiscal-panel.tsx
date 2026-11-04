@@ -196,6 +196,7 @@ export function SaleDteFiscalPanel({
             <DteJsonActions
               dteId={dte.id}
               hasJson={dte.has_json_document}
+              externalDelivered={extDel.hasSuccessfulDelivery}
               compact
               className="ml-auto"
             />

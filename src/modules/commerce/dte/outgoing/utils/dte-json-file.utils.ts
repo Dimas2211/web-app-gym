@@ -31,3 +31,24 @@ export function buildDteJsonFileName(input: {
 export function serializeDteJsonDocument(json: unknown): string {
   return JSON.stringify(json, null, 2);
 }
+
+/**
+ * Nombre del payload completo de entrega externa:
+ * DTE_COMPLETO_{codigoGeneracion}.json (fallback: id interno).
+ */
+export function buildDteExternalJsonFileName(input: {
+  generation_code: string | null;
+  id:              string;
+}): string {
+  const code = safeSegment((input.generation_code ?? "").toUpperCase()) || safeSegment(input.id);
+  return `DTE_COMPLETO_${code}.json`;
+}
+
+/**
+ * Serialización EXACTA que usa ExternalDteMariaDbAdapter.insert() para la
+ * columna `json` (JSON.stringify sin indentación). La descarga del payload
+ * externo usa esta forma para que el archivo coincida con el INSERT.
+ */
+export function serializeExternalDtePayloadForInsert(payload: unknown): string {
+  return JSON.stringify(payload);
+}

@@ -7,8 +7,12 @@
 // cualquier DTE saliente (01, 03, 05, 11, 14, …). Implementación única
 // reutilizada por Sales, Purchases y la vista global DTE.
 //
-// Siempre consulta GET /api/dte/outgoing/:id/json — el JSON persistido
-// en servidor, nunca reconstruido en cliente. No modifica nada.
+// Dos variantes, ambas resueltas en servidor (GET /api/dte/outgoing/:id/json):
+//   - external: payload completo de entrega externa (MariaDB) —
+//     buildExternalDtePayload(): campos DTE + codigoEmpresa + responseMH
+//     + token. Es la principal cuando el DTE ya fue entregado.
+//   - fiscal:   json_document original persistido.
+// Nunca se reconstruye nada en cliente. No modifica nada.
 // ─────────────────────────────────────────────────────────────────
 
 import { useEffect, useState } from "react";
@@ -16,32 +20,52 @@ import { Loader2, X, Copy, Download, Braces } from "lucide-react";
 import {
   dteStatusLabel, dteStatusCls, envLabel, envCls, dteTypeLabelFull,
 } from "../utils/dte-status.utils";
-import { serializeDteJsonDocument } from "../utils/dte-json-file.utils";
+import {
+  serializeDteJsonDocument,
+  serializeExternalDtePayloadForInsert,
+} from "../utils/dte-json-file.utils";
+
+type Variant = "external" | "fiscal";
 
 interface DteJsonActionsProps {
   /** id interno de DteOutgoingDocument. */
-  dteId:          string;
+  dteId:              string;
   /** false → acciones deshabilitadas (json_document NULL). */
-  hasJson:        boolean;
+  hasJson:            boolean;
+  /** true si el DTE tiene entrega externa exitosa → variante principal = JSON completo. */
+  externalDelivered?: boolean;
   /** Prefijo opcional para distinguir documentos (p.ej. "NC"). */
-  labelPrefix?:   string;
+  labelPrefix?:       string;
   /** Altura reducida (h-4) para encabezados compactos. */
-  compact?:       boolean;
-  className?:     string;
+  compact?:           boolean;
+  className?:         string;
 }
 
 interface JsonViewData {
+  variant:         Variant;
+  mode?:           "RECONSTRUCTED" | "PREVIEW";
   id:              string;
   dte_type_code:   string;
   generation_code: string | null;
   control_number:  string | null;
   environment:     string;
   dte_status:      string;
+  delivery?: {
+    delivered_at:    string;
+    target_database: string | null;
+    target_table:    string | null;
+    insert_id:       string | null;
+  } | null;
   file_name:       string;
   json_document:   unknown;
 }
 
 export const DTE_JSON_MISSING_HINT = "Todavía no existe un JSON generado para este DTE.";
+
+const VARIANT_LABEL: Record<Variant, string> = {
+  external: "JSON completo (entrega externa)",
+  fiscal:   "JSON fiscal original",
+};
 
 const btnSize = "h-5 px-1.5";
 const btnCompactSize = "h-4 px-1";
@@ -51,9 +75,12 @@ const btnBase =
   "disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:text-zinc-400 disabled:hover:border-zinc-700";
 const btn = `${btnBase} ${btnSize}`;
 
-function jsonUrl(dteId: string, download: boolean): string {
-  const base = `/api/dte/outgoing/${encodeURIComponent(dteId)}/json`;
-  return download ? `${base}?download=1` : base;
+function jsonUrl(dteId: string, variant: Variant, download: boolean): string {
+  const qs = new URLSearchParams();
+  if (variant === "external") qs.set("variant", "external");
+  if (download) qs.set("download", "1");
+  const q = qs.toString();
+  return `/api/dte/outgoing/${encodeURIComponent(dteId)}/json${q ? `?${q}` : ""}`;
 }
 
 async function readError(res: Response): Promise<string> {
@@ -69,19 +96,41 @@ function fileNameFromDisposition(header: string | null): string | null {
   return m?.[1] ?? null;
 }
 
-export function DteJsonActions({ dteId, hasJson, labelPrefix, compact, className }: DteJsonActionsProps) {
+/** Mismo contenido que el archivo descargado de cada variante. */
+function serializeForVariant(d: JsonViewData): string {
+  return d.variant === "external"
+    ? serializeExternalDtePayloadForInsert(d.json_document)
+    : serializeDteJsonDocument(d.json_document);
+}
+
+function fmt(d: string | null | undefined): string {
+  if (!d) return "—";
+  return new Date(d).toLocaleString("es-CL");
+}
+
+type Cache = Record<Variant, JsonViewData | null>;
+type Errors = Record<Variant, string | null>;
+const EMPTY_CACHE: Cache = { external: null, fiscal: null };
+const EMPTY_ERRORS: Errors = { external: null, fiscal: null };
+
+export function DteJsonActions({
+  dteId, hasJson, externalDelivered = false, labelPrefix, compact, className,
+}: DteJsonActionsProps) {
+  const primary: Variant = externalDelivered ? "external" : "fiscal";
+
   const [open, setOpen]               = useState(false);
+  const [variant, setVariant]         = useState<Variant>(primary);
   const [loading, setLoading]         = useState(false);
   const [downloading, setDownloading] = useState(false);
-  const [error, setError]             = useState<string | null>(null);
-  const [data, setData]               = useState<JsonViewData | null>(null);
+  const [cache, setCache]             = useState<Cache>(EMPTY_CACHE);
+  const [errors, setErrors]           = useState<Errors>(EMPTY_ERRORS);
   const [copied, setCopied]           = useState(false);
 
   // Cambio de DTE seleccionado → descartar lo cargado del anterior.
   useEffect(() => {
     setOpen(false);
-    setData(null);
-    setError(null);
+    setCache(EMPTY_CACHE);
+    setErrors(EMPTY_ERRORS);
     setCopied(false);
   }, [dteId]);
 
@@ -89,31 +138,44 @@ export function DteJsonActions({ dteId, hasJson, labelPrefix, compact, className
   const prefix = labelPrefix ? `${labelPrefix} · ` : "";
   const disabledTitle = hasJson ? undefined : DTE_JSON_MISSING_HINT;
 
-  async function handleView() {
-    setOpen(true);
-    setError(null);
-    setCopied(false);
-    if (data?.id === dteId) return;
+  function setErr(v: Variant, msg: string | null) {
+    setErrors((e) => ({ ...e, [v]: msg }));
+  }
+
+  async function load(v: Variant) {
+    setErr(v, null);
+    if (cache[v]?.id === dteId) return;
     setLoading(true);
     try {
-      const res = await fetch(jsonUrl(dteId, false), { cache: "no-store", credentials: "same-origin" });
-      if (!res.ok) { setError(await readError(res)); setData(null); return; }
+      const res = await fetch(jsonUrl(dteId, v, false), { cache: "no-store", credentials: "same-origin" });
+      if (!res.ok) { setErr(v, await readError(res)); return; }
       const body = (await res.json()) as { ok: boolean; data?: JsonViewData; error?: string };
-      if (!body.ok || !body.data) { setError(body.error ?? "Respuesta inválida."); return; }
-      setData(body.data);
+      if (!body.ok || !body.data) { setErr(v, body.error ?? "Respuesta inválida."); return; }
+      setCache((c) => ({ ...c, [v]: body.data! }));
     } catch {
-      setError("No se pudo conectar con el servidor.");
+      setErr(v, "No se pudo conectar con el servidor.");
     } finally {
       setLoading(false);
     }
   }
 
-  async function handleDownload() {
+  function openAt(v: Variant) {
+    setOpen(true);
+    setCopied(false);
+    setVariant(v);
+    void load(v);
+  }
+
+  async function download(v: Variant) {
     setDownloading(true);
-    setError(null);
+    setErr(v, null);
     try {
-      const res = await fetch(jsonUrl(dteId, true), { cache: "no-store", credentials: "same-origin" });
-      if (!res.ok) { setError(await readError(res)); if (!open) setOpen(true); return; }
+      const res = await fetch(jsonUrl(dteId, v, true), { cache: "no-store", credentials: "same-origin" });
+      if (!res.ok) {
+        setErr(v, await readError(res));
+        if (!open) { setVariant(v); setOpen(true); }
+        return;
+      }
       const blob = await res.blob();
       const name = fileNameFromDisposition(res.headers.get("Content-Disposition")) ?? `DTE_${dteId}.json`;
       const url  = URL.createObjectURL(blob);
@@ -125,34 +187,39 @@ export function DteJsonActions({ dteId, hasJson, labelPrefix, compact, className
       a.remove();
       setTimeout(() => URL.revokeObjectURL(url), 0);
     } catch {
-      setError("No se pudo descargar el JSON del DTE.");
-      if (!open) setOpen(true);
+      setErr(v, "No se pudo descargar el JSON del DTE.");
+      if (!open) { setVariant(v); setOpen(true); }
     } finally {
       setDownloading(false);
     }
   }
 
+  const data  = cache[variant];
+  const error = errors[variant];
+
   async function handleCopy() {
     if (!data) return;
     try {
-      await navigator.clipboard.writeText(serializeDteJsonDocument(data.json_document));
+      await navigator.clipboard.writeText(serializeForVariant(data));
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
     } catch {
-      setError("No se pudo copiar al portapapeles.");
+      setErr(variant, "No se pudo copiar al portapapeles.");
     }
   }
 
   const pretty = data ? serializeDteJsonDocument(data.json_document) : "";
+  const downloadLabel = primary === "external" ? "Descargar JSON completo" : "Descargar JSON";
+  const variantOrder: Variant[] = primary === "external" ? ["external", "fiscal"] : ["fiscal", "external"];
 
   return (
     <>
       <span className={`inline-flex items-center gap-1 ${className ?? ""}`}>
         <button
           type="button"
-          onClick={handleView}
+          onClick={() => openAt(primary)}
           disabled={!hasJson}
-          title={disabledTitle ?? `${prefix}Ver JSON original almacenado`}
+          title={disabledTitle ?? `${prefix}Ver ${VARIANT_LABEL[primary]}`}
           className={triggerBtn}
         >
           <Braces className="h-3 w-3" />
@@ -160,13 +227,13 @@ export function DteJsonActions({ dteId, hasJson, labelPrefix, compact, className
         </button>
         <button
           type="button"
-          onClick={handleDownload}
+          onClick={() => download(primary)}
           disabled={!hasJson || downloading}
-          title={disabledTitle ?? `${prefix}Descargar JSON original (.json)`}
+          title={disabledTitle ?? `${prefix}Descargar ${VARIANT_LABEL[primary]} (.json)`}
           className={triggerBtn}
         >
           {downloading ? <Loader2 className="h-3 w-3 animate-spin" /> : <Download className="h-3 w-3" />}
-          {prefix}Descargar JSON
+          {prefix}{downloadLabel}
         </button>
       </span>
 
@@ -178,13 +245,13 @@ export function DteJsonActions({ dteId, hasJson, labelPrefix, compact, className
           <div
             role="dialog"
             aria-modal="true"
-            aria-label="JSON original del DTE"
+            aria-label="JSON del DTE"
             className="bg-zinc-900 border border-zinc-700 rounded-lg shadow-xl w-full max-w-3xl max-h-[85vh] flex flex-col"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-start justify-between gap-3 px-4 py-3 border-b border-zinc-800">
               <div className="min-w-0 space-y-0.5">
-                <h2 className="text-sm font-semibold text-zinc-100">JSON original del DTE</h2>
+                <h2 className="text-sm font-semibold text-zinc-100">JSON del DTE</h2>
                 {data && (
                   <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px]">
                     <span className="text-zinc-300">
@@ -207,17 +274,60 @@ export function DteJsonActions({ dteId, hasJson, labelPrefix, compact, className
               </button>
             </div>
 
+            {/* Selector de variante */}
+            <div className="flex items-center border-b border-zinc-800 bg-zinc-950/40 px-2">
+              {variantOrder.map((v) => (
+                <button
+                  key={v}
+                  type="button"
+                  onClick={() => { setVariant(v); setCopied(false); void load(v); }}
+                  className={`h-7 px-3 text-[11px] font-medium transition-colors ${
+                    variant === v
+                      ? "text-zinc-100 border-b-2 border-zinc-300 -mb-px"
+                      : "text-zinc-500 hover:text-zinc-300"
+                  }`}
+                >
+                  {VARIANT_LABEL[v]}
+                </button>
+              ))}
+            </div>
+
+            {/* Rótulo de trazabilidad (solo variante externa) */}
+            {variant === "external" && data?.mode && (
+              <div className={`mx-4 mt-3 rounded border px-2.5 py-1.5 text-[11px] space-y-0.5 ${
+                data.mode === "RECONSTRUCTED"
+                  ? "border-cyan-800/50 bg-cyan-950/30 text-cyan-200"
+                  : "border-amber-800/50 bg-amber-950/30 text-amber-200"
+              }`}>
+                <p className="font-semibold">
+                  {data.mode === "RECONSTRUCTED"
+                    ? "Payload de entrega externa reconstruido"
+                    : "Vista previa del JSON de entrega externa"}
+                </p>
+                <p className="text-[10px] opacity-80">
+                  {data.mode === "RECONSTRUCTED"
+                    ? "Generado a partir de los datos fiscales almacenados con el mismo constructor usado en la entrega. No es una copia histórica persistida del registro insertado."
+                    : "Este DTE aún no registra una entrega externa exitosa. Así se vería el JSON a enviar."}
+                </p>
+                {data.delivery && (
+                  <p className="text-[10px] font-mono opacity-80">
+                    Entregado {fmt(data.delivery.delivered_at)} · {data.delivery.target_database ?? "—"}.{data.delivery.target_table ?? "—"} · insertId {data.delivery.insert_id ?? "—"}
+                  </p>
+                )}
+              </div>
+            )}
+
             <div className="flex-1 min-h-0 px-4 py-3">
-              {loading && (
+              {loading && !data && (
                 <div className="flex items-center gap-2 text-xs text-zinc-400">
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" /> Cargando JSON almacenado…
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" /> Cargando JSON…
                 </div>
               )}
               {error && (
                 <p className="text-xs text-red-400 break-words">{error}</p>
               )}
-              {!loading && data && (
-                <pre className="h-full max-h-[60vh] overflow-auto text-[11px] leading-relaxed text-zinc-300 font-mono bg-zinc-950/70 border border-zinc-800 rounded p-3 whitespace-pre select-text">
+              {data && (
+                <pre className="h-full max-h-[55vh] overflow-auto text-[11px] leading-relaxed text-zinc-300 font-mono bg-zinc-950/70 border border-zinc-800 rounded p-3 whitespace-pre select-text">
                   {pretty}
                 </pre>
               )}
@@ -225,16 +335,18 @@ export function DteJsonActions({ dteId, hasJson, labelPrefix, compact, className
 
             <div className="flex items-center justify-between gap-2 px-4 py-2.5 border-t border-zinc-800">
               <span className="text-[10px] text-zinc-600">
-                Solo lectura · documento persistido. No incluye firma JWS, respuesta MH ni credenciales.
+                {variant === "external"
+                  ? "Solo lectura · incluye token JWS completo. Archivo idéntico al JSON del INSERT externo."
+                  : "Solo lectura · documento persistido. No incluye firma JWS ni respuesta MH."}
               </span>
               <div className="flex items-center gap-2">
                 <button type="button" onClick={handleCopy} disabled={!data} className={btn}>
                   <Copy className="h-3 w-3" />
                   {copied ? "Copiado ✓" : "Copiar"}
                 </button>
-                <button type="button" onClick={handleDownload} disabled={!data || downloading} className={btn}>
+                <button type="button" onClick={() => download(variant)} disabled={!data || downloading} className={btn}>
                   {downloading ? <Loader2 className="h-3 w-3 animate-spin" /> : <Download className="h-3 w-3" />}
-                  Descargar JSON
+                  Descargar
                 </button>
               </div>
             </div>
