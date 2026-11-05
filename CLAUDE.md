@@ -714,3 +714,39 @@ Si el cambio toca solo un módulo, recomienda además una prueba visual enfocada
 - No mezclar `core`, `commerce` y `gym`.
 - No convertir bugs puntuales en refactors generales.
 - Mantener el proyecto como plataforma multiindustria reusable.
+
+---
+
+## 17. Uso eficiente de Codebase Memory MCP
+
+### Principio
+
+**El grafo sirve para localizar; el código sirve para verificar comportamientos.**
+
+### Disponibilidad
+
+Codebase Memory MCP es una herramienta opcional de apoyo. Si no está instalado, conectado o disponible, continuar con las herramientas normales de lectura y búsqueda del código, sin intentar instalar el MCP ni modificar configuraciones automáticamente.
+
+### Orden de contexto
+
+1. `CLAUDE.md`
+2. `AGENTS.MD` (lectura directa; no está indexado en el grafo)
+3. `docs/context/current-state.md`
+4. documentación activa del módulo (`docs/modules/[modulo]-summary.md`)
+5. herramientas MCP para explorar arquitectura, funciones, dependencias e impacto de cambios
+
+Esto complementa la sección 0; no la reemplaza.
+
+### Reglas de uso
+
+- Preferir consultas precisas, resultados limitados y fragmentos concretos de código.
+- No usar el MCP cuando ya se conoce el archivo exacto y una lectura directa es más eficiente.
+- No usar consultas MCP masivas ni valores altos de `max_output_tokens` sin necesidad.
+- Comprobar el estado del índice (`index_status`) antes de reindexar; aprovechar la vigilancia automática y evitar reindexaciones redundantes.
+
+### Límites del grafo
+
+- No asumir que la ausencia de una relación en el grafo significa que la dependencia no existe.
+- Verificar siempre el código antes de afirmar que una operación no tiene efectos secundarios.
+- Revisar directamente operaciones Prisma, transacciones, escrituras, actualizaciones y movimientos de inventario: estas dependencias pueden no aparecer en el grafo.
+- Para DTE, ventas, caja, inventario, seguridad y aislamiento `tenant_id` / `location_id`, comprobar las implementaciones reales, los tests y las migraciones pertinentes.
