@@ -43,6 +43,9 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 
 // ── Main client component ─────────────────────────────────────────
 
+// Mensaje del endpoint cuando el usuario global no tiene sede activa.
+const NO_LOCATION_ERROR = "Sin location activa";
+
 export function CommerceReportsClient() {
   const defaultRange = getDefaultDateRange();
 
@@ -121,6 +124,7 @@ export function CommerceReportsClient() {
           loading={loading}
           onChange={setFilters}
           onApply={handleApply}
+          onQuickApply={fetchData}
         />
       </div>
 
@@ -134,14 +138,24 @@ export function CommerceReportsClient() {
 
       {/* Error */}
       {!loading && error && (
-        <div className="rounded-lg border border-rose-800 bg-rose-900/20 p-4 text-sm text-rose-400">
-          {error}
-        </div>
+        error === NO_LOCATION_ERROR ? (
+          <div className="rounded-2xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
+            <p className="font-semibold">Selecciona una sucursal para ver los reportes.</p>
+            <p className="mt-1">
+              Elige la sede en el selector de la barra superior (&ldquo;Seleccionar sede…&rdquo;) y
+              luego presiona Consultar o un periodo rápido.
+            </p>
+          </div>
+        ) : (
+          <div className="rounded-2xl border border-red-300 bg-red-50 p-4 text-sm text-red-800">
+            {error}
+          </div>
+        )
       )}
 
       {/* Sin location activa */}
       {!loading && !error && !data && (
-        <div className="flex items-center justify-center py-12 text-sm text-zinc-500">
+        <div className="flex items-center justify-center py-12 text-sm text-zinc-400">
           Selecciona un período y presiona Consultar.
         </div>
       )}

@@ -26,7 +26,7 @@ import { prisma } from "@/lib/db/prisma";
 type Props = { params: Promise<{ id: string }> };
 
 function formatDate(date: Date) {
-  return new Date(date).toLocaleDateString("es-MX", {
+  return new Date(date).toLocaleDateString("es-SV", {
     day: "2-digit",
     month: "short",
     year: "numeric",
@@ -102,7 +102,7 @@ export default async function ClientWeeklyPlanDetailPage({ params }: Props) {
           <div className="flex items-center gap-2">
             <Link
               href={`/dashboard/weekly-plans/client-plans/${id}/edit`}
-              className="bg-zinc-900 text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-zinc-800 transition-colors"
+              className="bg-zinc-900 text-white px-4 py-2 rounded-full text-sm font-semibold hover:bg-zinc-800 transition-colors"
             >
               Editar plan
             </Link>

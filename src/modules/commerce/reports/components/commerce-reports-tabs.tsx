@@ -16,7 +16,7 @@ const TABS: { id: CommerceReportTab; label: string; href: string }[] = [
 
 export function CommerceReportsTabs({ active }: { active: CommerceReportTab }) {
   return (
-    <nav aria-label="Consultas y reportes" className="mb-6 flex gap-1 border-b border-zinc-800">
+    <nav aria-label="Consultas y reportes" className="mb-6 flex gap-1 border-b border-white/10">
       {TABS.map((t) => (
         <Link
           key={t.id}
@@ -24,8 +24,8 @@ export function CommerceReportsTabs({ active }: { active: CommerceReportTab }) {
           aria-current={t.id === active ? "page" : undefined}
           className={`-mb-px border-b-2 px-3 py-2 text-sm font-medium transition-colors ${
             t.id === active
-              ? "border-zinc-100 text-zinc-100"
-              : "border-transparent text-zinc-500 hover:text-zinc-300"
+              ? "border-primary text-white font-semibold"
+              : "border-transparent text-zinc-400 hover:text-white hover:border-secondary/60"
           }`}
         >
           {t.label}

@@ -190,8 +190,8 @@ export function LowAdherenceReport({ branches, isSuperAdmin }: Props) {
       {data && (
         <>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <SummaryCard label="Clientes analizados" value={data.summary.totalAnalyzed.toLocaleString("es-MX")} />
-            <SummaryCard label={`Baja adherencia (< ${data.summary.threshold}%)`} value={data.summary.lowAdherenceCount.toLocaleString("es-MX")} sub="Requieren seguimiento" />
+            <SummaryCard label="Clientes analizados" value={data.summary.totalAnalyzed.toLocaleString("es-SV")} />
+            <SummaryCard label={`Baja adherencia (< ${data.summary.threshold}%)`} value={data.summary.lowAdherenceCount.toLocaleString("es-SV")} sub="Requieren seguimiento" />
             <SummaryCard label="Tasa promedio global" value={`${data.summary.avgAttendanceRate}%`} />
           </div>
 
@@ -219,7 +219,7 @@ export function LowAdherenceReport({ branches, isSuperAdmin }: Props) {
           ) : (
             <div className="bg-zinc-900 border border-zinc-800 rounded-lg overflow-hidden">
               <div className="overflow-x-auto">
-                <table className="w-full text-sm">
+                <table className="zv-table w-full text-sm">
                   <thead>
                     <tr className="border-b border-zinc-800">
                       {["Cliente", "Sucursal", "Total clases", "Asistió", "Faltó", "Tasa"].map((h) => (

@@ -10,14 +10,29 @@
  * ring-brand-blue, bg-brand-blue-soft, bg-brand-canvas, bg-brand-gradient…
  */
 @theme {
-  --color-brand-navy: #1c1953;
-  --color-brand-navy-light: #2a2766;
-  --color-brand-navy-dark: #13113b;
-  --color-brand-blue: #40ace1;
-  --color-brand-blue-soft: #e9f5fc;
-  --color-brand-magenta: #ec195a;
-  --color-brand-magenta-soft: #fde8ef;
-  --color-brand-canvas: #f5f7fb;
+  /*
+   * Sistema de diseño getzolvi.com. Tokens oficiales del sitio público.
+   * Contraste: el azul secondary NUNCA va como texto sobre blanco (2.64:1);
+   * usar secondary-dark. Blanco sobre primary solo en texto semibold/grande.
+   */
+  --color-primary: #ec1c54;
+  --color-primary-dark: #c8123f;
+  --color-secondary: #3fa9e0;
+  --color-secondary-dark: #2b86b8;
+  --color-dark: #15154a;
+
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  --font-display: var(--font-poppins), var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+
+  /* Alias heredados de la app, alineados al sitio público. */
+  --color-brand-navy: #15154a;
+  --color-brand-navy-light: #26265e;
+  --color-brand-navy-dark: #0e0e36;
+  --color-brand-blue: #3fa9e0;
+  --color-brand-blue-soft: #ecf6fc;
+  --color-brand-magenta: #ec1c54;
+  --color-brand-magenta-soft: #fde8ee;
+  --color-brand-canvas: #f7f7f9;
 
   /*
    * Tinta oscura del sistema → navy Zolvi.
@@ -26,9 +41,38 @@
    * toda la app sin tocar cientos de clases dispersas. zinc-700 e inferiores
    * se mantienen neutros para texto secundario y bordes.
    */
-  --color-zinc-800: #2a2766;
-  --color-zinc-900: #1c1953;
-  --color-zinc-950: #13113b;
+  --color-zinc-800: #26265e;
+  --color-zinc-900: #15154a;
+  --color-zinc-950: #0e0e36;
+
+  /*
+   * Azules genéricos → tono del azul de marca. Cada tono conserva la
+   * luminancia del original de Tailwind, por lo que el contraste de todo
+   * texto/fondo existente se mantiene igual. Excepción: sky-600 se oscurece
+   * para alcanzar 4.5:1 como texto sobre blanco (antes 4.1:1).
+   */
+  --color-blue-50: #edf7fc;
+  --color-blue-100: #d4ecf9;
+  --color-blue-200: #b5dff4;
+  --color-blue-300: #85caee;
+  --color-blue-400: #41ace4;
+  --color-blue-500: #1d8dc8;
+  --color-blue-600: #1774a4;
+  --color-blue-700: #14628a;
+  --color-blue-800: #135070;
+  --color-blue-900: #14445d;
+  --color-blue-950: #102b39;
+  --color-sky-50: #f1f9fd;
+  --color-sky-100: #e1f2fb;
+  --color-sky-200: #c3e5f6;
+  --color-sky-300: #94d1f0;
+  --color-sky-400: #63bbe9;
+  --color-sky-500: #30a5e1;
+  --color-sky-600: #1774a4;
+  --color-sky-700: #156a96;
+  --color-sky-800: #125a7f;
+  --color-sky-900: #0f4b69;
+  --color-sky-950: #0a3043;
 }
 
 /* Franja de acento de marca (azul → magenta), usada en login y topbars. */
@@ -56,6 +100,78 @@
   }
 
   :focus-visible {
-    outline-color: var(--color-brand-blue);
+    outline: 2px solid var(--color-secondary);
+    outline-offset: 3px;
+  }
+
+  h1,
+  h2,
+  h3 {
+    font-family: var(--font-display);
+  }
+
+  h1,
+  h2 {
+    letter-spacing: -0.015em;
+  }
+
+  /* Cifras alineadas en todas las tablas (también grillas ERP oscuras). */
+  table {
+    font-variant-numeric: tabular-nums;
+  }
+
+  /*
+   * Tablas claras (zv-table) — cuerpo. En capa base: si una fila define su
+   * propio fondo o borde (p. ej. una fila resaltada por estado), ese valor
+   * prevalece sobre estos defaults.
+   */
+  .zv-table tbody td {
+    border-top: 1px solid color-mix(in srgb, var(--color-dark) 6%, transparent);
+  }
+  .zv-table tbody tr:nth-child(even) {
+    background-color: color-mix(in srgb, var(--color-dark) 1.8%, transparent);
+  }
+  .zv-table tbody tr {
+    transition: background-color 150ms;
+  }
+  .zv-table tbody tr:hover {
+    background-color: color-mix(in srgb, var(--color-secondary) 8%, white);
+  }
+}
+
+/*
+ * Tablas claras (zv-table) — encabezado uniforme. Fuera de capa para
+ * prevalecer sobre los estilos de cada pantalla: mismo fondo, color y
+ * tipografía en todos los encabezados; alineación y espaciado se respetan.
+ */
+.zv-table thead tr,
+.zv-table thead th {
+  background-color: color-mix(in srgb, var(--color-dark) 3.5%, white);
+}
+.zv-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  color: color-mix(in srgb, var(--color-dark) 60%, white);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  border-bottom: 1px solid color-mix(in srgb, var(--color-dark) 10%, transparent);
+}
+
+/*
+ * Hover de marca: los hovers grises claros de toda la app (filas, botones
+ * outline, enlaces) se tiñen con el azul de marca suavizado. Fuera de capa
+ * para prevalecer sobre las utilidades; solo afecta el estado hover.
+ */
+@media (hover: hover) {
+  .hover\:bg-zinc-50:hover {
+    background-color: color-mix(in srgb, var(--color-secondary) 8%, white);
+  }
+  .hover\:bg-zinc-100:hover {
+    background-color: color-mix(in srgb, var(--color-secondary) 13%, white);
+  }
+  .hover\:bg-zinc-200:hover {
+    background-color: color-mix(in srgb, var(--color-secondary) 20%, white);
   }
 }

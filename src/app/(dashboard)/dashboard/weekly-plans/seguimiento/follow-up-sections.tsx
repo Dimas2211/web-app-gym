@@ -128,7 +128,7 @@ function QueueList({ items, empty, badge }: { items: QueueItem[]; empty: string;
               </span>
             </span>
             <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold ${badge.cls}`}>{badge.label}</span>
-            <Link href={planHref(i.planId)} className="text-xs font-semibold text-zinc-700 border border-zinc-300 rounded-lg px-2.5 py-1 hover:bg-zinc-50">
+            <Link href={planHref(i.planId)} className="text-xs font-semibold text-zinc-700 border border-zinc-300 rounded-full px-2.5 py-1 hover:bg-zinc-50">
               Ver seguimiento
             </Link>
           </li>
@@ -201,7 +201,7 @@ export function FiltersForm({ filters, metrics }: { filters: FollowUpFilters; me
           </label>
         </>
       )}
-      <button type="submit" className="bg-zinc-900 text-white px-4 py-2 rounded-lg text-sm hover:bg-zinc-800 transition-colors">
+      <button type="submit" className="bg-zinc-900 text-white px-4 py-2 rounded-full text-sm hover:bg-zinc-800 transition-colors">
         Filtrar
       </button>
       <Link href={BASE} className="text-sm text-zinc-500 hover:text-zinc-800 py-2">
@@ -264,7 +264,7 @@ export function StudentsSection({
         <>
           {/* Escritorio */}
           <div className="hidden md:block overflow-x-auto -mx-4 sm:-mx-5">
-            <table className="w-full text-sm">
+            <table className="zv-table w-full text-sm">
               <thead className="bg-zinc-50 border-y border-zinc-200">
                 <tr>
                   <th className={th}>Alumno</th>

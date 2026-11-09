@@ -51,7 +51,7 @@ export function CommerceReportDetailTable({ sales, purchases }: Props) {
 
   return (
     <div className="overflow-x-auto">
-      <table className="w-full text-xs">
+      <table className="zv-table w-full text-xs">
         <thead>
           <tr className="border-b border-zinc-800">
             <th className="py-2 px-3 text-left text-zinc-400 font-medium">Fecha</th>

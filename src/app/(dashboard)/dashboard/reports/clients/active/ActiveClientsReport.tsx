@@ -113,9 +113,9 @@ export function ActiveClientsReport({ branches, plans, isSuperAdmin }: Props) {
       title: "Clientes activos",
       filters: activeFilters,
       kpis: [
-        { label: "Total mostrados", value: filteredSummary.total.toLocaleString("es-MX") },
-        { label: "Con membresía activa", value: filteredSummary.withActiveMembership.toLocaleString("es-MX") },
-        { label: "Sin membresía", value: filteredSummary.withoutActiveMembership.toLocaleString("es-MX") },
+        { label: "Total mostrados", value: filteredSummary.total.toLocaleString("es-SV") },
+        { label: "Con membresía activa", value: filteredSummary.withActiveMembership.toLocaleString("es-SV") },
+        { label: "Sin membresía", value: filteredSummary.withoutActiveMembership.toLocaleString("es-SV") },
       ],
       headers: ["Nombre", "Sucursal", "Email", "Deporte", "Plan", "Membresía"],
       rows: filteredItems.map((i) => [
@@ -232,11 +232,11 @@ export function ActiveClientsReport({ branches, plans, isSuperAdmin }: Props) {
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <SummaryCard
               label={hasFilters ? "Clientes filtrados" : "Clientes activos"}
-              value={filteredSummary.total.toLocaleString("es-MX")}
+              value={filteredSummary.total.toLocaleString("es-SV")}
               badge={hasFilters ? `Total en sistema: ${data.summary.totalActive}` : undefined}
             />
-            <SummaryCard label="Con membresía activa" value={filteredSummary.withActiveMembership.toLocaleString("es-MX")} />
-            <SummaryCard label="Sin membresía activa" value={filteredSummary.withoutActiveMembership.toLocaleString("es-MX")} badge="Posibles seguimientos" />
+            <SummaryCard label="Con membresía activa" value={filteredSummary.withActiveMembership.toLocaleString("es-SV")} />
+            <SummaryCard label="Sin membresía activa" value={filteredSummary.withoutActiveMembership.toLocaleString("es-SV")} badge="Posibles seguimientos" />
           </div>
 
           {filteredItems.length === 0 ? (
@@ -246,7 +246,7 @@ export function ActiveClientsReport({ branches, plans, isSuperAdmin }: Props) {
           ) : (
             <div className="bg-zinc-900 border border-zinc-800 rounded-lg overflow-hidden">
               <div className="overflow-x-auto">
-                <table className="w-full text-sm">
+                <table className="zv-table w-full text-sm">
                   <thead>
                     <tr className="border-b border-zinc-800">
                       <th

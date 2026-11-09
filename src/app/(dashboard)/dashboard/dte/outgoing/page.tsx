@@ -104,7 +104,7 @@ export default async function DteOutgoingPage({ searchParams }: PageProps) {
     };
 
     return (
-      <div className="-mx-4 -mt-8 -mb-8 flex h-[calc(100vh-3.5rem)] flex-col overflow-hidden sm:-mx-6">
+      <div className="-mx-4 -mt-8 -mb-8 flex h-[calc(100vh-3.5rem-var(--zv-module-bar-h,0px))] flex-col overflow-hidden sm:-mx-6">
         <DteOutgoingClient
           initialResult={initialResult}
           initialFilters={filters}

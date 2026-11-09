@@ -598,7 +598,7 @@ export function SalesClient({
     selectedDetail?.dte_document?.dte_status === "OBSERVED";
 
   return (
-    <div className="-mx-4 sm:-mx-6 -my-8 flex flex-col bg-zinc-950 h-[calc(100vh-3.5rem)] overflow-hidden">
+    <div className="-mx-4 sm:-mx-6 -my-8 flex flex-col bg-zinc-950 h-[calc(100vh-3.5rem-var(--zv-module-bar-h,0px))] overflow-hidden">
 
       {/* ── A: Barra operativa ───────────────────────────────────── */}
       <SalesFiltersBar

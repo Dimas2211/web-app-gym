@@ -73,7 +73,7 @@ export default async function WeeklyPlanTemplateDetailPage({ params }: Props) {
             )}
             <Link
               href={`/dashboard/weekly-plans/templates/${id}/edit`}
-              className="bg-zinc-900 text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-zinc-800 transition-colors"
+              className="bg-zinc-900 text-white px-4 py-2 rounded-full text-sm font-semibold hover:bg-zinc-800 transition-colors"
             >
               Editar
             </Link>
@@ -247,7 +247,7 @@ export default async function WeeklyPlanTemplateDetailPage({ params }: Props) {
       {/* Auditoría */}
       <div className="text-xs text-zinc-400 text-right">
         Creado:{" "}
-        {new Date(template.created_at).toLocaleDateString("es-MX", {
+        {new Date(template.created_at).toLocaleDateString("es-SV", {
           year: "numeric",
           month: "long",
           day: "numeric",

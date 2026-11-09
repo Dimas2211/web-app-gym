@@ -40,7 +40,7 @@ export function ProductMovementsTable({
 
   return (
     <div className="overflow-x-auto">
-      <table className="w-full text-xs">
+      <table className="zv-table w-full text-xs">
         <thead>
           <tr className={compact
             ? "border-b border-zinc-100 text-zinc-400 font-medium"

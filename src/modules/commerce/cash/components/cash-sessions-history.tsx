@@ -139,7 +139,7 @@ export function CashSessionsHistory({
 
       {sessions.length > 0 && (
         <div className="overflow-x-auto">
-          <table className="w-full text-xs">
+          <table className="zv-table w-full text-xs">
             <thead>
               <tr className="border-b border-zinc-100 text-left text-zinc-400">
                 <th className="px-3 py-2 font-medium">Caja</th>

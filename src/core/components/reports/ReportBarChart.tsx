@@ -84,7 +84,7 @@ export function VerticalBarChart({
   // Only show value labels when bars are wide enough to fit text
   const showValLabels = data.length <= 6;
 
-  const fmt = valueFormatter ?? ((v: number) => v.toLocaleString("es-MX"));
+  const fmt = valueFormatter ?? ((v: number) => v.toLocaleString("es-SV"));
 
   return (
     <svg
@@ -202,7 +202,7 @@ export function HorizontalBarChart({
   const cW = W - padLeft - padRight;
 
   const maxVal = Math.max(...data.map((d) => d.value), 1);
-  const fmt = valueFormatter ?? ((v: number) => v.toLocaleString("es-MX"));
+  const fmt = valueFormatter ?? ((v: number) => v.toLocaleString("es-SV"));
 
   const nTicks = 4;
   const xTicks = Array.from({ length: nTicks + 1 }, (_, i) => (maxVal / nTicks) * i);

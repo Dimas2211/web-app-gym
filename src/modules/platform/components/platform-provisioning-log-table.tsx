@@ -34,7 +34,7 @@ export function PlatformProvisioningLogTable({ logs }: Props) {
         <p className="text-sm text-zinc-400 italic">Sin intentos de provisioning registrados.</p>
       ) : (
         <div className="overflow-x-auto">
-          <table className="w-full text-sm">
+          <table className="zv-table w-full text-sm">
             <thead>
               <tr className="border-b border-zinc-100">
                 <th className="text-left py-2 pr-4 text-xs font-semibold text-zinc-400 uppercase tracking-wide">

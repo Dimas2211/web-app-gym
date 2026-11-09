@@ -102,7 +102,7 @@ export default async function TrainerDetailPage({ params }: Props) {
             </Link>
             <Link
               href={`/dashboard/trainers/${id}/edit`}
-              className="bg-zinc-900 text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-zinc-800 transition-colors"
+              className="bg-zinc-900 text-white px-4 py-2 rounded-full text-sm font-semibold hover:bg-zinc-800 transition-colors"
             >
               Editar
             </Link>
@@ -313,7 +313,7 @@ export default async function TrainerDetailPage({ params }: Props) {
           <p className="text-sm text-zinc-400">Este entrenador no tiene clases programadas.</p>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+            <table className="zv-table w-full text-sm">
               <thead>
                 <tr className="text-xs text-zinc-400 border-b border-zinc-100">
                   <th className="text-left font-medium pb-2 pr-4">Fecha</th>
@@ -332,7 +332,7 @@ export default async function TrainerDetailPage({ params }: Props) {
                   return (
                     <tr key={cls.id} className="border-b border-zinc-50 last:border-0 hover:bg-zinc-50 transition-colors">
                       <td className="py-2 pr-4 text-zinc-600 whitespace-nowrap">
-                        {new Date(cls.class_date).toLocaleDateString("es-MX", {
+                        {new Date(cls.class_date).toLocaleDateString("es-SV", {
                           weekday: "short",
                           day: "numeric",
                           month: "short",
@@ -376,14 +376,14 @@ export default async function TrainerDetailPage({ params }: Props) {
       {/* Auditoría */}
       <div className="text-xs text-zinc-400 text-right">
         Registrado:{" "}
-        {new Date(trainer.created_at).toLocaleDateString("es-MX", {
+        {new Date(trainer.created_at).toLocaleDateString("es-SV", {
           year: "numeric",
           month: "long",
           day: "numeric",
         })}
         {" · "}
         Actualizado:{" "}
-        {new Date(trainer.updated_at).toLocaleDateString("es-MX", {
+        {new Date(trainer.updated_at).toLocaleDateString("es-SV", {
           year: "numeric",
           month: "long",
           day: "numeric",

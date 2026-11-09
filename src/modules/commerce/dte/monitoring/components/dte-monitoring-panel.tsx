@@ -105,7 +105,7 @@ export function DteMonitoringPanel({ data, isRuntimeSession }: Props) {
           </div>
         ) : (
           <div className="bg-white border border-zinc-200 rounded-xl overflow-x-auto">
-            <table className="w-full text-xs border-collapse">
+            <table className="zv-table w-full text-xs border-collapse">
               <thead>
                 <tr className="text-zinc-400 border-b border-zinc-100 bg-zinc-50">
                   <th className="text-left px-3 py-2 font-semibold whitespace-nowrap">Reservado</th>
@@ -170,7 +170,7 @@ export function DteMonitoringPanel({ data, isRuntimeSession }: Props) {
           </div>
         ) : (
           <div className="bg-white border border-zinc-200 rounded-xl overflow-x-auto">
-            <table className="w-full text-xs border-collapse">
+            <table className="zv-table w-full text-xs border-collapse">
               <thead>
                 <tr className="text-zinc-400 border-b border-zinc-100 bg-zinc-50">
                   <th className="text-left px-3 py-2 font-semibold whitespace-nowrap">Ledger</th>

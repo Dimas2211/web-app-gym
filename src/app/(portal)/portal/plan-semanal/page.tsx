@@ -17,7 +17,7 @@ import { CLIENT_REPORT_WINDOW_DAYS, addDays, weekdayOf } from "@/modules/weekly-
 import { prisma } from "@/lib/db/prisma";
 
 function formatDate(date: Date | string) {
-  return new Date(date).toLocaleDateString("es-MX", {
+  return new Date(date).toLocaleDateString("es-SV", {
     day: "2-digit",
     month: "short",
     year: "numeric",
@@ -71,7 +71,7 @@ export default async function PlanSemanalPage() {
     if (!hasMembership) {
       const lastExpired = await getLastExpiredMembership(client.id, context.client, todayIso);
       if (lastExpired) {
-        expiredDate = new Date(lastExpired.end_date).toLocaleDateString("es-MX", {
+        expiredDate = new Date(lastExpired.end_date).toLocaleDateString("es-SV", {
           day: "2-digit",
           month: "short",
           year: "numeric",

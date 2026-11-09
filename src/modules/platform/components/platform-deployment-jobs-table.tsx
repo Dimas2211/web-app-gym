@@ -42,7 +42,7 @@ export function PlatformDeploymentJobsTable({ jobs }: Props) {
 
   return (
     <div className="overflow-x-auto">
-      <table className="w-full text-sm">
+      <table className="zv-table w-full text-sm">
         <thead>
           <tr className="border-b border-zinc-200 text-left text-xs text-zinc-500 uppercase tracking-wide">
             <th className="pb-2 pr-4 font-medium">Organización</th>

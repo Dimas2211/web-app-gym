@@ -163,9 +163,9 @@ export function AttendanceByPeriodReport({ branches, isSuperAdmin }: Props) {
       {data && (
         <>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <SummaryCard label="Sesiones en período" value={data.summary.totalSessions.toLocaleString("es-MX")} />
-            <SummaryCard label="Asistencias" value={data.summary.totalAttended.toLocaleString("es-MX")} />
-            <SummaryCard label="Ausencias" value={data.summary.totalAbsent.toLocaleString("es-MX")} />
+            <SummaryCard label="Sesiones en período" value={data.summary.totalSessions.toLocaleString("es-SV")} />
+            <SummaryCard label="Asistencias" value={data.summary.totalAttended.toLocaleString("es-SV")} />
+            <SummaryCard label="Ausencias" value={data.summary.totalAbsent.toLocaleString("es-SV")} />
             <SummaryCard label="Tasa global" value={`${data.summary.overallAttendanceRate}%`}
               sub={`${data.summary.avgAttendancePerSession} asist. prom/sesión`} />
           </div>
@@ -194,7 +194,7 @@ export function AttendanceByPeriodReport({ branches, isSuperAdmin }: Props) {
           ) : (
             <div className="bg-zinc-900 border border-zinc-800 rounded-lg overflow-hidden">
               <div className="overflow-x-auto">
-                <table className="w-full text-sm">
+                <table className="zv-table w-full text-sm">
                   <thead>
                     <tr className="border-b border-zinc-800">
                       {["Fecha", "Clase", "Sucursal", "Entrenador", "Capacidad", "Asistieron", "Faltaron", "Tasa"].map((h) => (

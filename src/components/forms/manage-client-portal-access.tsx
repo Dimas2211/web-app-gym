@@ -77,7 +77,7 @@ function ChangeEmailDialog({ clientId, currentEmail, onClose }: Props & { onClos
           <button
             type="button"
             onClick={onClose}
-            className="bg-zinc-900 text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-zinc-800 transition-colors"
+            className="bg-zinc-900 text-white px-4 py-2 rounded-full text-sm font-semibold hover:bg-zinc-800 transition-colors"
           >
             Cerrar
           </button>
@@ -128,7 +128,7 @@ function ChangeEmailDialog({ clientId, currentEmail, onClose }: Props & { onClos
           <button
             type="submit"
             disabled={isPending}
-            className="bg-zinc-900 text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-zinc-800 transition-colors disabled:opacity-50"
+            className="bg-zinc-900 text-white px-4 py-2 rounded-full text-sm font-semibold hover:bg-zinc-800 transition-colors disabled:opacity-50"
           >
             {isPending ? "Guardando..." : "Guardar correo"}
           </button>
@@ -157,7 +157,7 @@ function ResetPasswordDialog({ clientId, onClose }: { clientId: string; onClose:
           <button
             type="button"
             onClick={onClose}
-            className="bg-zinc-900 text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-zinc-800 transition-colors"
+            className="bg-zinc-900 text-white px-4 py-2 rounded-full text-sm font-semibold hover:bg-zinc-800 transition-colors"
           >
             Cerrar
           </button>
@@ -218,7 +218,7 @@ function ResetPasswordDialog({ clientId, onClose }: { clientId: string; onClose:
           <button
             type="submit"
             disabled={isPending}
-            className="bg-zinc-900 text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-zinc-800 transition-colors disabled:opacity-50"
+            className="bg-zinc-900 text-white px-4 py-2 rounded-full text-sm font-semibold hover:bg-zinc-800 transition-colors disabled:opacity-50"
           >
             {isPending ? "Guardando..." : "Guardar contraseña"}
           </button>

@@ -32,7 +32,7 @@ function countBusinessDaysSince(date: Date): number {
 }
 
 function formatDate(date: Date | string) {
-  return new Date(date).toLocaleDateString("es-MX", {
+  return new Date(date).toLocaleDateString("es-SV", {
     day: "2-digit",
     month: "short",
     year: "numeric",
@@ -145,7 +145,7 @@ export default async function PortalHomePage() {
             Hola, {client.first_name}
           </h1>
           <p className="text-zinc-500 text-sm mt-1">
-            {today.toLocaleDateString("es-MX", {
+            {today.toLocaleDateString("es-SV", {
               weekday: "long",
               year: "numeric",
               month: "long",

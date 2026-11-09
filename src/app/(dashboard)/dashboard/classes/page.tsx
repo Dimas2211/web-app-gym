@@ -42,7 +42,7 @@ type Props = {
 
 function formatDateDisplay(dateStr: string) {
   const d = new Date(dateStr + "T00:00:00");
-  return d.toLocaleDateString("es-MX", { weekday: "long", year: "numeric", month: "long", day: "numeric" });
+  return d.toLocaleDateString("es-SV", { weekday: "long", year: "numeric", month: "long", day: "numeric" });
 }
 
 function formatDateHeader(date: Date): string {
@@ -50,7 +50,7 @@ function formatDateHeader(date: Date): string {
   const month = date.getUTCMonth();
   const day = date.getUTCDate();
   const d = new Date(year, month, day);
-  return d.toLocaleDateString("es-MX", { weekday: "long", year: "numeric", month: "long", day: "numeric" });
+  return d.toLocaleDateString("es-SV", { weekday: "long", year: "numeric", month: "long", day: "numeric" });
 }
 
 function offsetDate(dateStr: string, days: number): string {
@@ -419,7 +419,7 @@ async function renderClassesAgenda({
           {isAdmin && (
             <Link
               href="/dashboard/classes/new"
-              className="bg-zinc-900 text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-zinc-800 transition-colors"
+              className="bg-zinc-900 text-white px-4 py-2 rounded-full text-sm font-semibold hover:bg-zinc-800 transition-colors"
             >
               + Programar clase
             </Link>

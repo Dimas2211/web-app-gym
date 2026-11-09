@@ -47,7 +47,7 @@ export function PlatformProvisioningTable({ organizations }: Props) {
   return (
     <div className="bg-white rounded-xl border border-zinc-200 shadow-sm overflow-hidden">
       <div className="overflow-x-auto">
-        <table className="w-full text-sm">
+        <table className="zv-table w-full text-sm">
           <thead className="border-b border-zinc-100 bg-zinc-50">
             <tr>
               <th className="text-left px-4 py-3 text-xs font-semibold text-zinc-400 uppercase tracking-wide">

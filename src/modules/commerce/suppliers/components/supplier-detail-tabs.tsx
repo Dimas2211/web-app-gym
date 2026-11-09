@@ -334,7 +334,7 @@ function GiroTab({
             <button
               type="submit"
               disabled={isPending}
-              className="text-xs px-3 py-1.5 rounded-lg bg-zinc-900 text-white font-medium
+              className="text-xs px-3 py-1.5 rounded-full bg-zinc-900 text-white font-medium
                          hover:bg-zinc-800 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
             >
               {isPending ? "Guardando…" : "Guardar"}
@@ -719,7 +719,7 @@ function DireccionTab({
             <button
               type="submit"
               disabled={isPending}
-              className="text-xs px-3 py-1.5 rounded-lg bg-zinc-900 text-white font-medium
+              className="text-xs px-3 py-1.5 rounded-full bg-zinc-900 text-white font-medium
                          hover:bg-zinc-800 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
             >
               {isPending ? "Guardando…" : "Guardar"}
@@ -867,7 +867,7 @@ function ComprasTab({ supplierId }: { supplierId: string }) {
 
   return (
     <div className="overflow-auto">
-      <table className="w-full text-xs">
+      <table className="zv-table w-full text-xs">
         <thead>
           <tr className="bg-zinc-50 border-b border-zinc-100 text-zinc-400 uppercase tracking-wide">
             <th className="px-3 py-2 text-left font-medium whitespace-nowrap">Fecha</th>

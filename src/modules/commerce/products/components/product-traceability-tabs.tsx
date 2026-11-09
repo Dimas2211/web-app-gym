@@ -91,7 +91,7 @@ function ComprasTab({ productId }: { productId: string }) {
 
   return (
     <div className="overflow-x-auto">
-      <table className="w-full text-xs">
+      <table className="zv-table w-full text-xs">
         <thead>
           <tr className="border-b border-zinc-100 text-zinc-400 font-medium">
             <th className="text-left px-3 py-2 whitespace-nowrap">Fecha</th>
@@ -188,7 +188,7 @@ function VentasTab({ productId }: { productId: string }) {
 
   return (
     <div className="overflow-x-auto">
-      <table className="w-full text-xs">
+      <table className="zv-table w-full text-xs">
         <thead>
           <tr className="border-b border-zinc-100 text-zinc-400 font-medium">
             <th className="text-left px-3 py-2 whitespace-nowrap">Fecha</th>

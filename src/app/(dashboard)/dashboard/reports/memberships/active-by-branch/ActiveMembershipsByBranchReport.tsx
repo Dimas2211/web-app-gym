@@ -12,7 +12,7 @@ type Branch = { id: string; name: string };
 type Props = { branches: Branch[]; isSuperAdmin: boolean };
 
 function formatCurrency(v: number) {
-  return new Intl.NumberFormat("es-MX", { style: "currency", currency: "MXN" }).format(v);
+  return new Intl.NumberFormat("es-SV", { style: "currency", currency: "USD" }).format(v);
 }
 
 function SummaryCard({ label, value, sub }: { label: string; value: string; sub?: string }) {
@@ -134,7 +134,7 @@ export function ActiveMembershipsByBranchReport({ branches, isSuperAdmin }: Prop
       title: "Membresías activas por sucursal",
       filters: activeFilters,
       kpis: [
-        { label: "Total activas", value: data.summary.totalActive.toLocaleString("es-MX") },
+        { label: "Total activas", value: data.summary.totalActive.toLocaleString("es-SV") },
         { label: "Sucursales", value: String(data.summary.branchesWithActive) },
         { label: "Valor total", value: formatCurrency(data.summary.totalValue) },
       ],
@@ -190,7 +190,7 @@ export function ActiveMembershipsByBranchReport({ branches, isSuperAdmin }: Prop
         <>
           {/* KPIs */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <SummaryCard label="Total membresías activas" value={data.summary.totalActive.toLocaleString("es-MX")} />
+            <SummaryCard label="Total membresías activas" value={data.summary.totalActive.toLocaleString("es-SV")} />
             <SummaryCard label="Sucursales con activas" value={String(data.summary.branchesWithActive)} />
             <SummaryCard label="Valor total en cartera" value={formatCurrency(data.summary.totalValue)} />
           </div>
@@ -228,7 +228,7 @@ export function ActiveMembershipsByBranchReport({ branches, isSuperAdmin }: Prop
                 </button>
               </div>
               <div className="overflow-x-auto">
-                <table className="w-full text-sm">
+                <table className="zv-table w-full text-sm">
                   <thead>
                     <tr className="border-b border-zinc-800">
                       <th className="text-left text-zinc-400 font-medium px-4 py-3">Sucursal / Plan</th>
@@ -264,7 +264,7 @@ export function ActiveMembershipsByBranchReport({ branches, isSuperAdmin }: Prop
                               </span>
                             </td>
                             <td className="px-4 py-3 text-right text-zinc-300 font-medium">
-                              {item.activeCount.toLocaleString("es-MX")}
+                              {item.activeCount.toLocaleString("es-SV")}
                             </td>
                             <td className="px-4 py-3">
                               <div className="w-full bg-zinc-800 rounded-full h-1.5">
@@ -292,7 +292,7 @@ export function ActiveMembershipsByBranchReport({ branches, isSuperAdmin }: Prop
                                   {plan.planName}
                                 </td>
                                 <td className="px-4 py-2 text-right text-zinc-400 text-xs">
-                                  {plan.activeCount.toLocaleString("es-MX")}
+                                  {plan.activeCount.toLocaleString("es-SV")}
                                 </td>
                                 <td className="px-4 py-2">
                                   <div className="w-full bg-zinc-800 rounded-full h-1">
@@ -320,7 +320,7 @@ export function ActiveMembershipsByBranchReport({ branches, isSuperAdmin }: Prop
                     <tfoot>
                       <tr className="border-t-2 border-zinc-700 bg-zinc-800/60">
                         <td className="px-4 py-3 text-zinc-300 font-semibold">Total</td>
-                        <td className="px-4 py-3 text-right text-white font-bold">{data.summary.totalActive.toLocaleString("es-MX")}</td>
+                        <td className="px-4 py-3 text-right text-white font-bold">{data.summary.totalActive.toLocaleString("es-SV")}</td>
                         <td className="px-4 py-3" />
                         <td className="px-4 py-3 text-right text-white font-bold">{formatCurrency(data.summary.totalValue)}</td>
                         <td className="px-4 py-3 text-right text-zinc-400">100%</td>

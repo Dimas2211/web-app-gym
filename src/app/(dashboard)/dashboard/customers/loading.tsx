@@ -44,7 +44,7 @@ export default function CustomersLoading() {
 
       {/* Tabla */}
       <div className="bg-white rounded-xl border border-zinc-200 shadow-sm overflow-hidden">
-        <table className="w-full text-sm border-collapse">
+        <table className="zv-table w-full text-sm border-collapse">
           <thead>
             <tr className="bg-zinc-50 border-b border-zinc-200">
               {["Código", "Nombre", "Razón social", "NIT", "NRC", "Tipo contrib.", "Teléfono", "Estado"].map((col) => (

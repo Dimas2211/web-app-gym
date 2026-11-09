@@ -86,7 +86,7 @@ export function PlatformDatabaseProfilesTable({
 
   return (
     <div className="overflow-x-auto">
-      <table className="w-full text-sm">
+      <table className="zv-table w-full text-sm">
         <thead>
           <tr className="border-b border-zinc-100 text-xs text-zinc-400 uppercase tracking-wide bg-zinc-50">
             <th className="px-4 py-3 text-left font-semibold">Nombre</th>

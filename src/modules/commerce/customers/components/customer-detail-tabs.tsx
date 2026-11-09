@@ -358,7 +358,7 @@ function IdentificacionTab({
           <button
             type="submit"
             disabled={isPending}
-            className="text-xs px-3 py-1.5 rounded-lg bg-zinc-900 text-white font-medium
+            className="text-xs px-3 py-1.5 rounded-full bg-zinc-900 text-white font-medium
                        hover:bg-zinc-800 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
           >
             {isPending ? "Guardando…" : "Guardar"}
@@ -609,7 +609,7 @@ function ActividadTab({
             <button
               type="submit"
               disabled={isPending}
-              className="text-xs px-3 py-1.5 rounded-lg bg-zinc-900 text-white font-medium
+              className="text-xs px-3 py-1.5 rounded-full bg-zinc-900 text-white font-medium
                          hover:bg-zinc-800 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
             >
               {isPending ? "Guardando…" : "Guardar"}
@@ -934,7 +934,7 @@ function DireccionTab({
             <button
               type="submit"
               disabled={isPending}
-              className="text-xs px-3 py-1.5 rounded-lg bg-zinc-900 text-white font-medium
+              className="text-xs px-3 py-1.5 rounded-full bg-zinc-900 text-white font-medium
                          hover:bg-zinc-800 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
             >
               {isPending ? "Guardando…" : "Guardar"}
@@ -1082,7 +1082,7 @@ function ContactoTab({
           <button
             type="submit"
             disabled={isPending}
-            className="text-xs px-3 py-1.5 rounded-lg bg-zinc-900 text-white font-medium
+            className="text-xs px-3 py-1.5 rounded-full bg-zinc-900 text-white font-medium
                        hover:bg-zinc-800 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
           >
             {isPending ? "Guardando…" : "Guardar"}

@@ -306,7 +306,7 @@ export function PlatformDatabaseProfileInspectorModal({
               {result.admins.length > 0 && (
                 <Section title={`Administradores (${result.admins.length})`}>
                   <div className="overflow-x-auto">
-                    <table className="w-full text-xs">
+                    <table className="zv-table w-full text-xs">
                       <thead>
                         <tr className="border-b border-zinc-100 text-zinc-400 uppercase tracking-wide">
                           <th className="pb-1.5 text-left font-semibold pr-3">Nombre</th>

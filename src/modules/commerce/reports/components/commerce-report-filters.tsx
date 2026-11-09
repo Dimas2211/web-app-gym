@@ -35,6 +35,8 @@ interface Props {
   loading:  boolean;
   onChange: (f: ReportFilterState) => void;
   onApply:  () => void;
+  /** Si se indica, los periodos rápidos (Hoy, Semana…) consultan de inmediato. */
+  onQuickApply?: (f: ReportFilterState) => void;
 }
 
 const QUICK_PERIODS: { key: QuickPeriod; label: string }[] = [
@@ -56,7 +58,7 @@ function countAdvancedActive(f: ReportFilterState): number {
 
 // ── Component ────────────────────────────────────────────────────
 
-export function CommerceReportFilters({ filters, loading, onChange, onApply }: Props) {
+export function CommerceReportFilters({ filters, loading, onChange, onApply, onQuickApply }: Props) {
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [options, setOptions]           = useState<FilterOptionsResponse | null>(null);
   const [loadingOpts, setLoadingOpts]   = useState(false);
@@ -78,7 +80,9 @@ export function CommerceReportFilters({ filters, loading, onChange, onApply }: P
 
   function applyQuick(period: QuickPeriod) {
     const range = getQuickPeriodRange(period);
-    onChange({ ...filters, date_from: range.date_from, date_to: range.date_to });
+    const next = { ...filters, date_from: range.date_from, date_to: range.date_to };
+    onChange(next);
+    onQuickApply?.(next);
   }
 
   function clearAdvanced() {

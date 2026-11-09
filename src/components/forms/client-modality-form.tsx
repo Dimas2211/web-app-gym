@@ -70,7 +70,7 @@ export function ClientModalityForm({ clientId, currentModality }: Props) {
       <button
         type="submit"
         disabled={isPending}
-        className="bg-zinc-900 text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-zinc-800 transition-colors disabled:opacity-50"
+        className="bg-zinc-900 text-white px-4 py-2 rounded-full text-sm font-semibold hover:bg-zinc-800 transition-colors disabled:opacity-50"
       >
         {isPending ? "Guardando..." : "Cambiar modalidad"}
       </button>

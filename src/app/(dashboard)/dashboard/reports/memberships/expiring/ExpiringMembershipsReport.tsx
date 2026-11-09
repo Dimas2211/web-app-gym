@@ -18,7 +18,7 @@ const PAYMENT_LABELS: Record<string, string> = {
 };
 
 function formatCurrency(v: number) {
-  return new Intl.NumberFormat("es-MX", { style: "currency", currency: "MXN" }).format(v);
+  return new Intl.NumberFormat("es-SV", { style: "currency", currency: "USD" }).format(v);
 }
 
 function SummaryCard({ label, value, highlight }: { label: string; value: string; highlight?: boolean }) {
@@ -150,8 +150,8 @@ export function ExpiringMembershipsReport({ branches, isSuperAdmin }: Props) {
       {data && (
         <>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <SummaryCard label="Total por vencer" value={data.summary.total.toLocaleString("es-MX")} />
-            <SummaryCard label="Vencen esta semana" value={data.summary.expiringThisWeek.toLocaleString("es-MX")} highlight={data.summary.expiringThisWeek > 0} />
+            <SummaryCard label="Total por vencer" value={data.summary.total.toLocaleString("es-SV")} />
+            <SummaryCard label="Vencen esta semana" value={data.summary.expiringThisWeek.toLocaleString("es-SV")} highlight={data.summary.expiringThisWeek > 0} />
             <SummaryCard label="Ingreso en riesgo" value={formatCurrency(data.summary.revenueAtRisk)} />
           </div>
 
@@ -162,7 +162,7 @@ export function ExpiringMembershipsReport({ branches, isSuperAdmin }: Props) {
           ) : (
             <div className="bg-zinc-900 border border-zinc-800 rounded-lg overflow-hidden">
               <div className="overflow-x-auto">
-                <table className="w-full text-sm">
+                <table className="zv-table w-full text-sm">
                   <thead>
                     <tr className="border-b border-zinc-800">
                       {["Cliente", "Sucursal", "Plan", "Vence", "Días rest.", "Pago", "Monto"].map((h) => (
