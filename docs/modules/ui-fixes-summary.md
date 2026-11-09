@@ -13,6 +13,11 @@ Detalle completo con antes/después y pendientes: `docs/modules/ui-visual-refres
 > Nota: la franja de módulo nueva cambia la altura disponible de los workspaces de alto completo
 > (ventas, compras, exportación, DTE emitidos): usan `--zv-module-bar-h`. Si se agrega un workspace
 > nuevo de alto completo, usar `h-[calc(100vh-3.5rem-var(--zv-module-bar-h,0px))]`.
+>
+> Móvil: el logo Zolvi es el enlace a Inicio ("Inicio" se oculta en pantallas chicas). Los workspaces
+> ERP de escritorio llevan la clase `zv-desktop-workspace` (bajo 1024px conservan su layout y se
+> desplazan de lado) y, si su ruta está en `DARK_WORKSPACE_ROUTES` de `module-header-bar.tsx`, muestran
+> el aviso "Pantalla hecha para ver en PC." solo en móvil.
 
 ## /dashboard/products
 

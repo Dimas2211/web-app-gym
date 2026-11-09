@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { auth, signOut } from "@/lib/auth/auth";
 import { enforceRuntimeOrganizationAccess } from "@/modules/platform/runtime/runtime-organization-access-gate";
@@ -93,8 +94,13 @@ export default async function DashboardLayout({ children }: { children: React.Re
             {/* Logo + sidebar toggle + nav */}
             <div className="flex min-w-0 items-center gap-2">
               <SidebarToggle />
-              <ZolviLogo tone="onDark" className="mr-2" />
-              <NavBar role={user.role} />
+              {/* El logo es el acceso a Inicio (en móvil, el único). */}
+              <Link href="/dashboard" aria-label="Ir a inicio" className="mr-2 rounded-lg">
+                <ZolviLogo tone="onDark" />
+              </Link>
+              <div className="hidden sm:block">
+                <NavBar role={user.role} />
+              </div>
             </div>
 
             {/* Centro: LocationSwitcher para usuarios globales fuera de Support Session */}

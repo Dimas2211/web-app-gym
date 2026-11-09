@@ -329,7 +329,7 @@ export function PurchasesClient({ initialItems, initialTotal }: PurchasesClientP
   const selectedItem = items.find((i) => i.id === selectedId) ?? null;
 
   return (
-    <div className="-mx-4 sm:-mx-6 -my-8 flex flex-col bg-zinc-950 h-[calc(100vh-3.5rem-var(--zv-module-bar-h,0px))] overflow-hidden">
+    <div className="zv-desktop-workspace -mx-4 sm:-mx-6 -my-8 flex flex-col bg-zinc-950 h-[calc(100vh-3.5rem-var(--zv-module-bar-h,0px))] overflow-hidden">
 
       {/* ── A: Barra operativa ───────────────────────────────────── */}
       <PurchasesFiltersBar

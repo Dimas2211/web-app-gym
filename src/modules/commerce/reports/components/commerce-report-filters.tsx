@@ -109,7 +109,7 @@ export function CommerceReportFilters({ filters, loading, onChange, onApply, onQ
       {/* ── Row 1: dates + quick periods ── */}
       <div className="flex flex-wrap items-center gap-2">
         {/* Quick period buttons */}
-        <div className="flex gap-1">
+        <div className="flex flex-wrap gap-1">
           {QUICK_PERIODS.map((p) => (
             <button
               key={p.key}
@@ -126,14 +126,14 @@ export function CommerceReportFilters({ filters, loading, onChange, onApply, onQ
         <div className="w-px h-5 bg-zinc-700 hidden sm:block" />
 
         {/* Date inputs */}
-        <div className="flex items-center gap-2">
+        <div className="grid w-full grid-cols-[auto_minmax(0,1fr)] items-center gap-2 sm:flex sm:w-auto">
           <label className="text-xs text-zinc-500">Desde</label>
           <input
             type="date"
             value={filters.date_from}
             disabled={loading}
             onChange={(e) => onChange({ ...filters, date_from: e.target.value })}
-            className="h-8 px-2 text-xs rounded bg-zinc-800 border border-zinc-700 text-zinc-200 focus:outline-none focus:border-zinc-500 disabled:opacity-50"
+            className="h-8 w-full min-w-0 px-2 text-xs rounded bg-zinc-800 border border-zinc-700 text-zinc-200 focus:outline-none focus:border-zinc-500 disabled:opacity-50 sm:w-auto"
           />
           <label className="text-xs text-zinc-500">Hasta</label>
           <input
@@ -141,7 +141,7 @@ export function CommerceReportFilters({ filters, loading, onChange, onApply, onQ
             value={filters.date_to}
             disabled={loading}
             onChange={(e) => onChange({ ...filters, date_to: e.target.value })}
-            className="h-8 px-2 text-xs rounded bg-zinc-800 border border-zinc-700 text-zinc-200 focus:outline-none focus:border-zinc-500 disabled:opacity-50"
+            className="h-8 w-full min-w-0 px-2 text-xs rounded bg-zinc-800 border border-zinc-700 text-zinc-200 focus:outline-none focus:border-zinc-500 disabled:opacity-50 sm:w-auto"
           />
         </div>
 

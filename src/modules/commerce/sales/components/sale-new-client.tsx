@@ -444,7 +444,7 @@ export function SaleNewClient({
 
   return (
     <>
-      <div className="-mx-4 sm:-mx-6 -my-8 flex flex-col bg-zinc-950 h-[calc(100vh-3.5rem-var(--zv-module-bar-h,0px))] overflow-hidden">
+      <div className="zv-desktop-workspace -mx-4 sm:-mx-6 -my-8 flex flex-col bg-zinc-950 h-[calc(100vh-3.5rem-var(--zv-module-bar-h,0px))] overflow-hidden">
 
         {/* Zone A — Cabecera */}
         <SaleHeaderCard

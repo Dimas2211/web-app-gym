@@ -155,6 +155,14 @@ Queries, endpoints y permisos de reportes **sin cambios**.
 
 ---
 
+## 7b. Ajustes móviles
+
+| Problema (antes) | Corrección |
+|---|---|
+| En móvil el botón "Inicio" del header se encimaba con el selector de sede; en las demás páginas no había forma visible de volver al inicio | "Inicio" oculto en móvil (`hidden sm:block`); el **logo Zolvi es el enlace a Inicio** en todas las páginas y tamaños |
+| Campos de fecha desbordaban tarjetas (p. ej. filtros de Reportes Comerciales) y movían la página de lado | Periodos rápidos con `flex-wrap`; "Desde/Hasta" en grilla a todo el ancho en móvil; regla base global: inputs de fecha/hora nunca más anchos que su contenedor |
+| Workspaces ERP (ventas, venta nueva, exportación, compras, compra nueva, editar compra) comprimidos e ilegibles en móvil | Bajo 1024px conservan el layout de escritorio con desplazamiento lateral (clase `zv-desktop-workspace`); aviso solo en móvil bajo la franja de módulo: **"Pantalla hecha para ver en PC."** Siguen siendo usables (no se bloquea nada) |
+
 ## 8. Datos de demostración y entorno local
 
 ### Entorno local (máquina del responsable, 2026-11-09)

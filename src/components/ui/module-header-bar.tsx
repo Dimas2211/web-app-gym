@@ -58,6 +58,7 @@ export function ModuleHeaderBar() {
   const dark = isDarkWorkspaceRoute(pathname);
 
   return (
+    <>
     <nav
       aria-label="Ubicación"
       className={`zv-module-bar flex h-12 shrink-0 items-center gap-3 border-b px-4 sm:px-6 ${
@@ -98,5 +99,21 @@ export function ModuleHeaderBar() {
         )}
       </ol>
     </nav>
+    {dark && (
+      <div
+        role="note"
+        className="flex items-start gap-2 border-b border-white/10 bg-zinc-950 px-4 py-2.5 text-xs text-zinc-300 sm:px-6 lg:hidden"
+      >
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0 text-amber-300">
+          <rect x="2" y="4" width="20" height="13" rx="2" />
+          <path d="M8 21h8M12 17v4" />
+        </svg>
+        <p>
+          <span className="font-semibold text-amber-300">Pantalla hecha para ver en PC.</span> Puedes
+          usarla desde el celular deslizando hacia los lados, pero se trabaja mejor en una computadora.
+        </p>
+      </div>
+    )}
+    </>
   );
 }

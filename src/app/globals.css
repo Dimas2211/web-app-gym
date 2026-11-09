@@ -115,6 +115,18 @@
     letter-spacing: -0.015em;
   }
 
+  /*
+   * Campos de fecha/hora: en móvil su ancho intrínseco desbordaba tarjetas
+   * y empujaba la página de lado. Nunca más anchos que su contenedor.
+   */
+  input[type="date"],
+  input[type="datetime-local"],
+  input[type="time"],
+  input[type="month"] {
+    max-width: 100%;
+    min-width: 0;
+  }
+
   /* Cifras alineadas en todas las tablas (también grillas ERP oscuras). */
   table {
     font-variant-numeric: tabular-nums;
@@ -157,6 +169,20 @@
   text-transform: uppercase;
   letter-spacing: 0.05em;
   border-bottom: 1px solid color-mix(in srgb, var(--color-dark) 10%, transparent);
+}
+
+/*
+ * Workspaces ERP de escritorio (ventas, compras, exportación) en pantallas
+ * pequeñas: conservan el layout de escritorio y se desplazan hacia los
+ * lados en lugar de comprimirse hasta quedar ilegibles.
+ */
+@media (max-width: 1023px) {
+  .zv-desktop-workspace {
+    overflow: auto;
+  }
+  .zv-desktop-workspace > * {
+    min-width: 1024px;
+  }
 }
 
 /*
