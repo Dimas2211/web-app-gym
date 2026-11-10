@@ -37,6 +37,11 @@ import {
   type DteSignerConfig,
 } from "../config/dte-signer.config";
 import type { DteMhEnvironment } from "../types/dte-mh-auth.types";
+import {
+  findDteSecretCollisions,
+  describeBlockingCollisions,
+  fingerprintSecret,
+} from "../lib/dte-credential-secret-guard";
 
 const CREDENTIAL_TYPE = "MH_CREDENTIALS";
 
@@ -51,6 +56,14 @@ export interface DteCredentialStatus {
   has_signer_url:   boolean;
   has_signer_nit:   boolean;
   updated_at:       Date | null;
+  // FISCAL-ONBOARDING — sin secretos: presencia, huella parcial y colisiones.
+  has_signer_private_key_password?: boolean;
+  has_signer_api_key?:              boolean;
+  signer_api_key_fingerprint?:      string | null;
+  /** Pares de campos con el mismo valor (p.ej. signerApiKey = apiPassword). */
+  secret_collisions?:               Array<{ a: string; b: string; blocking: boolean }>;
+  /** Host del firmador registrado (sin ruta ni credenciales). */
+  signer_host?:                     string | null;
 }
 
 const EMPTY_STATUS: DteCredentialStatus = {
@@ -61,7 +74,21 @@ const EMPTY_STATUS: DteCredentialStatus = {
   has_signer_url:   false,
   has_signer_nit:   false,
   updated_at:       null,
+  has_signer_private_key_password: false,
+  has_signer_api_key:              false,
+  signer_api_key_fingerprint:      null,
+  secret_collisions:               [],
+  signer_host:                     null,
 };
+
+function safeSignerHost(url: string | undefined): string | null {
+  if (!url?.trim()) return null;
+  try {
+    return new URL(url.trim()).host;
+  } catch {
+    return null;
+  }
+}
 
 // ── Consultar estado sanitizado (para UI) ──────────────────────────
 
@@ -102,6 +129,11 @@ export async function getDteCredentialStatus(
     has_signer_url:   !!payload.signerUrl?.trim(),
     has_signer_nit:   !!payload.signerNit?.trim(),
     updated_at:       row.updated_at,
+    has_signer_private_key_password: !!payload.signerPrivateKeyPassword?.trim(),
+    has_signer_api_key:              !!payload.signerApiKey?.trim(),
+    signer_api_key_fingerprint:      fingerprintSecret(payload.signerApiKey?.trim()),
+    secret_collisions:               findDteSecretCollisions(payload),
+    signer_host:                     safeSignerHost(payload.signerUrl),
   };
 }
 
@@ -156,7 +188,8 @@ export async function upsertDteCredential(
   issuer_config_id: string,
   tenant_id:        string,
   location_id:      string,
-  user_id:          string,
+  /** FK a User de la MISMA base (runtime). null = sin actor resoluble (p.ej. super_admin de Control Plane). */
+  user_id:          string | null,
   input:            UpsertDteCredentialInput,
   db:               PrismaClient = prisma,
 ): Promise<UpsertDteCredentialResult> {
@@ -193,6 +226,17 @@ export async function upsertDteCredential(
     signerPrivateKeyPassword: input.signerPrivateKeyPassword         || current.signerPrivateKeyPassword,
     signerApiKey:             input.signerApiKey?.trim()             || current.signerApiKey,
   };
+
+  // FISCAL-ONBOARDING — nunca guardar una API Key de firmador igual a la
+  // contraseña MH o a la de la llave privada (incidente MetaTraining §04).
+  // Se valida sobre el payload FINAL (merge), no solo sobre lo tecleado.
+  const collisionError = describeBlockingCollisions(findDteSecretCollisions(merged));
+  if (collisionError) {
+    return { ok: false, error: collisionError };
+  }
+  if (merged.signerUrl && !/^https?:\/\/[^\s]+\/firmardocumento\/?$/i.test(merged.signerUrl)) {
+    return { ok: false, error: "La URL del firmador debe ser completa y terminar en /firmardocumento/." };
+  }
 
   const encrypted_payload = encryptDteCredentialPayload(merged);
 

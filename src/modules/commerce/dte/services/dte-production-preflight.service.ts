@@ -12,9 +12,13 @@
 
 import type { PrismaClient } from "@prisma/client";
 import { prisma } from "@/lib/db/prisma";
-import { getDteCredentialStatus, canDecryptDteCredential } from "./dte-credential.service";
+import {
+  getDteCredentialStatus,
+  canDecryptDteCredential,
+  resolveDteSignerConfigForIssuer,
+  type DteCredentialStatus,
+} from "./dte-credential.service";
 import { resolveDteMhUrls } from "../config/dte-mh.config";
-import { resolveDteSignerConfig, DteSignerConfigError } from "../config/dte-signer.config";
 import { MhHttpDteSignerAdapter } from "../adapters/dte-signer.adapter";
 
 export type PreflightCheckStatus = "ok" | "warning" | "blocked";
@@ -33,6 +37,139 @@ export interface DteProductionPreflightResult {
   checks: PreflightCheck[];
   /** null si no existe todavía DteIssuerConfig PRODUCTION para este tenant/location. */
   issuer_config_id: string | null;
+}
+
+function normalizeNit(v: string | null | undefined): string {
+  return (v ?? "").replace(/\D/g, "");
+}
+
+function signerEndpoint(url: string): string {
+  try {
+    const u = new URL(url);
+    return `${u.protocol}//${u.host}${u.pathname}`.toLowerCase().replace(/\/+$/, "");
+  } catch {
+    return url.trim().toLowerCase();
+  }
+}
+
+export interface SignerHealthChecker {
+  checkHealth(config: import("../config/dte-signer.config").DteSignerConfig): Promise<{ ok: boolean; message?: string }>;
+}
+
+async function appendEffectiveSignerChecks(
+  checks: PreflightCheck[],
+  input: {
+    issuerConfigId: string;
+    issuerNit:      string | null;
+    tenant_id:      string;
+    location_id:    string;
+    credStatus:     DteCredentialStatus;
+    db:             PrismaClient;
+  },
+  health: SignerHealthChecker = new MhHttpDteSignerAdapter(),
+): Promise<void> {
+  const { credStatus, db } = input;
+
+  if (credStatus.configured) {
+    checks.push({
+      code:   "SIGNER_NIT",
+      label:  "NIT del firmador configurado",
+      status: credStatus.has_signer_nit ? "ok" : "blocked",
+      detail: credStatus.has_signer_nit ? undefined : "No se guardó signerNit en las credenciales PRODUCTION del emisor.",
+    });
+  }
+
+  const resolved = await resolveDteSignerConfigForIssuer({
+    issuerConfigId: input.issuerConfigId,
+    environment:    "PRODUCTION",
+    client:         db,
+  });
+
+  if (!resolved.ok) {
+    checks.push({ code: "SIGNER_EFFECTIVE", label: "Firmador efectivo del emisor PRODUCTION", status: "blocked", detail: resolved.error });
+    return;
+  }
+
+  if (resolved.source !== "ISSUER_CREDENTIAL") {
+    checks.push({
+      code:   "SIGNER_EFFECTIVE",
+      label:  "Firmador efectivo del emisor PRODUCTION",
+      status: "blocked",
+      detail: "El emisor no tiene firmador propio (DteCredential PRODUCTION sin signerNit/contraseña de llave). PRODUCTION nunca acepta el firmador ni los secretos globales del proceso (DTE_SIGNER_*), que pueden pertenecer a otro cliente.",
+    });
+    return;
+  }
+
+  let host = "(url no parseable)";
+  try { host = new URL(resolved.config.signerUrl).host; } catch { /* informativo */ }
+  checks.push({ code: "SIGNER_EFFECTIVE", label: "Firmador efectivo del emisor PRODUCTION", status: "ok", detail: `Origen ISSUER_CREDENTIAL · ${host}` });
+
+  checks.push({
+    code:   "SIGNER_URL_OWN",
+    label:  "URL del firmador propia del emisor",
+    status: credStatus.has_signer_url ? "ok" : "blocked",
+    detail: credStatus.has_signer_url ? undefined : "La credencial no tiene signerUrl: se usaría DTE_SIGNER_URL_PRODUCTION global. Registre la URL del firmador dedicado.",
+  });
+
+  const isRemote = /^https?:\/\/(?!localhost|127\.0\.0\.1)/i.test(resolved.config.signerUrl);
+  if (isRemote) {
+    checks.push({
+      code:   "SIGNER_API_KEY_OWN",
+      label:  "API Key propia del firmador (X-DTE-Signer-Key)",
+      status: credStatus.has_signer_api_key ? "ok" : "blocked",
+      detail: credStatus.has_signer_api_key
+        ? `Huella ${credStatus.signer_api_key_fingerprint ?? "—"}`
+        : "La credencial no tiene signerApiKey propia: se usaría DTE_SIGNER_API_KEY global (otro cliente) o el firmador responderá 403.",
+    });
+  }
+
+  const blockingCollisions = (credStatus.secret_collisions ?? []).filter((c) => c.blocking);
+  checks.push({
+    code:   "SIGNER_SECRETS_DISTINCT",
+    label:  "API Key del firmador distinta de contraseñas MH/llave",
+    status: blockingCollisions.length === 0 ? "ok" : "blocked",
+    detail: blockingCollisions.length === 0 ? undefined : `Campos con el mismo valor: ${blockingCollisions.map((c) => `${c.a}=${c.b}`).join(", ")}.`,
+  });
+
+  const issuerNit = normalizeNit(input.issuerNit);
+  const signerNit = normalizeNit(resolved.nit);
+  if (issuerNit && signerNit) {
+    checks.push({
+      code:   "SIGNER_NIT_MATCH",
+      label:  "NIT del certificado = NIT del emisor",
+      status: issuerNit === signerNit ? "ok" : "blocked",
+      detail: issuerNit === signerNit ? undefined : "El NIT configurado para el firmador no coincide con el NIT del emisor PRODUCTION.",
+    });
+  }
+
+  // Aislamiento TEST ↔ PRODUCTION: nunca el mismo firmador ni la misma API Key.
+  const testIssuer = await db.dteIssuerConfig.findFirst({
+    where:  { tenant_id: input.tenant_id, location_id: input.location_id, environment: "TEST" },
+    select: { id: true },
+  });
+  if (testIssuer) {
+    const testSigner = await resolveDteSignerConfigForIssuer({ issuerConfigId: testIssuer.id, environment: "TEST", client: db });
+    if (testSigner.ok && testSigner.source === "ISSUER_CREDENTIAL") {
+      const sameEndpoint = signerEndpoint(testSigner.config.signerUrl) === signerEndpoint(resolved.config.signerUrl);
+      const sameKey = !!resolved.config.apiKey && resolved.config.apiKey === testSigner.config.apiKey;
+      checks.push({
+        code:   "SIGNER_ENV_ISOLATION",
+        label:  "Firmador PRODUCTION aislado del firmador TEST",
+        status: sameEndpoint || sameKey ? "blocked" : "ok",
+        detail: sameEndpoint
+          ? "PRODUCTION apunta al mismo firmador que TEST (certificado de pruebas)."
+          : sameKey ? "PRODUCTION reutiliza la API Key del firmador TEST." : undefined,
+      });
+    }
+  }
+
+  const h = await health.checkHealth(resolved.config);
+  checks.push({
+    code:   "SIGNER_REACHABLE",
+    label:  "Firmador PRODUCTION accesible (health check, no firma ni transmite)",
+    status: h.ok ? "ok" : "warning",
+    detail: h.ok ? undefined : (h.message ?? "No se pudo verificar conectividad con el firmador PRODUCTION del emisor."),
+  });
 }
 
 function overallStatus(checks: PreflightCheck[]): PreflightOverallStatus {
@@ -166,67 +303,21 @@ export async function getDteProductionPreflight(
     });
   }
 
-  // ── 7. Firmador ────────────────────────────────────────────────
-  if (credStatus.configured) {
-    checks.push({
-      code:   "SIGNER_NIT",
-      label:  "NIT del firmador configurado",
-      status: credStatus.has_signer_nit ? "ok" : "warning",
-      detail: credStatus.has_signer_nit ? undefined : "No se guardó signerNit en las credenciales — requerido al firmar.",
-    });
-    if (!credStatus.has_signer_url) {
-      checks.push({
-        code:   "SIGNER_URL",
-        label:  "URL del firmador (legacy, informativo)",
-        status: "warning",
-        detail: "No se guardó signerUrl en las credenciales. Esto ya no se usa para resolver el firmador — signDteDocument() resuelve por DTE_SIGNER_URL_TEST/DTE_SIGNER_URL_PRODUCTION según dte.environment.",
-      });
-    }
-  }
-
-  // FSE14-DUAL-SIGNER — checks independientes por ambiente. PRODUCTION
-  // bloquea el preflight si falta (es el ambiente que este preflight
-  // certifica); TEST se reporta como infraestructura disponible, sin
-  // bloquear, porque puede no ser el ambiente activo.
-  const signerAdapter = new MhHttpDteSignerAdapter();
-
-  for (const env of ["PRODUCTION", "TEST"] as const) {
-    const configuredCode = env === "PRODUCTION" ? "DTE_SIGNER_PRODUCTION_CONFIGURED" : "DTE_SIGNER_TEST_CONFIGURED";
-    const reachableCode  = env === "PRODUCTION" ? "DTE_SIGNER_PRODUCTION_REACHABLE"  : "DTE_SIGNER_TEST_REACHABLE";
-    const blockingStatus: PreflightCheckStatus = env === "PRODUCTION" ? "blocked" : "warning";
-
-    let signerCfg;
-    try {
-      signerCfg = resolveDteSignerConfig(env);
-    } catch (err) {
-      const message = err instanceof DteSignerConfigError ? err.message : "Firmador no configurado.";
-      checks.push({ code: configuredCode, label: `Firmador ${env} configurado`, status: blockingStatus, detail: message });
-      continue;
-    }
-
-    checks.push({ code: configuredCode, label: `Firmador ${env} configurado`, status: "ok" });
-
-    // VPS-SIGNER-APIKEY — el firmador remoto detrás de Apache/cPanel exige
-    // X-DTE-Signer-Key; sin ella responde 403. No bloquea si el firmador es
-    // localhost (dev sin protección).
-    const isRemoteSigner = /^https?:\/\/(?!localhost|127\.0\.0\.1)/i.test(signerCfg.signerUrl);
-    if (isRemoteSigner && !signerCfg.apiKey) {
-      checks.push({
-        code:   env === "PRODUCTION" ? "DTE_SIGNER_PRODUCTION_API_KEY" : "DTE_SIGNER_TEST_API_KEY",
-        label:  `DTE_SIGNER_API_KEY (firmador ${env})`,
-        status: "warning",
-        detail: "DTE_SIGNER_API_KEY no está configurada; el firmador protegido responderá 403.",
-      });
-    }
-
-    const health = await signerAdapter.checkHealth(signerCfg);
-    checks.push({
-      code:   reachableCode,
-      label:  `Firmador ${env} accesible (health check, no firma ni transmite)`,
-      status: health.ok ? "ok" : "warning",
-      detail: health.ok ? undefined : (health.message ?? `No se pudo verificar conectividad con el firmador ${env}.`),
-    });
-  }
+  // ── 7. Firmador EFECTIVO del emisor PRODUCTION ─────────────────
+  //
+  // FISCAL-ONBOARDING — antes se verificaban DTE_SIGNER_URL_TEST/PRODUCTION
+  // globales del proceso, que pueden pertenecer a OTRO cliente (TrustMe).
+  // Ahora se resuelve exactamente el firmador que usaría signDteDocument()
+  // para este emisor (resolveDteSignerConfigForIssuer) y PRODUCTION exige
+  // que URL, API Key y certificado sean propios del emisor.
+  await appendEffectiveSignerChecks(checks, {
+    issuerConfigId: config.id,
+    issuerNit:      config.nit,
+    tenant_id,
+    location_id,
+    credStatus,
+    db,
+  });
 
   // ── 8. Endpoints MH PRODUCTION ────────────────────────────────────
   const urls = resolveDteMhUrls("PRODUCTION");

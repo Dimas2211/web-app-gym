@@ -1,0 +1,36 @@
+# FISCAL-ONBOARDING — ejecutor de firmadores DTE (solo operaciones predefinidas).
+# Requiere root para docker/apache, pero con escritura limitada a rutas propias.
+# Antes de habilitarlo: `systemd-analyze verify` y la checklist del README
+# (ruta de node, docker compose como plugin de sistema, rutas de cPanel).
+[Unit]
+Description=Zolvi DTE signer executor (predefined operations only)
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=/etc/zolvi-signer-executor.env
+# ProtectHome oculta /root: la configuración del CLI de Docker vive aquí.
+Environment=DOCKER_CONFIG=/opt/zolvi-signer-executor/.docker
+# Nonces anti-replay persistentes (/var/lib/zolvi-signer-executor, 0700, escribible pese a ProtectSystem=strict).
+StateDirectory=zolvi-signer-executor
+StateDirectoryMode=0700
+Environment=ZOLVI_SIGNER_EXECUTOR_NONCE_FILE=/var/lib/zolvi-signer-executor/nonces.json
+ExecStart=/usr/bin/node /opt/zolvi-signer-executor/zolvi-signer-executor.mjs serve --port 9750
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+# Rutas con "-" son opcionales (no fallan si no existen en el servidor).
+ReadWritePaths=/opt/zolvi-signers /etc/apache2/conf.d/userdata /etc/apache2/conf /var/run /run -/var/cpanel -/etc/apache2/logs -/usr/local/apache/logs -/usr/local/cpanel/logs -/var/log
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

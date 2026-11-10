@@ -47,9 +47,21 @@ export interface ExternalDtePayload {
 // ok: true solo si INSERT ejecutado sin error, affectedRows >= 1 y commit exitoso.
 // No se requiere permiso SELECT — el usuario externo es INSERT-only.
 
+//
+// FISCAL-ONBOARDING — `outcome` distingue lo que el emisor SABE del destino:
+//   CONFIRMED     — driver confirmó INSERT con affectedRows >= 1.
+//   DUPLICATE     — el receptor rechazó por clave duplicada (solo posible
+//                   si el receptor deduplica): el documento YA está allí.
+//   NOT_INSERTED  — el INSERT nunca se ejecutó o el servidor lo rechazó
+//                   explícitamente (config, conexión, error SQL). Reintentable.
+//   UNCERTAIN     — la sentencia pudo haberse ejecutado (timeout / conexión
+//                   perdida tras enviarla). NUNCA reintentar automáticamente.
+export type ExternalDteDeliveryOutcome = "CONFIRMED" | "DUPLICATE" | "NOT_INSERTED" | "UNCERTAIN";
+
 export type ExternalDteDeliveryResult =
   | {
       ok:             true;
+      outcome?:       "CONFIRMED" | "DUPLICATE";
       insertId:       number | bigint | null;
       affectedRows:   number;
       targetTable:    string;
@@ -57,9 +69,19 @@ export type ExternalDteDeliveryResult =
     }
   | {
       ok:         false;
+      outcome?:   "NOT_INSERTED" | "UNCERTAIN";
       error:      string;
       errorCode?: string;
     };
+
+// Resultado de la prueba de conectividad SIN insertar (EXPLAIN INSERT).
+export interface ExternalDteConnectivityResult {
+  ok:          boolean;
+  /** CONNECTED = login OK; INSERT_PLAN_OK = tabla/columnas/permiso INSERT verificados sin insertar. */
+  level:       "FAILED" | "CONNECTED" | "INSERT_PLAN_OK";
+  message:     string;
+  errorCode?:  string;
+}
 
 // ── Resultado del service (DTE) ───────────────────────────────────
 // ok: true confirma INSERT + affectedRows >= 1 + commit. No se usa SELECT.
@@ -71,12 +93,20 @@ export type DeliverDteToExternalDbResult =
       insertId:     number | bigint | null;
       affectedRows: number;
       targetTable:  string;
+      /** Fila del ledger (outbox) — null en el flujo legado sin organización. */
+      jobId?:       string | null;
     }
   | {
       ok:          false;
       error:       string;
       targetTable: string | null;
+      /**
+       * Códigos FISCAL-ONBOARDING adicionales: ALREADY_DELIVERED,
+       * DELIVERY_IN_PROGRESS, REQUIRES_RECONCILIATION, UNCERTAIN,
+       * ORG_TENANT_MISMATCH, MAX_ATTEMPTS_REACHED.
+       */
       errorCode?:  string;
+      jobId?:      string | null;
     };
 
 // ── Payload externo de invalidación ──────────────────────────────

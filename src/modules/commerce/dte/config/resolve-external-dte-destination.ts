@@ -44,9 +44,22 @@ import type { ExternalDteMariaDbConfig } from "../types/external-dte-delivery.ty
 export type ExternalDteMariaDbIntegrationPayload = Omit<ExternalDteMariaDbConfig, "enabled">;
 
 export type ResolveExternalDteDestinationResult =
-  | { status: "CONFIGURED"; source: "ORGANIZATION" | "PLATFORM_NATIVE_LEGACY_ENV"; config: ExternalDteMariaDbConfig }
+  | {
+      status: "CONFIGURED";
+      source: "ORGANIZATION" | "PLATFORM_NATIVE_LEGACY_ENV";
+      config: ExternalDteMariaDbConfig;
+      /** FISCAL-ONBOARDING — id de PlatformExternalIntegration (solo source ORGANIZATION). */
+      integrationId?: string;
+      /** FISCAL-ONBOARDING — entrega automática habilitada (solo source ORGANIZATION). */
+      autoDeliveryEnabled?: boolean;
+    }
   | { status: "NOT_CONFIGURED" }
-  | { status: "DISABLED" };
+  | { status: "DISABLED" }
+  /**
+   * La organización dueña de la integración no tiene tenant_id, o no es el
+   * tenant del documento: no puede verificarse la pertenencia -> bloqueo.
+   */
+  | { status: "TENANT_MISMATCH" };
 
 export interface ResolveExternalDteDestinationInput {
   /** Organización efectiva ya resuelta en servidor. null = sin PlatformOrganization mapeada (standalone). */
@@ -57,6 +70,12 @@ export interface ResolveExternalDteDestinationInput {
    * false — ver contrato arriba.
    */
   allowLegacyEnvFallback: boolean;
+  /**
+   * Tenant del documento/evento a entregar. Obligatorio con organizationId:
+   * el destino solo se entrega si la organización dueña de la integración
+   * tiene ese tenant_id (fail closed si falta cualquiera de los dos).
+   */
+  tenantId: string | null;
 }
 
 function isLegacyConfigUsable(config: ExternalDteMariaDbConfig): boolean {
@@ -68,21 +87,29 @@ function isLegacyConfigUsable(config: ExternalDteMariaDbConfig): boolean {
 export async function resolveExternalDteMariaDbDestination(
   input: ResolveExternalDteDestinationInput,
 ): Promise<ResolveExternalDteDestinationResult> {
-  const { organizationId, allowLegacyEnvFallback } = input;
+  const { organizationId, allowLegacyEnvFallback, tenantId } = input;
 
   if (organizationId) {
     const row = await controlPlanePrisma.platformExternalIntegration.findUnique({
-      where: { organization_id_type: { organization_id: organizationId, type: "DTE_MARIADB" } },
+      where:   { organization_id_type: { organization_id: organizationId, type: "DTE_MARIADB" } },
+      include: { organization: { select: { tenant_id: true } } },
     });
 
     if (row) {
       if (!row.is_active) return { status: "DISABLED" };
+
+      // Aislamiento tenant (fail closed): sin tenant de la organización o
+      // sin tenant del documento no hay forma de verificar pertenencia.
+      const orgTenantId = row.organization?.tenant_id ?? null;
+      if (!orgTenantId || !tenantId || orgTenantId !== tenantId) return { status: "TENANT_MISMATCH" };
 
       const payload = decryptJsonPayload<ExternalDteMariaDbIntegrationPayload>(row.encrypted_payload);
       return {
         status: "CONFIGURED",
         source: "ORGANIZATION",
         config: { ...payload, enabled: true },
+        integrationId: row.id,
+        autoDeliveryEnabled: row.auto_delivery_enabled === true,
       };
     }
 
