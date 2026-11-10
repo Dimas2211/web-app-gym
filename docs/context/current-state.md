@@ -24,6 +24,11 @@
   ni lógica de negocio). Auditoría pre-producción 2026-11-09 con correcciones en working tree (sin
   commit): `docs/audits/ui-visual-refresh-production-review.md`. Detalle, antes/después y pendientes:
   `docs/modules/ui-visual-refresh-summary.md`.
+- **Capturas landing (2026-11-10):** `npm run showcase:setup` + `npm run showcase:capture` generan
+  las 12 capturas de getzolvi.com en `../zolvi-landing/public/capturas/` desde bases locales de
+  vitrina `zolvi_showcase_*` (Ferretería El Roble / Fuerza Total Gym). Solo herramienta local: sin
+  schema, sin migraciones, `zolvi_local` intacta. Hallazgo: `sale_date` se ve un día antes con el
+  servidor en UTC-6 (producción UTC OK). Ver `docs/modules/landing-screenshots-summary.md`.
 - **Entorno local de referencia:** Node ≥ 22.12 (probado v26), PostgreSQL 17 local `zolvi_local`,
   `.env` con `DATABASE_URL` y `DIRECT_URL` locales, seeds `db:seed:demo` → `db:seed:purchases` →
   `npx tsx prisma/seed-sales-demo.ts`. Ojo: `seed.demo` deja `tenant_id` NULL en tablas GYM

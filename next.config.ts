@@ -1,6 +1,10 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  // Solo lo usa `npm run showcase:capture` (servidor paralelo para capturas
+  // de la landing) para no compartir `.next/` con el `next dev` habitual.
+  // Sin la variable, el comportamiento es el de siempre.
+  ...(process.env.NEXT_DIST_DIR ? { distDir: process.env.NEXT_DIST_DIR } : {}),
   experimental: {
     serverActions: {
       // ONBOARDING-5K: el Data Onboarding Center sube el .xlsx por Server
