@@ -3,6 +3,22 @@
 Este documento registra fixes visuales y de UX aplicados transversalmente al dashboard,
 para no perder trazabilidad entre módulos.
 
+## 2026-11-09 — Refresh visual completo (sistema de diseño getzolvi.com)
+
+Tokens de marca, tipografía Poppins/Inter, iconos de módulos, sidebar plegable, franja de módulo,
+inicio con tarjetas / acciones rápidas / resumen de hoy, login nuevo, botones pill, tablas `zv-table`,
+reportes en panel navy y periodos rápidos que consultan de inmediato. Rama `feat/ui-visual-refresh`.
+Detalle completo con antes/después y pendientes: `docs/modules/ui-visual-refresh-summary.md`.
+
+> Nota: la franja de módulo nueva cambia la altura disponible de los workspaces de alto completo
+> (ventas, compras, exportación, DTE emitidos): usan `--zv-module-bar-h`. Si se agrega un workspace
+> nuevo de alto completo, usar `h-[calc(100vh-3.5rem-var(--zv-module-bar-h,0px))]`.
+>
+> Móvil: el logo Zolvi es el enlace a Inicio ("Inicio" se oculta en pantallas chicas). Los workspaces
+> ERP de escritorio llevan la clase `zv-desktop-workspace` (bajo 1024px conservan su layout y se
+> desplazan de lado) y, si su ruta está en `DARK_WORKSPACE_ROUTES` de `module-header-bar.tsx`, muestran
+> el aviso "Pantalla hecha para ver en PC." solo en móvil.
+
 ## /dashboard/products
 
 - **Header sticky tapaba primera fila.**

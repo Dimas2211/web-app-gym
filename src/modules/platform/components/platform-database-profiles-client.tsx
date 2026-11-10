@@ -167,7 +167,7 @@ export function PlatformDatabaseProfilesClient({
           type="button"
           onClick={handleOpenCreate}
           disabled={encryptionKeyMissing}
-          className="flex items-center gap-2 bg-zinc-900 text-white px-4 py-2 rounded-lg
+          className="flex items-center gap-2 bg-zinc-900 text-white px-4 py-2 rounded-full
                      text-sm font-semibold hover:bg-zinc-800 transition-colors
                      disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
           title={encryptionKeyMissing ? "PLATFORM_ENCRYPTION_KEY no configurada" : undefined}

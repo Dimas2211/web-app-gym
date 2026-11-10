@@ -222,7 +222,7 @@ export function SuppliersTable({
       )}
 
       {items.length > 0 && (
-        <table className="w-full min-w-[820px] text-sm border-collapse">
+        <table className="zv-table w-full min-w-[820px] text-sm border-collapse">
           <thead className="sticky top-0 z-10">
             <tr className="bg-zinc-50 border-b border-zinc-200">
               {COLUMNS.map(({ field, label, widthCls }) => (

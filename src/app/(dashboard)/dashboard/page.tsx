@@ -7,6 +7,12 @@ import { canAccessPlatformAdmin } from "@/core/permissions/platform-access";
 import { isAuthScope } from "@/core/auth/types";
 import type { SessionUser } from "@/lib/permissions/guards";
 import type { UserRole } from "@prisma/client";
+import { ModuleIcon, moduleIconForHref, moduleDescriptionForHref } from "@/components/ui/module-icons";
+import { DashboardWelcome } from "@/components/ui/dashboard-welcome";
+import { getVisibleQuickActions } from "@/lib/navigation/dashboard-quick-actions";
+import { buttonClasses } from "@/components/ui/button-styles";
+import { getTodaySummary } from "./_lib/today-summary";
+import { formatWelcomeDate, resolveOrganizationDisplayTimeZone } from "./_lib/display-timezone";
 
 function credentialHref(role: UserRole): string {
   return role === "client" ? "/portal/credencial" : "/dashboard/credential";
@@ -54,6 +60,12 @@ export default async function DashboardPage({
     }),
   );
   await dispose();
+  // Support Session es solo lectura: no anunciar acciones de captura.
+  const quickActions = getVisibleQuickActions(visibleGroups, { readOnly: dashCtx.readOnly });
+  // "Hoy" = día calendario de la organización (no el UTC del servidor).
+  const timeZone = await resolveOrganizationDisplayTimeZone(dashCtx.organizationId);
+  const now = new Date();
+  const todaySummary = await getTodaySummary(user as SessionUser, visibleGroups, { timeZone, now });
 
   return (
     <div className="space-y-6">
@@ -62,87 +74,151 @@ export default async function DashboardPage({
           {commercialErrorMessage}
         </div>
       )}
-      {/* Bienvenida */}
-      <div className="flex items-start justify-between flex-wrap gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-zinc-800">
-            Bienvenido, {user.name?.split(" ")[0]}
-          </h1>
-          <p className="text-zinc-500 text-sm mt-1">
-            {new Date().toLocaleDateString("es-MX", {
-              weekday: "long",
-              year: "numeric",
-              month: "long",
-              day: "numeric",
-            })}
+      {/* Bienvenida + información de sesión plegable */}
+      <DashboardWelcome
+        firstName={user.name?.split(" ")[0] ?? ""}
+        dateLabel={formatWelcomeDate(now, timeZone)}
+        roleLabel={ROLE_LABELS[user.role]}
+        roleClassName={ROLE_COLORS[user.role]}
+        credentialHref={credentialHref(user.role)}
+        email={user.email ?? ""}
+        locationLabel={user.location_id ? "Asignada" : "— (global)"}
+        userId={user.id}
+      />
+
+      {/* Acciones rápidas — solo las de módulos visibles para esta cuenta */}
+      {quickActions.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          {quickActions.map((action, index) => (
+            <Link
+              key={action.href}
+              href={action.href}
+              className={buttonClasses(index === 0 ? "accent" : "outline")}
+            >
+              <ModuleIcon name={moduleIconForHref(action.requiresNavHref)} className="h-4 w-4" />
+              {action.label}
+            </Link>
+          ))}
+        </div>
+      )}
+
+      {/* Resumen de hoy — solo indicadores de módulos visibles para esta cuenta */}
+      {todaySummary?.status === "needs_location" && (
+        <section>
+          <h2 className="font-display text-xl font-bold text-dark">Resumen de hoy</h2>
+          <p className="mt-2 rounded-2xl border border-dark/10 bg-white px-5 py-4 text-sm text-dark/70">
+            {todaySummary.message}
           </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <span className={`text-xs font-semibold px-3 py-1.5 rounded-full ${ROLE_COLORS[user.role]}`}>
-            {ROLE_LABELS[user.role]}
-          </span>
-          <Link
-            href={credentialHref(user.role)}
-            className="text-xs font-semibold px-3 py-1.5 rounded-full border border-zinc-300 text-zinc-600 hover:border-zinc-500 hover:bg-zinc-100 hover:text-zinc-800 transition-colors whitespace-nowrap"
-          >
-            Mi Carnet
-          </Link>
-        </div>
-      </div>
+        </section>
+      )}
+      {todaySummary?.status === "error" && (
+        <section>
+          <h2 className="font-display text-xl font-bold text-dark">Resumen de hoy</h2>
+          <p role="status" className="mt-2 rounded-2xl border border-amber-200 bg-amber-50 px-5 py-4 text-sm text-amber-800">
+            El resumen de hoy no está disponible en este momento. Los módulos funcionan con normalidad.
+          </p>
+        </section>
+      )}
+      {todaySummary?.status === "ok" && todaySummary.stats.length > 0 && (
+        <section>
+          <div className="mb-3 flex items-baseline justify-between gap-2">
+            <h2 className="font-display text-xl font-bold text-dark">Resumen de hoy</h2>
+            <span className="text-sm text-dark/50">{todaySummary.scopeLabel}</span>
+          </div>
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            {todaySummary.stats.map((stat, index) => (
+              <Link
+                key={stat.key}
+                href={stat.href}
+                className={`group rounded-2xl border border-dark/10 bg-white p-5 transition duration-300 hover:-translate-y-1 hover:shadow-lg ${
+                  index % 2 === 0
+                    ? "hover:border-primary/30 hover:bg-primary/5 hover:shadow-primary/10"
+                    : "hover:border-secondary/40 hover:bg-secondary/5 hover:shadow-secondary/15"
+                }`}
+              >
+                <div className="flex items-center gap-2">
+                  <span
+                    className={`flex h-8 w-8 items-center justify-center rounded-lg ${
+                      index % 2 === 0 ? "bg-primary/10 text-primary-dark" : "bg-secondary/10 text-secondary-dark"
+                    }`}
+                  >
+                    <ModuleIcon name={moduleIconForHref(stat.href)} className="h-4 w-4" />
+                  </span>
+                  <p className="text-xs font-semibold text-dark/55 uppercase tracking-wide">{stat.label}</p>
+                </div>
+                <p className="mt-3 font-display text-2xl font-bold text-dark">{stat.value}</p>
+                <p className="mt-1 text-xs text-dark/55">{stat.hint}</p>
+              </Link>
+            ))}
+          </div>
+        </section>
+      )}
 
-      {/* Info de sesión */}
-      <div className="bg-white rounded-xl border border-zinc-200 shadow-sm p-5">
-        <h2 className="text-xs font-semibold text-zinc-400 uppercase tracking-wide mb-4">
-          Sesión activa
-        </h2>
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
-          <div>
-            <p className="text-xs text-zinc-400">Correo</p>
-            <p className="text-sm text-zinc-800 font-medium truncate">{user.email}</p>
+      {/* Módulos por sección — tarjetas estilo getzolvi.com */}
+      {visibleGroups.map((group, groupIndex) => (
+        <section
+          key={group.id}
+          className={`rounded-3xl border p-5 sm:p-6 ${
+            groupIndex % 2 === 0
+              ? "border-secondary/20 bg-secondary/[0.07]"
+              : "border-primary/15 bg-primary/[0.05]"
+          }`}
+        >
+          <div className="mb-5 flex items-center gap-3">
+            <span
+              aria-hidden
+              className={`h-6 w-1.5 rounded-full ${groupIndex % 2 === 0 ? "bg-secondary" : "bg-primary"}`}
+            />
+            <h2 className="font-display text-xl font-bold text-dark">{group.label}</h2>
+            <span className="text-sm text-dark/50">
+              {group.items.length} {group.items.length === 1 ? "módulo" : "módulos"}
+            </span>
           </div>
-          <div>
-            <p className="text-xs text-zinc-400">Sucursal</p>
-            <p className="text-sm text-zinc-800 font-medium">
-              {user.location_id ? "Asignada" : "— (global)"}
-            </p>
-          </div>
-          <div className="col-span-2 sm:col-span-1">
-            <p className="text-xs text-zinc-400">ID de usuario</p>
-            <p className="text-xs font-mono text-zinc-500 break-all">{user.id}</p>
-          </div>
-        </div>
-      </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+            {group.items.map((m, index) => {
+              const isPink = index % 2 === 0;
+              const icon = (
+                <span
+                  className={`flex h-11 w-11 items-center justify-center rounded-xl transition-colors duration-300 ${
+                    isPink
+                      ? "bg-primary/10 text-primary-dark group-hover:bg-primary/20"
+                      : "bg-secondary/10 text-secondary-dark group-hover:bg-secondary/20"
+                  }`}
+                >
+                  <ModuleIcon name={moduleIconForHref(m.href)} className="h-5 w-5" />
+                </span>
+              );
+              const description = moduleDescriptionForHref(m.href);
 
-      {/* Módulos por sección */}
-      {visibleGroups.map((group) => (
-        <div key={group.id} className="bg-white rounded-xl border border-zinc-200 shadow-sm p-5">
-          <h2 className="text-xs font-semibold text-zinc-400 uppercase tracking-wide mb-4">
-            {group.label}
-          </h2>
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
-            {group.items.map((m) =>
-              m.disabled ? (
+              return m.disabled ? (
                 <div
                   key={m.href}
-                  className="border border-dashed border-zinc-200 rounded-lg p-3 text-center opacity-50 cursor-not-allowed"
+                  className="rounded-2xl border border-dashed border-dark/15 bg-white p-6 opacity-50 cursor-not-allowed"
                 >
-                  <p className="text-sm font-medium text-zinc-400">{m.label}</p>
-                  <p className="text-xs text-zinc-300 mt-0.5">Próximamente</p>
+                  {icon}
+                  <h3 className="mt-5 font-display text-lg font-bold text-dark">{m.label}</h3>
+                  <p className="mt-2 text-sm leading-relaxed text-dark/65">Próximamente</p>
                 </div>
               ) : (
                 <Link
                   key={m.href}
                   href={m.href}
-                  className="border border-zinc-200 rounded-lg p-3 text-center hover:border-zinc-400 hover:bg-zinc-50 transition-colors group"
+                  className={`group rounded-2xl border border-dark/10 bg-white p-6 transition duration-300 hover:-translate-y-1 hover:shadow-lg ${
+                    isPink
+                      ? "hover:border-primary/30 hover:bg-primary/5 hover:shadow-primary/10"
+                      : "hover:border-secondary/40 hover:bg-secondary/5 hover:shadow-secondary/15"
+                  }`}
                 >
-                  <p className="text-sm font-medium text-zinc-700 group-hover:text-zinc-900">
-                    {m.label}
-                  </p>
+                  {icon}
+                  <h3 className="mt-5 font-display text-lg font-bold text-dark">{m.label}</h3>
+                  {description && (
+                    <p className="mt-2 text-sm leading-relaxed text-dark/65">{description}</p>
+                  )}
                 </Link>
-              )
-            )}
+              );
+            })}
           </div>
-        </div>
+        </section>
       ))}
     </div>
   );

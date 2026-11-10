@@ -52,7 +52,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 }
 
 function formatDate(date: Date) {
-  return new Date(date).toLocaleDateString("es-MX", {
+  return new Date(date).toLocaleDateString("es-SV", {
     day: "2-digit",
     month: "short",
     year: "numeric",
@@ -86,7 +86,7 @@ export default async function ClientDetailPage({ params }: Props) {
     if (!client || !canManageClient(sessionUser, client)) notFound();
 
     const birthDateStr = client.birth_date
-      ? new Date(client.birth_date).toLocaleDateString("es-MX", {
+      ? new Date(client.birth_date).toLocaleDateString("es-SV", {
           year: "numeric",
           month: "long",
           day: "numeric",
@@ -145,7 +145,7 @@ export default async function ClientDetailPage({ params }: Props) {
             </Link>
             <Link
               href={`/dashboard/clients/${client.id}/edit`}
-              className="bg-zinc-900 text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-zinc-800 transition-colors"
+              className="bg-zinc-900 text-white px-4 py-2 rounded-full text-sm font-semibold hover:bg-zinc-800 transition-colors"
             >
               Editar
             </Link>
@@ -354,11 +354,11 @@ export default async function ClientDetailPage({ params }: Props) {
                   {activeWeeklyPlan.template?.name ?? "Plan manual"}
                 </p>
                 <p className="text-sm text-zinc-500 mt-0.5">
-                  {new Date(activeWeeklyPlan.start_date).toLocaleDateString("es-MX", {
+                  {new Date(activeWeeklyPlan.start_date).toLocaleDateString("es-SV", {
                     day: "2-digit", month: "short", year: "numeric",
                   })}{" "}
                   →{" "}
-                  {new Date(activeWeeklyPlan.end_date).toLocaleDateString("es-MX", {
+                  {new Date(activeWeeklyPlan.end_date).toLocaleDateString("es-SV", {
                     day: "2-digit", month: "short", year: "numeric",
                   })}
                 </p>
@@ -532,14 +532,14 @@ export default async function ClientDetailPage({ params }: Props) {
       {/* Auditoría */}
       <div className="text-xs text-zinc-400 text-right">
         Registrado:{" "}
-        {new Date(client.created_at).toLocaleDateString("es-MX", {
+        {new Date(client.created_at).toLocaleDateString("es-SV", {
           year: "numeric",
           month: "long",
           day: "numeric",
         })}
         {" · "}
         Actualizado:{" "}
-        {new Date(client.updated_at).toLocaleDateString("es-MX", {
+        {new Date(client.updated_at).toLocaleDateString("es-SV", {
           year: "numeric",
           month: "long",
           day: "numeric",

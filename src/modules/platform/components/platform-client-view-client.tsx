@@ -159,7 +159,7 @@ function ViewerTable({
         </p>
       )}
       <div className="overflow-x-auto">
-        <table className="w-full text-xs">
+        <table className="zv-table w-full text-xs">
           <thead>
             <tr className="border-b border-zinc-100 text-zinc-400 uppercase tracking-wide">
               {headers.map((h) => (

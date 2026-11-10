@@ -45,7 +45,7 @@ export function PlatformCancelDeploymentButton({ jobId }: Props) {
       <button
         onClick={handleCancel}
         disabled={loading}
-        className="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium text-zinc-600 border border-zinc-300 rounded-lg hover:bg-zinc-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+        className="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium text-zinc-600 border border-zinc-300 rounded-full hover:bg-zinc-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
       >
         {loading ? (
           <>

@@ -70,7 +70,7 @@ function PctBar({ pct }: { pct: number | null }) {
 function Table({ head, children }: { head: string[]; children: ReactNode }) {
   return (
     <div className="overflow-x-auto -mx-4 sm:mx-0">
-      <table className="min-w-full text-sm">
+      <table className="zv-table min-w-full text-sm">
         <thead>
           <tr className="border-b border-zinc-200 text-left">
             {head.map((h) => (
@@ -134,7 +134,7 @@ export function FiltersForm({
           Sucursal: <span className="font-semibold text-zinc-700">{branches[0]?.name}</span>
         </p>
       )}
-      <button type="submit" className="bg-zinc-900 text-white px-4 py-2 rounded-lg text-sm hover:bg-zinc-800 transition-colors">
+      <button type="submit" className="bg-zinc-900 text-white px-4 py-2 rounded-full text-sm hover:bg-zinc-800 transition-colors">
         Aplicar
       </button>
       <Link href={BASE} className="text-sm text-zinc-500 hover:text-zinc-800 py-2">

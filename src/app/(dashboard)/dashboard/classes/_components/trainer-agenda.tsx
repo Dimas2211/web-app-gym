@@ -28,7 +28,7 @@ const KIND_BADGE = {
 
 /** class_date es DATE (medianoche UTC): se formatea en UTC para no correr el día. */
 export function formatDay(d: Date) {
-  const s = d.toLocaleDateString("es-MX", { timeZone: "UTC", weekday: "long", day: "numeric", month: "long", year: "numeric" });
+  const s = d.toLocaleDateString("es-SV", { timeZone: "UTC", weekday: "long", day: "numeric", month: "long", year: "numeric" });
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
 

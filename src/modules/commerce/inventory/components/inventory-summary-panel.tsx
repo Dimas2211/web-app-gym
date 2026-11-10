@@ -243,7 +243,7 @@ export function InventorySummaryPanel({
             onClick={onRequestMovement}
             disabled={!detail.is_active}
             className="w-full flex items-center justify-center gap-2 px-3 py-2 text-xs font-medium
-                       rounded-lg bg-zinc-900 text-white hover:bg-zinc-800
+                       rounded-full bg-zinc-900 text-white hover:bg-zinc-800
                        disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
             title={!detail.is_active ? "Reactiva este registro para registrar movimientos" : undefined}
           >

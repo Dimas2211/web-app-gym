@@ -125,7 +125,7 @@ function EligibleSaleRow({ profileId, sale, onDone }: {
               type="button"
               onClick={handlePreview}
               disabled={isPending}
-              className="text-xs font-semibold px-3 py-1.5 border border-zinc-200 rounded-lg hover:bg-zinc-50 transition-colors disabled:opacity-50"
+              className="text-xs font-semibold px-3 py-1.5 border border-zinc-200 rounded-full hover:bg-zinc-50 transition-colors disabled:opacity-50"
             >
               {isPending ? "Calculando…" : "1. Vista previa (DRY_RUN)"}
             </button>
@@ -409,7 +409,7 @@ function DteDocumentRow({ profileId, doc, onDone }: {
               type="button"
               onClick={handleSignPreview}
               disabled={isSignPending}
-              className="text-xs font-semibold px-3 py-1.5 border border-zinc-200 rounded-lg hover:bg-zinc-50 transition-colors disabled:opacity-50"
+              className="text-xs font-semibold px-3 py-1.5 border border-zinc-200 rounded-full hover:bg-zinc-50 transition-colors disabled:opacity-50"
             >
               {isSignPending ? "Validando…" : "1. Vista previa (DRY_RUN)"}
             </button>
@@ -472,7 +472,7 @@ function DteDocumentRow({ profileId, doc, onDone }: {
               type="button"
               onClick={handleTransmitPreview}
               disabled={isTransmitPending}
-              className="text-xs font-semibold px-3 py-1.5 border border-zinc-200 rounded-lg hover:bg-zinc-50 transition-colors disabled:opacity-50"
+              className="text-xs font-semibold px-3 py-1.5 border border-zinc-200 rounded-full hover:bg-zinc-50 transition-colors disabled:opacity-50"
             >
               {isTransmitPending ? "Validando…" : "1. Vista previa (DRY_RUN)"}
             </button>

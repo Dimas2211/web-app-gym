@@ -16,9 +16,9 @@ type Props = {
 };
 
 function formatCurrency(value: number) {
-  return new Intl.NumberFormat("es-MX", {
+  return new Intl.NumberFormat("es-SV", {
     style: "currency",
-    currency: "MXN",
+    currency: "USD",
     minimumFractionDigits: 2,
   }).format(value);
 }
@@ -166,7 +166,7 @@ export function RevenueByBranchReport({ branches, isSuperAdmin }: Props) {
       filters: activeFilters,
       kpis: [
         { label: "Ingresos totales", value: formatCurrency(data.summary.netRevenue) },
-        { label: "Membresías vendidas", value: data.summary.membershipsSold.toLocaleString("es-MX") },
+        { label: "Membresías vendidas", value: data.summary.membershipsSold.toLocaleString("es-SV") },
         { label: "Ticket promedio", value: formatCurrency(data.summary.averageTicket) },
         { label: "Sucursal top", value: data.summary.topBranch?.branchName ?? "—" },
       ],
@@ -272,7 +272,7 @@ export function RevenueByBranchReport({ branches, isSuperAdmin }: Props) {
           {/* KPIs */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             <SummaryCard label="Ingresos totales" value={formatCurrency(data.summary.netRevenue)} />
-            <SummaryCard label="Membresías vendidas" value={data.summary.membershipsSold.toLocaleString("es-MX")} />
+            <SummaryCard label="Membresías vendidas" value={data.summary.membershipsSold.toLocaleString("es-SV")} />
             <SummaryCard label="Ticket promedio" value={formatCurrency(data.summary.averageTicket)} />
             <SummaryCard
               label="Sucursal top"
@@ -322,7 +322,7 @@ export function RevenueByBranchReport({ branches, isSuperAdmin }: Props) {
                 </button>
               </div>
               <div className="overflow-x-auto">
-                <table className="w-full text-sm">
+                <table className="zv-table-dark w-full text-sm">
                   <thead>
                     <tr className="border-b border-zinc-800">
                       <th className="text-left text-zinc-400 font-medium px-4 py-3">Sucursal / Plan</th>
@@ -359,7 +359,7 @@ export function RevenueByBranchReport({ branches, isSuperAdmin }: Props) {
                               </span>
                             </td>
                             <td className="px-4 py-3 text-right text-zinc-300">
-                              {item.membershipsSold.toLocaleString("es-MX")}
+                              {item.membershipsSold.toLocaleString("es-SV")}
                             </td>
                             <td className="px-4 py-3 text-right text-zinc-300 font-semibold">
                               {formatCurrency(item.netRevenue)}
@@ -385,7 +385,7 @@ export function RevenueByBranchReport({ branches, isSuperAdmin }: Props) {
                                   {plan.planName}
                                 </td>
                                 <td className="px-4 py-2 text-right text-zinc-400 text-xs">
-                                  {plan.membershipsSold.toLocaleString("es-MX")}
+                                  {plan.membershipsSold.toLocaleString("es-SV")}
                                 </td>
                                 <td className="px-4 py-2 text-right text-zinc-400 text-xs">
                                   {formatCurrency(plan.netRevenue)}
@@ -409,7 +409,7 @@ export function RevenueByBranchReport({ branches, isSuperAdmin }: Props) {
                       <tr className="border-t-2 border-zinc-700 bg-zinc-800/60">
                         <td className="px-4 py-3 text-zinc-300 font-semibold">Total</td>
                         <td className="px-4 py-3 text-right text-zinc-300 font-semibold">
-                          {data.summary.membershipsSold.toLocaleString("es-MX")}
+                          {data.summary.membershipsSold.toLocaleString("es-SV")}
                         </td>
                         <td className="px-4 py-3 text-right text-white font-bold">
                           {formatCurrency(data.summary.netRevenue)}

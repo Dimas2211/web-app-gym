@@ -38,7 +38,7 @@ type SearchParams = Promise<{
 }>;
 
 function formatDate(date: Date) {
-  return new Date(date).toLocaleDateString("es-MX", {
+  return new Date(date).toLocaleDateString("es-SV", {
     day: "2-digit",
     month: "short",
     year: "numeric",
@@ -111,7 +111,7 @@ export default async function ClientWeeklyPlansPage({
         {canManage && (
           <Link
             href="/dashboard/weekly-plans/client-plans/new"
-            className="bg-zinc-900 text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-zinc-800 transition-colors"
+            className="bg-zinc-900 text-white px-4 py-2 rounded-full text-sm font-semibold hover:bg-zinc-800 transition-colors"
           >
             + Asignar plan
           </Link>
@@ -139,7 +139,7 @@ export default async function ClientWeeklyPlansPage({
         </select>
         <button
           type="submit"
-          className="bg-zinc-900 text-white px-4 py-2 rounded-lg text-sm hover:bg-zinc-800 transition-colors"
+          className="bg-zinc-900 text-white px-4 py-2 rounded-full text-sm hover:bg-zinc-800 transition-colors"
         >
           Filtrar
         </button>
@@ -168,7 +168,7 @@ export default async function ClientWeeklyPlansPage({
         <div className="bg-white rounded-xl border border-zinc-200 shadow-sm overflow-hidden">
           {/* Escritorio */}
           <div className="hidden md:block overflow-x-auto">
-            <table className="w-full text-sm">
+            <table className="zv-table w-full text-sm">
               <thead className="bg-zinc-50 border-b border-zinc-200">
                 <tr>
                   <th className="text-left px-5 py-3 text-xs font-semibold text-zinc-500 uppercase tracking-wide">
@@ -366,7 +366,7 @@ export default async function ClientWeeklyPlansPage({
         ) : (
           <div className="bg-white rounded-xl border border-zinc-200 shadow-sm overflow-hidden">
             <div className="hidden md:block overflow-x-auto">
-              <table className="w-full text-sm">
+              <table className="zv-table w-full text-sm">
                 <thead className="bg-sky-50 border-b border-sky-100">
                   <tr>
                     <th className="text-left px-5 py-3 text-xs font-semibold text-sky-700 uppercase tracking-wide">

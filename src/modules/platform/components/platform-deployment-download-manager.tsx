@@ -131,7 +131,7 @@ export function PlatformDeploymentDownloadManager({ organizationId, organization
               type="button"
               onClick={handleDownloadBundle}
               disabled={!canExport || isPending}
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium border border-zinc-200 text-zinc-700 hover:bg-zinc-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium border border-zinc-200 text-zinc-700 hover:bg-zinc-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
               <Download size={14} />
               Descargar JSON
@@ -179,7 +179,7 @@ export function PlatformDeploymentDownloadManager({ organizationId, organization
               type="button"
               onClick={handleDownloadConfig}
               disabled={!canExport || isPending}
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium border border-zinc-200 text-zinc-700 hover:bg-zinc-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium border border-zinc-200 text-zinc-700 hover:bg-zinc-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
               <Download size={14} />
               Descargar JSON

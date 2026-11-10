@@ -49,7 +49,7 @@ export function PlatformOrganizationsTable({
   }
 
   return (
-    <table className="w-full text-sm">
+    <table className="zv-table w-full text-sm">
       <thead className="sticky top-0 bg-white">
         <tr className="border-b border-zinc-100">
           <th className="text-left px-4 py-2.5 text-xs font-semibold text-zinc-500">Código</th>

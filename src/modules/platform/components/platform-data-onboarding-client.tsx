@@ -341,7 +341,7 @@ function DbAwarePanel({
           {/* Tabla de filas DB-aware */}
           {rows.length > 0 ? (
             <div className="overflow-x-auto max-h-72">
-              <table className="w-full text-[11px]">
+              <table className="zv-table w-full text-[11px]">
                 <thead>
                   <tr className="border-b border-indigo-100 bg-indigo-50/50">
                     <th className="px-2 py-1.5 text-left font-medium text-zinc-500 w-10">#</th>
@@ -685,7 +685,7 @@ function PreviewPanel({ result, datasetKey }: { result: DataOnboardingPreviewRes
           {/* Tabla de filas */}
           {result.rows.length > 0 ? (
             <div className="overflow-x-auto max-h-80">
-              <table className="w-full text-[11px]">
+              <table className="zv-table w-full text-[11px]">
                 <thead>
                   <tr className="border-b border-zinc-200 bg-zinc-50">
                     <th className="px-2 py-1.5 text-left font-medium text-zinc-500 w-10">#</th>
@@ -1299,7 +1299,7 @@ function DatasetCard({ dataset, target, disabledReason }: DatasetCardProps) {
           )}
           {importState.importResult.rows.length > 0 && (
             <div className="overflow-x-auto max-h-40 border-t border-green-100">
-              <table className="w-full text-[11px]">
+              <table className="zv-table w-full text-[11px]">
                 <thead>
                   <tr className="border-b border-green-100 bg-green-50/60">
                     <th className="px-2 py-1 text-left font-medium text-zinc-500 w-10">#</th>

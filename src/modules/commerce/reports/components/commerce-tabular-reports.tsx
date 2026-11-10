@@ -96,7 +96,9 @@ function LoadingRow() {
 function ErrorRow({ message }: { message: string }) {
   return (
     <div className="rounded border border-rose-800 bg-rose-900/20 p-3 text-sm text-rose-400">
-      {message}
+      {message === "Sin location activa"
+        ? "Selecciona una sucursal en la barra superior para ver este reporte."
+        : message}
     </div>
   );
 }

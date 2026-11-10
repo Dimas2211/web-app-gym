@@ -45,7 +45,7 @@ export default async function GymActivitiesPage({ searchParams }: Props) {
           {canWrite && (
             <Link
               href="/dashboard/classes/activities/new"
-              className="bg-zinc-900 text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-zinc-800 transition-colors"
+              className="bg-zinc-900 text-white px-4 py-2 rounded-full text-sm font-semibold hover:bg-zinc-800 transition-colors"
             >
               + Nueva actividad
             </Link>
@@ -80,7 +80,7 @@ export default async function GymActivitiesPage({ searchParams }: Props) {
           {activities.length === 0 ? (
             <p className="p-6 text-sm text-zinc-400">No hay actividades registradas.</p>
           ) : (
-            <table className="w-full text-sm">
+            <table className="zv-table w-full text-sm">
               <thead className="bg-zinc-50 text-xs text-zinc-500 uppercase tracking-wide">
                 <tr>
                   <th className="text-left px-4 py-3">Orden</th>

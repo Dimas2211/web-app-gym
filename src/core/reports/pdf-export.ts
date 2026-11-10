@@ -72,7 +72,7 @@ export function downloadPdf(config: PdfReportConfig): void {
   doc.setFont("helvetica", "normal");
   doc.setTextColor(130);
   doc.text(
-    `Generado: ${generatedAt.toLocaleString("es-MX")}`,
+    `Generado: ${generatedAt.toLocaleString("es-SV")}`,
     pageW - 14,
     14,
     { align: "right" }

@@ -228,7 +228,7 @@ export function CashSessionCutPanel({
             </p>
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full text-xs">
+              <table className="zv-table w-full text-xs">
                 <thead>
                   <tr className="border-b border-zinc-100 text-left text-zinc-400">
                     <th className="py-1.5 font-medium">Fecha</th>
@@ -325,7 +325,7 @@ export function CashSessionCutPanel({
             <p className="text-sm text-zinc-400">Sin pagos asociados a esta sesión.</p>
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full text-xs">
+              <table className="zv-table w-full text-xs">
                 <thead>
                   <tr className="border-b border-zinc-100 text-left text-zinc-400">
                     <th className="py-1.5 font-medium">Forma de pago</th>
@@ -362,7 +362,7 @@ export function CashSessionCutPanel({
             </p>
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full text-xs">
+              <table className="zv-table w-full text-xs">
                 <thead>
                   <tr className="border-b border-zinc-100 text-left text-zinc-400">
                     <th className="py-1.5 font-medium">Hora</th>

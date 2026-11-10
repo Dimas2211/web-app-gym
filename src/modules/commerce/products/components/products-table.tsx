@@ -262,7 +262,7 @@ export function ProductsTable({
       onKeyDown={handleKeyDown}
       className="h-full overflow-auto focus:outline-none focus:ring-2 focus:ring-inset focus:ring-zinc-300 rounded-lg"
     >
-      <table className="w-full text-sm border-collapse">
+      <table className="zv-table w-full text-sm border-collapse">
         <thead>
           <tr>
             {COLUMNS.map((col) => (

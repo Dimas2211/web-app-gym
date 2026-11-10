@@ -16,9 +16,13 @@ describe("branding global Zolvi (SHARED-PILOT-4B.2)", () => {
 
   it("globals.css centraliza los tokens de marca", () => {
     const css = read("src/app/globals.css").toLowerCase();
-    expect(css).toContain("--color-brand-navy: #1c1953");
-    expect(css).toContain("--color-brand-blue: #40ace1");
-    expect(css).toContain("--color-brand-magenta: #ec195a");
+    // Tokens del sistema de diseño getzolvi.com (el logo conserva su arte original).
+    expect(css).toContain("--color-dark: #15154a");
+    expect(css).toContain("--color-secondary: #3fa9e0");
+    expect(css).toContain("--color-primary: #ec1c54");
+    expect(css).toContain("--color-brand-navy: #15154a");
+    expect(css).toContain("--color-brand-blue: #3fa9e0");
+    expect(css).toContain("--color-brand-magenta: #ec1c54");
   });
 
   it("login, dashboard y portal muestran el logo Zolvi sin marca GYM", () => {

@@ -320,7 +320,7 @@ export function ProductsClient({
               href={selectedProduct
                 ? `/dashboard/reports/commerce/inventory-movements?product_id=${selectedProduct.id}`
                 : "/dashboard/reports/commerce/inventory-movements"}
-              className="flex items-center gap-2 rounded-lg border border-zinc-300 bg-white
+              className="flex items-center gap-2 rounded-full border border-zinc-300 bg-white
                          px-4 py-2 text-sm font-semibold text-zinc-800
                          hover:border-zinc-500 hover:bg-zinc-50 transition-colors"
               title={selectedProduct

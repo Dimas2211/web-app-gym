@@ -30,7 +30,7 @@ export default async function LowAdherencePage() {
         : [];
 
     return (
-      <main className="p-4 md:p-8 max-w-5xl mx-auto">
+      <main className="p-4 md:p-8 max-w-5xl mx-auto rounded-3xl bg-zinc-950 text-zinc-100 shadow-xl shadow-dark/10">
         <ReportPageHeader
           crumbs={[
             { label: "Reportes", href: "/dashboard/reports" },

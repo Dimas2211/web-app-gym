@@ -209,7 +209,7 @@ export function EvolutionSection({
           <details className="text-xs">
             <summary className="cursor-pointer text-zinc-500 hover:text-zinc-700">Ver datos en tabla</summary>
             <div className="overflow-x-auto mt-2">
-              <table className="w-full text-xs">
+              <table className="zv-table w-full text-xs">
                 <thead>
                   <tr className="text-zinc-400 text-left">
                     <th className="py-1 pr-3 font-semibold">Intervalo</th>

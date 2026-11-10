@@ -16,6 +16,7 @@ import type { CommerceDashboardData } from "../types/commerce-report.types";
 import type { KpiReportPalette } from "../utils/kpi-report-palettes";
 import { getRandomKpiReportPalette, getDefaultKpiReportPalette } from "../utils/kpi-report-palettes";
 import { getDefaultDateRange } from "../utils/report-date-range";
+import { createLatestRequestGate } from "../utils/latest-request-gate";
 
 import { CommerceReportFilters, type ReportFilterState } from "./commerce-report-filters";
 import { CommerceKpiCards }           from "./commerce-kpi-cards";
@@ -43,6 +44,9 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 
 // ── Main client component ─────────────────────────────────────────
 
+// Mensaje del endpoint cuando el usuario global no tiene sede activa.
+const NO_LOCATION_ERROR = "Sin location activa";
+
 export function CommerceReportsClient() {
   const defaultRange = getDefaultDateRange();
 
@@ -64,8 +68,14 @@ export function CommerceReportsClient() {
     paletteRef.current = getRandomKpiReportPalette();
   }, []);
 
+  // Solo la consulta más reciente puede escribir el estado: si el usuario
+  // encadena periodos rápidos, una respuesta lenta de un periodo anterior
+  // nunca reemplaza (ni se muestra como) la del último periodo elegido.
+  const requestGateRef = useRef(createLatestRequestGate());
+
   const fetchData = useCallback(async (f: ReportFilterState) => {
     if (!f.date_from || !f.date_to) return;
+    const isLatest = requestGateRef.current.begin();
     setLoading(true);
     setError(null);
     try {
@@ -75,11 +85,12 @@ export function CommerceReportsClient() {
         const body = await res.json().catch(() => ({}));
         throw new Error((body as { error?: string }).error ?? "Error al cargar el reporte");
       }
-      setData(await res.json() as CommerceDashboardData);
+      const json = (await res.json()) as CommerceDashboardData;
+      if (isLatest()) setData(json);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Error desconocido");
+      if (isLatest()) setError(e instanceof Error ? e.message : "Error desconocido");
     } finally {
-      setLoading(false);
+      if (isLatest()) setLoading(false);
     }
   }, []);
 
@@ -121,6 +132,7 @@ export function CommerceReportsClient() {
           loading={loading}
           onChange={setFilters}
           onApply={handleApply}
+          onQuickApply={fetchData}
         />
       </div>
 
@@ -134,20 +146,30 @@ export function CommerceReportsClient() {
 
       {/* Error */}
       {!loading && error && (
-        <div className="rounded-lg border border-rose-800 bg-rose-900/20 p-4 text-sm text-rose-400">
-          {error}
-        </div>
+        error === NO_LOCATION_ERROR ? (
+          <div className="rounded-2xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
+            <p className="font-semibold">Selecciona una sucursal para ver los reportes.</p>
+            <p className="mt-1">
+              Elige la sede en el selector de la barra superior (&ldquo;Seleccionar sede…&rdquo;) y
+              luego presiona Consultar o un periodo rápido.
+            </p>
+          </div>
+        ) : (
+          <div className="rounded-2xl border border-red-300 bg-red-50 p-4 text-sm text-red-800">
+            {error}
+          </div>
+        )
       )}
 
       {/* Sin location activa */}
       {!loading && !error && !data && (
-        <div className="flex items-center justify-center py-12 text-sm text-zinc-500">
+        <div className="flex items-center justify-center py-12 text-sm text-zinc-400">
           Selecciona un período y presiona Consultar.
         </div>
       )}
 
-      {/* Dashboard */}
-      {!loading && data && (
+      {/* Dashboard: ocultar resultados previos si la última consulta falla */}
+      {!loading && !error && data && (
         <div className="space-y-6">
 
           {/* Barra de acciones del dashboard */}

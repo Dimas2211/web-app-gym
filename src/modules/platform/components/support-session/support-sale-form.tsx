@@ -400,7 +400,7 @@ export function SupportSaleForm({ profileId, profileLabel, environment }: Props)
           <p className="text-xs font-semibold text-zinc-500 uppercase tracking-wide">
             Vista previa calculada por el servidor — el total real puede variar levemente al confirmar
           </p>
-          <table className="w-full text-xs">
+          <table className="zv-table w-full text-xs">
             <thead>
               <tr className="text-zinc-400 border-b border-zinc-200">
                 <th className="text-left pb-1">Producto</th>

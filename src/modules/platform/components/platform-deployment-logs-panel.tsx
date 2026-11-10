@@ -47,7 +47,7 @@ export function PlatformDeploymentLogsPanel({
       </div>
 
       <div className="overflow-x-auto">
-        <table className="w-full text-sm">
+        <table className="zv-table w-full text-sm">
           <thead>
             <tr className="bg-zinc-50 border-b border-zinc-100">
               <th className="text-left px-4 py-2 text-xs font-semibold text-zinc-500 w-[170px]">Fecha</th>

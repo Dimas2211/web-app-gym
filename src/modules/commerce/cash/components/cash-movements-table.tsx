@@ -65,7 +65,7 @@ export function CashMovementsTable({
 
   return (
     <div className="overflow-x-auto">
-      <table className="min-w-full text-sm">
+      <table className="zv-table min-w-full text-sm">
         <thead>
           <tr className="border-b border-zinc-200 text-left text-xs text-zinc-500">
             <th className="pb-2 pr-4 font-medium whitespace-nowrap">Fecha/Hora</th>

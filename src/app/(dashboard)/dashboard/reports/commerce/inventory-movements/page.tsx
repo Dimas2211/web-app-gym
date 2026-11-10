@@ -65,7 +65,7 @@ export default async function ProductInventoryMovementsPage({
   if (!allowed) redirect("/dashboard");
 
   return (
-    <main className="p-4 md:p-8 max-w-7xl mx-auto text-zinc-100">
+    <main className="p-4 md:p-8 max-w-7xl mx-auto rounded-3xl bg-zinc-950 text-zinc-100 shadow-xl shadow-dark/10">
       <div className="mb-4">
         <h1 className="text-2xl font-bold text-white">Consultas y reportes</h1>
         <p className="mt-1 text-sm text-zinc-400">

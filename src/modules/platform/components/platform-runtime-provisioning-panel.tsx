@@ -171,7 +171,7 @@ export function PlatformRuntimeProvisioningPanel({
               </select>
             </div>
             <button type="button" disabled={!selectedTargetId || isPending} onClick={handleAssign}
-              className="h-9 px-4 text-sm font-semibold bg-zinc-900 text-white rounded-lg hover:bg-zinc-800 disabled:opacity-50">
+              className="h-9 px-4 text-sm font-semibold bg-zinc-900 text-white rounded-full hover:bg-zinc-800 disabled:opacity-50">
               Asignar
             </button>
           </div>
@@ -264,7 +264,7 @@ export function PlatformRuntimeProvisioningPanel({
 
           <div className="flex justify-end">
             <button type="button" disabled={!canSubmit || isPending} onClick={handleProvision}
-              className="px-4 py-2 text-sm font-semibold bg-zinc-900 text-white rounded-lg hover:bg-zinc-800 disabled:opacity-50">
+              className="px-4 py-2 text-sm font-semibold bg-zinc-900 text-white rounded-full hover:bg-zinc-800 disabled:opacity-50">
               {isPending ? "Provisionando…" : showRetry ? "Reintentar provisioning" : "Provisionar cliente"}
             </button>
           </div>

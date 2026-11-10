@@ -17,7 +17,7 @@ export default function CustomersError({
       <p className="text-xs text-zinc-400 mb-4">{error.message}</p>
       <button
         onClick={reset}
-        className="text-sm px-4 py-2 bg-zinc-900 text-white rounded-lg hover:bg-zinc-800 transition-colors"
+        className="text-sm px-4 py-2 bg-zinc-900 text-white rounded-full hover:bg-zinc-800 transition-colors"
       >
         Reintentar
       </button>

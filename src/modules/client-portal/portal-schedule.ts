@@ -313,7 +313,7 @@ function localHHmm(at: Date, timeZone: string): string {
 
 /** Etiqueta de una fecha "YYYY-MM-DD" sin desplazarla por la zona del servidor. */
 export function formatCalendarDate(date: string, options: Intl.DateTimeFormatOptions): string {
-  return new Date(`${date}T12:00:00.000Z`).toLocaleDateString("es-MX", { ...options, timeZone: "UTC" });
+  return new Date(`${date}T12:00:00.000Z`).toLocaleDateString("es-SV", { ...options, timeZone: "UTC" });
 }
 
 // ── Etiquetas ─────────────────────────────────────────────────────

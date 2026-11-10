@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { auth, signOut } from "@/lib/auth/auth";
 import { enforceRuntimeOrganizationAccess } from "@/modules/platform/runtime/runtime-organization-access-gate";
@@ -12,6 +13,7 @@ import { SidebarProvider } from "@/components/ui/sidebar-context";
 import { SidebarToggle } from "@/components/ui/sidebar-toggle";
 import { DashboardSidebar } from "@/components/ui/dashboard-sidebar";
 import { ZolviLogo } from "@/components/ui/zolvi-logo";
+import { ModuleHeaderBar } from "@/components/ui/module-header-bar";
 import { RuntimeSessionBanner } from "@/modules/platform/components/runtime-session-banner";
 import type { SessionUser } from "@/lib/permissions/guards";
 import type { UserRole } from "@prisma/client";
@@ -92,8 +94,13 @@ export default async function DashboardLayout({ children }: { children: React.Re
             {/* Logo + sidebar toggle + nav */}
             <div className="flex min-w-0 items-center gap-2">
               <SidebarToggle />
-              <ZolviLogo tone="onDark" className="mr-2" />
-              <NavBar role={user.role} />
+              {/* El logo es el acceso a Inicio (en móvil, el único). */}
+              <Link href="/dashboard" aria-label="Ir a inicio" className="mr-2 rounded-lg">
+                <ZolviLogo tone="onDark" />
+              </Link>
+              <div className="hidden sm:block">
+                <NavBar role={user.role} />
+              </div>
             </div>
 
             {/* Centro: LocationSwitcher para usuarios globales fuera de Support Session */}
@@ -143,8 +150,13 @@ export default async function DashboardLayout({ children }: { children: React.Re
                 auth_scope: isAuthScope(user.auth_scope) ? user.auth_scope : undefined,
               })}
             />
-            <main className="min-h-0 flex-1 overflow-y-auto px-4 py-8 sm:px-6">
-              <div className="mx-auto w-full max-w-[1800px]">{children}</div>
+            <main
+              className="min-h-0 flex-1 overflow-y-auto"
+              // Alto de la franja de módulo (h-12): los workspaces de alto completo lo descuentan.
+              style={{ "--zv-module-bar-h": "3rem" } as React.CSSProperties}
+            >
+              <ModuleHeaderBar />
+              <div className="mx-auto w-full max-w-[1800px] px-4 py-8 sm:px-6">{children}</div>
             </main>
           </div>
         </div>

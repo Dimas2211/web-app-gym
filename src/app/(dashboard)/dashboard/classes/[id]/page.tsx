@@ -71,7 +71,7 @@ function Section({ title, children, action }: { title: string; children: React.R
 }
 
 function formatDate(d: Date) {
-  return new Date(d).toLocaleDateString("es-MX", {
+  return new Date(d).toLocaleDateString("es-SV", {
     weekday: "long",
     year: "numeric",
     month: "long",
@@ -175,7 +175,7 @@ export default async function ScheduledClassDetailPage({ params, searchParams }:
           {isAdmin && canOperate && !isCancelled && (
             <Link
               href={`/dashboard/classes/${id}/edit`}
-              className="bg-zinc-900 text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-zinc-800 transition-colors"
+              className="bg-zinc-900 text-white px-4 py-2 rounded-full text-sm font-semibold hover:bg-zinc-800 transition-colors"
             >
               Editar clase
             </Link>
@@ -430,7 +430,7 @@ export default async function ScheduledClassDetailPage({ params, searchParams }:
         {/* Auditoría */}
         <div className="text-xs text-zinc-400 text-right">
           Creado:{" "}
-          {new Date(scheduledClass.created_at).toLocaleDateString("es-MX", {
+          {new Date(scheduledClass.created_at).toLocaleDateString("es-SV", {
             year: "numeric", month: "long", day: "numeric",
           })}
           {scheduledClass.creator && ` · por ${scheduledClass.creator.first_name} ${scheduledClass.creator.last_name}`}

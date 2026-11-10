@@ -78,9 +78,9 @@ export function ClassesTaughtReport({ branches, trainers, isSuperAdmin }: Props)
       title: "Clases impartidas por entrenador",
       filters: activeFilters,
       kpis: [
-        { label: "Clases totales", value: data.summary.totalClasses.toLocaleString("es-MX") },
+        { label: "Clases totales", value: data.summary.totalClasses.toLocaleString("es-SV") },
         { label: "Entrenadores activos", value: String(data.summary.totalTrainers) },
-        { label: "Total asistentes", value: data.summary.totalAttendees.toLocaleString("es-MX") },
+        { label: "Total asistentes", value: data.summary.totalAttendees.toLocaleString("es-SV") },
         { label: "Prom. clases/entrenador", value: String(data.summary.avgClassesPerTrainer) },
       ],
       chartImage: chartImage ?? undefined,
@@ -147,9 +147,9 @@ export function ClassesTaughtReport({ branches, trainers, isSuperAdmin }: Props)
       {data && (
         <>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <SummaryCard label="Clases completadas" value={data.summary.totalClasses.toLocaleString("es-MX")} />
+            <SummaryCard label="Clases completadas" value={data.summary.totalClasses.toLocaleString("es-SV")} />
             <SummaryCard label="Entrenadores" value={String(data.summary.totalTrainers)} />
-            <SummaryCard label="Total asistentes" value={data.summary.totalAttendees.toLocaleString("es-MX")} />
+            <SummaryCard label="Total asistentes" value={data.summary.totalAttendees.toLocaleString("es-SV")} />
             <SummaryCard label="Prom. clases/entrenador" value={String(data.summary.avgClassesPerTrainer)} />
           </div>
 
@@ -175,7 +175,7 @@ export function ClassesTaughtReport({ branches, trainers, isSuperAdmin }: Props)
           ) : (
             <div className="bg-zinc-900 border border-zinc-800 rounded-lg overflow-hidden">
               <div className="overflow-x-auto">
-                <table className="w-full text-sm">
+                <table className="zv-table-dark w-full text-sm">
                   <thead>
                     <tr className="border-b border-zinc-800">
                       <th className="text-left text-zinc-400 font-medium px-4 py-3">Entrenador</th>

@@ -431,7 +431,7 @@ export function InventoryMovementDialog({
             <button
               type="submit"
               disabled={isPending || !productLocation.is_active}
-              className="px-4 py-2 text-sm rounded-lg bg-zinc-900 text-white font-medium
+              className="px-4 py-2 text-sm rounded-full bg-zinc-900 text-white font-medium
                          hover:bg-zinc-800 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
             >
               {isPending ? "Registrando…" : "Registrar movimiento"}

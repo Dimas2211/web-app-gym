@@ -34,7 +34,7 @@ export default async function RevenueByBranchPage() {
         : [];
 
     return (
-      <main className="p-4 md:p-8 max-w-5xl mx-auto">
+      <main className="p-4 md:p-8 max-w-5xl mx-auto rounded-3xl bg-zinc-950 text-zinc-100 shadow-xl shadow-dark/10">
         <div className="mb-6">
           <p className="text-zinc-500 text-sm">
             <Link href="/dashboard/reports" className="hover:text-zinc-300 transition-colors">

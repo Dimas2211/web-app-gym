@@ -1,5 +1,36 @@
 # Estado actual — Plataforma Multiindustria
 
+## Panorama general (resumen rápido, 2026-11-09)
+
+> Lectura de 1 minuto. El detalle por fase sigue más abajo; este bloque no reemplaza
+> "Estado vigente — Runtime…" ni "Estado vigente — DTE".
+
+- **Producto:** Zolvi — monolito modular Next.js + Prisma + PostgreSQL. Capas `core` (identidad,
+  usuarios, permisos, sucursales), `commerce` (products, inventory, suppliers, purchases, sales,
+  cash, customers, DTE) y vertical `gym` (clientes, membresías, entrenadores, agenda/reservas,
+  planes semanales, portal del socio). Identidad `tenant_id` / `location_id`.
+- **Plataforma:** Control Plane + runtimes Shared/Dedicated, login por hostname (`*.getzolvi.com`),
+  provisioning desde Platform Admin, licencia aplicada en runtime, módulos por plan.
+- **Clientes:** TrustMe (dedicado, PRODUCTION), Commerce Pilot y Metatraining (shared), Power Gym
+  (nativo en Control Plane).
+- **Commerce:** todos los módulos cerrados y operativos. **DTE:** FE01, CCFE03, NC05, FSE14, FEX11
+  (servicios) e invalidación; certificación interna PASS; NC05 e invalidación post-BUG-1 pendientes
+  de recertificación externa MH.
+- **Gym:** etapas 2–5D implementadas (motor de reservas, multimodalidad, operación del entrenador,
+  seguimiento y analítica de entrenamiento). Ver sección "Estado global".
+- **UI (2026-11-09):** refresh visual al sistema de diseño de getzolvi.com en rama
+  `feat/ui-visual-refresh` — 3 commits publicados en `origin` (`f386e58`, `b9564a7`, `e59aea2`),
+  **sin PR ni merge a `main`**. Solo presentación (sin schema, sin migraciones, sin cambios de permisos
+  ni lógica de negocio). Auditoría pre-producción 2026-11-09 con correcciones en working tree (sin
+  commit): `docs/audits/ui-visual-refresh-production-review.md`. Detalle, antes/después y pendientes:
+  `docs/modules/ui-visual-refresh-summary.md`.
+- **Entorno local de referencia:** Node ≥ 22.12 (probado v26), PostgreSQL 17 local `zolvi_local`,
+  `.env` con `DATABASE_URL` y `DIRECT_URL` locales, seeds `db:seed:demo` → `db:seed:purchases` →
+  `npx tsx prisma/seed-sales-demo.ts`. Ojo: `seed.demo` deja `tenant_id` NULL en tablas GYM
+  (pantallas GYM vacías en local hasta corregirlo).
+- **Prioridades abiertas:** merge del refresh UI; corregir `seed.demo`; recertificación externa
+  NC05/invalidación; onboarding fiscal Shared; RLS; ver "Próximos pasos" y §10 del doc de UI.
+
 ## Estado global
 - Plataforma base multiindustria reorganizada.
 - Etapas 1–10 cerradas.
@@ -1245,7 +1276,14 @@ Auditoría + cierre de gaps puntuales, no construcción desde cero. Ver
 - Anulación de ventas confirmadas (con reversión en caja y opción de nota de crédito).
 - Acceso rol reception a operaciones de caja (si requerido operativamente).
 
+- **UI (pendientes del refresh visual, 2026-11-09):** merge de `feat/ui-visual-refresh`; acción
+  principal en la franja de módulo; búsqueda Ctrl+K; estados vacíos; toasts de confirmación;
+  tablas como tarjetas en móvil; portal del socio con el nuevo look; badges de estado unificados.
+  Ver §10 de `docs/modules/ui-visual-refresh-summary.md`.
+
 ## Deuda técnica
+- `seed.demo` crea datos GYM con `tenant_id` NULL → en bases locales nuevas Agenda, Membresías,
+  Clientes y reportes GYM aparecen vacíos (las queries filtran por `tenant_id`). Corregir el seed.
 - `CONTINGENCY_AUTH_ISSUER_CREDENTIAL_GAP` — token MH de contingencia sin `issuerConfigId` (sin entry point productivo actual). Ver "Estado vigente — DTE".
 - tests automatizados
 - cierre visual completo de purchases

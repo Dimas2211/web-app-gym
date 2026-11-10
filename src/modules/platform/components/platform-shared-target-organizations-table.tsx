@@ -33,7 +33,7 @@ export function PlatformSharedTargetOrganizationsTable({ organizations }: Props)
   }
 
   return (
-    <table className="w-full text-xs">
+    <table className="zv-table w-full text-xs">
       <thead>
         <tr className="text-[10px] text-zinc-400 uppercase tracking-wide">
           <th className="px-3 py-2 text-left font-semibold">Código</th>

@@ -171,7 +171,7 @@ export default async function MembresiasPage() {
             <p className="text-sm text-zinc-500">No hay membresías registradas.</p>
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full text-sm">
+              <table className="zv-table w-full text-sm">
                 <thead>
                   <tr className="border-b border-zinc-100">
                     <th className="text-left text-xs text-zinc-400 font-semibold pb-2 pr-4">Plan</th>

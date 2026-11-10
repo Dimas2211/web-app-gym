@@ -162,7 +162,7 @@ export function PlatformOrganizationModulesPanel({ organizationId, effectiveModu
                 {CATEGORY_LABELS[cat]}
               </p>
             </div>
-            <table className="w-full text-sm">
+            <table className="zv-table w-full text-sm">
               <tbody>
                 {modules.map((mod) => (
                   <ModuleRow key={mod.module_id} organizationId={organizationId} module={mod} />
