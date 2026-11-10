@@ -2,7 +2,8 @@
 
 - **Fecha:** 2026-11-09
 - **Alcance:** revisión independiente del refresh visual (3 commits de Daniel) + correcciones mínimas.
-- **Estado de las correcciones:** en el working tree de la rama, **sin commit, sin push, sin PR**.
+- **Estado histórico durante la auditoría original:** correcciones en el working tree, entonces **sin commit ni push**.
+- **Actualización de integración (2026-11-09):** commit `2ab1653` publicado en `feat/ui-visual-refresh`. Corrección puntual posterior documentada en el apartado I; **sin PR ni merge a main**.
 - **Este documento no autoriza producción.** Commit, push, PR, merge y deploy son decisión del
   responsable de Zolvi.
 
@@ -198,3 +199,25 @@ Modificados: `CLAUDE.md`, `docs/context/current-state.md`, `docs/modules/ui-visu
 `src/modules/commerce/reports/components/commerce-reports-client.tsx`, y el cambio de clase
 `zv-table → zv-table-dark` en 7 reportes GYM, `commerce-report-detail-table.tsx`,
 `dte-outgoing-detail-panel.tsx` y `purchase-dte-fiscal-panel.tsx`.
+
+---
+
+## I. Addendum — resultado obsoleto tras error de Reportes Comerciales (2026-11-09)
+
+Después del commit de cierre `2ab1653`, una revisión independiente identificó un caso
+límite en `commerce-reports-client.tsx`: cuando una consulta nueva fallaba, se mostraba
+el mensaje de error **y, simultáneamente, el dashboard de la consulta anterior**,
+porque el panel se condicionaba únicamente con `!loading && data`.
+
+**Corrección mínima:** el panel ahora exige `!loading && !error && data`.
+La respuesta antigua se conserva internamente, pero no se presenta como resultado vigente
+mientras la última consulta está fallida. Se añadió una prueba estática de regresión
+al archivo `latest-request-gate.test.ts` que asegura la presencia explícita de esta guarda.
+No se cambiaron endpoints, filtros, cálculos financieros ni servicios transaccionales.
+
+**Validación de esta corrección posterior:** el test añadido y la suite completa deben
+ejecutarse localmente antes de aprobar el merge; los PASS del apartado D
+corresponden al estado anterior a este addendum. La revisión visual local
+reportada por el responsable se realizó antes de este ajuste puntual.
+El estado `READY` de Vercel, si se confirma, solo verifica su despliegue/build.
+No se autorizó PR, merge ni despliegue a producción.

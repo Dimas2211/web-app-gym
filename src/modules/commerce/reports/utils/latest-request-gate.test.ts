@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { createLatestRequestGate } from "./latest-request-gate";
 
@@ -35,5 +36,15 @@ describe("createLatestRequestGate", () => {
     await a;
 
     expect(shown).toBe("mes");
+  });
+});
+
+// Regresión UI: si la consulta más reciente falla, no se deben mostrar
+// los datos conservados de un periodo consultado anteriormente.
+describe("CommerceReportsClient — error de última consulta", () => {
+  it("oculta el dashboard previo si existe error de la consulta actual", () => {
+    const source = readFileSync(new URL("../components/commerce-reports-client.tsx", import.meta.url), "utf8");
+    expect(source).toMatch(/\{!loading\s*&&\s*error\s*&&\s*\(/);
+    expect(source).toMatch(/\{!loading\s*&&\s*!error\s*&&\s*data\s*&&\s*\(/);
   });
 });

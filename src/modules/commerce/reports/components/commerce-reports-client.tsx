@@ -168,8 +168,8 @@ export function CommerceReportsClient() {
         </div>
       )}
 
-      {/* Dashboard */}
-      {!loading && data && (
+      {/* Dashboard: ocultar resultados previos si la última consulta falla */}
+      {!loading && !error && data && (
         <div className="space-y-6">
 
           {/* Barra de acciones del dashboard */}
