@@ -12,6 +12,7 @@ import { DashboardWelcome } from "@/components/ui/dashboard-welcome";
 import { getVisibleQuickActions } from "@/lib/navigation/dashboard-quick-actions";
 import { buttonClasses } from "@/components/ui/button-styles";
 import { getTodaySummary } from "./_lib/today-summary";
+import { formatWelcomeDate, resolveOrganizationDisplayTimeZone } from "./_lib/display-timezone";
 
 function credentialHref(role: UserRole): string {
   return role === "client" ? "/portal/credencial" : "/dashboard/credential";
@@ -59,8 +60,12 @@ export default async function DashboardPage({
     }),
   );
   await dispose();
-  const quickActions = getVisibleQuickActions(visibleGroups);
-  const todaySummary = await getTodaySummary(user as SessionUser, visibleGroups);
+  // Support Session es solo lectura: no anunciar acciones de captura.
+  const quickActions = getVisibleQuickActions(visibleGroups, { readOnly: dashCtx.readOnly });
+  // "Hoy" = día calendario de la organización (no el UTC del servidor).
+  const timeZone = await resolveOrganizationDisplayTimeZone(dashCtx.organizationId);
+  const now = new Date();
+  const todaySummary = await getTodaySummary(user as SessionUser, visibleGroups, { timeZone, now });
 
   return (
     <div className="space-y-6">
@@ -72,12 +77,7 @@ export default async function DashboardPage({
       {/* Bienvenida + información de sesión plegable */}
       <DashboardWelcome
         firstName={user.name?.split(" ")[0] ?? ""}
-        dateLabel={new Date().toLocaleDateString("es-SV", {
-          weekday: "long",
-          year: "numeric",
-          month: "long",
-          day: "numeric",
-        })}
+        dateLabel={formatWelcomeDate(now, timeZone)}
         roleLabel={ROLE_LABELS[user.role]}
         roleClassName={ROLE_COLORS[user.role]}
         credentialHref={credentialHref(user.role)}
@@ -103,7 +103,23 @@ export default async function DashboardPage({
       )}
 
       {/* Resumen de hoy — solo indicadores de módulos visibles para esta cuenta */}
-      {todaySummary && todaySummary.stats.length > 0 && (
+      {todaySummary?.status === "needs_location" && (
+        <section>
+          <h2 className="font-display text-xl font-bold text-dark">Resumen de hoy</h2>
+          <p className="mt-2 rounded-2xl border border-dark/10 bg-white px-5 py-4 text-sm text-dark/70">
+            {todaySummary.message}
+          </p>
+        </section>
+      )}
+      {todaySummary?.status === "error" && (
+        <section>
+          <h2 className="font-display text-xl font-bold text-dark">Resumen de hoy</h2>
+          <p role="status" className="mt-2 rounded-2xl border border-amber-200 bg-amber-50 px-5 py-4 text-sm text-amber-800">
+            El resumen de hoy no está disponible en este momento. Los módulos funcionan con normalidad.
+          </p>
+        </section>
+      )}
+      {todaySummary?.status === "ok" && todaySummary.stats.length > 0 && (
         <section>
           <div className="mb-3 flex items-baseline justify-between gap-2">
             <h2 className="font-display text-xl font-bold text-dark">Resumen de hoy</h2>

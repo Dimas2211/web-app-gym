@@ -476,7 +476,7 @@ export function PurchaseDteFiscalPanel({ detail, correlativeStatus, isSuperAdmin
       {dte && detail.dte_transmission_logs.length > 0 && (
         <Section title="Historial de transmisión">
           <div className="overflow-x-auto">
-            <table className="zv-table w-full text-[10px]">
+            <table className="zv-table-dark w-full text-[10px]">
               <thead className="text-zinc-500">
                 <tr>
                   <th className="text-left font-medium py-0.5 pr-2">Fecha/hora</th>

@@ -11,12 +11,20 @@
  * - Idempotente: si ya existen ventas marcadas DEMO_SALES_SEED, no hace nada.
  * - USO EXCLUSIVO: base local de desarrollo.
  *
+ * - Barrera: aborta antes de crear el cliente si NODE_ENV=production, si
+ *   corre en Vercel o si DATABASE_URL / DIRECT_URL no apuntan a un host local
+ *   (ver local-only-database-guard.ts).
+ *
  * Requisito: npm run db:seed:demo && npm run db:seed:purchases
  * Uso: npx tsx prisma/seed-sales-demo.ts
  */
 import "dotenv/config";
 import { PrismaClient, Prisma } from "@prisma/client";
 import { resolveTestLocation } from "./seed-inventory-test-helpers";
+import { assertLocalOnlyDatabase } from "./local-only-database-guard";
+
+// Antes de crear el PrismaClient y de la primera consulta/escritura.
+assertLocalOnlyDatabase(process.env, "seed-sales-demo");
 
 const prisma = new PrismaClient();
 

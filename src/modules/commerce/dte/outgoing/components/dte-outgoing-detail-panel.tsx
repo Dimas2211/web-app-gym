@@ -490,7 +490,7 @@ function LogsSection({ d }: { d: DteOutgoingDetail }) {
     <div>
       <SectionHeader title={`Logs de transmisión (${d.logs.length})`} />
       <div className="overflow-x-auto">
-        <table className="zv-table w-full text-[10px] border-collapse">
+        <table className="zv-table-dark w-full text-[10px] border-collapse">
           <thead>
             <tr className="text-zinc-500 border-b border-zinc-800">
               <th className="text-left pr-2 pb-0.5 font-semibold whitespace-nowrap">#</th>
@@ -558,7 +558,7 @@ function QueryHistorySection({ d }: { d: DteOutgoingDetail }) {
     <div>
       <SectionHeader title={`Historial de consultas MH (${d.mh_query_history.length})`} />
       <div className="overflow-x-auto">
-        <table className="zv-table w-full text-[10px] border-collapse">
+        <table className="zv-table-dark w-full text-[10px] border-collapse">
           <thead>
             <tr className="text-zinc-500 border-b border-zinc-800">
               <th className="text-left pr-2 pb-0.5 font-semibold whitespace-nowrap">#</th>

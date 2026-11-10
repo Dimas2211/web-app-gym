@@ -194,7 +194,7 @@ export function AttendanceByPeriodReport({ branches, isSuperAdmin }: Props) {
           ) : (
             <div className="bg-zinc-900 border border-zinc-800 rounded-lg overflow-hidden">
               <div className="overflow-x-auto">
-                <table className="zv-table w-full text-sm">
+                <table className="zv-table-dark w-full text-sm">
                   <thead>
                     <tr className="border-b border-zinc-800">
                       {["Fecha", "Clase", "Sucursal", "Entrenador", "Capacidad", "Asistieron", "Faltaron", "Tasa"].map((h) => (

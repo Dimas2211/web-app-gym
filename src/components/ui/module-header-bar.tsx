@@ -35,6 +35,7 @@ const DARK_WORKSPACE_ROUTES = [
   /^\/dashboard\/purchases$/,
   /^\/dashboard\/purchases\/new$/,
   /^\/dashboard\/purchases\/[^/]+\/edit$/,
+  /^\/dashboard\/dte\/outgoing$/,
 ];
 
 export function isDarkWorkspaceRoute(pathname: string): boolean {

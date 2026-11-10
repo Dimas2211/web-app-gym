@@ -16,6 +16,7 @@ import type { CommerceDashboardData } from "../types/commerce-report.types";
 import type { KpiReportPalette } from "../utils/kpi-report-palettes";
 import { getRandomKpiReportPalette, getDefaultKpiReportPalette } from "../utils/kpi-report-palettes";
 import { getDefaultDateRange } from "../utils/report-date-range";
+import { createLatestRequestGate } from "../utils/latest-request-gate";
 
 import { CommerceReportFilters, type ReportFilterState } from "./commerce-report-filters";
 import { CommerceKpiCards }           from "./commerce-kpi-cards";
@@ -67,8 +68,14 @@ export function CommerceReportsClient() {
     paletteRef.current = getRandomKpiReportPalette();
   }, []);
 
+  // Solo la consulta más reciente puede escribir el estado: si el usuario
+  // encadena periodos rápidos, una respuesta lenta de un periodo anterior
+  // nunca reemplaza (ni se muestra como) la del último periodo elegido.
+  const requestGateRef = useRef(createLatestRequestGate());
+
   const fetchData = useCallback(async (f: ReportFilterState) => {
     if (!f.date_from || !f.date_to) return;
+    const isLatest = requestGateRef.current.begin();
     setLoading(true);
     setError(null);
     try {
@@ -78,11 +85,12 @@ export function CommerceReportsClient() {
         const body = await res.json().catch(() => ({}));
         throw new Error((body as { error?: string }).error ?? "Error al cargar el reporte");
       }
-      setData(await res.json() as CommerceDashboardData);
+      const json = (await res.json()) as CommerceDashboardData;
+      if (isLatest()) setData(json);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Error desconocido");
+      if (isLatest()) setError(e instanceof Error ? e.message : "Error desconocido");
     } finally {
-      setLoading(false);
+      if (isLatest()) setLoading(false);
     }
   }, []);
 

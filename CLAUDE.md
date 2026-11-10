@@ -92,7 +92,7 @@ El proyecto ya cerró formalmente su transición base de reorganización.
 - `commerce/sales` está cerrado y operativo — ciclo interno DRAFT/CONFIRMED/CANCELLED + Panel Fiscal DTE en /dashboard/sales.
 - `commerce/dte` V1 cerrado — FE 01, CCFE 03, NC 05, Invalidación y delivery externo MariaDB operativos. Ver docs/modules/dte-v1-operational-close.md.
 - `commerce/cash` está cerrado y operativo — apertura/cierre de sesión, movimientos manuales, corte, historial, exportación PDF/Excel, asociación automática venta → sesión. Ver docs/modules/cash-summary.md.
-- UI alineada al sistema de diseño de getzolvi.com (rama `feat/ui-visual-refresh`, 2026-11-09): tokens `primary`/`secondary`/`dark`, Poppins/Inter, iconos en `src/components/ui/module-icons.tsx`, botones con `buttonClasses()` (`src/components/ui/button-styles.ts`), tablas claras con clase `zv-table`. En código nuevo usar esos tokens/helpers. Ver docs/modules/ui-visual-refresh-summary.md.
+- UI alineada al sistema de diseño de getzolvi.com (rama `feat/ui-visual-refresh`, 2026-11-09): tokens `primary`/`secondary`/`dark`, Poppins/Inter, iconos en `src/components/ui/module-icons.tsx`, botones con `buttonClasses()` (`src/components/ui/button-styles.ts`), tablas claras con clase `zv-table` y tablas sobre superficies oscuras con `zv-table-dark`. En código nuevo usar esos tokens/helpers. Ver docs/modules/ui-visual-refresh-summary.md.
 
 ### Regla de interpretación
 

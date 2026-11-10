@@ -1,7 +1,12 @@
 # UI Visual Refresh — sistema de diseño getzolvi.com (2026-11-09)
 
-> Rama: `feat/ui-visual-refresh` (desde `main` = `78df73c`). **Sin commit / sin push / sin merge**
-> al momento de escribir este documento. Nada llega a clientes hasta merge a `main` + deploy.
+> Rama: `feat/ui-visual-refresh` (desde `main` = `78df73c`). Publicada en `origin` con 3 commits
+> (`f386e58`, `b9564a7`, `e59aea2`). **Sin PR y sin merge a `main`.** Nada llega a clientes hasta
+> merge a `main` + deploy.
+>
+> **Auditoría pre-producción (2026-11-09):** correcciones aplicadas en el working tree (sin commit)
+> y dictamen en `docs/audits/ui-visual-refresh-production-review.md`. Los puntos de este documento
+> que cambiaron con la auditoría están marcados con **[auditoría]**.
 >
 > Alcance: **solo presentación**. Sin cambios en `schema.prisma`, sin migraciones, sin cambios en
 > permisos, server actions de escritura, servicios de negocio, DTE, inventario ni caja.
@@ -101,8 +106,15 @@ logo conserva su arte original y su test no cambió).
 - Acceso: solo roles LIVE `super_admin`, `branch_admin`, `reception`; cada indicador exige que su
   módulo sea visible en el menú. Entrenador/cliente: nada.
 - Base efectiva vía `resolveEffectiveTenantContext` (runtime dedicado/shared o global), location
-  efectiva con la misma resolución que caja. Solo `super_admin` sin sede activa ve el consolidado.
-- "Hoy" = día calendario `America/El_Salvador`. Errores degradan a "sin indicadores".
+  efectiva con la misma resolución que caja.
+- **[auditoría]** Siempre una sola sucursal, nombrada en la etiqueta (`Sucursal: X`; en Support
+  Session `Sucursal de referencia (soporte): X`). `super_admin` sin sede ya **no** ve un consolidado:
+  se le pide elegir sede (misma política que Reportes Comerciales). La sede se valida contra el tenant.
+- **[auditoría]** "Hoy" = día calendario de `PlatformOrganization.timezone` (fallback
+  `America/El_Salvador`); la fecha de bienvenida usa la misma zona. Un error de lectura muestra
+  "no disponible" (no ceros) y se registra en servidor sin detalles.
+- **[auditoría]** Acciones rápidas de captura (Nueva venta/socio/compra) ocultas en Support Session
+  (solo lectura).
 - Verificado en navegador simulado (curl con sesión) para SA / recepción / entrenador y con datos
   desplazados temporalmente a hoy (restaurados).
 
@@ -134,6 +146,10 @@ logo conserva su arte original y su test no cambió).
   (uniforme); cuerpo en capa base (filas con color propio, p. ej. alertas, lo conservan).
 - **Excluidas** las 10 grillas ERP oscuras de commerce (ventas, compras, DTE emitidos, reportes
   tabulares) por regla del proyecto ("no rediseñar grillas funcionales"); solo reciben `tabular-nums`.
+- **[auditoría]** 11 tablas sobre superficies oscuras habían recibido la variante clara (7 reportes
+  GYM, detalle de Reportes Comerciales, 2 tablas del panel DTE emitidos, historial del panel fiscal de
+  compras): encabezado casi blanco y hover claro bajo texto claro. Ahora usan **`zv-table-dark`**
+  (encabezado sticky navy opaco, zebra y hover translúcidos; color de cada pantalla intacto).
 
 ### Formatos
 - 23 archivos: `toLocaleString/DateString("es-MX")` → `"es-SV"` (mismo formato de fecha; "p. m.").
@@ -178,6 +194,9 @@ Queries, endpoints y permisos de reportes **sin cambios**.
 - ~261 ventas **CONFIRMED** en los últimos 90 días (incluido hoy, hora SV), 1–3 líneas, IVA 13%,
   + 2 servicios demo (S001, S002). Marcadas `notes = DEMO_SALES_SEED`; idempotente.
 - **No** mueve inventario, caja ni genera DTE. Uso exclusivo local.
+- **[auditoría]** Barrera `prisma/local-only-database-guard.ts` (antes de crear el cliente): aborta si
+  `NODE_ENV=production`, si corre en Vercel o si `DATABASE_URL`/`DIRECT_URL` no apuntan a
+  `localhost`/`127.0.0.1`/`::1` (falla cerrado, sin imprimir la URL).
 
 ### Hallazgo: seed demo deja `tenant_id` NULL en tablas GYM
 - `seed.demo` crea clientes, planes, membresías, clases, entrenadores y planes semanales con
@@ -206,7 +225,8 @@ Queries, endpoints y permisos de reportes **sin cambios**.
 
 Prioridad sugerida:
 
-1. **Commit + revisión + merge** de `feat/ui-visual-refresh` (≈185 archivos; ver `git status`).
+1. **Revisión final + PR + merge** de `feat/ui-visual-refresh` (decisión del responsable; ver
+   `docs/audits/ui-visual-refresh-production-review.md`).
 2. **Corregir `seed.demo`** para poblar `tenant_id` en tablas GYM (hoy deja bases locales vacías).
 3. **Datos demo GYM pasados** (clases completadas con asistencia) para que reportes de asistencia,
    clases impartidas y baja adherencia tengan contenido local.
@@ -233,6 +253,8 @@ Prioridad sugerida:
 - Vitest completo: 2817 pass; 1 test de arquitectura DTE con **timeout** intermitente bajo carga
   (pasa aislado 44/44; escanea el árbol de fuentes en OneDrive). Tests nuevos: quick actions (6),
   module header (4), today summary (1).
+- **[auditoría]** Resultados de la revalidación (tsc, lint, Vitest, build) en
+  `docs/audits/ui-visual-refresh-production-review.md` §D.
 - Verificación HTTP con sesión real local (SA / recepción / entrenador) de inicio, reportes y APIs.
 
 ## Impacto en bases de datos y sincronización local/remota

@@ -19,8 +19,10 @@
 - **Gym:** etapas 2–5D implementadas (motor de reservas, multimodalidad, operación del entrenador,
   seguimiento y analítica de entrenamiento). Ver sección "Estado global".
 - **UI (2026-11-09):** refresh visual al sistema de diseño de getzolvi.com en rama
-  `feat/ui-visual-refresh` — **sin commit/merge todavía**, solo presentación (sin schema, sin
-  migraciones, sin cambios de permisos ni lógica de negocio). Detalle, antes/después y pendientes:
+  `feat/ui-visual-refresh` — 3 commits publicados en `origin` (`f386e58`, `b9564a7`, `e59aea2`),
+  **sin PR ni merge a `main`**. Solo presentación (sin schema, sin migraciones, sin cambios de permisos
+  ni lógica de negocio). Auditoría pre-producción 2026-11-09 con correcciones en working tree (sin
+  commit): `docs/audits/ui-visual-refresh-production-review.md`. Detalle, antes/después y pendientes:
   `docs/modules/ui-visual-refresh-summary.md`.
 - **Entorno local de referencia:** Node ≥ 22.12 (probado v26), PostgreSQL 17 local `zolvi_local`,
   `.env` con `DATABASE_URL` y `DIRECT_URL` locales, seeds `db:seed:demo` → `db:seed:purchases` →

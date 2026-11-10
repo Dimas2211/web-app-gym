@@ -149,6 +149,22 @@
   .zv-table tbody tr:hover {
     background-color: color-mix(in srgb, var(--color-secondary) 8%, white);
   }
+
+  /*
+   * Tablas oscuras (zv-table-dark) — cuerpo. Para tablas sobre superficies
+   * navy (reportes, paneles DTE). Zebra y hover translúcidos: el texto claro
+   * y los colores semánticos de cada celda conservan su contraste. En capa
+   * base: los hovers/fondos propios de cada fila prevalecen.
+   */
+  .zv-table-dark tbody tr:nth-child(even) {
+    background-color: color-mix(in srgb, white 3%, transparent);
+  }
+  .zv-table-dark tbody tr {
+    transition: background-color 150ms;
+  }
+  .zv-table-dark tbody tr:hover {
+    background-color: color-mix(in srgb, var(--color-secondary) 14%, transparent);
+  }
 }
 
 /*
@@ -169,6 +185,19 @@
   text-transform: uppercase;
   letter-spacing: 0.05em;
   border-bottom: 1px solid color-mix(in srgb, var(--color-dark) 10%, transparent);
+}
+
+/*
+ * Tablas oscuras (zv-table-dark) — encabezado sticky con fondo opaco navy
+ * (las filas no se transparentan al desplazar). Color y tipografía los
+ * define cada pantalla (diseñadas para fondo oscuro): no se sobrescriben.
+ */
+.zv-table-dark thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background-color: color-mix(in srgb, white 4%, var(--color-zinc-900));
+  border-bottom: 1px solid color-mix(in srgb, white 10%, transparent);
 }
 
 /*

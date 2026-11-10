@@ -162,7 +162,7 @@ export function ExpiringMembershipsReport({ branches, isSuperAdmin }: Props) {
           ) : (
             <div className="bg-zinc-900 border border-zinc-800 rounded-lg overflow-hidden">
               <div className="overflow-x-auto">
-                <table className="zv-table w-full text-sm">
+                <table className="zv-table-dark w-full text-sm">
                   <thead>
                     <tr className="border-b border-zinc-800">
                       {["Cliente", "Sucursal", "Plan", "Vence", "Días rest.", "Pago", "Monto"].map((h) => (

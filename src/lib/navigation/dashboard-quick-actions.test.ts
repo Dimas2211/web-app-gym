@@ -1,15 +1,15 @@
 import { describe, expect, it } from "vitest";
 import { MODULE_GROUPS, filterModuleGroupsByAccess } from "@/lib/navigation/dashboard-nav";
-import { getVisibleQuickActions } from "@/lib/navigation/dashboard-quick-actions";
+import { QUICK_ACTIONS, getVisibleQuickActions } from "@/lib/navigation/dashboard-quick-actions";
 import type { UserRole } from "@prisma/client";
 
 const ALL_CODES = new Set(
   MODULE_GROUPS.flatMap((g) => g.items.map((i) => i.moduleCode).filter((c): c is string => Boolean(c))),
 );
 
-function actionsFor(role: UserRole, codes: Set<string>, vertical: string | null) {
+function actionsFor(role: UserRole, codes: Set<string>, vertical: string | null, readOnly = false) {
   const groups = filterModuleGroupsByAccess(MODULE_GROUPS, role, codes, vertical, false, false);
-  return getVisibleQuickActions(groups).map((a) => a.label);
+  return getVisibleQuickActions(groups, { readOnly }).map((a) => a.label);
 }
 
 describe("getVisibleQuickActions", () => {
@@ -48,5 +48,13 @@ describe("getVisibleQuickActions", () => {
 
   it("cliente del portal no ve acciones", () => {
     expect(actionsFor("client", ALL_CODES, "GYM")).toEqual([]);
+  });
+
+  it("Support Session (solo lectura) no anuncia acciones de captura", () => {
+    expect(actionsFor("super_admin", ALL_CODES, "GYM", true)).toEqual(["Caja", "Agenda y asistencia"]);
+  });
+
+  it("cada acción de captura apunta a una ruta /new", () => {
+    for (const a of QUICK_ACTIONS) expect(a.writes).toBe(a.href.endsWith("/new"));
   });
 });

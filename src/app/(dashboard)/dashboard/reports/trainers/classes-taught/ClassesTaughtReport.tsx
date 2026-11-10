@@ -175,7 +175,7 @@ export function ClassesTaughtReport({ branches, trainers, isSuperAdmin }: Props)
           ) : (
             <div className="bg-zinc-900 border border-zinc-800 rounded-lg overflow-hidden">
               <div className="overflow-x-auto">
-                <table className="zv-table w-full text-sm">
+                <table className="zv-table-dark w-full text-sm">
                   <thead>
                     <tr className="border-b border-zinc-800">
                       <th className="text-left text-zinc-400 font-medium px-4 py-3">Entrenador</th>

@@ -228,7 +228,7 @@ export function ActiveMembershipsByBranchReport({ branches, isSuperAdmin }: Prop
                 </button>
               </div>
               <div className="overflow-x-auto">
-                <table className="zv-table w-full text-sm">
+                <table className="zv-table-dark w-full text-sm">
                   <thead>
                     <tr className="border-b border-zinc-800">
                       <th className="text-left text-zinc-400 font-medium px-4 py-3">Sucursal / Plan</th>
