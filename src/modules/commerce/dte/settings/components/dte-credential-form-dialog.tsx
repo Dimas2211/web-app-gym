@@ -45,7 +45,7 @@ export function DteCredentialFormDialog({ issuerConfigId, environment, status, o
           </button>
         </div>
 
-        <form action={formAction} className="p-5 space-y-4">
+        <form action={formAction} className="p-5 space-y-4" autoComplete="off">
           <input type="hidden" name="issuer_config_id" value={issuerConfigId} />
 
           {state && "error" in state && state.error && (
@@ -56,6 +56,13 @@ export function DteCredentialFormDialog({ issuerConfigId, environment, status, o
           {state && "success" in state && state.success && (
             <div className="bg-green-50 border border-green-200 text-green-700 text-sm rounded-lg px-4 py-2">
               Credenciales guardadas.
+            </div>
+          )}
+
+          {status?.secret_collisions && status.secret_collisions.some((c) => c.blocking) && (
+            <div className="bg-red-50 border border-red-200 text-red-700 text-xs rounded-lg px-4 py-2">
+              Las credenciales guardadas tienen secretos confundidos (la API Key del firmador coincide con otra
+              contraseña). Ingrese la API Key correcta del firmador de este emisor/ambiente.
             </div>
           )}
 
@@ -71,6 +78,8 @@ export function DteCredentialFormDialog({ issuerConfigId, environment, status, o
             <input
               type="text"
               name="apiUser"
+              autoComplete="off"
+              spellCheck={false}
               placeholder={status?.has_api_user ? "•••••••• (dejar en blanco para conservar)" : "Usuario ante Hacienda"}
               className="w-full h-9 px-3 text-sm border border-zinc-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-zinc-900"
             />
@@ -83,6 +92,7 @@ export function DteCredentialFormDialog({ issuerConfigId, environment, status, o
             <input
               type="password"
               name="apiPassword"
+              autoComplete="new-password"
               placeholder={status?.has_api_password ? "•••••••• (dejar en blanco para conservar)" : "Contraseña ante Hacienda"}
               className="w-full h-9 px-3 text-sm border border-zinc-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-zinc-900"
             />
@@ -97,8 +107,10 @@ export function DteCredentialFormDialog({ issuerConfigId, environment, status, o
               URL del firmador {status?.has_signer_url && <span className="text-emerald-600">(configurada)</span>}
             </label>
             <input
-              type="text"
+              type="url"
               name="signerUrl"
+              autoComplete="off"
+              spellCheck={false}
               placeholder={status?.has_signer_url ? "•••••••• (dejar en blanco para conservar)" : "https://firmador.ejemplo.com/firma/firmardocumento/"}
               className="w-full h-9 px-3 text-sm border border-zinc-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-zinc-900"
             />
@@ -111,16 +123,20 @@ export function DteCredentialFormDialog({ issuerConfigId, environment, status, o
             <input
               type="text"
               name="signerNit"
+              autoComplete="off"
               placeholder={status?.has_signer_nit ? "•••••••• (dejar en blanco para conservar)" : "NIT del emisor para el firmador"}
               className="w-full h-9 px-3 text-sm border border-zinc-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-zinc-900"
             />
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-zinc-600 mb-1">Contraseña de la llave privada</label>
+            <label className="block text-xs font-semibold text-zinc-600 mb-1">
+              Contraseña de la llave privada (certificado) {status?.has_signer_private_key_password && <span className="text-emerald-600">(configurada)</span>}
+            </label>
             <input
               type="password"
               name="signerPrivateKeyPassword"
+              autoComplete="new-password"
               placeholder="•••••••• (dejar en blanco para conservar)"
               className="w-full h-9 px-3 text-sm border border-zinc-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-zinc-900"
             />
@@ -128,11 +144,16 @@ export function DteCredentialFormDialog({ issuerConfigId, environment, status, o
 
           <div>
             <label className="block text-xs font-semibold text-zinc-600 mb-1">
-              API Key del firmador (opcional)
+              API Key del firmador — header X-DTE-Signer-Key (no es la contraseña MH){" "}
+              {status?.has_signer_api_key && (
+                <span className="text-emerald-600">(configurada · huella {status.signer_api_key_fingerprint})</span>
+              )}
             </label>
             <input
               type="password"
               name="signerApiKey"
+              autoComplete="new-password"
+              spellCheck={false}
               placeholder="•••••••• (dejar en blanco para conservar / usar la global)"
               className="w-full h-9 px-3 text-sm border border-zinc-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-zinc-900"
             />

@@ -31,6 +31,17 @@ vi.mock("../adapters/external-dte-mariadb.adapter", () => ({
   },
 }));
 
+// FISCAL-ONBOARDING — ledger en memoria (misma semántica que Prisma) y
+// Control Plane simulado: sin acceso a bases reales.
+vi.mock("../outbox/external-delivery-ledger", async () => {
+  const { InMemoryExternalDeliveryLedger } = await import("../outbox/external-delivery-ledger.memory");
+  const ledger = new InMemoryExternalDeliveryLedger();
+  return { getExternalDeliveryLedger: () => ledger };
+});
+vi.mock("@/modules/platform/runtime/control-plane-prisma", () => ({
+  controlPlanePrisma: { platformOrganization: { findUnique: vi.fn().mockResolvedValue({ tenant_id: "tenant-b" }) } },
+}));
+
 vi.mock("../services/build-external-dte-payload.service", () => ({
   buildExternalDtePayload: vi.fn(() => ({ ok: true, payload: { codigoEmpresa: "X", responseMH: {}, token: "t" } })),
 }));
@@ -41,7 +52,7 @@ function fakeClient(dteRow: Record<string, unknown>, marker: string) {
   return {
     __marker: marker,
     dteOutgoingDocument: { findFirst: vi.fn().mockResolvedValue(dteRow) },
-    dteTransmissionLog:  { create: vi.fn().mockResolvedValue({}) },
+    dteTransmissionLog:  { create: vi.fn().mockResolvedValue({}), findMany: vi.fn().mockResolvedValue([]) },
   } as unknown as import("@prisma/client").PrismaClient & { __marker: string };
 }
 
@@ -87,7 +98,7 @@ describe("deliverDteToExternalDb — FASE VI-E7 STEP 9 (source + destination cro
 
     // DESTINATION isolation: el resolver se llamó con organizationId="org-b", nunca "org-a";
     // y el adapter recibió el config de B (host/db "b"), nunca el de A.
-    expect(resolveExternalDteMariaDbDestinationMock).toHaveBeenCalledWith({ organizationId: "org-b", allowLegacyEnvFallback: false });
+    expect(resolveExternalDteMariaDbDestinationMock).toHaveBeenCalledWith({ organizationId: "org-b", allowLegacyEnvFallback: false, tenantId: "tenant-b" });
     expect(resolveExternalDteMariaDbDestinationMock).not.toHaveBeenCalledWith(expect.objectContaining({ organizationId: "org-a" }));
 
     const [configArgUsed] = adapterInsertMock.mock.calls[0] as [{ host: string; database: string }];

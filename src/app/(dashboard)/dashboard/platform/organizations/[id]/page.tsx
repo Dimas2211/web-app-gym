@@ -30,6 +30,7 @@ import { PlatformBrandingPanel }              from "@/modules/platform/component
 import { PlatformDeploymentLogsPanel }        from "@/modules/platform/components/platform-deployment-logs-panel";
 import { PlatformDteCorrelativePanel }        from "@/modules/platform/components/platform-dte-correlative-panel";
 import { PlatformRuntimeProvisioningPanel }   from "@/modules/platform/components/platform-runtime-provisioning-panel";
+import { PlatformFiscalOnboardingPanel }      from "@/modules/platform/components/platform-fiscal-onboarding-panel";
 
 interface Props {
   params: Promise<{ id: string }>;
@@ -130,6 +131,9 @@ export default async function PlatformOrganizationDetailPage({ params }: Props) 
 
       {/* Deployment logs */}
       <PlatformDeploymentLogsPanel logs={logs} />
+
+      {/* FISCAL-ONBOARDING — Firmador + MariaDB opcional + verificaciones + activación */}
+      <PlatformFiscalOnboardingPanel organizationId={org.id} />
 
       {/* F3-C24 — Alineación de correlativos DTE */}
       <PlatformDteCorrelativePanel organizationId={org.id} rows={dteCorrelatives.rows} />

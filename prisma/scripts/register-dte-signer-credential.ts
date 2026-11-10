@@ -144,6 +144,10 @@ import {
   decryptDteCredentialPayload,
   type DteCredentialPayload,
 } from "../../src/modules/commerce/dte/lib/dte-credential-encryption";
+import {
+  findDteSecretCollisions,
+  describeBlockingCollisions,
+} from "../../src/modules/commerce/dte/lib/dte-credential-secret-guard";
 
 // Debe coincidir exactamente con CREDENTIAL_TYPE en dte-credential.service.ts.
 // No se importa directamente porque esa constante no está exportada — se
@@ -390,6 +394,13 @@ async function stepRegister(client: PrismaClient, tenantId: string, mode: Mode) 
   const actorId = await resolveActorId(client, tenantId);
   console.log(`  actor (created_by/updated_by): ${actorId ?? "NULL (sin --actor)"}`);
 
+  // FISCAL-ONBOARDING — la API Key del firmador no puede coincidir con la
+  // contraseña de la llave privada (y en EXECUTE tampoco con la contraseña MH).
+  const dryCollision = describeBlockingCollisions(
+    findDteSecretCollisions({ signerApiKey: env.signerApiKey, signerPrivateKeyPassword: env.signerPrivateKeyPassword }),
+  );
+  if (dryCollision) throw new RunnerInputError(dryCollision);
+
   if (mode === "DRY_RUN") {
     console.log("\n[DRY_RUN] Precondiciones OK. NO se escribió nada.");
     return;
@@ -423,6 +434,10 @@ async function stepRegister(client: PrismaClient, tenantId: string, mode: Mode) 
     signerPrivateKeyPassword: env.signerPrivateKeyPassword,
     signerApiKey:             env.signerApiKey,
   };
+
+  // FISCAL-ONBOARDING — mismo guard que upsertDteCredential().
+  const collisionError = describeBlockingCollisions(findDteSecretCollisions(payload));
+  if (collisionError) throw new RunnerInputError(collisionError);
 
   const encrypted_payload = encryptDteCredentialPayload(payload);
 

@@ -65,7 +65,7 @@ describe("deliverInvalidationToExternalDb — FASE VI-E7 (destino por organizaci
     });
 
     expect(result.ok).toBe(true);
-    expect(resolveExternalDteMariaDbDestinationMock).toHaveBeenCalledWith({ organizationId: "org-b", allowLegacyEnvFallback: false });
+    expect(resolveExternalDteMariaDbDestinationMock).toHaveBeenCalledWith({ organizationId: "org-b", allowLegacyEnvFallback: false, tenantId: "tenant-b" });
 
     const [configUsed, , tableUsed] = adapterInsertMock.mock.calls[0] as [{ host: string }, unknown, string];
     expect(configUsed.host).toBe("mariadb-b");

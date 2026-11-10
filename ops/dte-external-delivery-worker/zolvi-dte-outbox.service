@@ -1,0 +1,22 @@
+# FISCAL-ONBOARDING — una pasada del worker del outbox MariaDB.
+# Plantilla: NO instalada. Corre en un host que ya tenga los secretos de la
+# app (Control Plane DATABASE_URL + PLATFORM_ENCRYPTION_KEY), nunca en el
+# VPS de firmadores. Oneshot: systemd no arranca una segunda pasada mientras
+# la anterior sigue activa; el ledger impide además INSERT duplicados.
+[Unit]
+Description=Zolvi DTE external delivery outbox (one pass)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=zolvi
+WorkingDirectory=/opt/zolvi-app
+EnvironmentFile=/etc/zolvi-dte-outbox.env
+# DRY_RUN hasta aprobar la activación; luego cambiar a EXECUTE (ver README).
+Environment=OUTBOX_MODE=DRY_RUN
+ExecStart=/usr/bin/npx tsx prisma/scripts/process-dte-external-delivery-outbox.ts --mode ${OUTBOX_MODE} --limit 25
+TimeoutStartSec=15min
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full

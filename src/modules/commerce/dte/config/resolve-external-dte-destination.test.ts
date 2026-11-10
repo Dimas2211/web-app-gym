@@ -53,8 +53,8 @@ const ORG_B_PAYLOAD: ExternalDteMariaDbIntegrationPayload = {
   database: "org_b_db", table: "dte_fe_b", invalidationTable: "dte_inv_b", timeoutMs: 10_000,
 };
 
-function activeRow(payload: ExternalDteMariaDbIntegrationPayload) {
-  return { is_active: true, encrypted_payload: encryptJsonPayload(payload) };
+function activeRow(payload: ExternalDteMariaDbIntegrationPayload, tenantId: string | null = payload === ORG_B_PAYLOAD ? "tenant-b" : "tenant-a") {
+  return { is_active: true, encrypted_payload: encryptJsonPayload(payload), organization: { tenant_id: tenantId } };
 }
 
 beforeEach(() => {
@@ -76,7 +76,7 @@ describe("resolveExternalDteMariaDbDestination — FASE VI-E7", () => {
 
     findUniqueMock.mockResolvedValue(row);
 
-    const result = await resolveExternalDteMariaDbDestination({ organizationId: "org-a", allowLegacyEnvFallback: false });
+    const result = await resolveExternalDteMariaDbDestination({ organizationId: "org-a", allowLegacyEnvFallback: false, tenantId: "tenant-a" });
 
     expect(result).toMatchObject({ status: "CONFIGURED", source: "ORGANIZATION" });
     if (result.status === "CONFIGURED") {
@@ -87,7 +87,7 @@ describe("resolveExternalDteMariaDbDestination — FASE VI-E7", () => {
   it("integración inactiva -> DISABLED (fail closed, nunca entrega)", async () => {
     findUniqueMock.mockResolvedValue({ is_active: false, encrypted_payload: encryptJsonPayload(ORG_A_PAYLOAD) });
 
-    const result = await resolveExternalDteMariaDbDestination({ organizationId: "org-a", allowLegacyEnvFallback: false });
+    const result = await resolveExternalDteMariaDbDestination({ organizationId: "org-a", allowLegacyEnvFallback: false, tenantId: "tenant-a" });
 
     expect(result).toEqual({ status: "DISABLED" });
   });
@@ -101,7 +101,7 @@ describe("resolveExternalDteMariaDbDestination — FASE VI-E7", () => {
     process.env["EXTERNAL_DTE_MARIADB_DATABASE"] = "legacy-db";
     process.env["EXTERNAL_DTE_MARIADB_TABLE"]    = "legacy-table";
 
-    const result = await resolveExternalDteMariaDbDestination({ organizationId: "org-a", allowLegacyEnvFallback: true });
+    const result = await resolveExternalDteMariaDbDestination({ organizationId: "org-a", allowLegacyEnvFallback: true, tenantId: "tenant-a" });
 
     expect(result).toEqual({ status: "NOT_CONFIGURED" });
   });
@@ -114,7 +114,7 @@ describe("resolveExternalDteMariaDbDestination — FASE VI-E7", () => {
     process.env["EXTERNAL_DTE_MARIADB_DATABASE"] = "legacy-db";
     process.env["EXTERNAL_DTE_MARIADB_TABLE"]    = "legacy-table";
 
-    const result = await resolveExternalDteMariaDbDestination({ organizationId: null, allowLegacyEnvFallback: true });
+    const result = await resolveExternalDteMariaDbDestination({ organizationId: null, allowLegacyEnvFallback: true, tenantId: "tenant-a" });
 
     expect(result).toMatchObject({ status: "CONFIGURED", source: "PLATFORM_NATIVE_LEGACY_ENV" });
     expect(findUniqueMock).not.toHaveBeenCalled();
@@ -128,7 +128,7 @@ describe("resolveExternalDteMariaDbDestination — FASE VI-E7", () => {
     process.env["EXTERNAL_DTE_MARIADB_DATABASE"] = "legacy-db";
     process.env["EXTERNAL_DTE_MARIADB_TABLE"]    = "legacy-table";
 
-    const result = await resolveExternalDteMariaDbDestination({ organizationId: null, allowLegacyEnvFallback: false });
+    const result = await resolveExternalDteMariaDbDestination({ organizationId: null, allowLegacyEnvFallback: false, tenantId: "tenant-a" });
 
     expect(result).toEqual({ status: "NOT_CONFIGURED" });
   });
@@ -141,8 +141,8 @@ describe("resolveExternalDteMariaDbDestination — FASE VI-E7", () => {
       return null;
     });
 
-    const resultA = await resolveExternalDteMariaDbDestination({ organizationId: "org-a", allowLegacyEnvFallback: false });
-    const resultB = await resolveExternalDteMariaDbDestination({ organizationId: "org-b", allowLegacyEnvFallback: false });
+    const resultA = await resolveExternalDteMariaDbDestination({ organizationId: "org-a", allowLegacyEnvFallback: false, tenantId: "tenant-a" });
+    const resultB = await resolveExternalDteMariaDbDestination({ organizationId: "org-b", allowLegacyEnvFallback: false, tenantId: "tenant-b" });
 
     expect(resultA.status).toBe("CONFIGURED");
     expect(resultB.status).toBe("CONFIGURED");
@@ -155,5 +155,21 @@ describe("resolveExternalDteMariaDbDestination — FASE VI-E7", () => {
       expect(JSON.stringify(resultA.config)).not.toContain("org-b");
       expect(JSON.stringify(resultB.config)).not.toContain("org-a");
     }
+  });
+
+  it("AISLAMIENTO TENANT — organización sin tenant_id, tenant del documento ausente o distinto -> TENANT_MISMATCH (fail closed)", async () => {
+    findUniqueMock.mockResolvedValue(activeRow(ORG_A_PAYLOAD, null));
+    expect(await resolveExternalDteMariaDbDestination({ organizationId: "org-a", allowLegacyEnvFallback: false, tenantId: "tenant-a" }))
+      .toEqual({ status: "TENANT_MISMATCH" });
+
+    findUniqueMock.mockResolvedValue(activeRow(ORG_A_PAYLOAD, "tenant-a"));
+    expect(await resolveExternalDteMariaDbDestination({ organizationId: "org-a", allowLegacyEnvFallback: false, tenantId: null }))
+      .toEqual({ status: "TENANT_MISMATCH" });
+    expect(await resolveExternalDteMariaDbDestination({ organizationId: "org-a", allowLegacyEnvFallback: false, tenantId: "tenant-b" }))
+      .toEqual({ status: "TENANT_MISMATCH" });
+
+    // Organización válidamente configurada: sin cambios.
+    expect((await resolveExternalDteMariaDbDestination({ organizationId: "org-a", allowLegacyEnvFallback: false, tenantId: "tenant-a" })).status)
+      .toBe("CONFIGURED");
   });
 });

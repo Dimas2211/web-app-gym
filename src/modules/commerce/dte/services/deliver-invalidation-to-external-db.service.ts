@@ -83,13 +83,16 @@ export async function deliverInvalidationToExternalDb(
 
   // Destino resuelto por ORGANIZACIÓN (Control Plane) — mismo resolver que
   // deliver-dte-to-external-db.service.ts, nunca un mecanismo paralelo.
-  const destination = await resolveExternalDteMariaDbDestination({ organizationId, allowLegacyEnvFallback });
+  const destination = await resolveExternalDteMariaDbDestination({ organizationId, allowLegacyEnvFallback, tenantId });
 
   if (destination.status === "NOT_CONFIGURED") {
     return { ok: false, error: "Esta organización no tiene configurada la entrega externa a MariaDB." };
   }
   if (destination.status === "DISABLED") {
     return { ok: false, error: "La entrega externa a MariaDB está deshabilitada para esta organización." };
+  }
+  if (destination.status === "TENANT_MISMATCH") {
+    return { ok: false, error: "No se pudo verificar que el destino MariaDB pertenezca al tenant del evento. Entrega bloqueada." };
   }
 
   const config = destination.config;

@@ -3300,6 +3300,9 @@ model PlatformOrganization {
   entitlement_overrides PlatformOrganizationEntitlementOverride[]
   external_integrations PlatformExternalIntegration[]
   runtime_provisioning_operation PlatformRuntimeProvisioningOperation?
+  dte_signer_provisionings     PlatformDteSignerProvisioning[]
+  dte_signer_provisioning_runs PlatformDteSignerProvisioningRun[]
+  dte_external_delivery_jobs   PlatformDteExternalDeliveryJob[]
 
   @@index([tenant_id])
   @@index([status])
@@ -3906,6 +3909,14 @@ model PlatformExternalIntegration {
   last_test_status  PlatformDatabaseConnectionTestStatus @default(UNTESTED)
   last_test_message String?
 
+  // FISCAL-ONBOARDING — entrega automática de DTE ACCEPTED vía outbox
+  // (PlatformDteExternalDeliveryJob). Default false: integraciones
+  // existentes (TrustMe, MetaTraining) conservan su comportamiento manual.
+  auto_delivery_enabled    Boolean   @default(false)
+  // Solo se entregan automáticamente DTE aceptados DESDE este instante:
+  // nunca se re-entregan históricos al habilitar la opción.
+  auto_delivery_enabled_at DateTime?
+
   // Auditoría
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
@@ -3924,4 +3935,164 @@ model PlatformExternalIntegration {
 
 enum PlatformExternalIntegrationType {
   DTE_MARIADB
+}
+
+// ═════════════════════════════════════════════════════════════════
+// FISCAL-ONBOARDING — Firmadores DTE por organización/ambiente y outbox
+// de entrega externa MariaDB. Viven en Control Plane (no en runtime):
+// el ledger debe sobrevivir a fallos del runtime y el destino MariaDB ya
+// se resuelve por organización desde aquí. Ver
+// docs/modules/dte-fiscal-onboarding-automation.md.
+// ═════════════════════════════════════════════════════════════════
+
+enum PlatformDteSignerProvisioningStatus {
+  DRAFT
+  PLANNED
+  APPLYING
+  INFRA_READY
+  SIGNER_READY
+  FAILED
+  ROLLED_BACK
+}
+
+// Estado deseado + observado de un firmador por organización/ambiente.
+// Un único registro por (organization, environment): reejecutar APPLY
+// nunca crea un segundo firmador para el mismo emisor/ambiente.
+model PlatformDteSignerProvisioning {
+  id              String @id @default(uuid())
+  organization_id String
+  environment     String // TEST | PRODUCTION
+
+  // Identidad estable de recursos (contenedor, carpeta, vhost) — derivada
+  // de slug + environment, validada por ops/dte-signer-executor/lib/signer-core.mjs.
+  slug           String
+  hostname       String @unique
+  port           Int
+  container_name String @unique
+  cpanel_user    String? // dueño del dominio en WHM/cPanel (ruta de include del vhost)
+
+  // Emisor fiscal (runtime) al que se registra la credencial del firmador.
+  issuer_config_id String?
+  signer_nit       String? // NIT del certificado (no secreto)
+  fiscal_profile   String? // ej. "FE/CCFE/NC" — informativo
+
+  // API Key individual cifrada (AES-256-GCM) — solo para entregarla al
+  // ejecutor del VPS y registrarla en DteCredential. Nunca se devuelve al browser.
+  encrypted_api_key   String?
+  api_key_fingerprint String? // sha256 parcial (16 hex) — no autentica
+
+  status            PlatformDteSignerProvisioningStatus @default(DRAFT)
+  template_version  String?
+  observed_state    Json? // último INSPECT/VERIFY sanitizado
+  last_error        String?
+  credential_registered_at DateTime?
+
+  // Autorización fiscal de Hacienda (PRODUCTION): NO automatizable. Un
+  // super_admin la atesta con referencia documental; READY_PROD la exige.
+  mh_authorization_confirmed_at DateTime?
+  mh_authorization_confirmed_by String?
+  mh_authorization_reference    String?
+
+  // Lock de ejecución (evita APPLY/ROLLBACK simultáneos)
+  lock_run_id     String?
+  lock_expires_at DateTime?
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+  created_by String?
+  updated_by String?
+
+  organization PlatformOrganization @relation(fields: [organization_id], references: [id])
+
+  @@unique([organization_id, environment])
+  @@unique([port])
+  @@index([organization_id])
+  @@index([status])
+  @@map("platform_dte_signer_provisionings")
+}
+
+// Bitácora inmutable de cada ejecución INSPECT/PLAN/APPLY/VERIFY/ROLLBACK.
+model PlatformDteSignerProvisioningRun {
+  id              String @id @default(uuid())
+  organization_id String
+  provisioning_id String?
+  environment     String
+  mode            String // INSPECT | PLAN | APPLY | VERIFY | ROLLBACK
+  status          String // SUCCESS | FAILED | BLOCKED
+  steps           Json? // [{ op, status, detail }] — sin secretos
+  error_message   String?
+  triggered_by    String?
+  started_at      DateTime  @default(now())
+  finished_at     DateTime?
+
+  organization PlatformOrganization @relation(fields: [organization_id], references: [id])
+
+  @@index([organization_id, environment])
+  @@index([provisioning_id])
+  @@index([started_at])
+  @@map("platform_dte_signer_provisioning_runs")
+}
+
+enum PlatformDteExternalDeliveryStatus {
+  PENDING
+  IN_PROGRESS
+  DELIVERED
+  FAILED_RETRYABLE
+  UNCERTAIN
+  RECONCILED_DELIVERED
+  CANCELLED
+}
+
+// Outbox / ledger de entregas MariaDB. Clave estable por organización +
+// ambiente + documento: dos clics, dos workers o un reintento comparten
+// la misma fila y solo uno puede reclamarla. UNCERTAIN (timeout tras
+// enviar el INSERT) NUNCA se reintenta automáticamente: requiere
+// conciliación humana, porque el contrato del receptor es INSERT-only y
+// no deduplica.
+model PlatformDteExternalDeliveryJob {
+  id              String @id @default(uuid())
+  organization_id String
+  tenant_id       String
+  location_id     String
+  environment     String // TEST | PRODUCTION
+  document_kind   String @default("DTE") // DTE (invalidaciones: flujo manual existente)
+  dte_document_id String
+  generation_code String?
+  idempotency_key String @unique
+
+  // Snapshot del destino (sin credenciales) para auditar que nunca cambie de organización.
+  integration_id  String?
+  target_host     String?
+  target_database String?
+  target_table    String?
+
+  status          PlatformDteExternalDeliveryStatus @default(PENDING)
+  trigger         String // AUTO | MANUAL
+  attempts        Int       @default(0)
+  max_attempts    Int       @default(5)
+  next_attempt_at DateTime?
+  lease_owner     String?
+  lease_expires_at DateTime?
+
+  last_error_code    String?
+  last_error_message String?
+  insert_id          String?
+  affected_rows      Int?
+  delivered_at       DateTime?
+
+  reconciled_by       String?
+  reconciled_at       DateTime?
+  reconciliation_note String?
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+  created_by String?
+  updated_by String?
+
+  organization PlatformOrganization @relation(fields: [organization_id], references: [id])
+
+  @@unique([organization_id, environment, document_kind, dte_document_id])
+  @@index([status, next_attempt_at])
+  @@index([organization_id, status])
+  @@map("platform_dte_external_delivery_jobs")
 }
