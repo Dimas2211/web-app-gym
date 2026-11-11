@@ -305,19 +305,21 @@ describe("INSPECT tras un APPLY previo que perdió la conexión (caso REC TEST)"
     Object.assign(db.rows[0], { status: "FAILED", last_error: STALE, api_key_fingerprint: fp("k") });
   };
 
-  it("INSPECT exitoso reemplaza el last_error de transporte obsoleto y conserva el status", async () => {
+  it("INSPECT exitoso conserva status FAILED y last_error (evidencia del APPLY); solo actualiza observed_state", async () => {
     await failedRow();
     const { transport, call } = fakeTransport({ existingKeyFp: fp("k") });
     const r = await runSignerProvisioning({ organizationId: "org-a", environment: "TEST", mode: "INSPECT", userId: "u" }, deps({ transport }));
     expect(r).toMatchObject({ ok: true, status: "FAILED" });
     expect(call.mock.calls.map((c) => c[0])).toEqual(["inspect"]);
     expect(db.rows[0].status).toBe("FAILED");
-    expect(String(db.rows[0].last_error)).not.toMatch(/EXECUTOR_UNREACHABLE/);
-    expect(String(db.rows[0].last_error)).toMatch(/^INSPECT .*ejecutor accesible/);
+    expect(db.rows[0].last_error).toBe(STALE);
+    expect(db.rows[0].observed_state).toMatchObject({ apiKey: { present: true }, vhost: { present: false } });
+    expect(db.rows[0].api_key_fingerprint).toBe(fp("k"));
+    expect(db.runs.at(-1)?.error_message ?? null).toBeNull();
     expect(db.runs.at(-1)).toMatchObject({ mode: "INSPECT", status: "SUCCESS" });
   });
 
-  it("INSPECT exitoso NO borra errores que no son de transporte (p. ej. API_KEY_DRIFT)", async () => {
+  it("INSPECT exitoso tampoco toca errores no relacionados con transporte (p. ej. API_KEY_DRIFT)", async () => {
     await failedRow();
     db.rows[0].last_error = "API_KEY_DRIFT: la API Key del VPS no coincide con la registrada en Zolvi.";
     const { transport } = fakeTransport({ existingKeyFp: fp("k") });
