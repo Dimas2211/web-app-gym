@@ -325,6 +325,16 @@ describe("regenerateRejectedExportDte — hereda ambiente del documento original
     sale_id: "sale-A", dte_status: "REJECTED", issuer_config_id: "A-prod", environment: "PRODUCTION",
   };
 
+  it("una venta anulada no puede regenerar su FEX rechazada", async () => {
+    const { db, createdDocs } = sharedDb({ issuers: [issuer("A-prod", TENANT_A, LOC_A, "PRODUCTION")], docs: [REJECTED_PROD] });
+    db.sale.findFirst.mockResolvedValue(null as never);
+    const result = await regenerateRejectedExportDte(TENANT_A, LOC_A, "dte-A", db as never);
+    expect(result.ok).toBe(false);
+    expect(db.sale.findFirst).toHaveBeenCalledWith({ where: { id: "sale-A", tenant_id: TENANT_A, location_id: LOC_A, status: "CONFIRMED" }, select: { id: true } });
+    expect(reserveMock).not.toHaveBeenCalled();
+    expect(createdDocs).toHaveLength(0);
+  });
+
   it("rechazado PROD -> nuevo DTE PROD con el mismo emisor", async () => {
     const { db, createdDocs } = sharedDb({ issuers: [issuer("A-prod", TENANT_A, LOC_A, "PRODUCTION")], docs: [REJECTED_PROD] });
 

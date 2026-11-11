@@ -422,6 +422,12 @@ export async function regenerateRejectedExportDte(
     return { ok: false, error: "El documento rechazado no está asociado a ninguna venta." };
   }
 
+  const sale = await db.sale.findFirst({
+    where: { id: rejected.sale_id, tenant_id, location_id, status: "CONFIRMED" },
+    select: { id: true },
+  });
+  if (!sale) return { ok: false, error: "La venta no está confirmada o fue anulada. No se puede generar otro DTE." };
+
   const issuerConfig = await db.dteIssuerConfig.findFirst({
     where:  { id: rejected.issuer_config_id, tenant_id, location_id },
     select: { id: true, environment: true, cod_estable_mh: true, cod_punto_venta_mh: true },

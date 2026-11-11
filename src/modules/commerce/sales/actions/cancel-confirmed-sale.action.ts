@@ -74,6 +74,8 @@ export async function cancelConfirmedSaleAction(
     if (!result.ok) return { ok: false, error: result.error };
 
     revalidatePath("/dashboard/sales");
+    revalidatePath("/dashboard/reports");
+    revalidatePath("/dashboard/reports/commerce");
     revalidatePath("/dashboard/inventory");
     revalidatePath("/dashboard/cash");
 

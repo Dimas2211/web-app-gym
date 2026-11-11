@@ -298,3 +298,34 @@ Regla de seguridad: `location_id` y `tenant_id` nunca se aceptan desde el body d
 8. Descartar un DRAFT — verificar que no queda en la tabla `Sale`.
 9. Acceder a `/dashboard/sales` y verificar el panel de detalle con posiciones fijas.
 10. Usar el botón "Aplicar inventario pendiente" en una venta CONFIRMED con `inventory_moved = false`.
+
+
+## Anulación de ventas confirmadas y rechazos fiscales (2026-11-11)
+
+La regla es común a todas las ventas, sin distinguir tipo DTE ni vertical.
+`cancelConfirmedSale` permite anular cuando no hay DTE activos: documentos
+INVALIDATED/NOT_REQUIRED y rechazos REJECTED sin sello de recepción MH no
+bloquean. Se evalúa todo el historial de documentos, tanto antes como dentro
+de la transacción, incluyendo `reception_stamp` en ambas lecturas.
+
+Un ACCEPTED/OBSERVED sigue exigiendo invalidación previa. Un rechazo con sello
+se bloquea por evidencia de recepción. SIGNED, SENT, PENDING_GENERATION,
+GENERATED, SCHEMA_VALIDATED, contingencia y demás estados en proceso siguen
+bloqueando. No se cambian ni borran los DTE rechazados ni su respuesta MH.
+
+Al anular se conserva la venta como CANCELLED, se devuelve el inventario
+stockable mediante RETURN_IN y se procesa el reintegro de efectivo con las
+reglas existentes de caja. Una caja cerrada no se modifica. La reapertura de
+rechazos 802 y la regeneración FEX verifican ahora que la venta siga CONFIRMED,
+para impedir reactivar documentos de una venta ya anulada.
+
+Los reportes comerciales usan `Sale.status=CONFIRMED`: anular excluye la venta
+del resumen, períodos, listados, líneas, productos/servicios y clientes. La
+invalidación del DTE por sí sola no cambia Sale.status. La acción de anulación
+revalida `/dashboard/reports/commerce` además de ventas, inventario y caja.
+Para una pestaña de reportes ya abierta, volver a consultar o actualizarla.
+
+Regresión: rechazo sin sello en 01/03/05/11, rechazo histórico más invalidación,
+rechazo con sello, convivencia con documentos aceptados o activos, devolución
+única de inventario, caja/atomicidad/concurrencia, historial intacto y consultas
+reales de resumen/listado/ventas por día antes y después de anular.

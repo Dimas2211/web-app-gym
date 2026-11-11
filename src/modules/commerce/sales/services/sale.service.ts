@@ -874,10 +874,10 @@ export async function cancelDraftSale(
 //
 // Reglas (todas verificadas en servidor, fail closed):
 //   1. Solo status === CONFIRMED (DRAFT se elimina; CANCELLED ya está anulada).
-//   2. DTE: sin documentos o todos INVALIDATED/NOT_REQUIRED → permitido.
+//   2. DTE: sin documentos, INVALIDATED/NOT_REQUIRED o REJECTED sin sello → permitido.
 //      ACCEPTED/OBSERVED → invalidar primero con el flujo DTE existente.
-//      Cualquier otro estado (incluido REJECTED, que puede reabrirse para
-//      re-firma) → bloqueado: aún es procesable fiscalmente.
+//      REJECTED con sello exige revisión/invalidación. Otros estados activos
+//      bloquean. Una venta anulada no puede reabrir ni regenerar sus DTE.
 //   3. Caja: toda sesión asociada (venta y pagos) debe seguir OPEN; una caja
 //      cerrada nunca se modifica. Pagos en efectivo → CashMovement REFUND_OUT
 //      y decremento de expected_cash_amount en la misma transacción.
@@ -918,11 +918,15 @@ class SaleCancelError extends Error {}
  * Devuelve null si se permite, o el mensaje de bloqueo.
  */
 export function evaluateSaleDteCancelGate(
-  documents: ReadonlyArray<{ dte_status: string }>,
+  documents: ReadonlyArray<{ dte_status: string; reception_stamp?: string | null }>,
 ): string | null {
   let requiresInvalidation = false;
   for (const doc of documents) {
     if (DTE_STATUSES_ALLOWING_SALE_CANCEL.has(doc.dte_status)) continue;
+    if (doc.dte_status === "REJECTED") {
+      if (doc.reception_stamp) requiresInvalidation = true;
+      continue;
+    }
     if (DTE_STATUSES_REQUIRING_INVALIDATION.has(doc.dte_status)) {
       requiresInvalidation = true;
       continue;
@@ -965,7 +969,7 @@ export async function cancelConfirmedSale(
       },
       dte_documents: {
         where:  { tenant_id },
-        select: { dte_status: true },
+        select: { dte_status: true, reception_stamp: true },
       },
     },
   });
@@ -1051,7 +1055,7 @@ export async function cancelConfirmedSale(
       // entre el pre-chequeo y el claim).
       const docs = await tx.dteOutgoingDocument.findMany({
         where:  { sale_id, tenant_id },
-        select: { dte_status: true },
+        select: { dte_status: true, reception_stamp: true },
       });
       const txDteBlock = evaluateSaleDteCancelGate(docs);
       if (txDteBlock) throw new SaleCancelError(txDteBlock);
