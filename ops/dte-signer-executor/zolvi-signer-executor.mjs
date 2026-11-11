@@ -341,19 +341,31 @@ export function createExecutor(deps = {}) {
     return { ok: true, snapshot };
   }
 
+  /** ¿El texto de httpd.conf referencia el directorio de NUESTRO include? */
+  const referencesDir = (text, dir) => typeof text === "string" && (text.includes(`${dir}/`) || text.includes(`"${dir}"`));
+
   /**
-   * Deja la configuración de Apache en disco sin rastro del cambio propio
-   * (el include ya fue revertido por el llamador), sin pisar cambios ajenos:
-   *   - UNCHANGED / NOT_OURS → no se escribe; solo se valida.
-   *   - OURS_ONLY            → restauración con compare-and-swap.
-   *   - MIXED o carrera      → CONCURRENT_CHANGE: no se escribe, intervención manual.
-   *   - sin copia previa     → rebuild de recuperación.
-   * Solo si Apache llegó a recibir la señal se envía otro graceful.
+   * Deshace en disco el cambio propio sin pisar cambios ajenos y SIN dejar
+   * nunca httpd.conf apuntando a un include inexistente (Apache 2.4 trata un
+   * Include sin coincidencias como error: el siguiente reinicio del Apache
+   * compartido fallaría). Orden:
+   *   1. httpd.conf:
+   *      - UNCHANGED / NOT_OURS → no se escribe.
+   *      - OURS_ONLY            → restauración con compare-and-swap.
+   *      - MIXED o carrera      → no se escribe (CONCURRENT_CHANGE).
+   *      - sin copia previa     → se revierte el include y se reconstruye.
+   *   2. include: `revertInclude` solo se aplica si deja la configuración
+   *      coherente: si quitarlo (`revertRemovesInclude`) dejaría a httpd.conf
+   *      referenciando su directorio, el include SE CONSERVA.
+   *   3. apachectl -t SIEMPRE (también tras CONCURRENT_CHANGE) → configValid.
+   *   4. graceful solo si Apache llegó a recibir la señal y todo lo anterior fue bien.
    */
-  async function recoverApache(reload) {
+  async function recoverApache(reload, { revertInclude = null, revertRemovesInclude = false } = {}) {
     const { snapshot } = reload;
     const actions = [];
-    const failed = (diagnostic) => ({ recovered: false, actions, diagnostic });
+    let diagnostic = null;
+    let includeReverted = false;
+    const blank = { exitCode: null, signal: null, spawnError: null, durationMs: null, backend: null, stdout: "" };
     if (snapshot) {
       const change = classifyHttpdChange(snapshot, reload.confAtFailure, reload.ownDir);
       if (change === "UNCHANGED") {
@@ -362,30 +374,41 @@ export function createExecutor(deps = {}) {
         actions.push("httpd.conf cambiado por otro proceso, sin referencias a este firmador: no se toca");
       } else if (change === "MIXED") {
         actions.push("httpd.conf tiene cambios propios y ajenos: no se restaura para no pisar trabajo de cPanel/administrador");
-        return failed({ op: "restore", kind: "CONCURRENT_CHANGE", exitCode: null, signal: null, spawnError: null, durationMs: null, backend: null, stderr: "", stdout: "" });
+        diagnostic = { op: "restore", kind: "CONCURRENT_CHANGE", ...blank, stderr: "" };
       } else {
         let res;
         try { res = restoreHttpdConfGuarded(snapshot, reload.confAtFailure); } catch (err) { res = { ok: false, ioError: true, reason: `error ${err?.code ?? "de escritura"}` }; }
-        if (!res.ok) {
+        if (res.ok) {
+          actions.push(`httpd.conf restaurado desde copia previa (huella ${snapshot.fingerprint})`);
+        } else {
           actions.push(`httpd.conf NO restaurado: ${res.reason}`);
-          return failed({ op: "restore", kind: res.ioError ? "RESTORE_FAILED" : "CONCURRENT_CHANGE", exitCode: null, signal: null, spawnError: null, durationMs: null, backend: null, stderr: res.reason, stdout: "" });
+          diagnostic = { op: "restore", kind: res.ioError ? "RESTORE_FAILED" : "CONCURRENT_CHANGE", ...blank, stderr: res.reason };
         }
-        actions.push(`httpd.conf restaurado desde copia previa (huella ${snapshot.fingerprint})`);
+      }
+      if (revertInclude) {
+        if (revertRemovesInclude && referencesDir(readText(HTTPD_CONF), reload.ownDir)) {
+          actions.push("include CONSERVADO: httpd.conf lo referencia y quitarlo dejaría a Apache con una configuración inválida");
+        } else {
+          revertInclude(); includeReverted = true;
+          actions.push("include revertido");
+        }
       }
     } else {
+      if (revertInclude) { revertInclude(); includeReverted = true; actions.push("include revertido"); }
       const rb = await apache.rebuild();
-      if (!rb.ok) { actions.push("rebuild de recuperación falló"); return failed(rb.diagnostic); }
-      actions.push("rebuild de recuperación OK");
+      if (rb.ok) actions.push("rebuild de recuperación OK");
+      else { actions.push("rebuild de recuperación falló"); diagnostic = rb.diagnostic; }
     }
     const t = await apache.configtest();
-    if (!t.ok) { actions.push("apachectl -t falló"); return failed(t.diagnostic); }
-    actions.push("apachectl -t OK");
-    if (reload.phase === "signal") {
+    const configValid = t.ok;
+    if (t.ok) actions.push("apachectl -t OK: configuración en disco válida");
+    else { actions.push("apachectl -t FALLÓ: configuración en disco inválida"); diagnostic ??= t.diagnostic; }
+    if (!diagnostic && reload.phase === "signal") {
       const g = await apache.graceful();
-      if (!g.ok) { actions.push("graceful de recuperación falló"); return failed(g.diagnostic); }
-      actions.push("graceful de recuperación OK");
+      if (g.ok) actions.push("graceful de recuperación OK");
+      else { actions.push("graceful de recuperación falló"); diagnostic = g.diagnostic; }
     }
-    return { recovered: true, actions };
+    return { recovered: !diagnostic, actions, diagnostic, configValid, includeReverted };
   }
 
   async function apply(params) {
@@ -452,21 +475,31 @@ export function createExecutor(deps = {}) {
     if (changed) {
       const reload = await apacheReload(steps, { runId, ownDir: vhostDir });
       if (!reload.ok) {
-        if (previousVhost === null) fs.unlinkSync(n.vhostIncludePath);
-        else fs.writeFileSync(n.vhostIncludePath, previousVhost, { mode: 0o644 });
-        if (previousVhostRecord === undefined) delete manifest.resources.VHOST;
-        else manifest.resources.VHOST = previousVhostRecord;
-        writeManifest(n, manifest);
-        const recovery = await recoverApache(reload);
+        // El include se revierte DENTRO de la recuperación, después de decidir
+        // httpd.conf: si éste sigue referenciando el directorio, se conserva
+        // (y su registro en el manifiesto, para que un ROLLBACK lo limpie luego).
+        const revertInclude = () => {
+          if (previousVhost === null) fs.unlinkSync(n.vhostIncludePath);
+          else fs.writeFileSync(n.vhostIncludePath, previousVhost, { mode: 0o644 });
+          if (previousVhostRecord === undefined) delete manifest.resources.VHOST;
+          else manifest.resources.VHOST = previousVhostRecord;
+          writeManifest(n, manifest);
+        };
+        const recovery = await recoverApache(reload, { revertInclude, revertRemovesInclude: previousVhost === null });
         const snapshot = reload.snapshot;
+        const validity = recovery.configValid ? "Configuración de Apache en disco VÁLIDA (apachectl -t OK)" : "Configuración de Apache en disco INVÁLIDA";
         const recoveryDetail = recovery.recovered
           ? `Configuración anterior validada: ${recovery.actions.join("; ")}.`
-          : `Revisar Apache manualmente; sin reinicio automático. ${recovery.actions.join("; ")}${recovery.diagnostic ? ` — ${describeDiagnostic(recovery.diagnostic)}` : ""}${snapshot?.backupPath ? ` Copia previa: ${snapshot.backupPath}.` : ""}`;
+          : `${validity}; Apache en ejecución no se tocó (sin reinicio ni graceful). ${recovery.actions.join("; ")}${recovery.diagnostic ? ` — ${describeDiagnostic(recovery.diagnostic)}` : ""}${snapshot?.backupPath ? ` Copia previa: ${snapshot.backupPath}.` : ""}`;
         return {
           ok: false, op: "apply", code: recovery.recovered ? "APACHE_FAILED" : "APACHE_RECOVERY_FAILED",
-          message: `fase ${reload.phase}: ${reload.detail}. Recuperación ${recovery.recovered ? "OK" : "FALLIDA"}.`,
-          steps: [...steps, { op: "VHOST", status: "REVERTED", detail: reload.detail },
+          message: `fase ${reload.phase}: ${reload.detail}. Recuperación ${recovery.recovered ? "OK" : "FALLIDA"}; ${recovery.configValid ? "config en disco válida" : "config en disco INVÁLIDA"}${recovery.includeReverted ? "" : "; include conservado"}.`,
+          steps: [...steps,
+            recovery.includeReverted
+              ? { op: "VHOST", status: "REVERTED", detail: reload.detail }
+              : { op: "VHOST", status: "KEPT", detail: "Include conservado: httpd.conf lo referencia; quitarlo invalidaría la configuración de Apache." },
             { op: "APACHE_RECOVERY", status: recovery.recovered ? "OK" : "FAILED", detail: recoveryDetail,
+              configValid: recovery.configValid,
               ...(recovery.diagnostic ? { diagnostic: recovery.diagnostic } : {}) }],
           observed: await observe(spec),
         };
@@ -534,6 +567,7 @@ export function createExecutor(deps = {}) {
         const recovery = await recoverApache(reload);
         steps.push({ op: "VHOST", status: "KEPT", detail: "Include restablecido: Apache no se pudo reconstruir." },
           { op: "APACHE_RECOVERY", status: recovery.recovered ? "OK" : "FAILED", detail: recovery.actions.join("; "),
+            configValid: recovery.configValid,
             ...(recovery.diagnostic ? { diagnostic: recovery.diagnostic } : {}) });
         manifest.resources = r;
         writeManifest(n, manifest);

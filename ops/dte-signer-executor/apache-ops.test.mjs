@@ -8,6 +8,7 @@ import { describe, it, expect } from "vitest";
 import {
   sanitizeOutput, diagnose, describeDiagnostic, childEnv, runCommand, readHelperResult,
   createHelperApache, createDirectApache, HELPER_OPS, HELPER_RESULT_DIR, APACHE_BIN, HELPER_RESULT_MAX_BYTES,
+  helperResultPath, parseHelperInstance,
 } from "./lib/apache-ops.mjs";
 import { runHelperOp, HELPER_EXIT } from "./zolvi-apache-helper.mjs";
 
@@ -175,22 +176,34 @@ function memFs() {
 }
 
 // ── Helper privilegiado (script) ──────────────────────────────────
+const NONCE = () => randomBytes(8).toString("hex");
+
 describe("zolvi-apache-helper — instancias no autorizadas, contexto systemd y directorio seguro", () => {
   const okRun = (calls) => async (cmd, args) => { calls.push([cmd, ...args]); return { code: 0, stdout: "", stderr: "" }; };
 
-  it("solo rebuild | configtest | graceful, comparación exacta: cualquier otra instancia sale 64 sin ejecutar nada", async () => {
+  it("instancia = <rebuild|configtest|graceful>-<16 hex>, comparación exacta: cualquier otra sale 64 sin ejecutar nada", async () => {
     expect(HELPER_OPS).toEqual(["rebuild", "configtest", "graceful"]);
+    const n = NONCE();
     const calls = [];
-    for (const op of ["restart", "stop", "reload", "../../bin/sh", "rebuild;id", "rebuild ", " rebuild", "Rebuild", "rebuild\n", "rebuild\\x2did", "graceful-stop", "", undefined, null, ["rebuild"]]) {
-      expect((await runHelperOp(op, { run: okRun(calls), fs: memFs(), env: { INVOCATION_ID: INV() } })).exitCode).toBe(HELPER_EXIT.OP_NOT_ALLOWED);
+    for (const inst of [
+      // sin nonce (formato anterior) y operaciones ajenas
+      "rebuild", "configtest", "graceful", "restart", "stop", "reload", `restart-${n}`, `stop-${n}`,
+      // nonce mal formado
+      "rebuild-", `rebuild-${n.toUpperCase()}`, `rebuild-${n.slice(1)}`, `rebuild-${n}0`, `rebuild-${"g".repeat(16)}`, `rebuild--${n}`,
+      // inyección / escapes / normalización
+      `rebuild-${n};id`, `rebuild-${n} `, ` rebuild-${n}`, `Rebuild-${n}`, `rebuild-${n}\n`, `rebuild\\x2d${n}`, `rebuild/${n}`,
+      `../../bin/sh-${n}`, `graceful-stop-${n}`, "", undefined, null, [`rebuild-${n}`],
+    ]) {
+      expect((await runHelperOp(inst, { run: okRun(calls), fs: memFs(), env: { INVOCATION_ID: INV() } })).exitCode).toBe(HELPER_EXIT.OP_NOT_ALLOWED);
     }
     expect(calls).toEqual([]);
+    expect(parseHelperInstance(`configtest-${n}`)).toEqual({ op: "configtest", nonce: n });
   });
 
-  it("fuera de systemd (sin InvocationID válido) no ejecuta nada", async () => {
+  it("fuera de systemd (sin INVOCATION_ID válido) no ejecuta nada", async () => {
     const calls = [];
     for (const env of [{}, { INVOCATION_ID: "" }, { INVOCATION_ID: "x".repeat(32) }, { INVOCATION_ID: "../../etc" }]) {
-      expect((await runHelperOp("rebuild", { run: okRun(calls), fs: memFs(), env })).exitCode).toBe(HELPER_EXIT.NOT_UNDER_SYSTEMD);
+      expect((await runHelperOp(`rebuild-${NONCE()}`, { run: okRun(calls), fs: memFs(), env })).exitCode).toBe(HELPER_EXIT.NOT_UNDER_SYSTEMD);
     }
     expect(calls).toEqual([]);
   });
@@ -200,38 +213,40 @@ describe("zolvi-apache-helper — instancias no autorizadas, contexto systemd y 
     for (const meta of [{ symlink: true }, { uid: 1000 }, { mode: 0o777 }, { mode: 0o720 }]) {
       const fs = memFs();
       fs.dirs.set(HELPER_RESULT_DIR, { uid: 0, mode: 0o700, symlink: false, ...meta });
-      expect((await runHelperOp("rebuild", { run: okRun(calls), fs, env: { INVOCATION_ID: INV() } })).exitCode).toBe(HELPER_EXIT.RESULT_DIR_UNSAFE);
+      expect((await runHelperOp(`rebuild-${NONCE()}`, { run: okRun(calls), fs, env: { INVOCATION_ID: INV() } })).exitCode).toBe(HELPER_EXIT.RESULT_DIR_UNSAFE);
     }
     expect(calls).toEqual([]);
   });
 
-  it("ejecuta el comando fijo y escribe el resultado saneado (0600) con su InvocationID", async () => {
+  it("ejecuta el comando fijo y escribe el resultado saneado (0600) en <op>-<nonce>.json", async () => {
     const fs = memFs();
     const key = randomBytes(32).toString("hex");
     const inv = INV();
+    const n = NONCE();
     const calls = [];
     const run = async (cmd, args) => { calls.push([cmd, ...args]); return { code: 255, signal: null, timedOut: false, spawnError: null, durationMs: 1200, stderr: `Define K ${key}\nfailed: Read-only file system /etc/userdatadomains`, stdout: "" }; };
-    const out = await runHelperOp("rebuild", { run, fs, env: { INVOCATION_ID: inv, ZOLVI_SIGNER_EXECUTOR_SECRET: "x" } });
+    const out = await runHelperOp(`rebuild-${n}`, { run, fs, env: { INVOCATION_ID: inv, ZOLVI_SIGNER_EXECUTOR_SECRET: "x" } });
     expect(calls).toEqual([[APACHE_BIN.rebuild]]);
     expect(out.exitCode).toBe(255);
-    const saved = fs.files.get(`${HELPER_RESULT_DIR}/rebuild.json`);
+    const saved = fs.files.get(helperResultPath("rebuild", n));
     expect(saved.mode).toBe(0o600);
     expect(saved.content).not.toContain(key);
-    expect(JSON.parse(saved.content)).toMatchObject({ op: "rebuild", invocationId: inv, exitCode: 255, stderr: expect.stringContaining("/etc/userdatadomains") });
+    expect(JSON.parse(saved.content)).toMatchObject({ op: "rebuild", nonce: n, invocationId: inv, exitCode: 255, stderr: expect.stringContaining("/etc/userdatadomains") });
     expect([...fs.files.keys()].filter((p) => p.endsWith(".tmp"))).toEqual([]);
   });
 
-  it("configtest y graceful usan apachectl con argumentos fijos (graceful, nunca restart)", async () => {
+  it("configtest y graceful usan apachectl con argumentos fijos (graceful, nunca restart); el nonce nunca llega al comando", async () => {
     const calls = [];
-    await runHelperOp("configtest", { run: okRun(calls), fs: memFs(), env: { INVOCATION_ID: INV() } });
-    await runHelperOp("graceful", { run: okRun(calls), fs: memFs(), env: { INVOCATION_ID: INV() } });
+    await runHelperOp(`configtest-${NONCE()}`, { run: okRun(calls), fs: memFs(), env: { INVOCATION_ID: INV() } });
+    await runHelperOp(`graceful-${NONCE()}`, { run: okRun(calls), fs: memFs(), env: { INVOCATION_ID: INV() } });
     expect(calls).toEqual([[APACHE_BIN.apachectl, "-t"], [APACHE_BIN.apachectl, "-k", "graceful"]]);
   });
 
-  it("la unidad systemd pasa %i como un único argumento y no tiene [Install] ni reinicios", () => {
+  it("la unidad usa %i literal (no %I, que convierte '-' en '/'), un argumento, CollectMode y sin [Install] ni reinicios", () => {
     const unit = readFileSync(new URL("./systemd/zolvi-apache-helper@.service", import.meta.url), "utf8");
     const exec = unit.split(/\r?\n/).find((l) => l.startsWith("ExecStart="));
     expect(exec).toBe('ExecStart=/opt/cpanel/ea-nodejs22/bin/node /opt/zolvi-signer-executor/zolvi-apache-helper.mjs "%i"');
+    expect(unit).toMatch(/^CollectMode=inactive-or-failed$/m);
     expect(unit).not.toMatch(/^\[Install\]/m);
     expect(unit).toMatch(/^Type=oneshot$/m);
     expect(unit).toMatch(/^NoNewPrivileges=true$/m);
@@ -241,12 +256,19 @@ describe("zolvi-apache-helper — instancias no autorizadas, contexto systemd y 
 
 // ── Integridad del resultado ──────────────────────────────────────
 describe("readHelperResult — integridad del archivo de resultado", () => {
-  const good = (inv = INV()) => ({ op: "rebuild", invocationId: inv, startedAt: new Date().toISOString(), exitCode: 0, signal: null, timedOut: false, spawnError: null, durationMs: 10, stderr: "", stdout: "" });
-  const P = `${HELPER_RESULT_DIR}/rebuild.json`;
+  const n = "0123456789abcdef";
+  const good = () => ({ op: "rebuild", nonce: n, invocationId: INV(), startedAt: new Date().toISOString(), exitCode: 0, signal: null, timedOut: false, spawnError: null, durationMs: 10, stderr: "", stdout: "" });
+  const P = helperResultPath("rebuild", n);
 
   it("acepta un resultado íntegro", () => {
     const fs = memFs(); fs.put(P, JSON.stringify(good()));
-    expect(readHelperResult(fs, "rebuild").result).toBeTruthy();
+    expect(readHelperResult(fs, "rebuild", n).result).toBeTruthy();
+  });
+
+  it("solo lee <op>-<nonce>.json: un resultado de otra llamada (otro nonce) no existe para ésta", () => {
+    const fs = memFs(); fs.put(P, JSON.stringify(good()));
+    expect(readHelperResult(fs, "rebuild", "fedcba9876543210")).toEqual({ missing: true });
+    expect(readHelperResult(fs, "rebuild", "../../etc/passwd").invalid).toBeTruthy();
   });
 
   const bad = [
@@ -257,6 +279,7 @@ describe("readHelperResult — integridad del archivo de resultado", () => {
     ["demasiado grande", (fs) => fs.put(P, JSON.stringify({ ...good(), pad: "x".repeat(HELPER_RESULT_MAX_BYTES) }))],
     ["JSON inválido", (fs) => fs.put(P, "{no")],
     ["op distinta", (fs) => fs.put(P, JSON.stringify({ ...good(), op: "graceful" }))],
+    ["nonce distinto dentro del archivo", (fs) => fs.put(P, JSON.stringify({ ...good(), nonce: "fedcba9876543210" }))],
     ["InvocationID mal formado", (fs) => fs.put(P, JSON.stringify({ ...good(), invocationId: "abc" }))],
     ["exitCode fuera de rango", (fs) => fs.put(P, JSON.stringify({ ...good(), exitCode: 300 }))],
     ["timedOut no booleano", (fs) => fs.put(P, JSON.stringify({ ...good(), timedOut: "no" }))],
@@ -266,61 +289,68 @@ describe("readHelperResult — integridad del archivo de resultado", () => {
   for (const [name, setup] of bad) {
     it(`rechaza: ${name}`, () => {
       const fs = memFs(); setup(fs);
-      expect(readHelperResult(fs, "rebuild").invalid).toBeTruthy();
+      expect(readHelperResult(fs, "rebuild", n).invalid).toBeTruthy();
     });
   }
 });
 
 // ── Backend helper del ejecutor ───────────────────────────────────
-describe("backend helper (systemctl start zolvi-apache-helper@<op>) — InvocationID y coherencia con systemd", () => {
+describe("backend helper (systemctl start zolvi-apache-helper@<op>-<nonce>) — correlación por nonce, GC de systemd", () => {
   /**
-   * Simula systemd: cada start genera un InvocationID aleatorio nuevo y el
-   * helper escribe su resultado. Opciones para inyectar fallos.
+   * Simula systemd con el comportamiento REAL que rompió el APPLY del
+   * 2026-11-10: una instancia oneshot que termina queda inactiva y se
+   * DESCARGA (GC) → `systemctl show` posterior devuelve InvocationID vacío.
+   * `systemctl start` bloquea hasta terminar y sale 1 si la unidad falla.
    */
   function systemdSim(opts = {}) {
     const fs = memFs();
     const calls = [];
-    const units = new Map(); // unit -> { inv, status, result }
     let running = 0, maxRunning = 0;
     const run = async (cmd, args) => {
       calls.push([cmd, ...args]);
       if (cmd !== APACHE_BIN.systemctl) throw new Error("solo systemctl");
       const unit = args.at(-1);
-      const op = unit.replace("zolvi-apache-helper@", "").replace(".service", "");
-      const u = units.get(unit) ?? { inv: opts.previousInv ?? "", status: "0", result: "success" };
-      units.set(unit, u);
+      const m = /^zolvi-apache-helper@(.+)\.service$/.exec(unit);
       if (args[0] === "show") {
-        if (opts.unitMissing) return { code: 0, stdout: "LoadState=not-found\nInvocationID=\nExecMainStatus=0\nResult=success\n", stderr: "" };
-        return { code: 0, stdout: `LoadState=loaded\nInvocationID=${u.inv}\nExecMainStatus=${u.status}\nResult=${u.result}\n`, stderr: "" };
+        // Plantilla instalada: cualquier instancia (aún no arrancada o ya descargada) da loaded e InvocationID vacío.
+        return { code: 0, stdout: `LoadState=${opts.unitMissing ? "not-found" : "loaded"}\nInvocationID=\n`, stderr: "" };
       }
-      // start
       running += 1; maxRunning = Math.max(maxRunning, running);
       await new Promise((r) => setTimeout(r, 5));
       running -= 1;
-      if (opts.notStarted) return { code: 1, stdout: "", stderr: `Assertion failed on job for ${unit}.` }; // no hay invocación nueva
-      u.inv = opts.fixedInv ?? INV();
-      const exit = opts.helperExit ?? 0;
-      u.status = String(opts.systemdStatus ?? exit);
-      u.result = (opts.systemdStatus ?? exit) === 0 ? "success" : "exit-code";
-      if (!opts.noResult) {
-        const res = { op, invocationId: opts.fileInv ?? u.inv, startedAt: opts.startedAt ?? new Date().toISOString(), exitCode: exit, signal: null, timedOut: false, spawnError: null, durationMs: 800, stderr: opts.stderr ?? "", stdout: "" };
-        fs.put(`${HELPER_RESULT_DIR}/${op}.json`, JSON.stringify(res));
-      }
-      return { code: u.result === "success" ? 0 : 1, stdout: "", stderr: u.result === "success" ? "" : `Job for ${unit} failed.` };
+      if (opts.notStarted) return { code: 1, stdout: "", stderr: `Assertion failed on job for ${unit}.` };
+      // El helper REAL valida la instancia y escribe su resultado.
+      const helperRun = async () => ({ code: opts.helperExit ?? 0, signal: null, timedOut: false, spawnError: null, durationMs: 800, stderr: opts.stderr ?? "", stdout: "" });
+      const out = await runHelperOp(m?.[1], { run: helperRun, fs, env: { INVOCATION_ID: INV() } });
+      if (opts.afterHelper) opts.afterHelper(m?.[1]);
+      const exit = opts.systemdExit ?? out.exitCode;
+      return { code: exit === 0 ? 0 : 1, stdout: "", stderr: exit === 0 ? "" : `Job for ${unit} failed because the control process exited with error code.` };
     };
-    return { fs, run, calls, units, maxRunning: () => maxRunning };
+    return { fs, run, calls, maxRunning: () => maxRunning };
   }
+  const starts = (s) => s.calls.filter((c) => c[1] === "start").map((c) => c[2]);
 
-  it("éxito: invoca solo las unidades fijas", async () => {
+  it("REGRESIÓN 2026-11-10: aunque systemd descargue la instancia (InvocationID vacío), el rebuild exitoso se reconoce", async () => {
     const s = systemdSim();
     const a = createHelperApache(s.run, s.fs);
-    expect((await a.rebuild()).ok).toBe(true);
+    expect(await a.rebuild()).toMatchObject({ ok: true, backend: "helper" });
     expect((await a.configtest()).ok).toBe(true);
     expect((await a.graceful()).ok).toBe(true);
-    expect(s.calls.filter((c) => c[1] === "start").map((c) => c[2])).toEqual([
-      "zolvi-apache-helper@rebuild.service", "zolvi-apache-helper@configtest.service", "zolvi-apache-helper@graceful.service",
-    ]);
-    expect(s.calls.every((c) => c[1] === "start" || c[1] === "show")).toBe(true);
+    const units = starts(s);
+    expect(units).toHaveLength(3);
+    units.forEach((u, i) => expect(u).toMatch(new RegExp(`^zolvi-apache-helper@${["rebuild", "configtest", "graceful"][i]}-[0-9a-f]{16}\\.service$`)));
+    expect(new Set(units).size).toBe(3);
+    // Nada se consulta a systemd después del start y los resultados no se acumulan en /run.
+    expect(s.calls.every((c) => c[1] === "start" || (c[1] === "show" && c[2] === "-p" && c[3] === "LoadState"))).toBe(true);
+    expect([...s.fs.files.keys()].filter((p) => p.startsWith(HELPER_RESULT_DIR))).toEqual([]);
+  });
+
+  it("cada llamada usa un nonce nuevo", async () => {
+    const s = systemdSim();
+    const a = createHelperApache(s.run, s.fs);
+    await a.configtest(); await a.configtest();
+    const [u1, u2] = starts(s);
+    expect(u1).not.toBe(u2);
   });
 
   it("fallo del rebuild: diagnóstico con el stderr real del helper", async () => {
@@ -333,48 +363,48 @@ describe("backend helper (systemctl start zolvi-apache-helper@<op>) — Invocati
   it("unidad no instalada: HELPER_UNAVAILABLE y no se intenta el start", async () => {
     const s = systemdSim({ unitMissing: true });
     expect((await createHelperApache(s.run, s.fs).rebuild()).diagnostic.kind).toBe("HELPER_UNAVAILABLE");
-    expect(s.calls.some((c) => c[1] === "start")).toBe(false);
+    expect(starts(s)).toEqual([]);
   });
 
-  it("reutilización de InvocationID: si la unidad no arrancó, el resultado anterior (mismo ID) NO se acepta", async () => {
-    const old = INV();
-    const s = systemdSim({ notStarted: true, previousInv: old });
-    // Resultado legítimo de la ejecución ANTERIOR, que dijo "éxito".
-    s.fs.put(`${HELPER_RESULT_DIR}/rebuild.json`, JSON.stringify({ op: "rebuild", invocationId: old, startedAt: new Date().toISOString(), exitCode: 0, signal: null, timedOut: false, spawnError: null, durationMs: 1, stderr: "", stdout: "" }));
-    const r = await createHelperApache(s.run, s.fs).rebuild();
+  it("si la unidad no arrancó, un resultado anterior (otro nonce) NO se acepta", async () => {
+    const s = systemdSim({ notStarted: true });
+    const old = "0123456789abcdef";
+    s.fs.put(helperResultPath("rebuild", old), JSON.stringify({ op: "rebuild", nonce: old, invocationId: INV(), startedAt: new Date().toISOString(), exitCode: 0, signal: null, timedOut: false, spawnError: null, durationMs: 1, stderr: "", stdout: "" }));
+    const r = await createHelperApache(s.run, s.fs, { nonce: () => "fedcba9876543210" }).rebuild();
     expect(r).toMatchObject({ ok: false, diagnostic: { kind: "HELPER_RESULT_MISSING" } });
-  });
-
-  it("resultado de otra invocación (ID distinto) no se acepta", async () => {
-    const s = systemdSim({ fileInv: INV() });
-    expect((await createHelperApache(s.run, s.fs).rebuild()).diagnostic.kind).toBe("HELPER_RESULT_MISSING");
+    // El diagnóstico nombra la unidad (el saneador ya no la confunde con un correo).
+    expect(describeDiagnostic(r.diagnostic)).toContain("zolvi-apache-helper@rebuild-fedcba9876543210.service");
+    expect(describeDiagnostic(r.diagnostic)).not.toContain("EMAIL");
   });
 
   it("resultado con startedAt anterior a la llamada no se acepta", async () => {
-    const s = systemdSim({ startedAt: "2020-01-01T00:00:00.000Z" });
+    const s = systemdSim({ afterHelper: (inst) => {
+      const p = helperResultPath(...inst.split("-"));
+      const j = JSON.parse(s.fs.files.get(p).content); j.startedAt = "2020-01-01T00:00:00.000Z";
+      s.fs.put(p, JSON.stringify(j));
+    } });
     expect((await createHelperApache(s.run, s.fs).rebuild()).diagnostic.kind).toBe("HELPER_RESULT_MISSING");
   });
 
-  it("archivo dice 'éxito' pero systemd registró fallo → HELPER_RESULT_INCONSISTENT (nunca ok)", async () => {
-    const s = systemdSim({ helperExit: 0, systemdStatus: 1 });
-    const r = await createHelperApache(s.run, s.fs).rebuild();
-    expect(r).toMatchObject({ ok: false, diagnostic: { kind: "HELPER_RESULT_INCONSISTENT" } });
+  it("archivo dice 'éxito' pero systemctl start falló → HELPER_RESULT_INCONSISTENT (nunca ok)", async () => {
+    const s = systemdSim({ helperExit: 0, systemdExit: 1 });
+    expect(await createHelperApache(s.run, s.fs).rebuild()).toMatchObject({ ok: false, diagnostic: { kind: "HELPER_RESULT_INCONSISTENT" } });
   });
 
-  it("archivo dice 'fallo' pero systemd registró éxito → HELPER_RESULT_INCONSISTENT", async () => {
-    const s = systemdSim({ helperExit: 1, systemdStatus: 0 });
+  it("archivo dice 'fallo' pero systemctl start salió 0 → HELPER_RESULT_INCONSISTENT", async () => {
+    const s = systemdSim({ helperExit: 1, systemdExit: 0 });
     expect((await createHelperApache(s.run, s.fs).rebuild()).diagnostic.kind).toBe("HELPER_RESULT_INCONSISTENT");
   });
 
-  it("resultado manipulado (no root / enlace) → HELPER_RESULT_INVALID", async () => {
+  it("resultado manipulado (no root) → HELPER_RESULT_INVALID", async () => {
+    const s = systemdSim({ afterHelper: (inst) => { s.fs.files.get(helperResultPath(...inst.split("-"))).uid = 1000; } });
+    expect((await createHelperApache(s.run, s.fs).rebuild()).diagnostic.kind).toBe("HELPER_RESULT_INVALID");
+  });
+
+  it("nonce inyectado inválido: excepción antes de llamar a systemd", async () => {
     const s = systemdSim();
-    const orig = s.run;
-    const run = async (cmd, args) => {
-      const r = await orig(cmd, args);
-      if (args[0] === "start") { const p = `${HELPER_RESULT_DIR}/rebuild.json`; s.fs.files.get(p).uid = 1000; }
-      return r;
-    };
-    expect((await createHelperApache(run, s.fs).rebuild()).diagnostic.kind).toBe("HELPER_RESULT_INVALID");
+    await expect(createHelperApache(s.run, s.fs, { nonce: () => "x;id" }).rebuild()).rejects.toThrow(/nonce/);
+    expect(s.calls).toEqual([]);
   });
 
   it("llamadas concurrentes del ejecutor se serializan (nunca dos start a la vez)", async () => {
@@ -390,6 +420,16 @@ describe("backend helper (systemctl start zolvi-apache-helper@<op>) — Invocati
     const a = createDirectApache(async (cmd, args) => { calls.push([cmd, ...args]); return { code: 0 }; });
     await a.rebuild(); await a.configtest(); await a.graceful();
     expect(calls).toEqual([[APACHE_BIN.rebuild], [APACHE_BIN.apachectl, "-t"], [APACHE_BIN.apachectl, "-k", "graceful"]]);
+  });
+});
+
+describe("sanitizeOutput — nombres de unidades systemd", () => {
+  it("no confunde unidades systemd con correos, pero sigue redactando correos reales", () => {
+    const out = sanitizeOutput("Job for zolvi-apache-helper@rebuild-0123456789abcdef.service failed; httpd@x.socket; contacto ana.perez@empresa.com.sv");
+    expect(out).toContain("zolvi-apache-helper@rebuild-0123456789abcdef.service");
+    expect(out).toContain("httpd@x.socket");
+    expect(out).not.toContain("ana.perez@empresa.com.sv");
+    expect(out).toContain("[EMAIL REDACTADO]");
   });
 });
 

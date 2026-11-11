@@ -36,7 +36,7 @@ function fakeVps({ containers = [], listening = [], apacheTestFails = false, htt
     readFileSync: (p) => { if (!files.has(p)) throw Object.assign(new Error("ENOENT"), { code: "ENOENT" }); return files.get(p); },
     // Ganchos (state.onWrite/onUnlink/onRebuild/onConfigtest/onComposeUp) simulan a cPanel u otro administrador actuando en paralelo.
     writeFileSync: (p, c) => { files.set(p, String(c)); state.onWrite?.(p, files); },
-    existsSync: (p) => files.has(p) || dirs.has(p),
+    existsSync: (p) => { state.onExists?.(p, files); return files.has(p) || dirs.has(p); },
     mkdirSync: (p) => { dirs.add(p); },
     unlinkSync: (p) => { files.delete(p); state.onUnlink?.(p, files); },
     renameSync: (a, b) => { files.set(b, files.get(a)); files.delete(a); state.renames = [...(state.renames ?? []), b]; },
@@ -49,23 +49,25 @@ function fakeVps({ containers = [], listening = [], apacheTestFails = false, htt
     readdirSync: (d) => [...files.keys()].filter((f) => f.slice(0, f.lastIndexOf("/")) === d).map((f) => f.slice(f.lastIndexOf("/") + 1)),
   };
 
-  // systemd simulado: `systemctl start zolvi-apache-helper@<op>` ejecuta el script REAL
-  // del helper FUERA del sandbox (hostRun con sandboxed=false) con un InvocationID nuevo.
-  const units = new Map();
+  // systemd simulado: `systemctl start zolvi-apache-helper@<op>-<nonce>` ejecuta el script
+  // REAL del helper FUERA del sandbox (hostRun con sandboxed=false). Modela el GC real de
+  // systemd: al terminar, la instancia oneshot se descarga y `show` devuelve InvocationID
+  // vacío (lo que rompió el APPLY del 2026-11-10 con la correlación por InvocationID).
   state.helperCalls = [];
+  state.helperResults = [];
   const hostRun = async (cmd, args) => { state.helperCalls.push([cmd, ...args]); return host(cmd, args, { sandboxed: false }); };
   async function systemd(args) {
     const unit = args.at(-1);
     const m = /^zolvi-apache-helper@(.*)\.service$/.exec(unit);
-    const u = units.get(unit) ?? { inv: "", status: "0", result: "success" };
     if (args[0] === "show") {
       const load = m && state.helperInstalled !== false ? "loaded" : "not-found";
-      return { code: 0, stdout: `LoadState=${load}\nInvocationID=${u.inv}\nExecMainStatus=${u.status}\nResult=${u.result}\n`, stderr: "" };
+      return { code: 0, stdout: `LoadState=${load}\nInvocationID=\nExecMainStatus=0\nResult=success\n`, stderr: "" };
     }
     if (args[0] === "start" && m) {
       const inv = randomBytes(16).toString("hex");
-      const out = await runHelperOp(m[1], { run: hostRun, fs, env: { INVOCATION_ID: inv }, now: () => new Date("2026-11-10T00:00:01Z") });
-      units.set(unit, { inv, status: String(out.exitCode), result: out.exitCode === 0 ? "success" : "exit-code" });
+      const out = await runHelperOp(m[1], { run: hostRun, fs, env: { INVOCATION_ID: inv }, now: () => new Date() });
+      if (out.result) state.helperResults.push({ unit, ...out.result });
+      if (state.dropHelperResult?.(m[1])) for (const f of [...files.keys()]) if (f.startsWith(HELPER_RESULT_DIR)) files.delete(f);
       return { code: out.exitCode === 0 ? 0 : 1, stdout: "", stderr: out.exitCode === 0 ? "" : `Job for ${unit} failed.` };
     }
     return { code: 1, stdout: "", stderr: "operación systemctl no simulada" };
@@ -127,6 +129,10 @@ function fakeVps({ containers = [], listening = [], apacheTestFails = false, htt
       const id = args[args.indexOf("-p") + 1].replace("zolvi-signer-", "");
       state.containers = state.containers.filter((c) => c.name !== `dte-firmador-${id}`);
       return { code: 0, stdout: "", stderr: "" };
+    }
+    if (cmd === BIN.apachectl && args[0] === "-t" && state.strictIncludes) {
+      const missing = [...String(files.get(HTTPD_CONF) ?? "").matchAll(/Include "([^"]+)"/g)].map((m) => m[1]).filter((f) => !files.has(f));
+      if (missing.length) return { code: 1, stdout: "", stderr: `AH00526: Syntax error: Include ${missing[0]}: No such file or directory` };
     }
     if (cmd === BIN.apachectl) {
       // El fallo sintáctico simulado nace del include NUEVO: al retirarlo,
@@ -574,12 +580,16 @@ describe("Apache — diagnóstico de rebuildhttpdconf y recuperación sin segund
     placeCert(vps);
     vps.state.apacheTestFails = true;
     const n = deriveResourceNames(SPEC);
-    // Al retirar nuestro include, otro proceso reconstruye httpd.conf con un cambio ajeno.
-    vps.state.onUnlink = (p, files) => { if (p === n.vhostIncludePath) { files.set(HTTPD_CONF, renderHttpdConf(files)); addForeign(files); } };
+    // Justo antes de restaurar (comprobación del lock), otro proceso cambia httpd.conf.
+    let fired = false;
+    vps.state.onExists = (p, files) => { if (p === HTTPD_LOCK && !fired) { fired = true; addForeign(files); } };
     const r = await ex(vps).apply({ spec: SPEC, runId: randomUUID(), apiKey: KEY() });
     expect(r.code).toBe("APACHE_RECOVERY_FAILED");
     expect(r.steps.find((s) => s.op === "APACHE_RECOVERY").detail).toMatch(/cambió después del fallo/);
     expect(vps.files.get(HTTPD_CONF)).toContain(FOREIGN_LINE);
+    // httpd.conf sigue referenciando el include → se CONSERVA (nunca un Include roto).
+    expect(vps.files.has(n.vhostIncludePath)).toBe(true);
+    expect(r.steps.find((s) => s.op === "VHOST" && s.status === "KEPT")).toBeTruthy();
   });
 
   it("concurrencia E: carrera durante la escritura del temporal (compare-and-swap) → no renombra y borra el temporal", async () => {
@@ -709,14 +719,17 @@ describe("REC TEST — causa raíz confirmada (sandbox) y recuperación vía hel
     await at("helper")(vps).apply({ spec: REC, runId: randomUUID() });
     expect(vps.state.calls.some((c) => c[0] === BIN.rebuild || c[0] === BIN.apachectl)).toBe(false);
     const started = vps.state.calls.filter((c) => c[0] === BIN.systemctl && c[1] === "start").map((c) => c[2]);
-    expect(started).toEqual(["zolvi-apache-helper@rebuild.service", "zolvi-apache-helper@configtest.service", "zolvi-apache-helper@graceful.service"]);
+    expect(started.map((u) => u.replace(/-[0-9a-f]{16}\.service$/, ""))).toEqual(["zolvi-apache-helper@rebuild", "zolvi-apache-helper@configtest", "zolvi-apache-helper@graceful"]);
+    started.forEach((u) => expect(u).toMatch(/^zolvi-apache-helper@(rebuild|configtest|graceful)-[0-9a-f]{16}\.service$/));
     expect(vps.state.calls.filter((c) => c[0] === BIN.systemctl).every((c) => ["start", "show"].includes(c[1]))).toBe(true);
     // Fuera del sandbox el helper ejecutó exactamente los comandos fijos.
     expect(vps.state.helperCalls).toEqual([[BIN.rebuild], [BIN.apachectl, "-t"], [BIN.apachectl, "-k", "graceful"]]);
     // Docker: solo lectura y `compose up -d` idempotente; nada de down/rm/run/create/restart.
     const docker = vps.state.calls.filter((c) => c[0] === BIN.docker).map((c) => c.slice(1).join(" "));
     expect(docker.every((c) => c.startsWith("ps ") || /^compose -f \S+ -p zolvi-signer-rechightraining-test up -d$/.test(c))).toBe(true);
-    expect(JSON.parse(vps.files.get(`${HELPER_RESULT_DIR}/graceful.json`))).toMatchObject({ op: "graceful", exitCode: 0 });
+    expect(vps.state.helperResults.at(-1)).toMatchObject({ op: "graceful", exitCode: 0 });
+    // Resultados leídos y borrados: nada se acumula en /run.
+    expect([...vps.files.keys()].filter((f) => f.startsWith(HELPER_RESULT_DIR))).toEqual([]);
   });
 
   it("modo helper + re-APPLY: idempotente, sin rebuild ni graceful; VERIFY completo", async () => {
@@ -741,6 +754,69 @@ describe("REC TEST — causa raíz confirmada (sandbox) y recuperación vía hel
     expect(vps.files.has(n.vhostIncludePath)).toBe(false);
     expect(photo()).toEqual(before);
     expect(vps.files.get(HTTPD_CONF)).not.toContain(n.vhostIncludePath);
+  });
+
+  // ── Incidente APPLY 2026-11-10 23:57 (correlación por InvocationID + reversión prematura) ──
+  const REC_FOREIGN = 'Include "/etc/apache2/conf.d/userdata/ssl/2_4/dhsoft/examenescpo.com.dhsoftware.app/autossl.conf"';
+
+  it("estado que dejó el incidente (httpd.conf referencia el include REC ausente) → APPLY por helper lo completa y la config vuelve a ser válida", async () => {
+    const { vps, photo } = recVps();
+    vps.state.strictIncludes = true;
+    // El rebuild del helper sí corrió y escribió httpd.conf con el include; luego el ejecutor lo borró.
+    vps.files.set(n.vhostIncludePath, "x");
+    vps.files.set(HTTPD_CONF, renderHttpdConf(vps.files));
+    vps.files.delete(n.vhostIncludePath);
+    expect((await at("helper")(vps).verify({ spec: REC })).checks.find((c) => c.code === "APACHE_SYNTAX").status).toBe("failed");
+    const before = photo();
+    const r = await at("helper")(vps).apply({ spec: REC, runId: randomUUID() });
+    expect(r.ok).toBe(true);
+    expect(r.steps.find((s) => s.op === "VHOST").status).toBe("CREATED");
+    expect(r.steps.find((s) => s.op === "APACHE_RELOAD").status).toBe("OK");
+    expect(photo()).toEqual(before);
+    const v = await at("helper")(vps).verify({ spec: REC });
+    expect(v.checks.filter((c) => c.status !== "ok")).toEqual([]);
+  });
+
+  it("cambio MIXTO en httpd.conf: el include se CONSERVA, apachectl -t se ejecuta y la config en disco queda válida (antes: Include roto)", async () => {
+    const { vps, photo } = recVps();
+    vps.state.sandboxBlocksRebuild = false;
+    vps.state.strictIncludes = true;
+    vps.state.rebuildFailure = { code: 1, stderr: "Error: unexpected failure", writesBeforeFail: true };
+    vps.state.afterRebuild = (files) => files.set(HTTPD_CONF, `${files.get(HTTPD_CONF)}${REC_FOREIGN}\n`);
+    vps.files.set(REC_FOREIGN.slice(9, -1), "# ajeno");
+    const before = photo();
+    const r = await at("helper")(vps).apply({ spec: REC, runId: randomUUID() });
+    expect(r.code).toBe("APACHE_RECOVERY_FAILED");
+    expect(r.message).toMatch(/config en disco válida; include conservado/);
+    expect(r.steps.find((s) => s.op === "VHOST" && s.status === "KEPT")).toBeTruthy();
+    const rec = r.steps.find((s) => s.op === "APACHE_RECOVERY");
+    expect(rec).toMatchObject({ status: "FAILED", configValid: true, diagnostic: { kind: "CONCURRENT_CHANGE" } });
+    expect(vps.files.has(n.vhostIncludePath)).toBe(true);
+    expect(vps.files.get(HTTPD_CONF)).toContain(REC_FOREIGN);
+    expect(vps.state.helperResults.map((x) => x.op)).toEqual(["rebuild", "configtest"]); // sin graceful
+    // El manifiesto conserva el VHOST de esta corrida: un ROLLBACK posterior lo puede retirar.
+    expect(JSON.parse(vps.files.get(n.manifestFile)).resources.VHOST).toBeTruthy();
+    expect(photo()).toEqual(before);
+    expect((await at("helper")(vps).verify({ spec: REC })).checks.find((c) => c.code === "APACHE_SYNTAX").status).toBe("ok");
+  });
+
+  it("resultado del helper perdido tras un rebuild que escribió solo lo propio → httpd.conf restaurado, include retirado, config válida", async () => {
+    const { vps, photo } = recVps();
+    vps.state.strictIncludes = true;
+    vps.state.dropHelperResult = (inst) => inst.startsWith("rebuild-");
+    const confBefore = vps.files.get(HTTPD_CONF);
+    const before = photo();
+    const r = await at("helper")(vps).apply({ spec: REC, runId: randomUUID() });
+    expect(r.code).toBe("APACHE_FAILED");
+    const d = r.steps.find((s) => s.op === "APACHE_RELOAD").diagnostic;
+    expect(d).toMatchObject({ kind: "HELPER_RESULT_MISSING", httpdConfChanged: true });
+    expect(r.message).toMatch(/zolvi-apache-helper@rebuild-[0-9a-f]{16}\.service/); // la unidad se ve, no [EMAIL REDACTADO]
+    expect(r.message).not.toMatch(/REDACTADO/);
+    expect(r.steps.filter((s) => s.op === "VHOST").map((s) => s.status)).toEqual(["CREATED", "REVERTED"]);
+    expect(r.steps.find((s) => s.op === "APACHE_RECOVERY")).toMatchObject({ status: "OK", configValid: true });
+    expect(vps.files.get(HTTPD_CONF)).toBe(confBefore);
+    expect(vps.files.has(n.vhostIncludePath)).toBe(false);
+    expect(photo()).toEqual(before);
   });
 
   it("helper no instalado: APPLY falla sin tocar Apache y revierte el include (HELPER_UNAVAILABLE)", async () => {

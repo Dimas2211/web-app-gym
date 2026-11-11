@@ -3,11 +3,13 @@
 //
 // FISCAL-ONBOARDING — helper privilegiado de Apache/cPanel.
 //
-// Lo ejecuta SOLO systemd como zolvi-apache-helper@<op>.service
+// Lo ejecuta SOLO systemd como zolvi-apache-helper@<op>-<nonce>.service
 // (oneshot), fuera del sandbox del ejecutor, porque rebuildhttpdconf
 // necesita el entorno completo de root que cPanel asume. No escucha en
 // red, no lee peticiones y no acepta parámetros: el único dato de entrada
-// es el nombre de instancia, validado contra una lista cerrada:
+// es el nombre de instancia, validado con una expresión exacta
+// ^(rebuild|configtest|graceful)-[0-9a-f]{16}$. El nonce SOLO nombra el
+// archivo de resultado; nunca llega a un comando. Operaciones:
 //
 //   rebuild    → /usr/local/cpanel/scripts/rebuildhttpdconf
 //   configtest → /usr/sbin/apachectl -t
@@ -15,22 +17,26 @@
 //
 // Nunca reinicia Apache (ni restartsrv_httpd ni systemctl restart httpd).
 // El resultado (saneado: sin PEM, claves ni hex largos) queda en
-// /run/zolvi-apache-helper/<op>.json con el InvocationID de systemd.
+// /run/zolvi-apache-helper/<op>-<nonce>.json (más el InvocationID de
+// systemd, para auditoría en el journal).
 // ─────────────────────────────────────────────────────────────────
 
 import * as nodeFs from "node:fs";
 import { pathToFileURL } from "node:url";
 import {
-  HELPER_OPS, HELPER_COMMANDS, HELPER_RESULT_DIR, APACHE_TIMEOUTS, INVOCATION_ID_RE, runCommand, sanitizeOutput,
+  HELPER_COMMANDS, HELPER_RESULT_DIR, APACHE_TIMEOUTS, INVOCATION_ID_RE, runCommand, sanitizeOutput,
+  parseHelperInstance, helperResultPath,
 } from "./lib/apache-ops.mjs";
 
 /** Códigos de salida propios (sin ejecutar ningún comando). */
 export const HELPER_EXIT = Object.freeze({ OP_NOT_ALLOWED: 64, NOT_UNDER_SYSTEMD: 65, RESULT_DIR_UNSAFE: 66 });
 
-export async function runHelperOp(op, { run = runCommand, fs = nodeFs, env = process.env, now = () => new Date() } = {}) {
+export async function runHelperOp(instance, { run = runCommand, fs = nodeFs, env = process.env, now = () => new Date() } = {}) {
   // Lista cerrada; comparación exacta (sin normalizar mayúsculas, espacios ni escapes).
-  if (typeof op !== "string" || !HELPER_OPS.includes(op)) return { exitCode: HELPER_EXIT.OP_NOT_ALLOWED, error: "OP_NOT_ALLOWED" };
-  // Solo bajo systemd: el InvocationID es lo que liga el resultado a esta ejecución.
+  const parsed = parseHelperInstance(instance);
+  if (!parsed) return { exitCode: HELPER_EXIT.OP_NOT_ALLOWED, error: "OP_NOT_ALLOWED" };
+  const { op, nonce } = parsed;
+  // Solo bajo systemd (INVOCATION_ID lo define systemd; queda en el resultado para auditoría).
   if (!INVOCATION_ID_RE.test(String(env.INVOCATION_ID ?? ""))) return { exitCode: HELPER_EXIT.NOT_UNDER_SYSTEMD, error: "NOT_UNDER_SYSTEMD" };
   // El directorio lo crea systemd (RuntimeDirectory, 0700 root). Si no es un
   // directorio real de root, no se escribe nada ni se ejecuta el comando.
@@ -46,6 +52,7 @@ export async function runHelperOp(op, { run = runCommand, fs = nodeFs, env = pro
   const r = await run(cmd, args, { timeoutMs: APACHE_TIMEOUTS[op] });
   const result = {
     op,
+    nonce,
     invocationId: String(env.INVOCATION_ID ?? ""),
     startedAt,
     finishedAt: now().toISOString(),
@@ -58,8 +65,8 @@ export async function runHelperOp(op, { run = runCommand, fs = nodeFs, env = pro
     stderr: sanitizeOutput(r.stderr, { maxLines: 40, maxChars: 4000 }),
     stdout: sanitizeOutput(r.stdout, { maxLines: 20, maxChars: 2000 }),
   };
-  const target = `${HELPER_RESULT_DIR}/${op}.json`;
-  const tmp = `${target}.${result.invocationId}.tmp`;
+  const target = helperResultPath(op, nonce);
+  const tmp = `${target}.tmp`;
   try { fs.unlinkSync(tmp); } catch { /* no existía */ }
   fs.writeFileSync(tmp, JSON.stringify(result), { mode: 0o600, flag: "wx" }); // wx: falla si alguien plantó el archivo
   fs.renameSync(tmp, target);

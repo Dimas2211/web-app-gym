@@ -14,7 +14,7 @@ ante cualquier resultado distinto del esperado («⛔ DETENER»).
 | F6 Verificación | Ninguno | No requiere |
 
 Nunca durante este procedimiento: `systemctl restart httpd`, `restartsrv_httpd`, `apachectl -k restart`,
-`systemctl start zolvi-apache-helper@rebuild|graceful` a mano, ROLLBACK de REC, cambios de permisos en
+`systemctl start zolvi-apache-helper@rebuild-…|graceful-…` a mano (salvo R0 autorizado), ROLLBACK de REC, cambios de permisos en
 `/home/getzolvi`, en `conf.d/includes` (Cloudflare) o en vhosts ajenos (`examenescpo.com.dhsoftware.app`…).
 
 ## Causa raíz (confirmada en el VPS, APPLY 2026-11-10 22:28 CST)
@@ -29,7 +29,7 @@ Dentro del sandbox del ejecutor (`ProtectSystem=strict`, `ProtectHome=true`, `Re
 
 Como root interactivo ambas rutas son escribibles. Por eso el rebuild de recuperación también falló
 aunque el include ya se había retirado. Solución: el ejecutor HTTP **conserva** su sandbox y delega
-rebuild/`-t`/graceful en `zolvi-apache-helper@{rebuild,configtest,graceful}.service`, que corre como root
+rebuild/`-t`/graceful en `zolvi-apache-helper@{rebuild,configtest,graceful}-<nonce>.service`, que corre como root
 sin restricciones de sistema de archivos (lo mismo que un rebuild interactivo). Lo que cPanel hace en
 `/home/getzolvi` o en `conf.d/includes` es su comportamiento normal en cualquier rebuild; Zolvi no cambia
 permisos allí.
@@ -37,6 +37,65 @@ permisos allí.
 Node.js en el VPS: `/opt/cpanel/ea-nodejs22/bin/node` (v22.23.4; no está en el PATH de root). Ambas
 unidades lo usan y lo exigen con `AssertFileIsExecutable`. Las pruebas del PR se ejecutaron también con
 Node v22.23.4.
+
+## Incidente del APPLY 2026-11-10 23:57 CST (primera versión del helper)
+
+Resultado: `APACHE_RECOVERY_FAILED: fase rebuild: rebuild HELPER_RESULT_MISSING, 1s — sin invocación
+nueva de [EMAIL REDACTADO]`, `VHOST REVERTED`, `APACHE_RECOVERY FAILED — httpd.conf tiene cambios propios y
+ajenos … CONCURRENT_CHANGE`. Causa (código, no VPS):
+
+1. El helper SÍ ejecutó `rebuildhttpdconf` como root, pero el ejecutor leía el `InvocationID` con
+   `systemctl show` después del start; el oneshot ya terminado había sido descargado por systemd → vacío →
+   resultado rechazado. `[EMAIL REDACTADO]` era el nombre de la unidad, ocultado por el saneador.
+2. El ejecutor retiró el include ANTES de evaluar `httpd.conf`; como éste ya lo referenciaba (rebuild
+   real) y además cPanel regeneró otras líneas (MIXED), no lo restauró y no ejecutó `apachectl -t`. El
+   Apache en memoria no se tocó (no hubo graceful), pero la configuración en disco puede referenciar un
+   include inexistente: un reinicio de `httpd` sin rebuild previo fallaría.
+
+Corregido en el PR: nonce por llamada en el nombre de instancia, `CollectMode`, saneador, include
+conservado mientras `httpd.conf` lo referencie y `apachectl -t` siempre. Antes de F2 resolver **R0**.
+
+## R0 — Estado tras el incidente (solo lectura primero; luego, solo si aplica, mitigación autorizada)
+
+Definir antes las variables de la sección siguiente (`NODE`, `REC`, `INC`).
+
+```bash
+grep -n 'firmador-rec-test' /etc/apache2/conf/httpd.conf             # ¿httpd.conf referencia el include?
+ls -la "$(dirname "$INC")"                                           # ¿existe el include?
+apachectl -t; echo "apachectl_t=$?"                                  # solo lee la configuración
+```
+
+| `grep` | include | `apachectl -t` | Acción |
+|---|---|---|---|
+| sin coincidencias | ausente | OK | Nada urgente. Seguir F0→F5 (el APPLY crea el include y recarga). |
+| con coincidencias | ausente | **falla** | **M1 inmediato** (abajo); luego F0→F3 y **M2** en ventana en lugar de F5. |
+| con coincidencias | presente | OK | Ya consistente: F0→F3 y M2 en ventana. |
+
+**M1 — reponer el include exacto (⚠ autorización; solo escribe ese archivo; no señaliza Apache).** Mismo
+contenido que generó el APPLY (plantilla del ejecutor instalado; apunta a `apikey.conf` existente y a
+127.0.0.1:8120). Restablece una configuración en disco válida para el Apache compartido:
+
+```bash
+T=$(mktemp -d /root/zolvi-r0.XXXX); NIT=$(basename "$(ls "$REC"/cert/*.crt)" .crt)
+printf '{"slug":"rechightraining","environment":"TEST","hostname":"firmador-rec-test.getzolvi.com","port":8120,"signerNit":"%s","cpanelUser":"getzolvi"}\n' "$NIT" > "$T/spec-rec.json"
+"$NODE" --input-type=module -e 'import { renderVhostInclude } from "/opt/zolvi-signer-executor/lib/signer-core.mjs"; import { readFileSync } from "node:fs"; process.stdout.write(renderVhostInclude(JSON.parse(readFileSync(process.argv[1], "utf8"))));' "$T/spec-rec.json" > "$T/inc.conf"
+grep -c . "$T/inc.conf"                                              # 13 líneas; sin la API Key (solo ${Define})
+test ! -e "$INC" && install -m 0644 -o root -g root "$T/inc.conf" "$INC"
+apachectl -t; echo "apachectl_t=$?"                                  # 0  ⛔ si no: retirar "$INC" y avisar
+```
+
+**M2 — cargar el include en Apache (⚠ ventana aprobada; reemplaza a F5 cuando M1 aplicó o el include ya
+existía).** `httpd.conf` ya lo referencia, así que no hace falta rebuild: solo `-t` + graceful vía helper.
+(Un APPLY vería `VHOST UNCHANGED` y no recargaría.)
+
+```bash
+N=$(openssl rand -hex 8); systemctl start "zolvi-apache-helper@configtest-$N.service" && echo CONFIGTEST_OK
+N=$(openssl rand -hex 8); systemctl start "zolvi-apache-helper@graceful-$N.service" && echo GRACEFUL_OK
+rm -f /run/zolvi-apache-helper/*-*.json
+```
+
+Después: F6 y, en Zolvi, VERIFY. Nota: el manifiesto ya no registra el VHOST (lo borró la reversión del
+incidente); un ROLLBACK futuro no retirará ese include automáticamente — retirarlo a mano si se desea.
 
 ## Variables (definir en cada sesión)
 
@@ -73,7 +132,9 @@ cp systemd/zolvi-signer-executor.service "$T/"
 cp 'systemd/zolvi-apache-helper@.service' "$T/zolvi-apache-helper@configtest.service"   # verificar como instancia
 systemd-analyze verify "$T/zolvi-signer-executor.service" "$T/zolvi-apache-helper@configtest.service" && echo VERIFY_OK
 # El helper se niega a ejecutar fuera de systemd (no corre ningún comando): exit 65
-env -u INVOCATION_ID "$NODE" zolvi-apache-helper.mjs configtest; echo "exit=$?"
+env -u INVOCATION_ID "$NODE" zolvi-apache-helper.mjs configtest-0000000000000000; echo "exit=$?"
+# Formato anterior (sin nonce): rechazado sin ejecutar nada: exit 64
+"$NODE" zolvi-apache-helper.mjs configtest; echo "exit=$?"
 # INSPECT de REC con el código NUEVO (lectura: docker ps, ss y archivos; no toca Apache)
 NIT=$(basename "$(ls "$REC"/cert/*.crt)" .crt)
 printf '{"slug":"rechightraining","environment":"TEST","hostname":"firmador-rec-test.getzolvi.com","port":8120,"signerNit":"%s","cpanelUser":"getzolvi"}\n' "$NIT" > "$T/spec-rec.json"
@@ -120,19 +181,26 @@ systemctl show -p ProtectSystem -p ProtectHome -p PrivateTmp zolvi-signer-execut
 
 ## F3 — Prueba del helper sin efecto sobre Apache (⚠ autorización)
 
+La instancia es `<op>-<nonce>` (16 hex). Con `CollectMode=inactive-or-failed` systemd descarta la
+instancia al terminar: el estado se lee del journal y del archivo de resultado, no de `systemctl show`.
+
 ```bash
-# Instancia prohibida: falla sin ejecutar nada (64, OP_NOT_ALLOWED)
-systemctl start 'zolvi-apache-helper@restart.service'; echo "start=$?"
-systemctl show -p ExecMainStatus --value 'zolvi-apache-helper@restart.service'      # 64
-journalctl -u 'zolvi-apache-helper@restart.service' -n 3 --no-pager
+# Instancias prohibidas: fallan sin ejecutar nada (exit 64, OP_NOT_ALLOWED en el journal)
+for I in "restart-$(openssl rand -hex 8)" configtest; do
+  systemctl start "zolvi-apache-helper@$I.service"; echo "start($I)=$?"               # 1
+  journalctl -u "zolvi-apache-helper@$I.service" -n 3 --no-pager | grep -E 'OP_NOT_ALLOWED|status=64'
+done
 # configtest: apachectl -t (solo lee la configuración; no señaliza Apache)
-systemctl start 'zolvi-apache-helper@configtest.service'; echo "start=$?"           # 0
-"$NODE" -e 'const r=require("/run/zolvi-apache-helper/configtest.json"); console.log(r.op, "exit", r.exitCode, r.durationMs + "ms")'
-stat -c '%a %U %n' /run/zolvi-apache-helper /run/zolvi-apache-helper/configtest.json  # 700 root / 600 root
+N=$(openssl rand -hex 8)
+systemctl start "zolvi-apache-helper@configtest-$N.service"; echo "start=$?"          # 0
+"$NODE" -e 'const r=require(process.argv[1]); console.log(r.op, r.nonce, "exit", r.exitCode, r.durationMs + "ms")' "/run/zolvi-apache-helper/configtest-$N.json"
+stat -c '%a %U %n' /run/zolvi-apache-helper "/run/zolvi-apache-helper/configtest-$N.json"  # 700 root / 600 root
+rm -f "/run/zolvi-apache-helper/configtest-$N.json"
+systemctl list-units --all --no-legend 'zolvi-apache-helper@*'                         # vacío (GC)
 [ "$(systemctl show -p MainPID --value httpd)" = "$(cat "$B/httpd-mainpid.txt")" ] && echo "httpd sin reinicio"
 ```
 
-No arrancar `@rebuild` ni `@graceful` a mano: solo el APPLY de F5.
+No arrancar `rebuild-…` ni `graceful-…` a mano: solo el APPLY de F5 (o R0 si se autoriza).
 
 ## F4 — INSPECT y PLAN desde Zolvi
 
@@ -185,7 +253,7 @@ journalctl -u zolvi-signer-executor -n 50 --no-pager      # causa (p.ej. Asserti
 ```
 
 **R2 — APPLY devuelve `APACHE_FAILED`.** La recuperación automática ya dejó Apache como estaba (include
-retirado; `httpd.conf` sin cambios o restaurado). Confirmar con `apachectl -t` y
+retirado; `httpd.conf` sin cambios o restaurado; `configValid: true`). Confirmar con `apachectl -t` y
 `diff "$B/httpd.conf" /etc/apache2/conf/httpd.conf`. Leer `steps[].diagnostic` (`kind`, `stderr`). No
 reintentar hasta entender la causa.
 
@@ -200,7 +268,9 @@ ls -l /etc/apache2/conf/httpd.conf.lock 2>/dev/null                # rebuild de 
 ```
 
 - `kind: CONCURRENT_CHANGE`: otro proceso (cPanel/AutoSSL/administrador) cambió `httpd.conf`; el ejecutor
-  no lo pisó a propósito. Coordinar con quien hizo el cambio antes de tocar nada.
+  no lo pisó a propósito. Si `httpd.conf` referencia el include, éste se conservó (`VHOST: KEPT`) y el
+  paso `APACHE_RECOVERY` indica `configValid`. Con `configValid: true` no hay urgencia: Apache puede
+  reiniciarse sin error; cargar el vhost con M2 en ventana. Coordinar con quien hizo el cambio.
 - Si el diff contiene **solo** líneas de `firmador-rec-test.getzolvi.com` y no hay lock: restaurar
   `cp -a /var/lib/zolvi-signer-executor/httpd.conf.pre-<runId> /etc/apache2/conf/httpd.conf` y `apachectl -t`.
 

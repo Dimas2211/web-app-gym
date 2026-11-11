@@ -15,12 +15,19 @@
 # Node.js: ea-nodejs22 de EasyApache (no hay node en el PATH de root del VPS). Mantener
 # igual que en zolvi-signer-executor.service.
 #
-# Superficie: SOLO tres instancias válidas, validadas por el script con comparación exacta:
-#   zolvi-apache-helper@rebuild.service     -> rebuildhttpdconf
-#   zolvi-apache-helper@configtest.service  -> apachectl -t
-#   zolvi-apache-helper@graceful.service    -> apachectl -k graceful
-# Cualquier otra instancia (restart, stop, "rebuild;id", escapes \x2d…) sale con 64
-# sin ejecutar ningún comando. %i se pasa como UN argumento literal (escapado, sin shell).
+# Superficie: SOLO tres operaciones; instancia = <op>-<nonce>, validada por el script con
+# la expresión exacta ^(rebuild|configtest|graceful)-[0-9a-f]{16}$:
+#   zolvi-apache-helper@rebuild-<nonce>.service     -> rebuildhttpdconf
+#   zolvi-apache-helper@configtest-<nonce>.service  -> apachectl -t
+#   zolvi-apache-helper@graceful-<nonce>.service    -> apachectl -k graceful
+# El nonce (aleatorio por llamada, generado por el ejecutor) SOLO nombra el archivo de
+# resultado /run/zolvi-apache-helper/<op>-<nonce>.json; nunca llega a un comando.
+# Por qué nonce y no InvocationID (fallo del APPLY 2026-11-10 23:57): un oneshot que
+# termina bien queda inactivo y systemd lo descarga; `systemctl show` posterior devolvía
+# InvocationID vacío y el ejecutor rechazó un rebuild que sí se había ejecutado.
+# Cualquier otra instancia (rebuild sin nonce, restart, "rebuild;id", escapes \x2d…) sale
+# con 64 sin ejecutar ningún comando. Se usa %i (literal) y NO %I (que convertiría "-"
+# en "/"); se pasa como UN argumento, sin shell.
 # Nunca reinicia Apache. Sin [Install]: solo arranca bajo demanda del ejecutor.
 #
 # Quién puede arrancarla: solo root (o quien polkit autorice para manage-units, por
@@ -52,7 +59,10 @@ After=httpd.service
 Type=oneshot
 ExecStart=/opt/cpanel/ea-nodejs22/bin/node /opt/zolvi-signer-executor/zolvi-apache-helper.mjs "%i"
 TimeoutStartSec=120
-# Resultado saneado para el ejecutor; se conserva hasta el siguiente arranque.
+# Cada llamada es una instancia distinta: que systemd descarte también las fallidas
+# (si no, se acumularían en `systemctl --failed`). La evidencia queda en el journal.
+CollectMode=inactive-or-failed
+# Resultados saneados para el ejecutor (uno por llamada; el ejecutor los borra al leerlos).
 RuntimeDirectory=zolvi-apache-helper
 RuntimeDirectoryMode=0700
 RuntimeDirectoryPreserve=yes

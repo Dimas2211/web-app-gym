@@ -12,13 +12,15 @@
 //     escriben en rutas no documentadas fuera de esa lista, por lo que
 //     pueden fallar aquí aunque funcionen en una sesión root interactiva.
 //   - "helper": pide a systemd que ejecute la unidad oneshot fija
-//     zolvi-apache-helper@<op>.service (fuera del sandbox del ejecutor).
-//     Solo existen tres instancias válidas; no hay parámetros libres.
+//     zolvi-apache-helper@<op>-<nonce>.service (fuera del sandbox del
+//     ejecutor). Solo tres operaciones válidas; el nonce (16 hex) solo
+//     correlaciona el resultado; no hay parámetros libres.
 //
 // Ningún backend reinicia Apache: solo graceful (SIGUSR1 vía apachectl).
 // ─────────────────────────────────────────────────────────────────
 
 import { execFile } from "node:child_process";
+import { randomBytes } from "node:crypto";
 
 export const APACHE_BIN = Object.freeze({
   apachectl: "/usr/sbin/apachectl",
@@ -92,6 +94,11 @@ const SECRET_KEY = String.raw`[A-Za-z0-9_.-]*(?:secret|token|passw(?:or)?d|pwd|p
 const SECRET_PAIR_RE = new RegExp(String.raw`(["']?\b${SECRET_KEY}["']?)(\s*[:=]\s*)("[^"\n]*"|'[^'\n]*'|[^\s,;}&]+)`, "gi");
 // Separado solo por espacio: únicamente palabras exactas (evita borrar "passed", "token" de errores de sintaxis…).
 const SECRET_WORD_RE = /\b(password|passwd|secret|api[_-]?key|x-dte-signer-key|contraseña|clave)(\s+)("[^"\n]*"|'[^'\n]*'|\S+)/gi;
+// Sufijos de unidad systemd: el saneador de correos no debe ocultar qué unidad falló.
+const SYSTEMD_UNIT_RE = /\.(service|socket|timer|target|mount|automount|slice|scope|path|device|swap)$/;
+// Unidades del propio helper (formato exacto, sin datos): se protegen enteras para
+// que el nonce no caiga en las reglas hex/numéricas.
+const HELPER_UNIT_TOKEN_RE = /\bzolvi-apache-helper@(?:rebuild|configtest|graceful)-[0-9a-f]{16}\.service\b/g;
 // Elementos XML del certificado MH (.crt es XML: clave privada en <encodied>, <clave>…).
 const SECRET_XML_RE = /<((?:[A-Za-z0-9_-]+:)?(?:encodied|encoded|clave|password|privateKey|secret|token|apiKey|key))\b[^>]*>[\s\S]*?(<\/\1>|$)/gi;
 
@@ -107,10 +114,12 @@ const SECRET_XML_RE = /<((?:[A-Za-z0-9_-]+:)?(?:encodied|encoded|clave|password|
  * regresión en apache-ops.test.mjs antes de relajar cualquier regla.
  */
 export function sanitizeOutput(text, { maxLines = 15, maxChars = 1200 } = {}) {
+  const units = [];
   let s = String(text ?? "")
     .replace(/\u001b\[[0-9;?]*[ -/]*[@-~]/g, "")
     .replace(/\u001b\][^\u0007\u001b]*(\u0007|\u001b\\)?/g, "")
     .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, "")
+    .replace(HELPER_UNIT_TOKEN_RE, (m) => { units.push(m); return `\u0001ZU${units.length - 1}\u0001`; })
     .replace(/-----BEGIN [A-Z0-9 ]+-----[\s\S]*?(-----END [A-Z0-9 ]+-----|$)/g, "[PEM REDACTADO]")
     .replace(/-----END [A-Z0-9 ]+-----/g, "[PEM REDACTADO]")
     .replace(SECRET_XML_RE, "<$1>[REDACTADO]</$1>")
@@ -124,12 +133,14 @@ export function sanitizeOutput(text, { maxLines = 15, maxChars = 1200 } = {}) {
     .replace(/\b\d{4}-\d{6}-\d{3}-\d\b/g, "[NIT REDACTADO]")
     .replace(/\b\d{8}-\d\b/g, "[DUI REDACTADO]")
     .replace(/(?<![.\d])\d{9,17}\b/g, "[NUM REDACTADO]")
-    .replace(/\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g, "[EMAIL REDACTADO]")
+    // Correos; NO nombres de unidades systemd (zolvi-apache-helper@rebuild-….service).
+    .replace(/\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g, (m) => (SYSTEMD_UNIT_RE.test(m) ? m : "[EMAIL REDACTADO]"))
     // Base64/base64url largo (claves, certificados sin cabecera). Una ruta
     // tiene varias "/" y no mezcla mayúsculas, minúsculas y dígitos como un blob.
     .replace(/[A-Za-z0-9+/_-]{32,}={0,2}/g, (m) => (
       (m.match(/\//g) ?? []).length < 3 && /[A-Z]/.test(m) && /[a-z]/.test(m) && /\d/.test(m) ? "[B64 REDACTADO]" : m
-    ));
+    ))
+    .replace(/\u0001ZU(\d+)\u0001/g, (_, i) => units[Number(i)] ?? "");
   const lines = s.split(/\r?\n/).map((l) => l.trimEnd()).filter((l) => l.trim() !== "");
   s = lines.slice(-maxLines).join("\n");
   return s.length > maxChars ? `…${s.slice(-maxChars)}` : s;
@@ -207,12 +218,40 @@ function parseShow(stdout) {
 }
 
 /**
+ * Correlación por NONCE en el nombre de instancia (no por InvocationID):
+ * una unidad oneshot que termina bien queda inactiva y systemd la DESCARGA
+ * (GC); un `systemctl show` posterior devuelve InvocationID vacío. Eso hizo
+ * que el APPLY del 2026-11-10 rechazara un rebuild que SÍ se ejecutó.
+ * Cada llamada usa ahora una instancia propia e irrepetible
+ * `zolvi-apache-helper@<op>-<nonce>.service` y lee SOLO
+ * `/run/zolvi-apache-helper/<op>-<nonce>.json`: un resultado viejo o de otra
+ * llamada tiene otro nombre de archivo y no puede tomarse por el actual.
+ * 16 hex (64 bits) bastan para unicidad y quedan bajo el umbral de redacción
+ * hex (>= 24): el nombre de la unidad sigue legible en el diagnóstico.
+ */
+export const HELPER_NONCE_RE = /^[0-9a-f]{16}$/;
+const HELPER_INSTANCE_RE = new RegExp(`^(${HELPER_OPS.join("|")})-([0-9a-f]{16})$`);
+
+export const newHelperNonce = () => randomBytes(8).toString("hex");
+
+/** Nombre de instancia → { op, nonce } o null. Comparación exacta, sin normalizar. */
+export function parseHelperInstance(instance) {
+  const m = typeof instance === "string" ? HELPER_INSTANCE_RE.exec(instance) : null;
+  return m ? { op: m[1], nonce: m[2] } : null;
+}
+
+export const helperUnit = (op, nonce) => `${HELPER_UNIT_PREFIX}${op}-${nonce}.service`;
+export const helperResultPath = (op, nonce) => `${HELPER_RESULT_DIR}/${op}-${nonce}.json`;
+
+/**
  * Integridad del archivo de resultado: directorio y archivo reales (no
  * enlaces), propiedad de root, sin escritura de grupo/otros, tamaño
- * acotado y esquema estricto. Devuelve { result } o { invalid: motivo }.
+ * acotado y esquema estricto (op y nonce exactos). Devuelve
+ * { result } | { invalid: motivo } | { missing: true }.
  */
-export function readHelperResult(fs, op) {
-  const path = `${HELPER_RESULT_DIR}/${op}.json`;
+export function readHelperResult(fs, op, nonce) {
+  if (!HELPER_OPS.includes(op) || !HELPER_NONCE_RE.test(String(nonce ?? ""))) return { invalid: "op o nonce no válidos" };
+  const path = helperResultPath(op, nonce);
   const owned = (st) => st.uid === 0 && (st.mode & 0o022) === 0;
   try {
     const d = fs.lstatSync(HELPER_RESULT_DIR);
@@ -228,6 +267,7 @@ export function readHelperResult(fs, op) {
   const str = (v, max) => typeof v === "string" && v.length <= max;
   const ok = j && typeof j === "object"
     && j.op === op
+    && j.nonce === nonce
     && str(j.invocationId, 32) && INVOCATION_ID_RE.test(j.invocationId)
     && (j.exitCode === null || (Number.isInteger(j.exitCode) && j.exitCode >= 0 && j.exitCode <= 255))
     && (j.signal === null || (str(j.signal, 16) && /^SIG[A-Z0-9]+$/.test(j.signal)))
@@ -240,52 +280,49 @@ export function readHelperResult(fs, op) {
 }
 
 /**
- * Backend helper: `systemctl start zolvi-apache-helper@<op>.service`.
- * El resultado de /run/zolvi-apache-helper/<op>.json se acepta SOLO si:
- *   1. la unidad está cargada (LoadState=loaded);
- *   2. el InvocationID posterior es nuevo (≠ al leído antes del start) y
- *      coincide con el del archivo — systemd genera uno aleatorio de 128
- *      bits por ejecución, así que un resultado viejo o de otra ejecución
- *      no puede reutilizarse;
+ * Backend helper: `systemctl start zolvi-apache-helper@<op>-<nonce>.service`.
+ * `systemctl start` de un oneshot bloquea hasta que termina y sale != 0 si
+ * la unidad falla. El resultado se acepta SOLO si:
+ *   1. la plantilla está instalada (LoadState=loaded de la instancia);
+ *   2. existe /run/zolvi-apache-helper/<op>-<nonce>.json con ESE nonce
+ *      (aleatorio por llamada → un resultado viejo no es reutilizable);
  *   3. el archivo pasa la verificación de integridad y esquema;
  *   4. su startedAt no es anterior a esta llamada;
- *   5. lo que dice el archivo coincide con lo que systemd registró
- *      (ExecMainStatus/Result y código de `systemctl start`).
- * Las llamadas se serializan dentro del proceso: dos operaciones del propio
- * ejecutor nunca comparten unidad ni pisan el InvocationID de la otra.
+ *   5. lo que dice el archivo coincide con el código de `systemctl start`.
+ * Tras leerlo, el archivo se elimina (no se acumulan en /run).
+ * Nada se consulta a systemd DESPUÉS del start: la instancia puede haber
+ * sido descargada (GC) y eso no es un fallo.
+ * Las llamadas se serializan dentro del proceso.
  */
-export function createHelperApache(run, fs, { now = () => Date.now() } = {}) {
+export function createHelperApache(run, fs, { now = () => Date.now(), nonce = newHelperNonce } = {}) {
   let queue = Promise.resolve();
-  const show = async (unit) => parseShow((await run(APACHE_BIN.systemctl, ["show", "-p", "LoadState", "-p", "InvocationID", "-p", "ExecMainStatus", "-p", "Result", unit], { timeoutMs: 10_000 })).stdout);
   const fail = (op, kind, extra = {}) => ({ ok: false, op, diagnostic: diagnose(op, { code: null, ...extra, kind, backend: "helper" }) });
 
   const execOnce = async (op) => {
     if (!HELPER_OPS.includes(op)) throw new Error(`Operación de helper no permitida: ${op}`);
-    const unit = `${HELPER_UNIT_PREFIX}${op}.service`;
-    const before = await show(unit);
-    if (before.LoadState !== "loaded") return fail(op, "HELPER_UNAVAILABLE", { stderr: `LoadState=${before.LoadState ?? "desconocido"}` });
+    const n = nonce();
+    if (!HELPER_NONCE_RE.test(String(n))) throw new Error("nonce de helper inválido");
+    const unit = helperUnit(op, n);
+    const shown = parseShow((await run(APACHE_BIN.systemctl, ["show", "-p", "LoadState", unit], { timeoutMs: 10_000 })).stdout);
+    if (shown.LoadState !== "loaded") return fail(op, "HELPER_UNAVAILABLE", { stderr: `LoadState=${shown.LoadState ?? "desconocido"} (${unit})` });
     const t0 = now();
     const started = await run(APACHE_BIN.systemctl, ["start", unit], { timeoutMs: APACHE_TIMEOUTS[op] + 15_000 });
     if (started.spawnError) return fail(op, "SPAWN_FAILED", started);
     if (started.timedOut) return fail(op, "TIMEOUT", started);
-    const after = await show(unit);
-    const inv = after.InvocationID ?? "";
-    if (!INVOCATION_ID_RE.test(inv) || inv === before.InvocationID) {
-      return fail(op, "HELPER_RESULT_MISSING", { ...started, stderr: `${started.stderr ?? ""}\nsin invocación nueva de ${unit}` });
-    }
-    const read = readHelperResult(fs, op);
-    if (read.missing) return fail(op, "HELPER_RESULT_MISSING", started);
-    if (read.invalid) return fail(op, "HELPER_RESULT_INVALID", { stderr: read.invalid });
+    const read = readHelperResult(fs, op, n);
+    try { fs.unlinkSync(helperResultPath(op, n)); } catch { /* no existía */ }
+    if (read.missing) return fail(op, "HELPER_RESULT_MISSING", { ...started, stderr: `${started.stderr ?? ""}\nsin resultado de ${unit} (systemctl start exit ${started.code})` });
+    if (read.invalid) return fail(op, "HELPER_RESULT_INVALID", { stderr: `${read.invalid} (${unit})` });
     const result = read.result;
-    if (result.invocationId !== inv || Date.parse(result.startedAt) < t0 - CLOCK_SKEW_MS) {
-      return fail(op, "HELPER_RESULT_MISSING", { stderr: "el resultado pertenece a otra invocación" });
+    if (Date.parse(result.startedAt) < t0 - CLOCK_SKEW_MS) {
+      return fail(op, "HELPER_RESULT_MISSING", { stderr: `el resultado es anterior a esta llamada (${unit})` });
     }
     const fileOk = result.exitCode === 0 && !result.timedOut;
-    const unitOk = after.Result === "success" && after.ExecMainStatus === "0" && started.code === 0;
+    const unitOk = started.code === 0;
     if (fileOk !== unitOk) {
-      return fail(op, "HELPER_RESULT_INCONSISTENT", { stderr: `archivo exit=${result.exitCode}; systemd Result=${after.Result} ExecMainStatus=${after.ExecMainStatus} start=${started.code}` });
+      return fail(op, "HELPER_RESULT_INCONSISTENT", { stderr: `archivo exit=${result.exitCode}; systemctl start exit=${started.code} (${unit})` });
     }
-    if (fileOk) return { ok: true, op, backend: "helper" };
+    if (fileOk) return { ok: true, op, backend: "helper", unit };
     return { ok: false, op, diagnostic: diagnose(op, { code: result.exitCode, signal: result.signal, timedOut: result.timedOut, spawnError: result.spawnError, outputOverflow: result.outputOverflow, durationMs: result.durationMs, stderr: result.stderr, stdout: result.stdout, backend: "helper" }) };
   };
   const exec = (op) => {
@@ -297,6 +334,6 @@ export function createHelperApache(run, fs, { now = () => Date.now() } = {}) {
 }
 
 /** Selecciona backend por ZOLVI_SIGNER_APACHE_MODE (helper | direct; por defecto direct). */
-export function createApache({ run, fs, mode, now }) {
-  return mode === "helper" ? createHelperApache(run, fs, { now }) : createDirectApache(run);
+export function createApache({ run, fs, mode, now, nonce }) {
+  return mode === "helper" ? createHelperApache(run, fs, { now, ...(nonce ? { nonce } : {}) }) : createDirectApache(run);
 }

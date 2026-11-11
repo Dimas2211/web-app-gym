@@ -162,14 +162,16 @@ recuperación del incidente, ya sin el include. En vez de abrir el sandbox del p
 ejecutor (`ZOLVI_SIGNER_APACHE_MODE=helper`) pide a systemd que lo ejecute en el contexto root que cPanel
 espera:
 
-| Unidad | Comando fijo |
+| Unidad (una instancia nueva por llamada) | Comando fijo |
 |---|---|
-| `zolvi-apache-helper@rebuild.service` | `/usr/local/cpanel/scripts/rebuildhttpdconf` |
-| `zolvi-apache-helper@configtest.service` | `/usr/sbin/apachectl -t` |
-| `zolvi-apache-helper@graceful.service` | `/usr/sbin/apachectl -k graceful` |
+| `zolvi-apache-helper@rebuild-<nonce>.service` | `/usr/local/cpanel/scripts/rebuildhttpdconf` |
+| `zolvi-apache-helper@configtest-<nonce>.service` | `/usr/sbin/apachectl -t` |
+| `zolvi-apache-helper@graceful-<nonce>.service` | `/usr/sbin/apachectl -k graceful` |
 
-Cualquier otra instancia sale con 64 sin ejecutar nada (comparación exacta: `restart`, `Rebuild`,
-`rebuild;id`, escapes `\x2d`…). Fuera de systemd (sin `INVOCATION_ID` válido) sale con 65, y si
+`<nonce>` = 16 hex aleatorios generados por el ejecutor; solo nombra el archivo de resultado y nunca
+llega a un comando. Cualquier otra instancia (expresión exacta `^(rebuild|configtest|graceful)-[0-9a-f]{16}$`)
+sale con 64 sin ejecutar nada: `rebuild` sin nonce, `restart-…`, `Rebuild-…`, `rebuild-…;id`, escapes
+`\x2d`… Fuera de systemd (sin `INVOCATION_ID` válido) sale con 65, y si
 `/run/zolvi-apache-helper` no es un directorio real de root sin escritura de grupo/otros, con 66.
 No hay restart en ningún camino. Solo root puede arrancar la unidad; no tiene `[Install]`, socket ni
 timer, y exige `httpd.service` activo. La unidad añade `NoNewPrivileges` y protecciones de
@@ -177,22 +179,36 @@ kernel/reloj/hostname/namespaces (no afectan a las dos operaciones que fallaban)
 `ProtectSystem`, `ProtectHome`, `PrivateTmp`, `User=` ni recorte de capabilities porque eso reproduciría el
 fallo confirmado (justificación línea a línea en la propia unidad y test de regresión).
 
-Integridad del resultado (`/run/zolvi-apache-helper/<op>.json`, 0600, escrito con `wx` + rename): el
-ejecutor lo acepta solo si (1) la unidad está cargada, (2) el `InvocationID` posterior al `start` es
-nuevo respecto al anterior y coincide con el del archivo —un resultado viejo nunca se reutiliza, aunque
-la unidad no llegue a arrancar—, (3) archivo y directorio son de root, regulares, sin escritura de
-grupo/otros y ≤ 64 KiB, con esquema estricto, (4) `startedAt` no es anterior a la llamada, y (5) el
-resultado coincide con `ExecMainStatus`/`Result` de systemd (si no: `HELPER_RESULT_INCONSISTENT`).
-Las llamadas del ejecutor al helper se serializan.
+Integridad del resultado (`/run/zolvi-apache-helper/<op>-<nonce>.json`, 0600, escrito con `wx` +
+rename): el ejecutor lo acepta solo si (1) la plantilla está cargada, (2) existe el archivo de ESE nonce
+y su contenido repite `op` y `nonce` —un resultado viejo o de otra llamada tiene otro nombre y nunca se
+reutiliza, aunque la unidad no llegue a arrancar—, (3) archivo y directorio son de root, regulares, sin
+escritura de grupo/otros y ≤ 64 KiB, con esquema estricto, (4) `startedAt` no es anterior a la llamada, y
+(5) el resultado coincide con el código de `systemctl start` (si no: `HELPER_RESULT_INCONSISTENT`). Tras
+leerlo, el ejecutor lo borra. Las llamadas del ejecutor al helper se serializan.
+
+> **Incidente APPLY 2026-11-10 23:57 (`HELPER_RESULT_MISSING … sin invocación nueva de [EMAIL REDACTADO]`).**
+> La primera versión correlacionaba por `InvocationID` leído con `systemctl show` DESPUÉS del start. Un
+> oneshot que termina bien queda inactivo y systemd lo descarga (GC): `show` devolvía `InvocationID`
+> vacío y el ejecutor rechazó un rebuild que sí se había ejecutado. Además el saneador confundía el
+> nombre de la unidad con un correo. Corregido: nonce en el nombre de instancia (no se consulta nada a
+> systemd después del start), `CollectMode=inactive-or-failed`, y el saneador conserva las unidades del
+> helper. La simulación de systemd de los tests modela ahora ese GC.
 
 Cada fallo de Apache devuelve `diagnostic` = `{ op, phase, kind, exitCode, signal, durationMs,
 stderr, stdout, backend, httpdConfChanged }`, con `kind` ∈ `SPAWN_FAILED | TIMEOUT |
 OUTPUT_OVERFLOW | PERMISSION_DENIED | CONFIG_ERROR | SIGNALED | NONZERO_EXIT |
-HELPER_UNAVAILABLE | HELPER_RESULT_MISSING`, y `message` resume la causa para la bitácora.
+HELPER_UNAVAILABLE | HELPER_RESULT_MISSING | HELPER_RESULT_INVALID | HELPER_RESULT_INCONSISTENT |
+CONCURRENT_CHANGE | RESTORE_FAILED`, y `message` resume la causa para la bitácora (incluye el nombre de
+la unidad del helper y si la configuración en disco quedó válida).
 
 Recuperación (APPLY): inmediatamente antes del rebuild se copia `httpd.conf` a
-`/var/lib/zolvi-signer-executor/httpd.conf.pre-<runId>`. Si falla, se retira el include y se compara
-`httpd.conf` (por líneas) con la copia:
+`/var/lib/zolvi-signer-executor/httpd.conf.pre-<runId>`. Si falla, se compara `httpd.conf` (por
+líneas) con la copia y SOLO DESPUÉS se decide el include: si `httpd.conf` sigue referenciando su
+directorio, el include **se conserva** (paso `VHOST: KEPT`; el manifiesto mantiene el registro para un
+ROLLBACK posterior), porque Apache 2.4 trata un `Include` sin archivos como error y el siguiente
+reinicio del Apache compartido fallaría. `apachectl -t` se ejecuta SIEMPRE y el paso
+`APACHE_RECOVERY` informa `configValid`. Casos:
 - sin cambios → solo `apachectl -t` (no hay segundo rebuild);
 - cambios que NO mencionan el directorio de nuestro include → son de otro (cPanel, AutoSSL,
   administrador): no se escribe nada;
@@ -200,8 +216,9 @@ Recuperación (APPLY): inmediatamente antes del rebuild se copia `httpd.conf` a
   `httpd.conf.lock` de cPanel y el archivo sigue siendo exactamente el observado al fallar (se
   compara antes de escribir el temporal y otra vez antes del `rename` atómico, y se verifica después);
 - cambios propios y ajenos mezclados, lock activo o cambio durante la restauración →
-  `CONCURRENT_CHANGE`: no se escribe, `APACHE_RECOVERY_FAILED` con la ruta de la copia previa para
-  intervención manual. Ventana residual aceptada: el lapso entre la última comparación y `rename(2)`;
+  `CONCURRENT_CHANGE`: no se escribe `httpd.conf`, se conserva el include, se valida con
+  `apachectl -t` y se devuelve `APACHE_RECOVERY_FAILED` (con `configValid`) y la ruta de la copia previa
+  para intervención manual. Ventana residual aceptada: el lapso entre la última comparación y `rename(2)`;
   cPanel también escribe con rename, así que nunca queda un archivo mezclado;
 - graceful de recuperación solo si Apache llegó a recibir la señal.
 
