@@ -819,6 +819,8 @@ export function SalesClient({
         detail={selectedDetail}
         showTabs={showDteDetail}
         canViewDteJson={canManageFiscalDte}
+        canManageFiscalDte={canManageFiscalDte}
+        onFiscalChange={refreshDetail}
         onDeliverExternal={canManageFiscalDte ? () => {
           setExternalDeliveryResult(null);
           setExternalDeliveryDialogOpen(true);

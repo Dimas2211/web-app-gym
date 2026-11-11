@@ -108,3 +108,29 @@ Regresión: venta de servicios recibida con EXW legado persiste null; JSON
 regenerado desde datos legados contiene ambos null, pasa AJV y no modifica
 los datos de origen. Sin migraciones, env vars ni escrituras fiscales
 mediante este cambio de código.
+
+
+## Reanudar una factura de exportación desde Ventas
+
+El panel fiscal de `/dashboard/sales` ofrece `Continuar factura de exportación`
+al seleccionar una venta con documento DTE 11 y permiso de gestión fiscal.
+Abre un diálogo que carga el documento persistido mediante
+`getExportDteStateAction`; reutiliza `ExportSaleDtePanel` y sus acciones de
+regeneración, generación/validación, firma, transmisión y entrega externa.
+Abrir el diálogo solo consulta datos: no crea ventas, DTE ni movimientos.
+
+La autorización efectiva, tenant y location se validan en las acciones existentes.
+Además se comprueba que el documento cargado corresponda a la venta seleccionada.
+Después de cada acción exitosa se actualiza el detalle de Ventas; al regenerar,
+el panel sigue el nuevo documento. Cerrar, recargar y seleccionar la misma fila
+permite volver a abrir el flujo desde el DTE guardado. Los DTE rechazados
+anteriores permanecen intactos. FE01, CCFE03 y NC05 mantienen su panel actual.
+
+Prueba operativa de MetaTraining: seleccionar la fila VTA-2026-11-0010 y pulsar
+`Continuar factura de exportación`; si el DTE sigue REJECTED, usar `Generar nuevo
+DTE (nuevo número de control)` y continuar los pasos fiscales sobre la misma venta.
+No duplicar la venta al haber perdido el estado temporal de la pantalla de alta.
+
+Validación automatizada del acceso: FEX en estados pendiente, validado, firmado,
+rechazado y aceptado; oculto sin permiso fiscal, para otros tipos DTE o sin
+selección. El montaje no abre ni ejecuta acciones fiscales automáticamente.

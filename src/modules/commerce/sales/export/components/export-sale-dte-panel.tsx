@@ -60,7 +60,10 @@ const STEP_LABELS: Record<string, string> = {
   INVALIDATED:        "Invalidado",
 };
 
-export function ExportSaleDtePanel({ initialState }: { initialState: ExportDteState }) {
+export function ExportSaleDtePanel({ initialState, onStateChange }: {
+  initialState: ExportDteState;
+  onStateChange?: () => void;
+}) {
   const [state, setState]   = useState<ExportDteState>(initialState);
   const [error, setError]   = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
@@ -70,10 +73,18 @@ export function ExportSaleDtePanel({ initialState }: { initialState: ExportDteSt
     setActiveAction(name);
     setError(null);
     startTransition(async () => {
-      const result = await fn();
-      if (!result.ok) setError(result.error);
-      else setState(result.state);
-      setActiveAction(null);
+      try {
+        const result = await fn();
+        if (!result.ok) setError(result.error);
+        else {
+          setState(result.state);
+          onStateChange?.();
+        }
+      } catch {
+        setError("No se pudo completar la operación. Actualiza el estado antes de volver a intentar.");
+      } finally {
+        setActiveAction(null);
+      }
     });
   }
 
