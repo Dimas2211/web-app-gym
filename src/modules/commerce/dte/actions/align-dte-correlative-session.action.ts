@@ -10,9 +10,14 @@
 // (align-dte-correlative.action.ts) — la única diferencia es de dónde
 // sale tenant_id y cómo se audita.
 //
-// Seguridad: requireSuperAdmin (igual que el resto de F3-C24 — el
-// proyecto todavía no tiene un rol "admin autorizado" intermedio para
-// esto; no se abre a branch_admin/reception/cajero).
+// Seguridad: requireGlobalAdmin — el MISMO guard que la página
+// /dashboard/dte/correlatives (ver commit 4103229). Antes usaba
+// requireSuperAdmin, que exige auth_scope="PLATFORM": la página abría
+// para el administrador global de una sesión RUNTIME_CLIENT pero la
+// action lo redirigía a /dashboard sin guardar. Además se revalida el
+// rol LIVE (context.effectiveUser.role) con isGlobal antes de escribir.
+// No se abre a branch_admin/reception/cajero. La action de Platform
+// Admin (align-dte-correlative.action.ts) sigue con requireSuperAdmin.
 //
 // Auditoría: no existe hoy un log inmutable genérico fuera de
 // PlatformDeploymentLog (que requiere un organization_id real, y esta
@@ -23,7 +28,8 @@
 // ─────────────────────────────────────────────────────────────────
 
 import { revalidatePath } from "next/cache";
-import { requireSuperAdmin } from "@/lib/permissions/guards";
+import { requireGlobalAdmin } from "@/lib/permissions/guards";
+import { getCapabilities } from "@/core/permissions/role-capabilities";
 import { alignDteCorrelativeSessionSchema } from "../schemas/align-dte-correlative-session.schema";
 import { alignDteCorrelativeBaseline } from "../services/dte-correlative.service";
 import {
@@ -40,7 +46,8 @@ export async function alignDteCorrelativeSessionAction(
   _prev: AlignDteCorrelativeSessionActionState,
   formData: FormData,
 ): Promise<AlignDteCorrelativeSessionActionState> {
-  const sessionUser = await requireSuperAdmin();
+  // Fuera de try/catch: el redirect de Next (NEXT_REDIRECT) debe propagarse.
+  const sessionUser = await requireGlobalAdmin();
 
   // FASE VI-E2B: contexto operacional runtime — solo se usa
   // context.tenantId/context.client/context.effectiveUser aquí, NO
@@ -58,6 +65,12 @@ export async function alignDteCorrelativeSessionAction(
   const { context, dispose } = handle;
 
   try {
+    // Rol LIVE: el JWT puede conservar un rol global ya retirado
+    // (RUNTIME_CLIENT revalida el rol contra su runtimeDb).
+    if (!getCapabilities(context.effectiveUser.role).isGlobal) {
+      return { error: "Sin permisos para alinear correlativos DTE." };
+    }
+
     const raw = {
       location_id:        formData.get("location_id"),
       issuer_config_id:   formData.get("issuer_config_id"),
