@@ -50,7 +50,13 @@ function fakeVps({ containers = [], listening = [], apacheTestFails = false } = 
       state.containers = state.containers.filter((c) => c.name !== `dte-firmador-${id}`);
       return { code: 0, stdout: "", stderr: "" };
     }
-    if (cmd === BIN.apachectl) return state.apacheTestFails ? { code: 1, stdout: "", stderr: "Syntax error on line 3" } : { code: 0, stdout: "", stderr: "" };
+    if (cmd === BIN.apachectl) {
+      // El fallo sintáctico simulado nace del include NUEVO: al retirarlo,
+      // Apache vuelve a validar. Un fallo global persistente usa otro flag.
+      const newVhost = [...files.keys()].some((p) => p.endsWith("/zolvi-signer-cliente-a-test.conf"));
+      const invalid = state.apacheTestFailsAlways || (state.apacheTestFails && newVhost);
+      return invalid ? { code: 1, stdout: "", stderr: "Syntax error on line 3" } : { code: 0, stdout: "", stderr: "" };
+    }
     return { code: 0, stdout: "", stderr: "" };
   };
   return { fs, run, files, dirs, state };
@@ -207,6 +213,16 @@ describe("ejecutor — APPLY idempotente, conflictos y rollback", () => {
     const r = await ex(vps).apply({ spec: SPEC, runId: randomUUID(), apiKey: KEY() });
     expect(r).toMatchObject({ ok: false, code: "APACHE_FAILED" });
     expect(vps.files.has(deriveResourceNames(SPEC).vhostIncludePath)).toBe(false);
+  });
+
+  it("error de Apache persistente tras revertir -> APACHE_RECOVERY_FAILED sin recargar", async () => {
+    placeCert(vps);
+    vps.state.apacheTestFailsAlways = true;
+    const r = await ex(vps).apply({ spec: SPEC, runId: randomUUID(), apiKey: KEY() });
+    expect(r).toMatchObject({ ok: false, code: "APACHE_RECOVERY_FAILED" });
+    expect(r.steps.find((s) => s.op === "APACHE_RECOVERY")).toMatchObject({ status: "FAILED" });
+    expect(vps.files.has(deriveResourceNames(SPEC).vhostIncludePath)).toBe(false);
+    expect(vps.state.calls.some((c) => c[0] === BIN.apachectl && c.includes("graceful"))).toBe(false);
   });
 
   it("ROLLBACK solo revierte lo creado por SU runId y jamás borra el certificado", async () => {
