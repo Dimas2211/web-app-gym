@@ -9,9 +9,8 @@ const params = {
     environment: "TEST",
     hostname: "firmador-testing-test.getzolvi.com",
     cpanelUser: "getzolvi",
-    nit: "01234567890123",
+    signerNit: "01234567890123",
     port: 8120,
-    dteIssuerConfigId: "00000000-0000-4000-8000-000000000001",
   },
 };
 
