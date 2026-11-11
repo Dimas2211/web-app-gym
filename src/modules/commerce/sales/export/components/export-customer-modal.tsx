@@ -196,6 +196,13 @@ export function ExportCustomerModal({ onClose, onSelect, catalogCountries, catal
               )}
             </div>
 
+            <div className="flex items-center justify-between gap-2 text-xs text-zinc-500">
+              <span>Solo clientes activos marcados como extranjeros.</span>
+              <button type="button" disabled={isSearching || query.trim().length < LIVE_SEARCH_MIN_CHARS}
+                onClick={() => liveSearchRef.current?.update(query)}
+                className="underline disabled:opacity-40">Actualizar búsqueda</button>
+            </div>
+
             <div className="max-h-56 overflow-y-auto rounded border border-zinc-800 divide-y divide-zinc-800">
               {searchError ? (
                 <p className="px-3 py-3 text-xs text-red-400">{searchError}</p>

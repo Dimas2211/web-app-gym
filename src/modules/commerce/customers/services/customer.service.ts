@@ -7,6 +7,8 @@
 //   validateCustomerForDteType  — validación de datos fiscales según tipo DTE
 // ─────────────────────────────────────────────────────────────────
 
+import { createForeignCustomerSchema } from "../../sales/export/schemas/export-sale.schemas";
+import { validateFexCountryCode } from "../../sales/export/utils/fex-validation";
 import { Prisma, type PrismaClient } from "@prisma/client";
 import { prisma } from "@/lib/db/prisma";
 import type { CreateCustomerInput, UpdateCustomerInput } from "../schemas/customer.schemas";
@@ -46,6 +48,45 @@ async function getNextCustomerCode(tenant_id: string, db: DbClient = prisma): Pr
   return String(next).padStart(6, "0");
 }
 
+// Validate the effective record, so partial edits preserve existing export data.
+// Resolve the official country in the caller's runtime database, never from user text.
+async function resolveForeignCustomerData(
+  input: CreateCustomerInput | UpdateCustomerInput,
+  existing: Partial<CreateCustomerInput>,
+  db: DbClient,
+): Promise<{ ok: true; data: Pick<Prisma.CustomerUncheckedCreateInput, "is_foreign" | "country_code" | "country_name" | "customer_person_type"> } | { ok: false; error: string; field?: string }> {
+  const effective = { ...existing, ...input };
+  if (!effective.is_foreign) {
+    return { ok: true, data: input.is_foreign === false
+      ? { is_foreign: false }
+      : {} };
+  }
+  const parsed = createForeignCustomerSchema.safeParse({
+    ...effective,
+    country_name: "Catalog country",
+    document_number: effective.id_type_code === "36" ? effective.nit : effective.dui,
+  });
+  if (!parsed.success) {
+    const issue = parsed.error.issues[0];
+    const field = issue.path[0] === "document_number"
+      ? (effective.id_type_code === "36" ? "nit" : "dui")
+      : String(issue.path[0]);
+    return { ok: false, field, error: issue.message };
+  }
+  const country = await db.country.findFirst({
+    where: { code: parsed.data.country_code, status: "active" },
+    select: { code: true, name: true },
+  });
+  const error = validateFexCountryCode(parsed.data.country_code, country ? [country] : []);
+  if (error) return { ok: false, field: "country_code", error };
+  return { ok: true, data: {
+    is_foreign: true,
+    country_code: country!.code,
+    country_name: country!.name,
+    customer_person_type: parsed.data.customer_person_type,
+  } };
+}
+
 // ── Crear cliente ─────────────────────────────────────────────────
 
 export async function createCustomer(
@@ -54,6 +95,9 @@ export async function createCustomer(
   input:     CreateCustomerInput,
   db:        DbClient = prisma,
 ): Promise<CreateCustomerResult> {
+  const foreign = await resolveForeignCustomerData(input, {}, db);
+  if (!foreign.ok) return foreign;
+
   const customer_code = input.customer_code?.trim()
     ? input.customer_code.trim()
     : await getNextCustomerCode(tenant_id, db);
@@ -74,6 +118,7 @@ export async function createCustomer(
   try {
     const customer = await db.customer.create({
       data: {
+        ...foreign.data,
         tenant_id,
         customer_code,
         name:               input.name,
@@ -123,15 +168,18 @@ export async function updateCustomer(
 ): Promise<CustomerResult> {
   const customer = await db.customer.findFirst({
     where:  { id, tenant_id },
-    select: { id: true },
   });
   if (!customer) {
     return { ok: false, error: "El cliente no existe o no pertenece a este tenant." };
   }
 
+  const foreign = await resolveForeignCustomerData(input, customer as Partial<CreateCustomerInput>, db);
+  if (!foreign.ok) return foreign;
+
   await db.customer.update({
     where: { id },
     data: {
+      ...foreign.data,
       ...(input.name               !== undefined && { name:               input.name }),
       ...(input.legal_name         !== undefined && { legal_name:         input.legal_name }),
       ...(input.taxpayer_type      !== undefined && { taxpayer_type:      input.taxpayer_type }),

@@ -21,6 +21,7 @@
 
 import { useEffect, useTransition, useState } from "react";
 import { X } from "lucide-react";
+import { CustomerExportFields } from "./customer-export-fields";
 import { updateCustomerAction } from "../actions/update-customer.action";
 import type { UpdateCustomerInput } from "../schemas/customer.schemas";
 import type { CustomerDetail } from "../types/customer.types";
@@ -86,6 +87,8 @@ export function EditCustomerDialog({ customer, onClose, onSuccess, onAuthorizati
   const [error,        setError]        = useState<string | null>(null);
   const [fieldErrors,  setFieldErrors]  = useState<Record<string, string[]>>({});
 
+  const [isForeign, setIsForeign] = useState(customer.is_foreign);
+
   // id_type_code — cargado desde API CAT-022, controlado
   const [idTypes,        setIdTypes]        = useState(ID_TYPE_FALLBACK);
   const [selectedIdType, setSelectedIdType] = useState(customer.id_type_code ?? "");
@@ -108,6 +111,9 @@ export function EditCustomerDialog({ customer, onClose, onSuccess, onAuthorizati
     const fd = new FormData(e.currentTarget);
 
     const input: UpdateCustomerInput = {
+      is_foreign: isForeign,
+      country_code: isForeign ? strVal(fd, "country_code") : null,
+      customer_person_type: isForeign ? strVal(fd, "customer_person_type") as "1" | "2" | null : null,
       name:               strVal(fd, "name") ?? undefined,
       legal_name:         strVal(fd, "legal_name"),
       taxpayer_type:      (strVal(fd, "taxpayer_type") ?? undefined) as UpdateCustomerInput["taxpayer_type"],
@@ -232,6 +238,12 @@ export function EditCustomerDialog({ customer, onClose, onSuccess, onAuthorizati
             </div>
           </Section>
 
+          <CustomerExportFields
+            isForeign={isForeign} onForeignChange={setIsForeign}
+            initialCountry={customer.country_code} initialPersonType={customer.customer_person_type}
+            errors={fieldErrors}
+          />
+
           {/* ── Sección 2: Documentación fiscal ──────────────────── */}
           <Section title="Documentación fiscal">
             <div className="grid grid-cols-2 gap-x-4 gap-y-3">
@@ -259,7 +271,7 @@ export function EditCustomerDialog({ customer, onClose, onSuccess, onAuthorizati
               </div>
 
               <div>
-                <label htmlFor="ec-dui" className={labelCls}>DUI</label>
+                <label htmlFor="ec-dui" className={labelCls}>{isForeign ? "Documento (DUI, pasaporte u otro)" : "DUI"}</label>
                 <input
                   id="ec-dui" name="dui"
                   type="text" maxLength={20} placeholder="00000000-0"
@@ -272,12 +284,21 @@ export function EditCustomerDialog({ customer, onClose, onSuccess, onAuthorizati
               {/* Actividad económica — selector CAT-019 con valor actual */}
               <div className="col-span-2">
                 <label className={labelCls}>Actividad económica</label>
+                {isForeign ? (
+                  <>
+                    <input type="hidden" name="activity_code" value={customer.activity_code ?? ""} />
+                    <input name="activity_name" aria-label="Actividad económica del receptor extranjero"
+                      required minLength={5} maxLength={150} className={inputCls} defaultValue={customer.activity_name ?? ""} />
+                    <FieldError errors={fieldErrors.activity_name} />
+                  </>
+                ) : (
                 <ActivityPicker
                   initialCode={customer.activity_code}
                   initialName={customer.activity_name}
                   errorCode={fieldErrors.activity_code}
                   errorName={fieldErrors.activity_name}
                 />
+                )}
               </div>
 
             </div>
@@ -289,7 +310,7 @@ export function EditCustomerDialog({ customer, onClose, onSuccess, onAuthorizati
 
               {/* Municipio / Departamento — selector CAT-013 con valor actual */}
               <div>
-                <label className={labelCls}>Municipio / Departamento</label>
+                <label className={labelCls}>Municipio / Departamento {isForeign ? "(datos nacionales, opcionales para exportación)" : ""}</label>
                 <MunicipalityPicker
                   initialDeptCode={customer.dept_code}
                   initialMuniCode={customer.municipality_code}

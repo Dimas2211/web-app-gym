@@ -30,6 +30,10 @@ export interface CustomerListItem {
 // ── Detalle completo ──────────────────────────────────────────────
 
 export interface CustomerDetail extends CustomerListItem {
+  is_foreign: boolean;
+  country_code: string | null;
+  country_name: string | null;
+  customer_person_type: string | null;
   id_type_code:       string | null;
   activity_code:      string | null;
   activity_name:      string | null;
