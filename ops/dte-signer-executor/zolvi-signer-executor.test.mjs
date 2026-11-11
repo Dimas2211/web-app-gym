@@ -50,7 +50,13 @@ function fakeVps({ containers = [], listening = [], apacheTestFails = false } = 
       state.containers = state.containers.filter((c) => c.name !== `dte-firmador-${id}`);
       return { code: 0, stdout: "", stderr: "" };
     }
-    if (cmd === BIN.apachectl) return state.apacheTestFails ? { code: 1, stdout: "", stderr: "Syntax error on line 3" } : { code: 0, stdout: "", stderr: "" };
+    if (cmd === BIN.apachectl) {
+      // El fallo sintáctico simulado nace del include NUEVO: al retirarlo,
+      // Apache vuelve a validar. Un fallo global persistente usa otro flag.
+      const newVhost = [...files.keys()].some((p) => p.endsWith("/zolvi-signer-cliente-a-test.conf"));
+      const invalid = state.apacheTestFailsAlways || (state.apacheTestFails && newVhost);
+      return invalid ? { code: 1, stdout: "", stderr: "Syntax error on line 3" } : { code: 0, stdout: "", stderr: "" };
+    }
     return { code: 0, stdout: "", stderr: "" };
   };
   return { fs, run, files, dirs, state };
@@ -127,7 +133,7 @@ describe("ejecutor — APPLY idempotente, conflictos y rollback", () => {
     await expect(ex(vps).apply({ spec, runId: randomUUID(), apiKey: KEY() })).rejects.toMatchObject({ code: "PROTECTED_RESOURCE" });
     await expect(ex(vps).rollback({ spec, runId: randomUUID() })).rejects.toMatchObject({ code: "PROTECTED_RESOURCE" });
     expect(vps.files).toEqual(before);
-    expect(vps.state.calls.some((c) => c[0] === BIN.restart || c.includes("up"))).toBe(false);
+    expect(vps.state.calls.some((c) => c[0] === BIN.apachectl && c.includes("graceful") || c.includes("up"))).toBe(false);
   });
 
   it("vhost con includes ajenos (firmador existente en ese hostname) -> CONFLICT_UNMANAGED, sin tocar Apache", async () => {
@@ -139,7 +145,7 @@ describe("ejecutor — APPLY idempotente, conflictos y rollback", () => {
     expect(obs.observed.vhostForeignIncludes).toEqual(["firmador-proxy.conf"]);
     await expect(ex(vps).apply({ spec: SPEC, runId: randomUUID(), apiKey: KEY() })).rejects.toMatchObject({ code: "CONFLICT_UNMANAGED" });
     expect(vps.files.has(n.vhostIncludePath)).toBe(false);
-    expect(vps.state.calls.some((c) => c[0] === BIN.restart)).toBe(false);
+    expect(vps.state.calls.some((c) => c[0] === BIN.apachectl && c.includes("graceful"))).toBe(false);
   });
 
   it("APPLY completo y re-APPLY idempotente (sin rotar API Key, sin recargar Apache)", async () => {
@@ -151,13 +157,13 @@ describe("ejecutor — APPLY idempotente, conflictos y rollback", () => {
     const keyFile = vps.files.get(n.apiKeyFile);
     expect(keyFile).toContain(key);
 
-    const reloadsBefore = vps.state.calls.filter((c) => c[0] === BIN.restart).length;
+    const reloadsBefore = vps.state.calls.filter((c) => c[0] === BIN.apachectl && c.includes("graceful")).length;
     const second = await ex(vps).apply({ spec: SPEC, runId: randomUUID(), apiKey: KEY() });
     expect(second.ok).toBe(true);
     expect(second.steps.find((s) => s.op === "API_KEY").status).toBe("KEPT");
     expect(second.steps.find((s) => s.op === "VHOST").status).toBe("UNCHANGED");
     expect(vps.files.get(n.apiKeyFile)).toBe(keyFile);
-    expect(vps.state.calls.filter((c) => c[0] === BIN.restart).length).toBe(reloadsBefore);
+    expect(vps.state.calls.filter((c) => c[0] === BIN.apachectl && c.includes("graceful")).length).toBe(reloadsBefore);
     expect(JSON.stringify(second)).not.toContain(key);
   });
 
@@ -184,12 +190,39 @@ describe("ejecutor — APPLY idempotente, conflictos y rollback", () => {
     await expect(ex(bare).apply({ spec: SPEC, runId: randomUUID(), apiKey: KEY() })).rejects.toMatchObject({ code: "PORT_CONFLICT" });
   });
 
+  it("APPLY usa apachectl -k graceful y nunca el restart de cPanel", async () => {
+    placeCert(vps);
+    const r = await ex(vps).apply({ spec: SPEC, runId: randomUUID(), apiKey: KEY() });
+    expect(r.ok).toBe(true);
+    expect(vps.state.calls).toContainEqual([BIN.apachectl, "-k", "graceful"]);
+    expect(vps.state.calls.some((c) => c[0].includes("restartsrv_httpd"))).toBe(false);
+    expect(vps.state.calls.filter((c) => c[0] === BIN.apachectl && c.includes("graceful"))).toHaveLength(1);
+  });
+
+  it("fallo de sintaxis no envía señal graceful ni reinicia el Apache compartido", async () => {
+    placeCert(vps);
+    vps.state.apacheTestFails = true;
+    const r = await ex(vps).apply({ spec: SPEC, runId: randomUUID(), apiKey: KEY() });
+    expect(r.code).toBe("APACHE_FAILED");
+    expect(vps.state.calls.some((c) => c[0] === BIN.apachectl && c.includes("graceful"))).toBe(false);
+  });
+
   it("Apache inválido -> revierte el include y devuelve APACHE_FAILED", async () => {
     placeCert(vps);
     vps.state.apacheTestFails = true;
     const r = await ex(vps).apply({ spec: SPEC, runId: randomUUID(), apiKey: KEY() });
     expect(r).toMatchObject({ ok: false, code: "APACHE_FAILED" });
     expect(vps.files.has(deriveResourceNames(SPEC).vhostIncludePath)).toBe(false);
+  });
+
+  it("error de Apache persistente tras revertir -> APACHE_RECOVERY_FAILED sin recargar", async () => {
+    placeCert(vps);
+    vps.state.apacheTestFailsAlways = true;
+    const r = await ex(vps).apply({ spec: SPEC, runId: randomUUID(), apiKey: KEY() });
+    expect(r).toMatchObject({ ok: false, code: "APACHE_RECOVERY_FAILED" });
+    expect(r.steps.find((s) => s.op === "APACHE_RECOVERY")).toMatchObject({ status: "FAILED" });
+    expect(vps.files.has(deriveResourceNames(SPEC).vhostIncludePath)).toBe(false);
+    expect(vps.state.calls.some((c) => c[0] === BIN.apachectl && c.includes("graceful"))).toBe(false);
   });
 
   it("ROLLBACK solo revierte lo creado por SU runId y jamás borra el certificado", async () => {
