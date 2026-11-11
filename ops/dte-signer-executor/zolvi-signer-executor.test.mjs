@@ -127,7 +127,7 @@ describe("ejecutor — APPLY idempotente, conflictos y rollback", () => {
     await expect(ex(vps).apply({ spec, runId: randomUUID(), apiKey: KEY() })).rejects.toMatchObject({ code: "PROTECTED_RESOURCE" });
     await expect(ex(vps).rollback({ spec, runId: randomUUID() })).rejects.toMatchObject({ code: "PROTECTED_RESOURCE" });
     expect(vps.files).toEqual(before);
-    expect(vps.state.calls.some((c) => c[0] === BIN.restart || c.includes("up"))).toBe(false);
+    expect(vps.state.calls.some((c) => c[0] === BIN.apachectl && c.includes("graceful") || c.includes("up"))).toBe(false);
   });
 
   it("vhost con includes ajenos (firmador existente en ese hostname) -> CONFLICT_UNMANAGED, sin tocar Apache", async () => {
@@ -139,7 +139,7 @@ describe("ejecutor — APPLY idempotente, conflictos y rollback", () => {
     expect(obs.observed.vhostForeignIncludes).toEqual(["firmador-proxy.conf"]);
     await expect(ex(vps).apply({ spec: SPEC, runId: randomUUID(), apiKey: KEY() })).rejects.toMatchObject({ code: "CONFLICT_UNMANAGED" });
     expect(vps.files.has(n.vhostIncludePath)).toBe(false);
-    expect(vps.state.calls.some((c) => c[0] === BIN.restart)).toBe(false);
+    expect(vps.state.calls.some((c) => c[0] === BIN.apachectl && c.includes("graceful"))).toBe(false);
   });
 
   it("APPLY completo y re-APPLY idempotente (sin rotar API Key, sin recargar Apache)", async () => {
@@ -151,13 +151,13 @@ describe("ejecutor — APPLY idempotente, conflictos y rollback", () => {
     const keyFile = vps.files.get(n.apiKeyFile);
     expect(keyFile).toContain(key);
 
-    const reloadsBefore = vps.state.calls.filter((c) => c[0] === BIN.restart).length;
+    const reloadsBefore = vps.state.calls.filter((c) => c[0] === BIN.apachectl && c.includes("graceful")).length;
     const second = await ex(vps).apply({ spec: SPEC, runId: randomUUID(), apiKey: KEY() });
     expect(second.ok).toBe(true);
     expect(second.steps.find((s) => s.op === "API_KEY").status).toBe("KEPT");
     expect(second.steps.find((s) => s.op === "VHOST").status).toBe("UNCHANGED");
     expect(vps.files.get(n.apiKeyFile)).toBe(keyFile);
-    expect(vps.state.calls.filter((c) => c[0] === BIN.restart).length).toBe(reloadsBefore);
+    expect(vps.state.calls.filter((c) => c[0] === BIN.apachectl && c.includes("graceful")).length).toBe(reloadsBefore);
     expect(JSON.stringify(second)).not.toContain(key);
   });
 
