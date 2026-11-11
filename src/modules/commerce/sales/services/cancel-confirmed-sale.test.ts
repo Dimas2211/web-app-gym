@@ -10,7 +10,7 @@
 // (lock de fila) y rollback completo del estado si el callback lanza.
 // ─────────────────────────────────────────────────────────────────
 
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 
 vi.mock("@/lib/db/prisma", () => ({
   prisma: new Proxy({}, { get() { throw new Error("Prisma global NO debe usarse"); } }),
@@ -20,6 +20,8 @@ import { getSalesByPeriod } from "../../reports/queries/get-sales-by-period";
 import { getSalesListReport } from "../../reports/queries/get-sales-list-report";
 import { getCommerceReportSummary } from "../../reports/queries/get-commerce-report-summary";
 import { cancelConfirmedSale, evaluateSaleDteCancelGate, SALE_CANCEL_MESSAGES as MSG } from "./sale.service";
+
+afterEach(() => { vi.useRealTimers(); });
 
 const T = "tenant-A";
 const L = "loc-1";
@@ -85,6 +87,10 @@ function makeState(o: Options = {}): State {
 
 function match(row: Row, where: Row): boolean {
   for (const [k, v] of Object.entries(where)) {
+    if (k === "AND") { if (!(v as Row[]).every((w) => match(row, w))) return false; continue; }
+    if (k === "OR") { if (!(v as Row[]).some((w) => match(row, w))) return false; continue; }
+    if (v && typeof v === "object" && "not" in v) { if (row[k] === (v as Row).not) return false; continue; }
+
     if (v && typeof v === "object" && "in" in (v as Row)) {
       if (!((v as { in: unknown[] }).in).includes(row[k])) return false;
     } else if (v && typeof v === "object" && "gte" in (v as Row)) {
@@ -469,9 +475,11 @@ describe("cancelConfirmedSale — pagos y caja", () => {
 
 describe("anulación y reportes comerciales para todos los tipos de venta", () => {
   it.each(["01", "03", "05", "11"])("la venta %s deja de sumar en resumen, detalle por día y listado después de anularla", async (dte_type_code) => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-11-11T22:00:00Z"));
     const fake = createFakeDb({ dteDocs: [{ dte_type_code, dte_status: "REJECTED", reception_stamp: null }] });
     Object.assign(fake.state.sale, {
-      sale_date: new Date("2026-11-11T00:00:00Z"), total_amount: 376.29,
+      sale_date: new Date("2026-11-11T00:00:00Z"), confirmed_at: new Date("2026-11-11T12:00:00Z"), total_amount: 376.29,
       subtotal: 376.29, tax_amount: 0, customer: { name: "Cliente de prueba" }, _count: { items: 1 },
     });
     const filters = { tenant_id: T, location_id: L, date_from: "2026-11-01", date_to: "2026-11-30" };
@@ -490,8 +498,8 @@ describe("anulación y reportes comerciales para todos los tipos de venta", () =
     expect(await getSalesListReport(filters, reportDb)).toHaveLength(1);
     expect(await run(fake)).toEqual({ ok: true });
     expect((await getCommerceReportSummary(filters, reportDb)).total_sales).toBe(0);
-    expect(await getSalesByPeriod(filters, reportDb)).toEqual([]);
-    expect(await getSalesListReport(filters, reportDb)).toEqual([]);
+    expect(await getSalesByPeriod(filters, reportDb)).toEqual([{ date: "2026-11-11", total: 0, gross_sales: 376.29, cancelled_sales: 376.29 }]);
+    expect(await getSalesListReport(filters, reportDb)).toEqual([expect.objectContaining({ movement_type: "SALE", total_amount: 376.29 }), expect.objectContaining({ movement_type: "CANCELLATION", total_amount: -376.29 })]);
     expect(fake.state.sale.status).toBe("CANCELLED");
     expect(fake.state.dteDocs[0].dte_status).toBe("REJECTED");
   });

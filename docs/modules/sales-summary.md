@@ -319,9 +319,21 @@ reglas existentes de caja. Una caja cerrada no se modifica. La reapertura de
 rechazos 802 y la regeneración FEX verifican ahora que la venta siga CONFIRMED,
 para impedir reactivar documentos de una venta ya anulada.
 
-Los reportes comerciales usan `Sale.status=CONFIRMED`: anular excluye la venta
-del resumen, períodos, listados, líneas, productos/servicios y clientes. La
-invalidación del DTE por sí sola no cambia Sale.status. La acción de anulación
+Los reportes de ventas conservan trazabilidad por movimientos (2026-11-11):
+la venta original suma en `sale_date` y la anulación resta en `cancelled_at`,
+según el día de negocio de El Salvador. Una anulación en otro mes aparece en
+ese mes y no elimina la venta del período original. Solo se incluyen ventas
+confirmadas alguna vez; los borradores descartados no generan movimientos.
+
+Resumen, detalle diario, listado, líneas de venta y sus exportaciones PDF/Excel
+muestran ventas brutas, anulaciones y/o neto según el formato. Una venta anulada
+conserva su código en ambos movimientos; el detalle agrupa por movimiento para
+no mezclar las líneas originales con su reversa. El ticket promedio se calcula
+sobre ventas brutas y cantidad de ventas originales del período. Los análisis
+auxiliares de productos/servicios y clientes mantienen su filtro de ventas
+actualmente confirmadas; no son un historial de movimientos.
+
+La invalidación del DTE por sí sola no cambia Sale.status. La acción de anulación
 revalida `/dashboard/reports/commerce` además de ventas, inventario y caja.
 Para una pestaña de reportes ya abierta, volver a consultar o actualizarla.
 

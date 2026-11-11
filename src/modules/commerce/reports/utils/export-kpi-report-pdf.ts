@@ -206,17 +206,20 @@ function drawKpiSection(
   const marginAccent = summary.estimated_margin >= 0 ? rp.primary : CLR.red;
 
   const cards: { label: string; value: string; sub: string | null; accent: [number, number, number] | null }[] = [
-    { label: "Total vendido",        value: c(summary.total_sales),         sub: `${summary.sales_count} ventas confirmadas`,     accent: rp.primary    },
+    { label: "Ventas netas",        value: c(summary.total_sales),         sub: `${summary.sales_count} ventas / ${summary.cancellations_count} anulaciones`,     accent: rp.primary    },
+    { label: "Ventas brutas", value: c(summary.gross_sales), sub: null, accent: rp.primary },
+    { label: "Anulaciones", value: c(-summary.cancelled_sales || 0), sub: `${summary.cancellations_count} anulaciones`, accent: CLR.red },
     { label: "Total comprado",       value: c(summary.total_purchases),      sub: `${summary.purchases_count} compras confirmadas`, accent: rp.secondary  },
     { label: "Margen estimado",      value: c(summary.estimated_margin),     sub: marginPct,                                        accent: marginAccent  },
-    { label: "Ticket promedio",      value: c(summary.avg_ticket),           sub: "por venta confirmada",                           accent: null          },
-    { label: "Ventas confirmadas",   value: String(summary.sales_count),     sub: null,                                             accent: null          },
+    { label: "Ticket promedio",      value: c(summary.avg_ticket),           sub: "sobre ventas brutas",                           accent: null          },
+    { label: "Ventas registradas",   value: String(summary.sales_count),     sub: null,                                             accent: null          },
     { label: "Compras confirmadas",  value: String(summary.purchases_count), sub: null,                                             accent: null          },
     { label: "Producto más vendido", value: summary.top_product_name ?? "Sin datos", sub: "por monto total",                        accent: null          },
     { label: "Servicio más vendido", value: summary.top_service_name ?? "Sin datos", sub: "por monto total",                        accent: null          },
   ];
 
-  for (let row = 0; row < 2; row++) {
+  const cardRows = Math.ceil(cards.length / cols);
+  for (let row = 0; row < cardRows; row++) {
     for (let col = 0; col < cols; col++) {
       const card = cards[row * cols + col];
       if (!card) continue;
@@ -226,7 +229,7 @@ function drawKpiSection(
     }
   }
 
-  return y + 2 * (cardH + gapV) + 5;
+  return y + cardRows * (cardH + gapV) + 5;
 }
 
 // ── Vertical bar chart (period data) ─────────────────────────────
@@ -248,13 +251,16 @@ function drawVerticalBars(
   const innerW  = chartW - yAxisW;
   const axisB   = y + chartH;
   const maxVal  = Math.max(...items.map((i) => i.value), 1);
+  const minVal = Math.min(0, ...items.map((i) => i.value));
+  const span = maxVal - minVal;
+  const zeroY = axisB - ((0 - minVal) / span) * chartH;
   const nTicks  = 4;
 
   // Grid + Y labels
   doc.setLineWidth(0.15);
   for (let t = 0; t <= nTicks; t++) {
-    const tv  = (maxVal / nTicks) * t;
-    const ty  = axisB - (tv / maxVal) * chartH;
+    const tv  = minVal + (span / nTicks) * t;
+    const ty  = axisB - ((tv - minVal) / span) * chartH;
     doc.setDrawColor(...CLR.grid);
     doc.line(axisL, ty, axisL + innerW, ty);
     const lbl = tv >= 1_000_000
@@ -274,10 +280,10 @@ function drawVerticalBars(
   const every = Math.ceil(items.length / 22);
 
   items.forEach((item, i) => {
-    const barH = Math.max((item.value / maxVal) * chartH, item.value > 0 ? 0.5 : 0);
+    const barH = Math.max((Math.abs(item.value) / span) * chartH, item.value !== 0 ? 0.5 : 0);
     const bx   = axisL + i * slotW + (slotW - barW) / 2;
-    const by   = axisB - barH;
-    doc.setFillColor(...color);
+    const by   = item.value < 0 ? zeroY : zeroY - barH;
+    doc.setFillColor(...(item.value < 0 ? CLR.red : color));
     doc.rect(bx, by, barW, barH, "F");
 
     if (i % every === 0) {
@@ -535,10 +541,10 @@ export function exportExecutiveKpiPdf(
 
     autoTable(doc, {
       startY: y,
-      head:   [["Fecha", "Total ventas", "Total compras", "Diferencia"]],
+      head:   [["Fecha", "Ventas brutas", "Anulaciones", "Ventas netas", "Total compras", "Diferencia"]],
       body:   topDays.map((d) => {
         const purch = purchMap[d.date] ?? 0;
-        return [d.date, c(d.total), c(purch), c(d.total - purch)];
+        return [d.date, c(d.gross_sales ?? d.total), c(-(d.cancelled_sales ?? 0) || 0), c(d.total), c(purch), c(d.total - purch)];
       }),
       headStyles:         { fillColor: [30, 30, 35], textColor: [255, 255, 255], fontSize: 7.5, fontStyle: "bold" },
       bodyStyles:         { fontSize: 7.5, textColor: [35, 35, 35] },
@@ -549,6 +555,8 @@ export function exportExecutiveKpiPdf(
         1: { halign: "right" },
         2: { halign: "right" },
         3: { halign: "right" },
+        4: { halign: "right" },
+        5: { halign: "right" },
       },
     });
 

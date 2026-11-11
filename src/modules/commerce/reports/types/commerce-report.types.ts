@@ -1,8 +1,12 @@
+import type { SalesMovementType } from "../utils/sales-report-movements";
 // ─────────────────────────────────────────────────────────────────
 // commerce/reports — commerce-report.types.ts
 // ─────────────────────────────────────────────────────────────────
 
 export interface CommerceReportSummary {
+  gross_sales: number;
+  cancelled_sales: number;
+  cancellations_count: number;
   total_sales:      number;
   total_purchases:  number;
   estimated_margin: number;
@@ -14,6 +18,8 @@ export interface CommerceReportSummary {
 }
 
 export interface PeriodDataPoint {
+  gross_sales?: number;
+  cancelled_sales?: number;
   date:  string; // YYYY-MM-DD
   total: number;
 }
@@ -57,6 +63,10 @@ export interface CommerceDashboardData {
 // ── Tabular report row types ──────────────────────────────────────
 
 export interface SalesLineReportRow {
+  movement_id: string;
+  movement_type: SalesMovementType;
+  original_sale_date: string;
+
   id:              string;
   sale_code:       string;
   sale_date:       string;        // YYYY-MM-DD
@@ -148,6 +158,10 @@ export interface TabularFilters {
 // ── Listado (una fila por documento) ─────────────────────────────
 
 export interface SalesListRow {
+  movement_id: string;
+  movement_type: SalesMovementType;
+  original_sale_date: string;
+
   sale_id:        string;
   sale_code:      string;
   sale_date:      string;        // YYYY-MM-DD
