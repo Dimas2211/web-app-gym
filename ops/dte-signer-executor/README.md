@@ -15,6 +15,7 @@ comandos arbitrarios desde el navegador.
 | `lib/apache-ops.mjs` | Operaciones Apache (backends `helper`/`direct`), diagnóstico y saneamiento de salida |
 | `zolvi-apache-helper.mjs` + `systemd/zolvi-apache-helper@.service` | Helper privilegiado oneshot: solo `rebuild`, `configtest`, `graceful` |
 | `diagnostics/apache-rebuild-readonly-diagnostic.sh` | Diagnóstico de solo lectura del fallo de `rebuildhttpdconf` bajo systemd |
+| `deploy/RUNBOOK-apache-helper.md` | **Procedimiento definitivo** de despliegue del helper, respaldo, verificación y recuperación de REC TEST |
 | `apache/signer-ops-vhost-include.conf` | Include del vhost HTTPS que expone el ejecutor a Zolvi |
 
 ## Recursos por organización/ambiente (plantilla `zolvi-signer-v1`)
@@ -33,7 +34,8 @@ comandos arbitrarios desde el navegador.
 ### 0. Prerrequisitos y foto de protección (antes de tocar nada)
 
 ```bash
-/usr/bin/node --version                     # >= 18. Si node vive en otra ruta, ajustar ExecStart de la unidad.
+/opt/cpanel/ea-nodejs22/bin/node --version  # >= 18 (VPS: v22.23.4, EasyApache; node NO está en el PATH de root).
+                                            # Las DOS unidades usan esta ruta; si cambia, actualizar ambas.
 docker compose version                      # plugin de sistema (/usr/libexec/docker/cli-plugins), no en /root/.docker
 ls -l /usr/sbin/ss /usr/sbin/apachectl /usr/local/cpanel/scripts/rebuildhttpdconf /usr/local/cpanel/scripts/restartsrv_httpd
 docker pull svfe/svfe-api-firmador:v20230109   # evita que el primer APPLY descargue la imagen dentro del timeout
@@ -48,7 +50,7 @@ ss -ltnH | grep -E ':(8113|8114|8115) ' | tee -a /root/zolvi-signers-before.txt
 install -d -m 0750 /opt/zolvi-signer-executor /opt/zolvi-signer-executor/lib /opt/zolvi-signers
 install -d -m 0700 /opt/zolvi-signer-executor/.docker
 install -m 0640 zolvi-signer-executor.mjs zolvi-apache-helper.mjs /opt/zolvi-signer-executor/
-install -m 0640 lib/executor-auth.mjs lib/signer-core.mjs lib/apache-ops.mjs /opt/zolvi-signer-executor/lib/
+install -m 0640 lib/executor-auth.mjs lib/signer-core.mjs lib/apache-ops.mjs lib/sanitize-cli.mjs /opt/zolvi-signer-executor/lib/
 install -m 0644 'systemd/zolvi-apache-helper@.service' /etc/systemd/system/   # sin enable: arranca bajo demanda
 # Secreto compartido con Zolvi (>= 32 chars). Nunca en el repositorio ni en logs.
 install -m 0600 /dev/null /etc/zolvi-signer-executor.env
@@ -66,12 +68,12 @@ curl -fsS http://127.0.0.1:9750/healthz          # {"ok":true,...} — solo loop
 curl -s -o /dev/null -w '%{http_code}\n' -X POST http://127.0.0.1:9750/v1/execute -d '{}'   # 401 (sin firma HMAC)
 journalctl -u zolvi-signer-executor -n 50 --no-pager
 # Diagnóstico de solo lectura con un spec de un cliente NUEVO (nunca MetaTraining/TrustMe):
-node /opt/zolvi-signer-executor/zolvi-signer-executor.mjs inspect --spec /root/spec.json
+/opt/cpanel/ea-nodejs22/bin/node /opt/zolvi-signer-executor/zolvi-signer-executor.mjs inspect --spec /root/spec.json
 ```
 
-`/healthz` no se publica por Apache. Si `systemd-analyze verify` o el primer `inspect` fallan por rutas
-protegidas (`ProtectSystem=strict`), ajustar `ReadWritePaths` de la unidad en ese servidor; no desactivar el
-endurecimiento completo.
+`/healthz` no se publica por Apache. No ampliar `ReadWritePaths` ni quitar `ProtectHome` para que cPanel
+funcione dentro del ejecutor: las operaciones de Apache/cPanel van por el helper (ver más abajo). Un test
+de regresión (`systemd-units.test.mjs`) impide ampliar el sandbox del ejecutor.
 
 ### 3. Exposición HTTPS para Zolvi
 
@@ -146,11 +148,19 @@ antes de autorizar otra acción.
 
 ### Helper privilegiado de Apache (desde 2026-11-10)
 
-`rebuildhttpdconf` es un script de cPanel que escribe en rutas no documentadas (cachés de
-userdata en `/etc`, `/var/cpanel`, `/usr/local/cpanel`, plantillas compiladas…). El ejecutor corre
-con `ProtectSystem=strict`, `ProtectHome`, `PrivateTmp` y `ReadWritePaths` acotados, así que el
-script puede fallar ahí aunque funcione como root interactivo. En vez de abrir el sandbox del
-proceso expuesto a la red, el ejecutor (`ZOLVI_SIGNER_APACHE_MODE=helper`) pide a systemd:
+**Causa raíz confirmada en el VPS (APPLY 2026-11-10 22:28 CST).** Dentro del sandbox del ejecutor,
+`rebuildhttpdconf` falla en:
+
+- `Cpanel::Template::Plugin::ApacheConfig::generate_cloudflare_config`: crear
+  `/etc/apache2/conf.d/includes/cloudflare.conf.lock` → `Read-only file system` (`ProtectSystem=strict`;
+  `/etc/apache2/conf.d` y `conf.d/includes` no están en `ReadWritePaths`).
+- `Cpanel::FileProtect::Sync::sync_user_homedir`: `/home/getzolvi/.htpasswds` → `Permission denied`
+  (`ProtectHome=true`).
+
+Como root interactivo esas rutas son escribibles y el rebuild funciona; por eso también falló el rebuild de
+recuperación del incidente, ya sin el include. En vez de abrir el sandbox del proceso expuesto a la red, el
+ejecutor (`ZOLVI_SIGNER_APACHE_MODE=helper`) pide a systemd que lo ejecute en el contexto root que cPanel
+espera:
 
 | Unidad | Comando fijo |
 |---|---|
@@ -162,9 +172,10 @@ Cualquier otra instancia sale con 64 sin ejecutar nada (comparación exacta: `re
 `rebuild;id`, escapes `\x2d`…). Fuera de systemd (sin `INVOCATION_ID` válido) sale con 65, y si
 `/run/zolvi-apache-helper` no es un directorio real de root sin escritura de grupo/otros, con 66.
 No hay restart en ningún camino. Solo root puede arrancar la unidad; no tiene `[Install]`, socket ni
-timer. La unidad añade `NoNewPrivileges` y protecciones de kernel/reloj/hostname/namespaces; NO
-añade `ProtectSystem`, `PrivateTmp` ni recorte de capabilities porque eso reproduciría el fallo
-de cPanel (justificación línea a línea en la propia unidad).
+timer, y exige `httpd.service` activo. La unidad añade `NoNewPrivileges` y protecciones de
+kernel/reloj/hostname/namespaces (no afectan a las dos operaciones que fallaban); NO añade
+`ProtectSystem`, `ProtectHome`, `PrivateTmp`, `User=` ni recorte de capabilities porque eso reproduciría el
+fallo confirmado (justificación línea a línea en la propia unidad y test de regresión).
 
 Integridad del resultado (`/run/zolvi-apache-helper/<op>.json`, 0600, escrito con `wx` + rename): el
 ejecutor lo acepta solo si (1) la unidad está cargada, (2) el `InvocationID` posterior al `start` es
@@ -209,59 +220,19 @@ no quedó instalado. Conservar estos recursos; no ejecutar ROLLBACK ni crear una
 clave nueva. El proxy queda pendiente de una recuperación controlada.
 El segundo APPLY (~22:28) terminó en `APACHE_RECOVERY_FAILED`: el include se retiró, `httpd.conf`
 quedó idéntico al respaldo y Apache siguió activo con sintaxis válida. El rebuild de
-recuperación falló igual que el primero, aunque el include ya no estaba: indica una causa del
-entorno de ejecución, no del include. Ver `diagnostics/` y "Actualización del ejecutor".
+recuperación falló igual que el primero por la causa confirmada arriba (sandbox), no por el include.
 
-## Actualización del ejecutor en el VPS (helper de Apache)
+## Despliegue del helper y recuperación de REC TEST
 
-Requiere ventana aprobada solo para el paso 5 (único que toca Apache). Los pasos 1–4 no
-afectan Apache ni firmadores.
+Procedimiento definitivo, con preflight de solo lectura, respaldo, instalación (reinicia solo el
+ejecutor), prueba del helper sin efecto sobre Apache, APPLY en ventana, verificación posterior y
+recuperación R1–R5: **[deploy/RUNBOOK-apache-helper.md](deploy/RUNBOOK-apache-helper.md)**.
 
-```bash
-# 1. Respaldo (reversión = restaurar este directorio y la unidad)
-TS=$(date +%Y%m%d-%H%M%S); B=/root/zolvi-executor-backup-$TS; mkdir -p "$B"
-cp -a /opt/zolvi-signer-executor "$B/" && cp -a /etc/systemd/system/zolvi-signer-executor.service "$B/"
-cp -a /etc/apache2/conf/httpd.conf "$B/httpd.conf"
-docker ps --format '{{.Names}} {{.Status}} {{.Ports}}' > "$B/containers.txt"
-
-# 2. Validación previa de los archivos nuevos (desde el checkout del PR)
-node --check zolvi-signer-executor.mjs && node --check zolvi-apache-helper.mjs && node --check lib/apache-ops.mjs
-systemd-analyze verify systemd/zolvi-signer-executor.service 'systemd/zolvi-apache-helper@.service'
-
-# 3. Instalación (sin reiniciar Apache)
-install -m 0640 zolvi-signer-executor.mjs zolvi-apache-helper.mjs /opt/zolvi-signer-executor/
-install -m 0640 lib/apache-ops.mjs lib/sanitize-cli.mjs lib/executor-auth.mjs lib/signer-core.mjs /opt/zolvi-signer-executor/lib/
-install -m 0644 systemd/zolvi-signer-executor.service 'systemd/zolvi-apache-helper@.service' /etc/systemd/system/
-systemctl daemon-reload
-systemctl restart zolvi-signer-executor        # solo el ejecutor; Apache y contenedores no se tocan
-systemctl is-active zolvi-signer-executor && curl -fsS http://127.0.0.1:9750/healthz
-
-# 4. Comprobación sin efectos sobre Apache: configtest por el helper (solo lectura de config)
-systemctl start zolvi-apache-helper@configtest.service; cat /run/zolvi-apache-helper/configtest.json
-systemctl start zolvi-apache-helper@restart.service; echo "exit=$? (debe fallar: instancia no permitida)"
-# Desde Zolvi: INSPECT de REC TEST → debe seguir mostrando API_KEY/CERT/COMPOSE/CONTAINER presentes, VHOST ausente.
-
-# 5. (Ventana aprobada) APPLY de REC TEST desde el panel — ver "Recuperación de REC TEST".
-```
-
-**Reversión del despliegue:** `cp -a $B/zolvi-signer-executor/. /opt/zolvi-signer-executor/`,
-`cp -a $B/zolvi-signer-executor.service /etc/systemd/system/`,
-`rm -f '/etc/systemd/system/zolvi-apache-helper@.service'`, `systemctl daemon-reload`,
-`systemctl restart zolvi-signer-executor`. No requiere tocar Apache ni contenedores. Si un
-APPLY dejara Apache inconsistente, la copia exacta está en
-`/var/lib/zolvi-signer-executor/httpd.conf.pre-<runId>` (y `$B/httpd.conf`).
-
-## Recuperación de REC TEST (sin recrear recursos)
-
-1. PLAN debe mostrar `DIR/API_KEY/CERT/COMPOSE/CONTAINER: KEEP`, `VHOST: CREATE`, `APACHE_RELOAD: RELOAD`.
-2. APPLY (ventana aprobada). El ejecutor: deja la API Key (`KEPT`, misma huella; no se envía
-   ni genera clave nueva), certificado (`PRESENT`), compose (`UNCHANGED`), contenedor
-   (`ENSURED`: `docker compose up -d` sin cambios no recrea), puerto 8120; crea solo el include
-   y ejecuta rebuild → `-t` → graceful vía helper.
-3. Si vuelve a fallar, `steps[].diagnostic` trae la causa exacta y la configuración vuelve sola
-   al estado previo. No reintentar sin leer el diagnóstico.
-4. Si sale bien: `INFRA_READY` → VERIFY → registrar credencial → VERIFY (`SIGNER_READY`).
-5. Repetir la foto de la sección 4 (TrustMe 8113/8114 y MetaTraining 8115 sin cambios).
+Resumen para REC TEST: PLAN debe mostrar `DIR/API_KEY/CERT/COMPOSE/CONTAINER: KEEP` y `VHOST: CREATE`.
+El APPLY deja la API Key (`KEPT`, misma huella; no se genera clave nueva), el certificado (`PRESENT`), el
+compose (`UNCHANGED`), el contenedor (`ENSURED`: mismo Id, sin recrear) y el puerto 8120; crea solo el
+include y ejecuta rebuild → `-t` → graceful vía helper. Después: `INFRA_READY` → VERIFY → registrar
+credencial → VERIFY (`SIGNER_READY`).
 
 ## Flujo por cliente (desde el panel de la organización)
 
@@ -274,8 +245,8 @@ APPLY dejara Apache inconsistente, la copia exacta está en
 ## Diagnóstico manual
 
 ```bash
-node /opt/zolvi-signer-executor/zolvi-signer-executor.mjs inspect --spec /root/spec.json
-node /opt/zolvi-signer-executor/zolvi-signer-executor.mjs verify  --spec /root/spec.json
+/opt/cpanel/ea-nodejs22/bin/node /opt/zolvi-signer-executor/zolvi-signer-executor.mjs inspect --spec /root/spec.json
+/opt/cpanel/ea-nodejs22/bin/node /opt/zolvi-signer-executor/zolvi-signer-executor.mjs verify  --spec /root/spec.json
 ```
 
 `spec.json`: `{"slug":"cliente","environment":"TEST","hostname":"firmador-cliente-test.getzolvi.com","port":8120,"signerNit":"06140000000000","cpanelUser":"getzolvi"}`

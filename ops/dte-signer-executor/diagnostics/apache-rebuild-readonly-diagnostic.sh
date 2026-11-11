@@ -33,7 +33,11 @@ TO="${TO:-2026-11-10 22:45:00}"
 # ─────────────────────────────────────────────────────────────────
 set -u
 SAN="$(cd "$(dirname "$0")/.." 2>/dev/null && pwd)/lib/sanitize-cli.mjs"
-NODE="$(command -v node 2>/dev/null || echo /usr/bin/node)"
+# En el VPS cPanel node no está en el PATH de root: runtime de EasyApache primero.
+NODE="${NODE:-}"
+for c in /opt/cpanel/ea-nodejs22/bin/node "$(command -v node 2>/dev/null)" /usr/bin/node; do
+  if [ -z "$NODE" ] && [ -n "$c" ] && [ -x "$c" ]; then NODE="$c"; fi
+done
 if [ ! -x "$NODE" ] || [ ! -r "$SAN" ]; then
   echo "ERROR: se requiere node y $SAN para sanear la salida; no se imprime nada." 1>&2
   exit 3
