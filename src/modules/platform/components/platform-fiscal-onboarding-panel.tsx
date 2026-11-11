@@ -112,7 +112,7 @@ export function PlatformFiscalOnboardingPanel({ organizationId }: { organization
     startTransition(async () => {
       const r = await runSignerProvisioningAction(organizationId, env, mode, opts);
       setLastRun(r);
-      setMsg({ ok: r.ok, text: r.ok ? `${mode} completado (${r.status ?? ""}).` : `${mode}: ${r.error ?? r.code ?? "falló"}` });
+      setMsg({ ok: r.ok, text: r.ok ? `${mode} completado · estado del aprovisionamiento: ${r.status ?? "—"}.` : `${mode}: ${r.error ?? r.code ?? "falló"}` });
       load(false);
     });
   };

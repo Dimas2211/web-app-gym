@@ -297,3 +297,51 @@ describe("runSignerProvisioning", () => {
     expect(db.rows[0]).toMatchObject({ encrypted_api_key: null, api_key_fingerprint: null });
   });
 });
+
+describe("INSPECT tras un APPLY previo que perdió la conexión (caso REC TEST)", () => {
+  const STALE = "EXECUTOR_UNREACHABLE: No se pudo contactar al ejecutor del VPS.";
+  const failedRow = async () => {
+    await upsertSignerProvisioningSpec("org-a", "TEST", SPEC_IN, "u", deps());
+    Object.assign(db.rows[0], { status: "FAILED", last_error: STALE, api_key_fingerprint: fp("k") });
+  };
+
+  it("INSPECT exitoso reemplaza el last_error de transporte obsoleto y conserva el status", async () => {
+    await failedRow();
+    const { transport, call } = fakeTransport({ existingKeyFp: fp("k") });
+    const r = await runSignerProvisioning({ organizationId: "org-a", environment: "TEST", mode: "INSPECT", userId: "u" }, deps({ transport }));
+    expect(r).toMatchObject({ ok: true, status: "FAILED" });
+    expect(call.mock.calls.map((c) => c[0])).toEqual(["inspect"]);
+    expect(db.rows[0].status).toBe("FAILED");
+    expect(String(db.rows[0].last_error)).not.toMatch(/EXECUTOR_UNREACHABLE/);
+    expect(String(db.rows[0].last_error)).toMatch(/^INSPECT .*ejecutor accesible/);
+    expect(db.runs.at(-1)).toMatchObject({ mode: "INSPECT", status: "SUCCESS" });
+  });
+
+  it("INSPECT exitoso NO borra errores que no son de transporte (p. ej. API_KEY_DRIFT)", async () => {
+    await failedRow();
+    db.rows[0].last_error = "API_KEY_DRIFT: la API Key del VPS no coincide con la registrada en Zolvi.";
+    const { transport } = fakeTransport({ existingKeyFp: fp("k") });
+    await runSignerProvisioning({ organizationId: "org-a", environment: "TEST", mode: "INSPECT", userId: "u" }, deps({ transport }));
+    expect(db.rows[0].last_error).toMatch(/^API_KEY_DRIFT/);
+  });
+
+  it("INSPECT fallido: no toca la fila y la bitácora registra el código del fallo nuevo", async () => {
+    await failedRow();
+    const transport: SignerExecutorTransport = {
+      configured: true,
+      call: vi.fn(async () => ({ ok: false, code: "EXECUTOR_UNREACHABLE", message: "No se pudo contactar al ejecutor del VPS." })),
+    };
+    const r = await runSignerProvisioning({ organizationId: "org-a", environment: "TEST", mode: "INSPECT", userId: "u" }, deps({ transport }));
+    expect(r).toMatchObject({ ok: false, code: "EXECUTOR_UNREACHABLE" });
+    expect(db.rows[0]).toMatchObject({ status: "FAILED", last_error: STALE });
+    expect(db.runs.at(-1)).toMatchObject({ mode: "INSPECT", status: "FAILED", error_message: "EXECUTOR_UNREACHABLE: No se pudo contactar al ejecutor del VPS." });
+  });
+
+  it("respuesta HTTP no exitosa del ejecutor (401 BAD_SIGNATURE) no se confunde con UNREACHABLE", async () => {
+    await failedRow();
+    const transport: SignerExecutorTransport = { configured: true, call: vi.fn(async () => ({ ok: false, code: "BAD_SIGNATURE" })) };
+    const r = await runSignerProvisioning({ organizationId: "org-a", environment: "TEST", mode: "INSPECT", userId: "u" }, deps({ transport }));
+    expect(r.code).toBe("BAD_SIGNATURE");
+    expect(db.runs.at(-1)?.error_message).toMatch(/^BAD_SIGNATURE: /);
+  });
+});

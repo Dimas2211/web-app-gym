@@ -64,3 +64,22 @@ describe("HttpSignerExecutorTransport — safe network diagnostics", () => {
     expect(warn).not.toHaveBeenCalled();
   });
 });
+
+describe("HttpSignerExecutorTransport — HTTP responses are never UNREACHABLE", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it("401 JSON from the executor (bad/missing HMAC) is returned as-is, no network warning", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const fetchMock = vi.fn().mockResolvedValue({ status: 401, json: async () => ({ ok: false, code: "BAD_SIGNATURE" }) });
+    const result = await new HttpSignerExecutorTransport(url, secret, fetchMock as unknown as typeof fetch).call("inspect", params);
+    expect(result).toEqual({ ok: false, code: "BAD_SIGNATURE" });
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it("non-JSON proxy page (Apache 502/503) -> EXECUTOR_BAD_RESPONSE with status, not UNREACHABLE", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ status: 502, json: async () => { throw new SyntaxError("html"); } });
+    const result = await new HttpSignerExecutorTransport(url, secret, fetchMock as unknown as typeof fetch).call("inspect", params);
+    expect(result.code).toBe("EXECUTOR_BAD_RESPONSE");
+    expect(result.message).toContain("HTTP 502");
+  });
+});

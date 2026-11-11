@@ -278,8 +278,26 @@ export async function runSignerProvisioning(
   // ── INSPECT ──
   if (mode === "INSPECT") {
     const res = await transport.call("inspect", { spec });
-    if (!res.ok) return fail(res.code ?? "EXECUTOR_ERROR", res.message ?? "INSPECT falló.", {}, "FAILED");
-    await db.platformDteSignerProvisioning.update({ where: { id: row.id }, data: { observed_state: sanitizeObserved(res.observed) } });
+    if (!res.ok) {
+      // El código viaja en la bitácora: distingue un fallo NUEVO de INSPECT
+      // del last_error persistido por un APPLY anterior.
+      const code = res.code ?? "EXECUTOR_ERROR";
+      return fail(code, `${code}: ${res.message ?? "INSPECT falló."}`, {}, "FAILED");
+    }
+    // Un INSPECT exitoso demuestra que el ejecutor es alcanzable: un
+    // last_error de transporte (de un APPLY previo que perdió la respuesta)
+    // queda obsoleto y no debe seguir mostrándose como fallo actual. El
+    // status NO cambia: el APPLY sigue sin completarse (usar PLAN/VERIFY).
+    const staleTransportError = !!row.last_error && /^(EXECUTOR_UNREACHABLE|EXECUTOR_TIMEOUT)\b/.test(row.last_error);
+    await db.platformDteSignerProvisioning.update({
+      where: { id: row.id },
+      data: {
+        observed_state: sanitizeObserved(res.observed),
+        ...(staleTransportError
+          ? { last_error: `INSPECT ${now().toISOString()}: ejecutor accesible. El error de transporte anterior (APPLY) ya no aplica; estado ${row.status} conservado: revise PLAN antes de continuar.` }
+          : {}),
+      },
+    });
     const runId = await recordRun(db, row, mode, "SUCCESS", { steps: null, userId: input.userId, startedAt, finishedAt: now() });
     return { ok: true, mode, runId, status: row.status, plan: buildPlan(res.observed ?? null) };
   }
