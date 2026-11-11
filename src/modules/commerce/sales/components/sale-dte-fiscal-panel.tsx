@@ -15,7 +15,8 @@
 //     espacio fijo entre paneles y grilla.
 // ─────────────────────────────────────────────────────────────────
 
-import { useState } from "react";
+import { useRef, useState } from "react";
+import { ResumeExportDteDialog } from "../export/components/resume-export-dte-dialog";
 import type { SaleDetail } from "../types/sale.types";
 import { getDteShortCode } from "../utils/dte-type-labels";
 import { isFiscallyReceivedByMh } from "@/modules/commerce/dte/utils/dte-fiscal-receipt.utils";
@@ -30,6 +31,8 @@ interface SaleDteFiscalPanelProps {
   onDeliverExternalInvalidation?:  () => void;
   /** Habilita Ver/Descargar JSON (read-only). Servidor revalida permiso. */
   canViewDteJson?:                 boolean;
+  canManageFiscalDte?:             boolean;
+  onFiscalChange?:                () => void;
 }
 
 // ── Estilos ───────────────────────────────────────────────────────
@@ -116,8 +119,12 @@ export function SaleDteFiscalPanel({
   onDeliverExternal,
   onDeliverExternalInvalidation,
   canViewDteJson = false,
+  canManageFiscalDte = false,
+  onFiscalChange,
 }: SaleDteFiscalPanelProps) {
   const [activeTab, setActiveTab] = useState<Tab>("fiscal");
+  const [resumeSaleId, setResumeSaleId] = useState<string | null>(null);
+  const resumeButtonRef = useRef<HTMLButtonElement>(null);
 
   const dte = detail?.dte_document ?? null;
 
@@ -178,6 +185,12 @@ export function SaleDteFiscalPanel({
   return (
     <div className="flex-none border-t border-zinc-800 bg-zinc-900/60">
 
+      {canManageFiscalDte && dte.dte_type_code === "11" && resumeSaleId === detail.id && (
+        <ResumeExportDteDialog key={detail.id} dteId={dte.id} saleId={detail.id} saleCode={detail.sale_code}
+          onFiscalChange={onFiscalChange}
+          onClose={() => { setResumeSaleId(null); resumeButtonRef.current?.focus(); }} />
+      )}
+
       {/* ── BLOQUE PRINCIPAL FIJO ───────────────────────────────── */}
       <div className="px-3 py-2 space-y-1.5">
 
@@ -192,6 +205,12 @@ export function SaleDteFiscalPanel({
           <span className={`text-[10px] font-semibold ${dteStatusCls(dte.dte_status)}`}>
             · {dteStatusLabel(dte.dte_status)}
           </span>
+          {canManageFiscalDte && dte.dte_type_code === "11" && (
+            <button ref={resumeButtonRef} type="button" onClick={() => setResumeSaleId(detail.id)}
+              className="rounded border border-emerald-700 px-2 py-1 text-[10px] font-medium text-emerald-300 hover:bg-emerald-900/40">
+              Continuar factura de exportación
+            </button>
+          )}
           {canViewDteJson && (
             <DteJsonActions
               dteId={dte.id}
