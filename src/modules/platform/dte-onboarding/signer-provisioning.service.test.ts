@@ -196,6 +196,66 @@ describe("runSignerProvisioning", () => {
     expect(t.vps.keysSent).toHaveLength(1);
   });
 
+  it("conexión perdida y APPLY parcial: INSPECT reconcilia, sin repetir APPLY ni rotar clave", async () => {
+    const t = fakeTransport();
+    const generateApiKey = vi.fn(() => randomBytes(32).toString("hex"));
+    const baseCall = t.transport.call.bind(t.transport);
+    let inspectCount = 0;
+    let applyCount = 0;
+    const transport: SignerExecutorTransport = {
+      configured: true,
+      call: vi.fn(async (op, params) => {
+        if (op === "inspect") {
+          inspectCount++;
+          if (inspectCount === 2) {
+            const observed = await baseCall(op, params);
+            return { ...observed, observed: { ...observed.observed,
+              container: { name: "c", state: "running", managed: true, templateVersion: "zolvi-signer-v1", loopbackOnly: true, boundToExpectedPort: true },
+              portInUse: true, apiKey: { present: true, fingerprint: db.rows[0].api_key_fingerprint as string },
+              compose: { present: true, templateVersion: "zolvi-signer-v1", matches: true },
+              vhost: { present: false, templateVersion: null, matches: false },
+            } };
+          }
+        }
+        if (op === "apply") {
+          applyCount++;
+          return { ok: false, code: "EXECUTOR_UNREACHABLE", message: "No se pudo contactar al ejecutor del VPS." };
+        }
+        return baseCall(op, params);
+      }),
+    };
+    const result = await runSignerProvisioning(
+      { organizationId: "org-a", environment: "TEST", mode: "APPLY", userId: "u", confirm: `APPLY ${ID}` },
+      deps({ transport, generateApiKey }),
+    );
+    expect(result).toMatchObject({ ok: false, status: "FAILED", code: "APPLY_PARTIAL" });
+    expect(applyCount).toBe(1);
+    expect(inspectCount).toBe(2);
+    expect(generateApiKey).toHaveBeenCalledTimes(1);
+    expect(db.rows[0].encrypted_api_key).toBeTruthy();
+    expect(db.rows[0].observed_state).toMatchObject({ vhost: { present: false }, apiKey: { present: true } });
+  });
+
+  it("conexión perdida y INSPECT inaccesible: no presume APPLY exitoso", async () => {
+    const base = fakeTransport();
+    const transport: SignerExecutorTransport = {
+      configured: true,
+      call: vi.fn(async (op, params) => {
+        if (op === "apply") return { ok: false, code: "EXECUTOR_UNREACHABLE" };
+        if (op === "inspect" && base.call.mock.calls.filter((c) => c[0] === "inspect").length > 0) {
+          return { ok: false, code: "EXECUTOR_UNREACHABLE" };
+        }
+        return base.transport.call(op, params);
+      }),
+    };
+    const result = await runSignerProvisioning(
+      { organizationId: "org-a", environment: "TEST", mode: "APPLY", userId: "u", confirm: `APPLY ${ID}` },
+      deps({ transport }),
+    );
+    expect(result).toMatchObject({ ok: false, status: "FAILED", code: "APPLY_UNCERTAIN" });
+    expect(transport.call).toHaveBeenCalledTimes(3);
+  });
+
   it("lock vigente -> LOCKED (doble clic / concurrencia), sin llamar apply", async () => {
     const { transport, call } = fakeTransport();
     Object.assign(db.rows[0], { lock_run_id: "otro", lock_expires_at: new Date(Date.now() + 60_000) });
