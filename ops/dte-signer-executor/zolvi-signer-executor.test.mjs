@@ -7,6 +7,7 @@ import {
   createExecutor, createExecutorHandler, createRequestVerifier, signExecutorRequest, BIN,
 } from "./zolvi-signer-executor.mjs";
 import { createFileNonceStore } from "./lib/executor-auth.mjs";
+import { HTTPD_CONF } from "./lib/apache-ops.mjs";
 import {
   validateSignerSpec, deriveResourceNames, renderCompose, renderVhostInclude, renderApiKeyDefine,
   allocatePort, validatePort, RESERVED_PORTS,
@@ -17,20 +18,44 @@ const SPEC_PROD = { ...SPEC, environment: "PRODUCTION", hostname: "firmador-clie
 const KEY = () => randomBytes(32).toString("hex");
 
 // ── Simulación de VPS ─────────────────────────────────────────────
-function fakeVps({ containers = [], listening = [], apacheTestFails = false } = {}) {
+// httpd.conf simulado: cPanel lo genera a partir de los includes userdata presentes.
+const renderHttpdConf = (files) => `# httpd.conf (cPanel)\n${[...files.keys()].filter((p) => p.startsWith("/etc/apache2/conf.d/userdata/") && p.endsWith(".conf")).sort().map((p) => `Include "${p}"`).join("\n")}\n`;
+
+function fakeVps({ containers = [], listening = [], apacheTestFails = false, httpdConf = true } = {}) {
   const files = new Map();
   const dirs = new Set(["/"]);
-  const state = { containers: [...containers], listening: [...listening], apacheTestFails, calls: [] };
+  // rebuildFailure: { code, stderr, stdout, timedOut, signal, spawnError, times } — falla las primeras `times` veces (∞ por defecto).
+  const state = { containers: [...containers], listening: [...listening], apacheTestFails, calls: [], rebuildFailure: null, gracefulFails: false, rebuilds: 0 };
+  if (httpdConf) files.set(HTTPD_CONF, renderHttpdConf(files));
   const fs = {
     readFileSync: (p) => { if (!files.has(p)) throw Object.assign(new Error("ENOENT"), { code: "ENOENT" }); return files.get(p); },
     writeFileSync: (p, c) => { files.set(p, String(c)); },
     existsSync: (p) => files.has(p) || dirs.has(p),
     mkdirSync: (p) => { dirs.add(p); },
     unlinkSync: (p) => { files.delete(p); },
+    renameSync: (a, b) => { files.set(b, files.get(a)); files.delete(a); },
+    statSync: (p) => { if (!files.has(p)) throw Object.assign(new Error("ENOENT"), { code: "ENOENT" }); return { mode: 0o100644 }; },
     readdirSync: (d) => [...files.keys()].filter((f) => f.slice(0, f.lastIndexOf("/")) === d).map((f) => f.slice(f.lastIndexOf("/") + 1)),
   };
   const run = async (cmd, args) => {
     state.calls.push([cmd, ...args]);
+    if (cmd === BIN.rebuild) {
+      state.rebuilds += 1;
+      const f = state.rebuildFailure;
+      if (f && (f.times === undefined || state.rebuilds <= f.times)) {
+        if (f.writesBeforeFail) files.set(HTTPD_CONF, renderHttpdConf(files));
+        return { code: f.code ?? 1, stdout: f.stdout ?? "", stderr: f.stderr ?? "", timedOut: !!f.timedOut, signal: f.signal ?? null, spawnError: f.spawnError ?? null, durationMs: f.durationMs ?? 1500 };
+      }
+      files.set(HTTPD_CONF, renderHttpdConf(files));
+      return { code: 0, stdout: "Built /etc/apache2/conf/httpd.conf OK", stderr: "" };
+    }
+    // gracefulFails: true = siempre; número = solo las primeras N señales.
+    if (cmd === BIN.apachectl && args[0] === "-k" && state.gracefulFails) {
+      state.graceful = (state.graceful ?? 0) + 1;
+      if (state.gracefulFails === true || state.graceful <= state.gracefulFails) {
+        return { code: 1, stdout: "", stderr: "httpd (pid 1234?) not running" };
+      }
+    }
     if (cmd === BIN.docker && args[0] === "ps") {
       return { code: 0, stdout: state.containers.map((c) => JSON.stringify({ Names: c.name, State: c.state ?? "running", Ports: c.ports ?? "", Labels: c.labels ?? "" })).join("\n"), stderr: "" };
     }
@@ -68,7 +93,7 @@ function placeCert(vps, spec = SPEC) {
   vps.files.set(n.certFile, "<certificado de prueba>");
 }
 
-const ex = (vps) => createExecutor({ run: vps.run, fs: vps.fs, now: () => new Date("2026-11-10T00:00:00Z"), httpProbe: async () => ({ ok: true, status: 200 }) });
+const ex = (vps) => createExecutor({ run: vps.run, fs: vps.fs, now: () => new Date("2026-11-10T00:00:00Z"), httpProbe: async () => ({ ok: true, status: 200 }), apacheMode: "direct", stateDir: "/var/lib/zolvi-signer-executor" });
 
 // ── signer-core ───────────────────────────────────────────────────
 describe("signer-core — validación, nombres y plantillas", () => {
@@ -249,6 +274,215 @@ describe("ejecutor — APPLY idempotente, conflictos y rollback", () => {
     await ex(vps).apply({ spec: SPEC, runId: randomUUID(), apiKey: KEY() });
     const v = await ex(vps).verify({ spec: SPEC });
     expect(v.checks.filter((c) => c.status !== "ok")).toEqual([]);
+  });
+});
+
+// ── Reconstrucción de Apache: diagnóstico y recuperación ───────────
+describe("Apache — diagnóstico de rebuildhttpdconf y recuperación sin segundo rebuild", () => {
+  const RO_STDERR = [
+    "info [rebuildhttpdconf] Rebuilding Apache configuration",
+    "Cpanel::Exception::IO::FileCreateError/(XID abc123) The system failed to create the file “/etc/userdatadomains.json.tmp” because of an error: Read-only file system",
+    "  at /usr/local/cpanel/Cpanel/Config/userdata/UpdateCache.pm line 210.",
+  ].join("\n");
+  // Otro cliente del Apache compartido (no Zolvi): nunca debe cambiar.
+  const FOREIGN = "/etc/apache2/conf.d/userdata/ssl/2_4/dhsoft/examenescpo.com.dhsoftware.app/custom.conf";
+  const FOREIGN_BODY = "# configuración del hospital\nProxyPass /api http://127.0.0.1:9000/\n";
+  const isGlobalRestart = (c) => c.some((a) => /restartsrv|^restart$|^stop$|^reload$/.test(String(a))) || (c.includes("-k") && !c.includes("graceful"));
+
+  let vps;
+  beforeEach(() => {
+    vps = fakeVps({ containers: [{ name: "dte-firmador-metatraining-test", ports: "127.0.0.1:8115->8113/tcp" }], listening: [8113, 8114, 8115], httpdConf: false });
+    vps.files.set(FOREIGN, FOREIGN_BODY);
+    vps.files.set(HTTPD_CONF, renderHttpdConf(vps.files));
+  });
+
+  it("1. reconstrucción exitosa: rebuild → -t → graceful, copia previa de httpd.conf guardada", async () => {
+    placeCert(vps);
+    const before = vps.files.get(HTTPD_CONF);
+    const runId = randomUUID();
+    const r = await ex(vps).apply({ spec: SPEC, runId, apiKey: KEY() });
+    expect(r.ok).toBe(true);
+    expect(r.steps.find((s) => s.op === "APACHE_RELOAD")).toMatchObject({ status: "OK", detail: "backend direct" });
+    expect(vps.files.get(HTTPD_CONF)).toContain(deriveResourceNames(SPEC).vhostIncludePath);
+    expect(vps.files.get(`/var/lib/zolvi-signer-executor/httpd.conf.pre-${runId}`)).toBe(before);
+    const apacheCalls = vps.state.calls.filter((c) => c[0] === BIN.rebuild || c[0] === BIN.apachectl);
+    expect(apacheCalls).toEqual([[BIN.rebuild], [BIN.apachectl, "-t"], [BIN.apachectl, "-k", "graceful"]]);
+  });
+
+  it("2. error de permisos (sandbox read-only): diagnóstico PERMISSION_DENIED con la ruta, sin segundo rebuild", async () => {
+    placeCert(vps);
+    const before = vps.files.get(HTTPD_CONF);
+    vps.state.rebuildFailure = { code: 255, stderr: RO_STDERR };
+    const r = await ex(vps).apply({ spec: SPEC, runId: randomUUID(), apiKey: KEY() });
+    expect(r).toMatchObject({ ok: false, code: "APACHE_FAILED" });
+    const failed = r.steps.find((s) => s.op === "APACHE_RELOAD");
+    expect(failed.diagnostic).toMatchObject({ op: "rebuild", phase: "rebuild", kind: "PERMISSION_DENIED", exitCode: 255, httpdConfChanged: false, backend: "direct" });
+    expect(failed.diagnostic.stderr).toContain("/etc/userdatadomains.json.tmp");
+    expect(failed.diagnostic.stderr).toContain("Read-only file system");
+    expect(r.message).toContain("PERMISSION_DENIED");
+    expect(r.message).not.toBe("rebuildhttpdconf falló.");
+    expect(vps.state.rebuilds).toBe(1);
+    expect(r.steps.find((s) => s.op === "APACHE_RECOVERY")).toMatchObject({ status: "OK" });
+    expect(r.steps.find((s) => s.op === "APACHE_RECOVERY").detail).toContain("sin cambios");
+    expect(vps.files.get(HTTPD_CONF)).toBe(before);
+    expect(vps.files.has(deriveResourceNames(SPEC).vhostIncludePath)).toBe(false);
+    expect(vps.state.calls.some((c) => c.includes("graceful"))).toBe(false);
+  });
+
+  it("3. error de sintaxis tras rebuild: CONFIG_ERROR y httpd.conf restaurado byte a byte sin reconstruir de nuevo", async () => {
+    placeCert(vps);
+    const before = vps.files.get(HTTPD_CONF);
+    vps.state.apacheTestFails = true;
+    const r = await ex(vps).apply({ spec: SPEC, runId: randomUUID(), apiKey: KEY() });
+    expect(r).toMatchObject({ ok: false, code: "APACHE_FAILED" });
+    expect(r.steps.find((s) => s.op === "APACHE_RELOAD").diagnostic).toMatchObject({ op: "configtest", phase: "syntax", kind: "CONFIG_ERROR", httpdConfChanged: true });
+    expect(vps.files.get(HTTPD_CONF)).toBe(before);
+    expect(vps.state.rebuilds).toBe(1);
+    expect(r.steps.find((s) => s.op === "APACHE_RECOVERY").detail).toContain("restaurado");
+    expect(vps.state.calls.some((c) => c.includes("graceful"))).toBe(false);
+  });
+
+  it("4. timeout del rebuild: diagnóstico TIMEOUT (no se confunde con error de configuración)", async () => {
+    placeCert(vps);
+    vps.state.rebuildFailure = { code: 1, timedOut: true, signal: "SIGTERM", stderr: "Syntax error parcial", durationMs: 90_000 };
+    const r = await ex(vps).apply({ spec: SPEC, runId: randomUUID(), apiKey: KEY() });
+    const d = r.steps.find((s) => s.op === "APACHE_RELOAD").diagnostic;
+    expect(d).toMatchObject({ kind: "TIMEOUT", signal: "SIGTERM", durationMs: 90_000 });
+    expect(r.message).toMatch(/TIMEOUT.*SIGTERM.*90s/);
+  });
+
+  it("4b. script ausente / no ejecutable: SPAWN_FAILED", async () => {
+    placeCert(vps);
+    vps.state.rebuildFailure = { code: 1, spawnError: "ENOENT" };
+    const r = await ex(vps).apply({ spec: SPEC, runId: randomUUID(), apiKey: KEY() });
+    expect(r.steps.find((s) => s.op === "APACHE_RELOAD").diagnostic).toMatchObject({ kind: "SPAWN_FAILED", spawnError: "ENOENT" });
+  });
+
+  it("5. recuperación exitosa tras fallo de la señal graceful: restaura, valida y re-señaliza (nunca restart)", async () => {
+    placeCert(vps);
+    const before = vps.files.get(HTTPD_CONF);
+    vps.state.gracefulFails = 1; // la primera señal falla; la de recuperación funciona
+    const r = await ex(vps).apply({ spec: SPEC, runId: randomUUID(), apiKey: KEY() });
+    expect(r).toMatchObject({ ok: false, code: "APACHE_FAILED" });
+    expect(r.steps.find((s) => s.op === "APACHE_RELOAD").diagnostic).toMatchObject({ phase: "signal", op: "graceful" });
+    expect(r.steps.find((s) => s.op === "APACHE_RECOVERY")).toMatchObject({ status: "OK", detail: expect.stringContaining("graceful de recuperación OK") });
+    expect(vps.files.get(HTTPD_CONF)).toBe(before);
+    expect(vps.files.has(deriveResourceNames(SPEC).vhostIncludePath)).toBe(false);
+    expect(vps.state.rebuilds).toBe(1);
+    expect(vps.state.calls.filter(isGlobalRestart)).toEqual([]);
+  });
+
+  it("5b. recuperación exitosa (rebuild intermitente que alcanzó a escribir httpd.conf)", async () => {
+    placeCert(vps);
+    const before = vps.files.get(HTTPD_CONF);
+    vps.state.rebuildFailure = { code: 1, stderr: "Error: unexpected failure", writesBeforeFail: true };
+    const r = await ex(vps).apply({ spec: SPEC, runId: randomUUID(), apiKey: KEY() });
+    expect(r).toMatchObject({ ok: false, code: "APACHE_FAILED" });
+    expect(r.steps.find((s) => s.op === "APACHE_RELOAD").diagnostic).toMatchObject({ kind: "NONZERO_EXIT", httpdConfChanged: true });
+    expect(vps.files.get(HTTPD_CONF)).toBe(before);
+    expect(vps.state.rebuilds).toBe(1);
+  });
+
+  it("6. recuperación fallida: APACHE_RECOVERY_FAILED con diagnóstico propio y ruta de la copia previa", async () => {
+    placeCert(vps);
+    vps.state.rebuildFailure = { code: 2, stderr: RO_STDERR };
+    vps.state.apacheTestFailsAlways = true;
+    const runId = randomUUID();
+    const r = await ex(vps).apply({ spec: SPEC, runId, apiKey: KEY() });
+    expect(r).toMatchObject({ ok: false, code: "APACHE_RECOVERY_FAILED" });
+    const rec = r.steps.find((s) => s.op === "APACHE_RECOVERY");
+    expect(rec.status).toBe("FAILED");
+    expect(rec.diagnostic).toMatchObject({ op: "configtest", kind: "CONFIG_ERROR" });
+    expect(rec.detail).toContain(`httpd.conf.pre-${runId}`);
+    expect(vps.state.calls.some((c) => c.includes("graceful"))).toBe(false);
+  });
+
+  it("7+8. APPLY parcial de REC (sin include): reutiliza API Key, certificado, compose y contenedor; solo crea el include", async () => {
+    // Estado real tras el primer APPLY de REC: todo creado salvo el include HTTPS.
+    const rec = { slug: "rechightraining", environment: "TEST", hostname: "firmador-rec-test.getzolvi.com", port: 8120, signerNit: "06140000000000", cpanelUser: "getzolvi" };
+    const n = deriveResourceNames(rec);
+    const firstRun = randomUUID();
+    const key = KEY();
+    vps.dirs.add(n.dir); vps.dirs.add(n.certDir);
+    vps.files.set(n.certFile, "<certificado REC>");
+    vps.files.set(n.apiKeyFile, renderApiKeyDefine(rec, key));
+    vps.files.set(n.composeFile, renderCompose(rec));
+    vps.files.set(n.manifestFile, JSON.stringify({ id: n.id, templateVersion: "zolvi-signer-v1", resources: { DIR: { createdBy: firstRun }, API_KEY: { createdBy: firstRun }, COMPOSE: { createdBy: firstRun }, CONTAINER: { createdBy: firstRun } } }));
+    vps.state.containers.push({ name: n.containerName, ports: "127.0.0.1:8120->8113/tcp", labels: `zolvi.managed=true,zolvi.signer.id=${n.id},zolvi.template.version=zolvi-signer-v1` });
+    vps.state.listening.push(8120);
+    const snapshot = { key: vps.files.get(n.apiKeyFile), cert: vps.files.get(n.certFile), compose: vps.files.get(n.composeFile) };
+
+    // a) intento que falla por permisos (como el 2026-11-10) → nada se pierde.
+    vps.state.rebuildFailure = { code: 255, stderr: RO_STDERR, times: 1 };
+    const failed = await ex(vps).apply({ spec: rec, runId: randomUUID() });
+    expect(failed.code).toBe("APACHE_FAILED");
+    expect(vps.files.has(n.vhostIncludePath)).toBe(false);
+
+    // b) reintento con el helper ya operativo → completa solo lo pendiente.
+    const r = await ex(vps).apply({ spec: rec, runId: randomUUID() }); // sin apiKey: no se genera ninguna
+    expect(r.ok).toBe(true);
+    const st = Object.fromEntries(r.steps.map((s) => [s.op, s.status]));
+    expect(st).toMatchObject({ DIR: "UNCHANGED", API_KEY: "KEPT", CERT: "PRESENT", COMPOSE: "UNCHANGED", CONTAINER: "ENSURED", VHOST: "CREATED", APACHE_RELOAD: "OK" });
+    expect(vps.files.get(n.apiKeyFile)).toBe(snapshot.key);
+    expect(vps.files.get(n.certFile)).toBe(snapshot.cert);
+    expect(vps.files.get(n.composeFile)).toBe(snapshot.compose);
+    expect(vps.state.containers.filter((c) => c.name === n.containerName)).toHaveLength(1);
+    expect(r.observed.container).toMatchObject({ managed: true, boundToExpectedPort: true });
+    const manifest = JSON.parse(vps.files.get(n.manifestFile));
+    expect(manifest.resources).toMatchObject({ API_KEY: { createdBy: firstRun }, CONTAINER: { createdBy: firstRun }, COMPOSE: { createdBy: firstRun } });
+    expect(manifest.resources.VHOST.createdBy).not.toBe(firstRun);
+    expect(JSON.stringify([failed, r])).not.toContain(key);
+
+    // c) re-APPLY: idempotente, sin tocar Apache.
+    const callsBefore = vps.state.calls.length;
+    const again = await ex(vps).apply({ spec: rec, runId: randomUUID() });
+    expect(again.steps.find((s) => s.op === "VHOST").status).toBe("UNCHANGED");
+    expect(vps.state.calls.slice(callsBefore).some((c) => c[0] === BIN.rebuild || c.includes("graceful"))).toBe(false);
+  });
+
+  it("9+10. ningún reinicio global y la configuración de otros clientes y firmadores protegidos no cambia", async () => {
+    placeCert(vps);
+    const scenarios = [
+      () => { vps.state.rebuildFailure = { code: 255, stderr: RO_STDERR }; },
+      () => { vps.state.rebuildFailure = null; vps.state.apacheTestFails = true; },
+      () => { vps.state.apacheTestFails = false; vps.state.gracefulFails = true; },
+      () => { vps.state.gracefulFails = false; },
+    ];
+    for (const setup of scenarios) {
+      setup();
+      await ex(vps).apply({ spec: SPEC, runId: randomUUID(), apiKey: KEY() });
+    }
+    expect(vps.files.get(FOREIGN)).toBe(FOREIGN_BODY);
+    expect(vps.files.get(HTTPD_CONF)).toContain(`Include "${FOREIGN}"`);
+    expect(vps.state.containers.some((c) => c.name === "dte-firmador-metatraining-test" && c.ports === "127.0.0.1:8115->8113/tcp")).toBe(true);
+    expect(vps.state.calls.filter(isGlobalRestart)).toEqual([]);
+    // Los únicos binarios invocados son los fijos (sin shell, sin rutas libres).
+    expect(new Set(vps.state.calls.map((c) => c[0]))).toEqual(new Set([BIN.docker, BIN.ss, BIN.rebuild, BIN.apachectl]));
+  });
+
+  it("ROLLBACK con rebuild fallido: conserva include, API Key y contenedor (nada queda referenciado y ausente)", async () => {
+    placeCert(vps);
+    const runId = randomUUID();
+    expect((await ex(vps).apply({ spec: SPEC, runId, apiKey: KEY() })).ok).toBe(true);
+    const n = deriveResourceNames(SPEC);
+    const include = vps.files.get(n.vhostIncludePath);
+    const httpd = vps.files.get(HTTPD_CONF);
+    vps.state.rebuildFailure = { code: 255, stderr: RO_STDERR };
+    const r = await ex(vps).rollback({ spec: SPEC, runId });
+    expect(r).toMatchObject({ ok: false, code: "APACHE_FAILED" });
+    expect(vps.files.get(n.vhostIncludePath)).toBe(include);
+    expect(vps.files.has(n.apiKeyFile)).toBe(true);
+    expect(vps.state.containers.some((c) => c.name === n.containerName)).toBe(true);
+    expect(vps.files.get(HTTPD_CONF)).toBe(httpd);
+    expect(JSON.parse(vps.files.get(n.manifestFile)).resources.VHOST).toMatchObject({ createdBy: runId });
+  });
+
+  it("VERIFY informa el diagnóstico de apachectl -t", async () => {
+    placeCert(vps);
+    await ex(vps).apply({ spec: SPEC, runId: randomUUID(), apiKey: KEY() });
+    vps.state.apacheTestFailsAlways = true;
+    const v = await ex(vps).verify({ spec: SPEC });
+    expect(v.checks.find((c) => c.code === "APACHE_SYNTAX")).toMatchObject({ status: "failed", detail: expect.stringContaining("CONFIG_ERROR") });
   });
 });
 
