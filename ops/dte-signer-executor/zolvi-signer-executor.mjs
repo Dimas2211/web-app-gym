@@ -85,7 +85,7 @@ export function createExecutor(deps = {}) {
   const httpProbe = deps.httpProbe ?? defaultHttpProbe;
   const stateDir = deps.stateDir ?? STATE_DIR;
   // helper (producción, ver systemd/zolvi-apache-helper@.service) | direct (compatibilidad).
-  const apache = deps.apache ?? createApache({ run, fs, mode: deps.apacheMode ?? process.env.ZOLVI_SIGNER_APACHE_MODE });
+  const apache = deps.apache ?? createApache({ run, fs, mode: deps.apacheMode ?? process.env.ZOLVI_SIGNER_APACHE_MODE, now: () => now().getTime() });
 
   function requireSpec(params) {
     const spec = params?.spec;
@@ -268,20 +268,68 @@ export function createExecutor(deps = {}) {
     return readText(HTTPD_CONF) !== snapshot.content;
   }
 
-  function restoreHttpdConf(snapshot) {
+  /** Diferencia por líneas (multiconjunto) entre dos versiones de httpd.conf. */
+  function lineDiff(a, b) {
+    const count = (s) => { const m = new Map(); for (const l of s.split("\n")) m.set(l, (m.get(l) ?? 0) + 1); return m; };
+    const ca = count(a), cb = count(b);
+    const only = (x, y) => [...x].flatMap(([l, n]) => Array(Math.max(0, n - (y.get(l) ?? 0))).fill(l));
+    return { added: only(cb, ca), removed: only(ca, cb) };
+  }
+
+  /**
+   * Decide si es SEGURO deshacer en httpd.conf el cambio de este APPLY/ROLLBACK
+   * sin pisar trabajo ajeno (cPanel, AutoSSL, otro administrador):
+   *   - "UNCHANGED": idéntico a la copia previa → nada que hacer.
+   *   - "NOT_OURS":  cambió, pero ninguna línea cambiada es de nuestro vhost →
+   *                  no se escribe (el cambio es de otro y no nos referencia).
+   *   - "OURS_ONLY": todas las líneas cambiadas son del directorio de NUESTRO
+   *                  include → restaurar la copia equivale a deshacer solo lo propio.
+   *   - "MIXED":     hay cambios propios y ajenos → NO se escribe (CONCURRENT_CHANGE).
+   */
+  function classifyHttpdChange(snapshot, current, ownDir) {
+    if (current === snapshot.content) return "UNCHANGED";
+    const { added, removed } = lineDiff(snapshot.content, current ?? "");
+    const changed = [...added, ...removed];
+    const ours = changed.filter((l) => l.includes(`${ownDir}/`) || l.includes(`"${ownDir}"`));
+    if (ours.length === 0) return "NOT_OURS";
+    return ours.length === changed.length ? "OURS_ONLY" : "MIXED";
+  }
+
+  /** Lock de Cpanel::SafeFile: indica un rebuild/edición de cPanel en curso. */
+  const HTTPD_LOCK = `${HTTPD_CONF}.lock`;
+
+  /**
+   * Restauración con control de concurrencia (compare-and-swap):
+   * solo escribe si no hay lock de cPanel y httpd.conf sigue siendo EXACTAMENTE
+   * el contenido observado al fallar. Se vuelve a comparar justo antes del
+   * rename atómico y se verifica después. Ventana residual: el lapso entre la
+   * última comparación y rename(2) (microsegundos); cPanel también escribe
+   * con rename, así que nunca queda un archivo mezclado.
+   */
+  function restoreHttpdConfGuarded(snapshot, expectedCurrent) {
+    if (fs.existsSync(HTTPD_LOCK)) return { ok: false, reason: "lock de cPanel activo (httpd.conf.lock)" };
+    if (readText(HTTPD_CONF) !== expectedCurrent) return { ok: false, reason: "httpd.conf cambió después del fallo" };
     const tmp = `${HTTPD_CONF}.zolvi-restore`;
     fs.writeFileSync(tmp, snapshot.content, { mode: snapshot.mode });
     fs.chmodSync?.(tmp, snapshot.mode); // UMask=0077 del servicio: conservar el modo original exacto
+    if (fs.existsSync(HTTPD_LOCK) || readText(HTTPD_CONF) !== expectedCurrent) {
+      try { fs.unlinkSync(tmp); } catch { /* sin temporal */ }
+      return { ok: false, reason: "httpd.conf cambió durante la restauración" };
+    }
     fs.renameSync(tmp, HTTPD_CONF);
+    return readText(HTTPD_CONF) === snapshot.content ? { ok: true } : { ok: false, reason: "verificación posterior falló" };
   }
 
-  async function apacheReload(steps, snapshot) {
+  async function apacheReload(steps, { runId, ownDir }) {
     // Nunca restartsrv_httpd ni restart: solo rebuild → -t → graceful.
+    // Copia tomada inmediatamente antes del rebuild (ventana mínima).
+    const snapshot = snapshotHttpdConf(runId);
     const fail = (phase, diagnostic) => {
+      const confAtFailure = readText(HTTPD_CONF);
       const confChanged = httpdConfChanged(snapshot);
       const detail = describeDiagnostic(diagnostic);
       steps.push({ op: "APACHE_RELOAD", status: "FAILED", detail, diagnostic: { ...diagnostic, phase, httpdConfChanged: confChanged } });
-      return { ok: false, phase, diagnostic, detail, confChanged };
+      return { ok: false, phase, diagnostic, detail, confChanged, confAtFailure, snapshot, ownDir };
     };
     const rebuild = await apache.rebuild();
     if (!rebuild.ok) return fail("rebuild", rebuild.diagnostic);
@@ -290,29 +338,39 @@ export function createExecutor(deps = {}) {
     const graceful = await apache.graceful();
     if (!graceful.ok) return fail("signal", graceful.diagnostic);
     steps.push({ op: "APACHE_RELOAD", status: "OK", detail: `backend ${apache.backend}` });
-    return { ok: true };
+    return { ok: true, snapshot };
   }
 
   /**
-   * Deja la configuración de Apache en disco igual a la previa al APPLY
-   * (el include propio ya fue revertido por el llamador):
-   *   - httpd.conf intacto  → no se reconstruye nada; solo se valida.
-   *   - httpd.conf cambiado → se restaura la copia previa (sin rebuild).
-   *   - sin copia previa    → rebuild de recuperación.
+   * Deja la configuración de Apache en disco sin rastro del cambio propio
+   * (el include ya fue revertido por el llamador), sin pisar cambios ajenos:
+   *   - UNCHANGED / NOT_OURS → no se escribe; solo se valida.
+   *   - OURS_ONLY            → restauración con compare-and-swap.
+   *   - MIXED o carrera      → CONCURRENT_CHANGE: no se escribe, intervención manual.
+   *   - sin copia previa     → rebuild de recuperación.
    * Solo si Apache llegó a recibir la señal se envía otro graceful.
    */
-  async function recoverApache(reload, snapshot) {
+  async function recoverApache(reload) {
+    const { snapshot } = reload;
     const actions = [];
     const failed = (diagnostic) => ({ recovered: false, actions, diagnostic });
-    if (reload.confChanged === false) {
-      actions.push("httpd.conf sin cambios (no se reconstruye)");
-    } else if (snapshot) {
-      try {
-        restoreHttpdConf(snapshot);
+    if (snapshot) {
+      const change = classifyHttpdChange(snapshot, reload.confAtFailure, reload.ownDir);
+      if (change === "UNCHANGED") {
+        actions.push("httpd.conf sin cambios (no se reconstruye)");
+      } else if (change === "NOT_OURS") {
+        actions.push("httpd.conf cambiado por otro proceso, sin referencias a este firmador: no se toca");
+      } else if (change === "MIXED") {
+        actions.push("httpd.conf tiene cambios propios y ajenos: no se restaura para no pisar trabajo de cPanel/administrador");
+        return failed({ op: "restore", kind: "CONCURRENT_CHANGE", exitCode: null, signal: null, spawnError: null, durationMs: null, backend: null, stderr: "", stdout: "" });
+      } else {
+        let res;
+        try { res = restoreHttpdConfGuarded(snapshot, reload.confAtFailure); } catch (err) { res = { ok: false, ioError: true, reason: `error ${err?.code ?? "de escritura"}` }; }
+        if (!res.ok) {
+          actions.push(`httpd.conf NO restaurado: ${res.reason}`);
+          return failed({ op: "restore", kind: res.ioError ? "RESTORE_FAILED" : "CONCURRENT_CHANGE", exitCode: null, signal: null, spawnError: null, durationMs: null, backend: null, stderr: res.reason, stdout: "" });
+        }
         actions.push(`httpd.conf restaurado desde copia previa (huella ${snapshot.fingerprint})`);
-      } catch (err) {
-        actions.push(`no se pudo restaurar httpd.conf: ${err?.code ?? "error"}`);
-        return failed(null);
       }
     } else {
       const rb = await apache.rebuild();
@@ -389,18 +447,18 @@ export function createExecutor(deps = {}) {
     if (!fs.existsSync(vhostDir)) fs.mkdirSync(vhostDir, { recursive: true, mode: 0o755 });
     const previousVhost = readText(n.vhostIncludePath);
     const previousVhostRecord = manifest.resources.VHOST;
-    const snapshot = previousVhost === renderVhostInclude(spec) ? null : snapshotHttpdConf(runId);
     const changed = writeIfChanged(n.vhostIncludePath, renderVhostInclude(spec), 0o644, manifest, "VHOST", runId, steps);
     writeManifest(n, manifest);
     if (changed) {
-      const reload = await apacheReload(steps, snapshot);
+      const reload = await apacheReload(steps, { runId, ownDir: vhostDir });
       if (!reload.ok) {
         if (previousVhost === null) fs.unlinkSync(n.vhostIncludePath);
         else fs.writeFileSync(n.vhostIncludePath, previousVhost, { mode: 0o644 });
         if (previousVhostRecord === undefined) delete manifest.resources.VHOST;
         else manifest.resources.VHOST = previousVhostRecord;
         writeManifest(n, manifest);
-        const recovery = await recoverApache(reload, snapshot);
+        const recovery = await recoverApache(reload);
+        const snapshot = reload.snapshot;
         const recoveryDetail = recovery.recovered
           ? `Configuración anterior validada: ${recovery.actions.join("; ")}.`
           : `Revisar Apache manualmente; sin reinicio automático. ${recovery.actions.join("; ")}${recovery.diagnostic ? ` — ${describeDiagnostic(recovery.diagnostic)}` : ""}${snapshot?.backupPath ? ` Copia previa: ${snapshot.backupPath}.` : ""}`;
@@ -454,7 +512,7 @@ export function createExecutor(deps = {}) {
     let vhostTouched = false;
     const currentVhost = readText(n.vhostIncludePath);
     const currentVhostRecord = r.VHOST;
-    const snapshot = (r.VHOST?.createdBy === runId || r.VHOST?.updatedBy === runId) ? snapshotHttpdConf(runId) : null;
+    const vhostDir = n.vhostIncludePath.slice(0, n.vhostIncludePath.lastIndexOf("/"));
 
     if (r.VHOST?.createdBy === runId) {
       if (fs.existsSync(n.vhostIncludePath)) fs.unlinkSync(n.vhostIncludePath);
@@ -466,14 +524,14 @@ export function createExecutor(deps = {}) {
       steps.push({ op: "VHOST", status: "RESTORED" });
     }
     if (vhostTouched) {
-      const reload = await apacheReload(steps, snapshot);
+      const reload = await apacheReload(steps, { runId, ownDir: vhostDir });
       if (!reload.ok) {
         // httpd.conf aún referencia el include (y éste el apikey.conf): dejar
         // el include como estaba y NO continuar con el resto del rollback,
         // para que el próximo reinicio de Apache no encuentre rutas ausentes.
         if (currentVhost !== null) fs.writeFileSync(n.vhostIncludePath, currentVhost, { mode: 0o644 });
         r.VHOST = currentVhostRecord;
-        const recovery = await recoverApache(reload, snapshot);
+        const recovery = await recoverApache(reload);
         steps.push({ op: "VHOST", status: "KEPT", detail: "Include restablecido: Apache no se pudo reconstruir." },
           { op: "APACHE_RECOVERY", status: recovery.recovered ? "OK" : "FAILED", detail: recovery.actions.join("; "),
             ...(recovery.diagnostic ? { diagnostic: recovery.diagnostic } : {}) });

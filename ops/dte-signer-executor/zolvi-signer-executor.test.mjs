@@ -19,7 +19,11 @@ const KEY = () => randomBytes(32).toString("hex");
 
 // ── Simulación de VPS ─────────────────────────────────────────────
 // httpd.conf simulado: cPanel lo genera a partir de los includes userdata presentes.
-const renderHttpdConf = (files) => `# httpd.conf (cPanel)\n${[...files.keys()].filter((p) => p.startsWith("/etc/apache2/conf.d/userdata/") && p.endsWith(".conf")).sort().map((p) => `Include "${p}"`).join("\n")}\n`;
+const renderHttpdConf = (files) => [
+  "# httpd.conf (cPanel)",
+  ...[...files.keys()].filter((p) => p.startsWith("/etc/apache2/conf.d/userdata/") && p.endsWith(".conf")).sort().map((p) => `Include "${p}"`),
+  "",
+].join("\n");
 
 function fakeVps({ containers = [], listening = [], apacheTestFails = false, httpdConf = true } = {}) {
   const files = new Map();
@@ -29,11 +33,12 @@ function fakeVps({ containers = [], listening = [], apacheTestFails = false, htt
   if (httpdConf) files.set(HTTPD_CONF, renderHttpdConf(files));
   const fs = {
     readFileSync: (p) => { if (!files.has(p)) throw Object.assign(new Error("ENOENT"), { code: "ENOENT" }); return files.get(p); },
-    writeFileSync: (p, c) => { files.set(p, String(c)); },
+    // Ganchos (state.onWrite/onUnlink/onRebuild/onConfigtest/onComposeUp) simulan a cPanel u otro administrador actuando en paralelo.
+    writeFileSync: (p, c) => { files.set(p, String(c)); state.onWrite?.(p, files); },
     existsSync: (p) => files.has(p) || dirs.has(p),
     mkdirSync: (p) => { dirs.add(p); },
-    unlinkSync: (p) => { files.delete(p); },
-    renameSync: (a, b) => { files.set(b, files.get(a)); files.delete(a); },
+    unlinkSync: (p) => { files.delete(p); state.onUnlink?.(p, files); },
+    renameSync: (a, b) => { files.set(b, files.get(a)); files.delete(a); state.renames = [...(state.renames ?? []), b]; },
     statSync: (p) => { if (!files.has(p)) throw Object.assign(new Error("ENOENT"), { code: "ENOENT" }); return { mode: 0o100644 }; },
     readdirSync: (d) => [...files.keys()].filter((f) => f.slice(0, f.lastIndexOf("/")) === d).map((f) => f.slice(f.lastIndexOf("/") + 1)),
   };
@@ -41,9 +46,11 @@ function fakeVps({ containers = [], listening = [], apacheTestFails = false, htt
     state.calls.push([cmd, ...args]);
     if (cmd === BIN.rebuild) {
       state.rebuilds += 1;
+      state.onRebuild?.(files);
       const f = state.rebuildFailure;
       if (f && (f.times === undefined || state.rebuilds <= f.times)) {
         if (f.writesBeforeFail) files.set(HTTPD_CONF, renderHttpdConf(files));
+        state.afterRebuild?.(files);
         return { code: f.code ?? 1, stdout: f.stdout ?? "", stderr: f.stderr ?? "", timedOut: !!f.timedOut, signal: f.signal ?? null, spawnError: f.spawnError ?? null, durationMs: f.durationMs ?? 1500 };
       }
       files.set(HTTPD_CONF, renderHttpdConf(files));
@@ -60,6 +67,8 @@ function fakeVps({ containers = [], listening = [], apacheTestFails = false, htt
       return { code: 0, stdout: state.containers.map((c) => JSON.stringify({ Names: c.name, State: c.state ?? "running", Ports: c.ports ?? "", Labels: c.labels ?? "" })).join("\n"), stderr: "" };
     }
     if (cmd === BIN.ss) return { code: 0, stdout: state.listening.map((p) => `LISTEN 0 128 127.0.0.1:${p} 0.0.0.0:*`).join("\n"), stderr: "" };
+    if (cmd === BIN.docker && args[0] === "compose" && args.at(-2) === "up") state.onComposeUp?.(files);
+    if (cmd === BIN.apachectl && args[0] === "-t") state.onConfigtest?.(files);
     if (cmd === BIN.docker && args[0] === "compose" && args.at(-2) === "up") {
       const project = args[args.indexOf("-p") + 1];
       const id = project.replace("zolvi-signer-", "");
@@ -475,6 +484,114 @@ describe("Apache — diagnóstico de rebuildhttpdconf y recuperación sin segund
     expect(vps.state.containers.some((c) => c.name === n.containerName)).toBe(true);
     expect(vps.files.get(HTTPD_CONF)).toBe(httpd);
     expect(JSON.parse(vps.files.get(n.manifestFile)).resources.VHOST).toMatchObject({ createdBy: runId });
+  });
+
+  // ── Cambios concurrentes en httpd.conf (cPanel / AutoSSL / otro administrador) ──
+  const FOREIGN_LINE = 'Include "/etc/apache2/conf.d/userdata/ssl/2_4/dhsoft/examenescpo.com.dhsoftware.app/autossl.conf"';
+  const addForeign = (files) => files.set(HTTPD_CONF, `${files.get(HTTPD_CONF)}${FOREIGN_LINE}\n`);
+  const HTTPD_LOCK = `${HTTPD_CONF}.lock`;
+
+  it("concurrencia A: rebuild escribe lo propio + otro proceso cambia otra cosa → NO restaura (CONCURRENT_CHANGE)", async () => {
+    placeCert(vps);
+    vps.state.rebuildFailure = { code: 1, stderr: "Error: unexpected failure", writesBeforeFail: true };
+    vps.state.afterRebuild = addForeign; // cambio ajeno en la misma ventana
+    const r = await ex(vps).apply({ spec: SPEC, runId: randomUUID(), apiKey: KEY() });
+    expect(r.code).toBe("APACHE_RECOVERY_FAILED");
+    const rec = r.steps.find((s) => s.op === "APACHE_RECOVERY");
+    expect(rec.diagnostic).toMatchObject({ kind: "CONCURRENT_CHANGE" });
+    expect(rec.detail).toMatch(/cambios propios y ajenos/);
+    expect(vps.files.get(HTTPD_CONF)).toContain(FOREIGN_LINE); // el trabajo ajeno sigue ahí
+    expect(vps.state.renames ?? []).not.toContain(HTTPD_CONF);
+    expect(vps.state.calls.some((c) => c.includes("graceful"))).toBe(false);
+  });
+
+  it("concurrencia B: el rebuild no escribió y otro proceso cambió httpd.conf sin tocarnos → no se escribe, recuperación OK", async () => {
+    placeCert(vps);
+    vps.state.rebuildFailure = { code: 255, stderr: RO_STDERR };
+    vps.state.onRebuild = addForeign;
+    const r = await ex(vps).apply({ spec: SPEC, runId: randomUUID(), apiKey: KEY() });
+    expect(r.code).toBe("APACHE_FAILED");
+    expect(r.steps.find((s) => s.op === "APACHE_RECOVERY").detail).toMatch(/otro proceso.*no se toca/);
+    expect(vps.files.get(HTTPD_CONF)).toContain(FOREIGN_LINE);
+    expect(vps.state.renames ?? []).not.toContain(HTTPD_CONF);
+  });
+
+  it("concurrencia C: lock de cPanel activo al restaurar → no escribe", async () => {
+    placeCert(vps);
+    vps.state.apacheTestFails = true;
+    vps.state.onConfigtest = (files) => files.set(HTTPD_LOCK, "12345");
+    const r = await ex(vps).apply({ spec: SPEC, runId: randomUUID(), apiKey: KEY() });
+    expect(r.code).toBe("APACHE_RECOVERY_FAILED");
+    expect(r.steps.find((s) => s.op === "APACHE_RECOVERY").detail).toMatch(/lock de cPanel/);
+    expect(vps.state.renames ?? []).not.toContain(HTTPD_CONF);
+  });
+
+  it("concurrencia D: httpd.conf cambia entre el fallo y la restauración → no escribe", async () => {
+    placeCert(vps);
+    vps.state.apacheTestFails = true;
+    const n = deriveResourceNames(SPEC);
+    // Al retirar nuestro include, otro proceso reconstruye httpd.conf con un cambio ajeno.
+    vps.state.onUnlink = (p, files) => { if (p === n.vhostIncludePath) { files.set(HTTPD_CONF, renderHttpdConf(files)); addForeign(files); } };
+    const r = await ex(vps).apply({ spec: SPEC, runId: randomUUID(), apiKey: KEY() });
+    expect(r.code).toBe("APACHE_RECOVERY_FAILED");
+    expect(r.steps.find((s) => s.op === "APACHE_RECOVERY").detail).toMatch(/cambió después del fallo/);
+    expect(vps.files.get(HTTPD_CONF)).toContain(FOREIGN_LINE);
+  });
+
+  it("concurrencia E: carrera durante la escritura del temporal (compare-and-swap) → no renombra y borra el temporal", async () => {
+    placeCert(vps);
+    vps.state.apacheTestFails = true;
+    vps.state.onWrite = (p, files) => { if (p.endsWith(".zolvi-restore")) addForeign(files); };
+    const r = await ex(vps).apply({ spec: SPEC, runId: randomUUID(), apiKey: KEY() });
+    expect(r.code).toBe("APACHE_RECOVERY_FAILED");
+    expect(r.steps.find((s) => s.op === "APACHE_RECOVERY").detail).toMatch(/cambió durante la restauración/);
+    expect(vps.files.get(HTTPD_CONF)).toContain(FOREIGN_LINE);
+    expect(vps.files.has(`${HTTPD_CONF}.zolvi-restore`)).toBe(false);
+    expect(vps.state.renames ?? []).not.toContain(HTTPD_CONF);
+  });
+
+  it("concurrencia F: la copia se toma justo antes del rebuild (cambios ajenos previos no se revierten)", async () => {
+    placeCert(vps);
+    vps.state.onComposeUp = addForeign; // ocurre antes del paso Apache
+    vps.state.rebuildFailure = { code: 255, stderr: RO_STDERR };
+    const runId = randomUUID();
+    const r = await ex(vps).apply({ spec: SPEC, runId, apiKey: KEY() });
+    expect(r.code).toBe("APACHE_FAILED");
+    expect(vps.files.get(`/var/lib/zolvi-signer-executor/httpd.conf.pre-${runId}`)).toContain(FOREIGN_LINE);
+    expect(vps.files.get(HTTPD_CONF)).toContain(FOREIGN_LINE);
+  });
+
+  it("error de escritura al restaurar se informa como RESTORE_FAILED (no como concurrencia)", async () => {
+    placeCert(vps);
+    vps.state.apacheTestFails = true;
+    const orig = vps.fs.renameSync;
+    vps.fs.renameSync = (a, b) => { if (b === HTTPD_CONF) throw Object.assign(new Error("EROFS"), { code: "EROFS" }); return orig(a, b); };
+    const r = await ex(vps).apply({ spec: SPEC, runId: randomUUID(), apiKey: KEY() });
+    expect(r.code).toBe("APACHE_RECOVERY_FAILED");
+    expect(r.steps.find((s) => s.op === "APACHE_RECOVERY").diagnostic).toMatchObject({ kind: "RESTORE_FAILED", stderr: "error EROFS" });
+  });
+
+  it("restauración legítima (solo cambios propios) conserva el resultado exacto y no deja temporales", async () => {
+    placeCert(vps);
+    const before = vps.files.get(HTTPD_CONF);
+    vps.state.apacheTestFails = true;
+    const r = await ex(vps).apply({ spec: SPEC, runId: randomUUID(), apiKey: KEY() });
+    expect(r.code).toBe("APACHE_FAILED");
+    expect(vps.files.get(HTTPD_CONF)).toBe(before);
+    expect(vps.files.has(`${HTTPD_CONF}.zolvi-restore`)).toBe(false);
+  });
+
+  it("ROLLBACK con cambios ajenos concurrentes tampoco restaura httpd.conf", async () => {
+    placeCert(vps);
+    const runId = randomUUID();
+    expect((await ex(vps).apply({ spec: SPEC, runId, apiKey: KEY() })).ok).toBe(true);
+    vps.state.rebuildFailure = { code: 1, stderr: "Error", writesBeforeFail: true };
+    vps.state.afterRebuild = addForeign;
+    const r = await ex(vps).rollback({ spec: SPEC, runId });
+    expect(r.ok).toBe(false);
+    expect(r.steps.find((s) => s.op === "APACHE_RECOVERY").diagnostic).toMatchObject({ kind: "CONCURRENT_CHANGE" });
+    expect(vps.files.get(HTTPD_CONF)).toContain(FOREIGN_LINE);
+    expect(vps.files.has(deriveResourceNames(SPEC).vhostIncludePath)).toBe(true);
   });
 
   it("VERIFY informa el diagnóstico de apachectl -t", async () => {
