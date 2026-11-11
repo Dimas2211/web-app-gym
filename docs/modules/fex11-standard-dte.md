@@ -79,3 +79,32 @@ CAT-015/027/028/029/030/031 en `dte_catalog_items`, países en `countries` y uni
 
 Tras el deploy, `PlatformModule fiscal.dte.export` y la asignación `TrustMe → fiscal.dte.export`
 en Control Plane quedan huérfanas (ningún código las lee). Pueden eliminarse físicamente.
+
+
+## INCOTERMS en servicios (corrección 2026-11-11)
+
+El rechazo MH `007: [resumen.codIncoterms] VALOR NO ES PERMITIDO` puede
+producirse al emitir servicios (`emisor.tipoItemExpor=2`) con el INCOTERM
+`01 / EXW-En fabrica` seleccionado automáticamente por la UI anterior.
+Las validaciones de campos 160 y 161 del MH exigen `codIncoterms=null`
+y `descIncoterms=null` para servicios, aunque el JSON Schema por sí solo
+admita strings en esos campos.
+
+Fuente oficial: https://www.transparenciafiscal.gob.sv/downloads/pdf/700-DGII-MN-2023-002.pdf
+(reglas de INCOTERMS y descripción según tipo de ítem).
+
+La UI ya no preselecciona INCOTERMS; para servicios muestra que no aplica y
+manda null. El servicio de creación persiste null incluso si recibe valores
+legados y el builder normaliza ambos campos a null al regenerar desde una
+venta existente. La copia del schema oficial no se modifica.
+
+Un DTE REJECTED existente queda intacto. En la misma venta usar
+`Generar nuevo DTE (nuevo número de control)`, generar JSON, validar,
+firmar y transmitir. No crear otra venta ni cambiar el ambiente fiscal para
+resolver este rechazo. La aceptación final se verifica con el sello y
+respuesta de MH después del nuevo envío.
+
+Regresión: venta de servicios recibida con EXW legado persiste null; JSON
+regenerado desde datos legados contiene ambos null, pasa AJV y no modifica
+los datos de origen. Sin migraciones, env vars ni escrituras fiscales
+mediante este cambio de código.

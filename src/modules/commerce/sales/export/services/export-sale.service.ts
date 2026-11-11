@@ -457,6 +457,12 @@ export async function createExportSale(
   input:       CreateExportSaleInput,
   db: PrismaClient = prisma,
 ): Promise<CreateExportSaleResult> {
+  // INCOTERMS apply to goods only. Ignore stale UI defaults for services
+  // before catalog validation and persistence (MH rules 160/161).
+  if (input.item_type_export === 2) {
+    input = { ...input, incoterm_code: null, incoterm_desc: null };
+  }
+
   // 1. Cliente debe ser extranjero
   const customer = await db.customer.findFirst({
     where:  { id: input.customer_id, tenant_id, status: "active" },

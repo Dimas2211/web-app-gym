@@ -544,7 +544,10 @@ export function buildFexJsonFromLoadedData(loaded: FexLoadedData): GenerateFexJs
     return { ok: false, error: "Seguro y flete no pueden ser negativos." };
   }
 
-  const descIncoterms = blankToNull(exportDetails.incoterm_desc);
+  // MH field validations 160/161: services require both INCOTERMS fields
+  // to be null. Normalize legacy sales too, without altering rejected DTEs.
+  const descIncoterms = exportDetails.item_type_export === 2
+    ? null : blankToNull(exportDetails.incoterm_desc);
   if (descIncoterms && descIncoterms.length > FEX_V3_LIMITS.descIncotermsMax) {
     return { ok: false, error: `La descripción INCOTERMS excede ${FEX_V3_LIMITS.descIncotermsMax} caracteres.` };
   }
@@ -794,7 +797,7 @@ export function buildFexJsonFromLoadedData(loaded: FexLoadedData): GenerateFexJs
     saldoFavor:          0,
     condicionOperacion:  condicion,
     pagos,
-    codIncoterms:        blankToNull(exportDetails.incoterm_code),
+    codIncoterms:        exportDetails.item_type_export === 2 ? null : blankToNull(exportDetails.incoterm_code),
     descIncoterms,
     numPagoElectronico:  null,
     observaciones,

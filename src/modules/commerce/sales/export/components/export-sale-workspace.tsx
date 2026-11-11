@@ -74,8 +74,8 @@ export function ExportSaleWorkspace({
     itemTypeExport: 1,
     fiscalPrecinct: catalogCAT027[0]?.item_code ?? "",
     regimeCode: catalogCAT028[0]?.item_code ?? "",
-    incotermCode: catalogCAT031[0]?.item_code ?? "",
-    incotermDesc: catalogCAT031[0]?.item_label ?? "",
+    incotermCode: "",
+    incotermDesc: "",
     insurance: 0,
     freight: 0,
   });
@@ -182,8 +182,8 @@ export function ExportSaleWorkspace({
         item_type_export: fiscal.itemTypeExport,
         fiscal_precinct_code: fiscal.itemTypeExport === 2 ? null : fiscal.fiscalPrecinct,
         regime_code: fiscal.itemTypeExport === 2 ? null : fiscal.regimeCode,
-        incoterm_code: fiscal.incotermCode || null,
-        incoterm_desc: fiscal.incotermDesc || null,
+        incoterm_code: fiscal.itemTypeExport === 2 ? null : fiscal.incotermCode || null,
+        incoterm_desc: fiscal.itemTypeExport === 2 ? null : fiscal.incotermDesc || null,
         insurance_amount: fiscal.insurance,
         freight_amount: fiscal.freight,
       });
@@ -219,8 +219,8 @@ export function ExportSaleWorkspace({
       itemTypeExport: 1,
       fiscalPrecinct: catalogCAT027[0]?.item_code ?? "",
       regimeCode: catalogCAT028[0]?.item_code ?? "",
-      incotermCode: catalogCAT031[0]?.item_code ?? "",
-      incotermDesc: catalogCAT031[0]?.item_label ?? "",
+      incotermCode: "",
+      incotermDesc: "",
       insurance: 0,
       freight: 0,
     });

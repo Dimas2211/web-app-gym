@@ -252,6 +252,20 @@ describe("FEX v3 — límites de longitud (sin truncar)", () => {
     expect(error).toContain("número de control");
   });
 
+  it("servicios con INCOTERM EXW legado → código y descripción null (MH 007)", () => {
+    const data = makeFexV3LoadedData();
+    data.sale.export_details!.incoterm_code = "01";
+    data.sale.export_details!.incoterm_desc = "EXW-En fabrica";
+    const result = buildFexJsonFromLoadedData(data);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.json.resumen.codIncoterms).toBeNull();
+    expect(result.json.resumen.descIncoterms).toBeNull();
+    expect(validateAgainstFexV3(result.json).ok).toBe(true);
+    // The original sale remains intact; a new DTE uses the correct payload.
+    expect(data.sale.export_details!.incoterm_code).toBe("01");
+  });
+
   it("strings vacíos en campos minLength 1 se emiten como null", () => {
     const json = buildOk((d) => {
       d.sale.notes = "  ";

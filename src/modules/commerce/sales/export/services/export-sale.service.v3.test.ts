@@ -153,6 +153,17 @@ describe("createExportSale — FEX v3", () => {
     });
   });
 
+  it("servicios no persiste el INCOTERM EXW automático de la UI anterior", async () => {
+    const { db } = buildDb();
+    const input = saleInput({ incoterm_code: "01", incoterm_desc: "EXW-En fabrica" });
+    const result = await createExportSale("tenant-1", "loc-1", "user-1", input, db as never);
+    expect(result.ok).toBe(true);
+    expect(db.saleExportDetails.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ item_type_export: 2, incoterm_code: null, incoterm_desc: null }),
+    });
+    expect(input.incoterm_code).toBe("01");
+  });
+
   it("cliente con país legado (9540) → bloquea antes de crear la venta", async () => {
     const { db } = buildDb({ customerCountry: "9540" });
 
