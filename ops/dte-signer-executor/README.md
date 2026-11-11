@@ -56,7 +56,7 @@ install -m 0644 'systemd/zolvi-apache-helper@.service' /etc/systemd/system/   # 
 install -m 0600 /dev/null /etc/zolvi-signer-executor.env
 echo "ZOLVI_SIGNER_EXECUTOR_SECRET=$(openssl rand -hex 32)" > /etc/zolvi-signer-executor.env
 install -m 0644 systemd/zolvi-signer-executor.service /etc/systemd/system/
-systemd-analyze verify /etc/systemd/system/zolvi-signer-executor.service
+systemd-analyze verify /etc/systemd/system/zolvi-signer-executor.service   # SIN ninguna advertencia (ver zverify del runbook)
 systemctl daemon-reload && systemctl enable --now zolvi-signer-executor
 ```
 

@@ -105,6 +105,15 @@ S=/root/zolvi-stage/ops/dte-signer-executor     # copia de la rama del PR (git c
 X=/opt/zolvi-signer-executor
 REC=/opt/zolvi-signers/rechightraining-test
 INC=/etc/apache2/conf.d/userdata/ssl/2_4/getzolvi/firmador-rec-test.getzolvi.com/zolvi-signer-rechightraining-test.conf
+# Verificación ESTRICTA de unidades: `systemd-analyze verify` sale 0 aunque ignore una clave
+# ("Unknown key name 'CollectMode' in section 'Service', ignoring" en la validación de e9bf16a).
+# Cualquier línea que mencione una unidad Zolvi, o un código distinto de 0, detiene el procedimiento.
+zverify() {
+  local out rc; out=$(systemd-analyze verify "$@" 2>&1); rc=$?
+  [ -n "$out" ] && printf '%s\n' "$out"
+  if [ "$rc" -eq 0 ] && ! printf '%s\n' "$out" | grep -qE 'zolvi-(signer-executor|apache-helper)'; then echo VERIFY_OK
+  else echo "⛔ DETENER: systemd-analyze reportó advertencias o errores en unidades Zolvi"; return 1; fi
+}
 ```
 
 ## F0 — Preflight (solo lectura)
@@ -130,7 +139,7 @@ for f in zolvi-signer-executor.mjs zolvi-apache-helper.mjs lib/*.mjs; do "$NODE"
 T=$(mktemp -d /root/zolvi-verify.XXXX)
 cp systemd/zolvi-signer-executor.service "$T/"
 cp 'systemd/zolvi-apache-helper@.service' "$T/zolvi-apache-helper@configtest.service"   # verificar como instancia
-systemd-analyze verify "$T/zolvi-signer-executor.service" "$T/zolvi-apache-helper@configtest.service" && echo VERIFY_OK
+zverify "$T/zolvi-signer-executor.service" "$T/zolvi-apache-helper@configtest.service"   # VERIFY_OK sin ninguna advertencia  ⛔ si no
 # El helper se niega a ejecutar fuera de systemd (no corre ningún comando): exit 65
 env -u INVOCATION_ID "$NODE" zolvi-apache-helper.mjs configtest-0000000000000000; echo "exit=$?"
 # Formato anterior (sin nonce): rechazado sin ejecutar nada: exit 64
@@ -167,8 +176,11 @@ Antes: confirmar que nadie ejecuta INSPECT/APPLY/VERIFY en Zolvi (`journalctl -u
 install -m 0640 "$S/zolvi-signer-executor.mjs" "$S/zolvi-apache-helper.mjs" "$X/"
 install -m 0640 "$S/lib/apache-ops.mjs" "$S/lib/sanitize-cli.mjs" "$S/lib/executor-auth.mjs" "$S/lib/signer-core.mjs" "$X/lib/"
 install -m 0644 "$S/systemd/zolvi-signer-executor.service" "$S/systemd/zolvi-apache-helper@.service" /etc/systemd/system/
+T2=$(mktemp -d /root/zolvi-verify.XXXX)
+cp '/etc/systemd/system/zolvi-apache-helper@.service' "$T2/zolvi-apache-helper@configtest.service"
+zverify /etc/systemd/system/zolvi-signer-executor.service "$T2/zolvi-apache-helper@configtest.service"   # ⛔ si no VERIFY_OK → R1
 systemctl daemon-reload
-systemd-analyze verify /etc/systemd/system/zolvi-signer-executor.service && echo VERIFY_OK
+journalctl -b --since -2min --no-pager | grep -E 'zolvi-(signer-executor|apache-helper).*(Unknown|ignoring|Invalid)'   # sin salida  ⛔ si hay
 systemctl restart zolvi-signer-executor
 sleep 3; systemctl is-active zolvi-signer-executor                                       # active  ⛔ si no → R1
 curl -fsS http://127.0.0.1:9750/healthz; echo                                             # {"ok":true,...}

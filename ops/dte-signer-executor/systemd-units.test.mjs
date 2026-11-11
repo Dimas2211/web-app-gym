@@ -17,6 +17,71 @@ const NODE = "/opt/cpanel/ea-nodejs22/bin/node";
 const EXECUTOR = read("zolvi-signer-executor.service");
 const HELPER = read("zolvi-apache-helper@.service");
 
+/** [{ section, key, line }] — directiva con su sección y número de línea (1-based). */
+const sectioned = (unit) => {
+  let section = null;
+  return unit.split(/\r?\n/).flatMap((l, i) => {
+    const t = l.trim();
+    if (/^\[.+\]$/.test(t)) { section = t.slice(1, -1); return []; }
+    if (!t || t.startsWith("#") || t.startsWith(";")) return [];
+    return [{ section, key: t.slice(0, t.indexOf("=")), line: i + 1 }];
+  });
+};
+
+// Claves válidas por sección (systemd.unit(5), systemd.service(5), systemd.exec(5)) que usan
+// estas unidades. Una clave en la sección equivocada systemd la IGNORA con solo una advertencia
+// ("Unknown key name 'CollectMode' in section 'Service', ignoring" — validación de e9bf16a).
+const ALLOWED = {
+  Unit: ["Description", "After", "Wants", "Requisite", "AssertPathExists", "AssertFileIsExecutable", "CollectMode"],
+  Service: ["Type", "ExecStart", "TimeoutStartSec", "Restart", "RestartSec", "Environment", "EnvironmentFile",
+    "RuntimeDirectory", "RuntimeDirectoryMode", "RuntimeDirectoryPreserve", "StateDirectory", "StateDirectoryMode",
+    "UMask", "NoNewPrivileges", "ProtectSystem", "ProtectHome", "PrivateTmp", "ReadWritePaths",
+    "ProtectKernelModules", "ProtectKernelLogs", "ProtectKernelTunables", "ProtectControlGroups", "ProtectClock",
+    "ProtectHostname", "RestrictRealtime", "RestrictNamespaces", "RestrictSUIDSGID", "LockPersonality",
+    "SystemCallArchitectures"],
+  Install: ["WantedBy"],
+};
+
+describe("unidades systemd — cada directiva en su sección (sin claves que systemd ignore)", () => {
+  for (const [name, unit] of [["zolvi-apache-helper@.service", read("zolvi-apache-helper@.service")], ["zolvi-signer-executor.service", read("zolvi-signer-executor.service")]]) {
+    it(`${name}: solo secciones conocidas y claves válidas para su sección`, () => {
+      const wrong = sectioned(unit).filter(({ section, key }) => !(ALLOWED[section] ?? []).includes(key))
+        .map(({ section, key, line }) => `${name}:${line}: ${key} en [${section}]`);
+      expect(wrong).toEqual([]);
+    });
+  }
+
+  it("REGRESIÓN e9bf16a: CollectMode=inactive-or-failed está en [Unit] del helper, nunca en [Service]", () => {
+    const helper = sectioned(read("zolvi-apache-helper@.service"));
+    expect(helper.filter((d) => d.key === "CollectMode").map((d) => d.section)).toEqual(["Unit"]);
+    expect(values(read("zolvi-apache-helper@.service"), "CollectMode")).toEqual(["inactive-or-failed"]);
+  });
+});
+
+describe("runbook — systemd-analyze verify estricto (una advertencia NO es aceptable)", () => {
+  const runbook = readFileSync(new URL("./deploy/RUNBOOK-apache-helper.md", import.meta.url), "utf8").replace(/\r\n/g, "\n");
+  const zverify = /zverify\(\) \{[\s\S]*?\n\}/.exec(runbook)?.[0] ?? "";
+
+  it("define zverify: falla ante código != 0 o cualquier línea que mencione una unidad Zolvi", () => {
+    expect(zverify).toContain('systemd-analyze verify "$@" 2>&1');
+    expect(zverify).toMatch(/\[ "\$rc" -eq 0 \]/);
+    expect(zverify).toContain("return 1");
+    const pattern = /grep -qE '([^']+)'/.exec(zverify)?.[1];
+    const re = new RegExp(pattern);
+    // La advertencia real de la validación en el VPS debe detener el procedimiento.
+    expect(re.test("zolvi-apache-helper@configtest.service:64: Unknown key name 'CollectMode' in section 'Service', ignoring.")).toBe(true);
+    expect(re.test("/etc/systemd/system/zolvi-signer-executor.service:12: Unknown key name 'Foo' in section 'Service', ignoring.")).toBe(true);
+    expect(re.test("httpd.service: Command /usr/sbin/httpd is not executable")).toBe(false); // ajeno: no bloquea
+  });
+
+  it("toda verificación de unidades del runbook usa zverify (nunca `verify ... && echo VERIFY_OK`)", () => {
+    const code = [...runbook.matchAll(/```bash\n([\s\S]*?)```/g)].map((m) => m[1]).join("\n").replace(zverify, "")
+      .split("\n").filter((l) => !l.trim().startsWith("#")).join("\n");
+    expect(code).not.toMatch(/systemd-analyze verify/);
+    expect((code.match(/^zverify /gm) ?? []).length).toBeGreaterThanOrEqual(2); // F0 y F2
+  });
+});
+
 describe("unidades systemd — runtime Node del VPS", () => {
   it("ambas unidades usan el Node de EasyApache confirmado en el VPS (no /usr/bin/node)", () => {
     expect(values(EXECUTOR, "ExecStart")).toEqual([`${NODE} /opt/zolvi-signer-executor/zolvi-signer-executor.mjs serve --port 9750`]);

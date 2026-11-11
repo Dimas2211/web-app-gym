@@ -54,14 +54,15 @@ AssertFileIsExecutable=/opt/cpanel/ea-nodejs22/bin/node
 # Evita arrancar si Apache no está activo: graceful/configtest no deben "levantar" nada.
 Requisite=httpd.service
 After=httpd.service
+# Cada llamada es una instancia distinta: que systemd descarte también las fallidas
+# (si no, se acumularían en `systemctl --failed`). La evidencia queda en el journal.
+# CollectMode pertenece a [Unit] (systemd.unit(5)); en [Service] se ignora con advertencia.
+CollectMode=inactive-or-failed
 
 [Service]
 Type=oneshot
 ExecStart=/opt/cpanel/ea-nodejs22/bin/node /opt/zolvi-signer-executor/zolvi-apache-helper.mjs "%i"
 TimeoutStartSec=120
-# Cada llamada es una instancia distinta: que systemd descarte también las fallidas
-# (si no, se acumularían en `systemctl --failed`). La evidencia queda en el journal.
-CollectMode=inactive-or-failed
 # Resultados saneados para el ejecutor (uno por llamada; el ejecutor los borra al leerlos).
 RuntimeDirectory=zolvi-apache-helper
 RuntimeDirectoryMode=0700
