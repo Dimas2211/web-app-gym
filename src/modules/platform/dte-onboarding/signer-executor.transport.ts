@@ -79,13 +79,25 @@ export class NotConfiguredSignerExecutorTransport implements SignerExecutorTrans
  * estructurados de Node/Undici. No registrar mensajes, URL, headers,
  * cuerpos HMAC, certificados ni secretos.
  */
+const SAFE_NETWORK_CAUSE_CODES = new Set([
+  "ENOTFOUND", "EAI_AGAIN", "ECONNREFUSED", "ECONNRESET", "ETIMEDOUT",
+  "ENETUNREACH", "EHOSTUNREACH", "EPIPE", "ECONNABORTED",
+  "UND_ERR_CONNECT_TIMEOUT", "UND_ERR_HEADERS_TIMEOUT",
+  "UND_ERR_BODY_TIMEOUT", "UND_ERR_SOCKET",
+  "CERT_HAS_EXPIRED", "UNABLE_TO_VERIFY_LEAF_SIGNATURE",
+  "UNABLE_TO_GET_ISSUER_CERT_LOCALLY", "SELF_SIGNED_CERT_IN_CHAIN",
+  "DEPTH_ZERO_SELF_SIGNED_CERT", "ERR_TLS_CERT_ALTNAME_INVALID",
+  "ERR_SSL_WRONG_VERSION_NUMBER", "ERR_HTTP2_ERROR",
+]);
+
 function safeTransportCauseCodes(error: unknown): string {
   const codes = new Set<string>();
   const walk = (value: unknown, depth: number) => {
     if (depth > 3 || !value || typeof value !== "object") return;
     const item = value as { code?: unknown; cause?: unknown; errors?: unknown };
-    if (typeof item.code === "string" && /^[A-Z][A-Z0-9_]{1,63}$/.test(item.code)) {
-      codes.add(item.code);
+    if (typeof item.code === "string") {
+      // Allowlist fija: nunca imprimir el contenido de un codigo arbitrario.
+      codes.add(SAFE_NETWORK_CAUSE_CODES.has(item.code) ? item.code : "UNKNOWN_CAUSE_CODE");
     }
     if (item.cause) walk(item.cause, depth + 1);
     if (Array.isArray(item.errors)) {
