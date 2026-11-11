@@ -1,0 +1,30 @@
+# FISCAL-ONBOARDING — helper privilegiado de Apache/cPanel para el ejecutor de firmadores.
+#
+# Por qué existe: rebuildhttpdconf (cPanel) escribe en rutas de /etc, /var/cpanel y
+# /usr/local/cpanel que cPanel no documenta y que cambian entre versiones; dentro del
+# sandbox del ejecutor (ProtectSystem=strict, ProtectHome, PrivateTmp) puede fallar
+# aunque funcione como root interactivo. Esta unidad lo ejecuta en el contexto que
+# cPanel espera, sin abrir el sandbox del proceso que sí está expuesto a la red.
+#
+# Superficie: SOLO tres instancias válidas, validadas también por el script:
+#   zolvi-apache-helper@rebuild.service     -> rebuildhttpdconf
+#   zolvi-apache-helper@configtest.service  -> apachectl -t
+#   zolvi-apache-helper@graceful.service    -> apachectl -k graceful
+# Nunca reinicia Apache. Sin [Install]: solo arranca bajo demanda del ejecutor.
+[Unit]
+Description=Zolvi Apache helper (%i) — predefined cPanel/Apache operation
+# Una instancia fuera de la lista sale con 64 sin ejecutar ningún comando (ver script).
+AssertPathExists=/opt/zolvi-signer-executor/zolvi-apache-helper.mjs
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/node /opt/zolvi-signer-executor/zolvi-apache-helper.mjs %i
+TimeoutStartSec=120
+# Resultado saneado para el ejecutor; se conserva hasta el siguiente arranque.
+RuntimeDirectory=zolvi-apache-helper
+RuntimeDirectoryMode=0700
+RuntimeDirectoryPreserve=yes
+UMask=0022
+# Sin ProtectSystem/ProtectHome/PrivateTmp a propósito: es exactamente lo que
+# rebuildhttpdconf necesita. El riesgo se acota por la ausencia de entradas.
+NoNewPrivileges=true
