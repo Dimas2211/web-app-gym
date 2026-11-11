@@ -5,7 +5,7 @@
 //
 // Reglas críticas:
 //   - Solo opera sobre DteOutgoingDocument en estado ACCEPTED.
-//   - Tipos DTE permitidos para invalidar: "01" (FE), "03" (CCFE), "05" (NC).
+//   - Tipos DTE permitidos para invalidar: "01" (FE), "03" (CCFE), "05" (NC), "11" (FEX).
 //   - Bloquea si ya existe un evento activo (DRAFT|PENDING_SIGNATURE|SIGNED|SENT|ACCEPTED).
 //   - Genera eventGenerationCode con crypto.randomUUID().toUpperCase().
 //   - Delega construcción/validación del JSON al builder (buildInvalidationEventJson).
@@ -66,7 +66,7 @@ const ACTIVE_INVALIDATION_STATUSES = new Set([
 
 // ── Tipos DTE que pueden invalidarse ─────────────────────────────
 
-const INVALIDABLE_DTE_TYPES = new Set(["01", "03", "05"]);
+const INVALIDABLE_DTE_TYPES = new Set(["01", "03", "05", "11"]);
 
 // ── Error de negocio interno ──────────────────────────────────────
 

@@ -113,6 +113,17 @@ describe("createInvalidationEvent — FASE VI-E6B (runtime db injection)", () =>
     expect(db.dteInvalidationEvent.create).toHaveBeenCalledTimes(1);
   });
 
+  it("permite crear el borrador de invalidación de una FEX 11 aceptada en la runtime DB", async () => {
+    const db = buildFakeRuntimeDb();
+    db.dteOutgoingDocument.findFirst.mockResolvedValue({ ...DTE_DOC, dte_type_code: "11" });
+    const result = await createInvalidationEvent(BASE_PARAMS, db as never);
+    expect(result).toMatchObject({ ok: true, status: "DRAFT" });
+    expect(buildInvalidationEventJsonSpy).toHaveBeenCalledWith(expect.objectContaining({
+      dteDocument: expect.objectContaining({ dte_type_code: "11" }),
+    }));
+    expect(db.dteInvalidationEvent.create).toHaveBeenCalledOnce();
+  });
+
   it("documento no encontrado en la runtime db (cross-tenant/location) -> bloquea, no crea evento", async () => {
     const db = buildFakeRuntimeDb();
     db.dteOutgoingDocument.findFirst = vi.fn().mockResolvedValue(null);
