@@ -86,17 +86,48 @@ export function runCommand(cmd, args, { timeoutMs = 120_000, env } = {}) {
  * Define de API Key, cadenas hex/base64 largas, pares clave=valor sensibles.
  * Devuelve solo la cola útil (las últimas líneas suelen contener el error).
  */
+// Nombre de clave sensible, también dentro de identificadores compuestos
+// (ZOLVI_SIGNER_EXECUTOR_SECRET, dbPassword, x-api-key, "apiKey"…).
+const SECRET_KEY = String.raw`[A-Za-z0-9_.-]*(?:secret|token|passw(?:or)?d|pwd|pass\b|api[_-]?key|signer[_-]?key|private[_-]?key|authorization|cookie|credential|clave|contrase(?:n|ñ)a|session)[A-Za-z0-9_.-]*`;
+const SECRET_PAIR_RE = new RegExp(String.raw`(["']?\b${SECRET_KEY}["']?)(\s*[:=]\s*)("[^"\n]*"|'[^'\n]*'|[^\s,;}&]+)`, "gi");
+// Separado solo por espacio: únicamente palabras exactas (evita borrar "passed", "token" de errores de sintaxis…).
+const SECRET_WORD_RE = /\b(password|passwd|secret|api[_-]?key|x-dte-signer-key|contraseña|clave)(\s+)("[^"\n]*"|'[^'\n]*'|\S+)/gi;
+// Elementos XML del certificado MH (.crt es XML: clave privada en <encodied>, <clave>…).
+const SECRET_XML_RE = /<((?:[A-Za-z0-9_-]+:)?(?:encodied|encoded|clave|password|privateKey|secret|token|apiKey|key))\b[^>]*>[\s\S]*?(<\/\1>|$)/gi;
+
+/**
+ * Elimina de una salida de comando todo lo que pueda ser secreto o dato
+ * fiscal/personal antes de devolverla a Zolvi o guardarla en la bitácora:
+ * PEM (completos o truncados), XML del certificado, Define de API Key,
+ * pares clave=valor (también JSON, cabeceras y nombres compuestos),
+ * credenciales en URL, Bearer/Basic, JWT, hex >= 24, base64/base64url
+ * largos, NIT/DUI, correos y caracteres de control. Las rutas del sistema
+ * —la evidencia más útil— se conservan. Devuelve solo la cola útil.
+ * Diseño: lista de denegación + heurística de entropía; ver tests de
+ * regresión en apache-ops.test.mjs antes de relajar cualquier regla.
+ */
 export function sanitizeOutput(text, { maxLines = 15, maxChars = 1200 } = {}) {
   let s = String(text ?? "")
-    .replace(/\u001b\[[0-9;]*[A-Za-z]/g, "")
+    .replace(/\u001b\[[0-9;?]*[ -/]*[@-~]/g, "")
+    .replace(/\u001b\][^\u0007\u001b]*(\u0007|\u001b\\)?/g, "")
+    .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, "")
     .replace(/-----BEGIN [A-Z0-9 ]+-----[\s\S]*?(-----END [A-Z0-9 ]+-----|$)/g, "[PEM REDACTADO]")
+    .replace(/-----END [A-Z0-9 ]+-----/g, "[PEM REDACTADO]")
+    .replace(SECRET_XML_RE, "<$1>[REDACTADO]</$1>")
     .replace(/(Define\s+\S+\s+)\S+/gi, "$1[REDACTADO]")
-    .replace(/\b(authorization|bearer|password|passwd|pass|secret|token|api[_-]?key|x-dte-signer-key)(\s*[:=]\s*|\s+)("[^"]*"|'[^']*'|\S+)/gi, "$1$2[REDACTADO]")
-    .replace(/\b[a-f0-9]{32,}\b/gi, "[HEX REDACTADO]")
-    // Base64 largo (claves, certificados sin cabecera). Las rutas del sistema
-    // —la evidencia más útil— se conservan: tienen varias "/" y no mezclan
-    // mayúsculas, minúsculas y dígitos como un blob aleatorio.
-    .replace(/[A-Za-z0-9+/]{40,}={0,2}/g, (m) => (
+    .replace(/\b([a-z][a-z0-9+.-]*:\/\/)[^\s/@:]+(:[^\s/@]*)?@/gi, "$1[REDACTADO]@")
+    .replace(/\b(Bearer|Basic|Digest|Token)\s+[A-Za-z0-9._~+/=-]{6,}/gi, "$1 [REDACTADO]")
+    .replace(SECRET_PAIR_RE, "$1$2[REDACTADO]")
+    .replace(SECRET_WORD_RE, "$1$2[REDACTADO]")
+    .replace(/\beyJ[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]*/g, "[JWT REDACTADO]")
+    .replace(/\b[a-f0-9]{24,}\b/gi, "[HEX REDACTADO]")
+    .replace(/\b\d{4}-\d{6}-\d{3}-\d\b/g, "[NIT REDACTADO]")
+    .replace(/\b\d{8}-\d\b/g, "[DUI REDACTADO]")
+    .replace(/(?<![.\d])\d{9,17}\b/g, "[NUM REDACTADO]")
+    .replace(/\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g, "[EMAIL REDACTADO]")
+    // Base64/base64url largo (claves, certificados sin cabecera). Una ruta
+    // tiene varias "/" y no mezcla mayúsculas, minúsculas y dígitos como un blob.
+    .replace(/[A-Za-z0-9+/_-]{32,}={0,2}/g, (m) => (
       (m.match(/\//g) ?? []).length < 3 && /[A-Z]/.test(m) && /[a-z]/.test(m) && /\d/.test(m) ? "[B64 REDACTADO]" : m
     ));
   const lines = s.split(/\r?\n/).map((l) => l.trimEnd()).filter((l) => l.trim() !== "");
@@ -110,7 +141,8 @@ const CONFIG_RE = /syntax error|AH00526|invalid command|configuration test faile
 /** Tipos de fallo distinguibles para la operación de Apache. */
 export const FAILURE_KINDS = Object.freeze([
   "SPAWN_FAILED", "TIMEOUT", "OUTPUT_OVERFLOW", "PERMISSION_DENIED", "CONFIG_ERROR", "SIGNALED", "NONZERO_EXIT",
-  "HELPER_UNAVAILABLE", "HELPER_RESULT_MISSING",
+  "HELPER_UNAVAILABLE", "HELPER_RESULT_MISSING", "HELPER_RESULT_INVALID", "HELPER_RESULT_INCONSISTENT",
+  "CONCURRENT_CHANGE", "RESTORE_FAILED",
 ]);
 
 /**
@@ -165,37 +197,106 @@ export function createDirectApache(run) {
   return { backend: "direct", rebuild: () => exec("rebuild"), configtest: () => exec("configtest"), graceful: () => exec("graceful") };
 }
 
+export const INVOCATION_ID_RE = /^[0-9a-f]{32}$/;
+export const HELPER_RESULT_MAX_BYTES = 64 * 1024;
+/** Tolerancia de reloj entre ejecutor y helper (mismo host). */
+const CLOCK_SKEW_MS = 5_000;
+
+function parseShow(stdout) {
+  return Object.fromEntries(String(stdout ?? "").split("\n").filter((l) => l.includes("=")).map((l) => [l.slice(0, l.indexOf("=")), l.slice(l.indexOf("=") + 1).trim()]));
+}
+
+/**
+ * Integridad del archivo de resultado: directorio y archivo reales (no
+ * enlaces), propiedad de root, sin escritura de grupo/otros, tamaño
+ * acotado y esquema estricto. Devuelve { result } o { invalid: motivo }.
+ */
+export function readHelperResult(fs, op) {
+  const path = `${HELPER_RESULT_DIR}/${op}.json`;
+  const owned = (st) => st.uid === 0 && (st.mode & 0o022) === 0;
+  try {
+    const d = fs.lstatSync(HELPER_RESULT_DIR);
+    if (!d.isDirectory() || !owned(d)) return { invalid: "directorio de resultados no es de root o es escribible por otros" };
+  } catch { return { missing: true }; }
+  let st;
+  try { st = fs.lstatSync(path); } catch { return { missing: true }; }
+  if (!st.isFile()) return { invalid: "el resultado no es un archivo regular (¿enlace?)" };
+  if (!owned(st)) return { invalid: "el resultado no es de root o es escribible por otros" };
+  if (st.size > HELPER_RESULT_MAX_BYTES) return { invalid: "resultado demasiado grande" };
+  let j;
+  try { j = JSON.parse(fs.readFileSync(path, "utf8")); } catch { return { invalid: "resultado no es JSON válido" }; }
+  const str = (v, max) => typeof v === "string" && v.length <= max;
+  const ok = j && typeof j === "object"
+    && j.op === op
+    && str(j.invocationId, 32) && INVOCATION_ID_RE.test(j.invocationId)
+    && (j.exitCode === null || (Number.isInteger(j.exitCode) && j.exitCode >= 0 && j.exitCode <= 255))
+    && (j.signal === null || (str(j.signal, 16) && /^SIG[A-Z0-9]+$/.test(j.signal)))
+    && typeof j.timedOut === "boolean"
+    && (j.spawnError === null || (str(j.spawnError, 32) && /^E[A-Z0-9_]+$/.test(j.spawnError)))
+    && (j.durationMs === null || (typeof j.durationMs === "number" && j.durationMs >= 0))
+    && str(j.stderr, 8000) && str(j.stdout, 8000)
+    && str(j.startedAt, 40) && !Number.isNaN(Date.parse(j.startedAt));
+  return ok ? { result: j } : { invalid: "esquema del resultado inválido" };
+}
+
 /**
  * Backend helper: `systemctl start zolvi-apache-helper@<op>.service`.
- * La unidad oneshot escribe /run/zolvi-apache-helper/<op>.json con el
- * resultado ya saneado; se acepta solo si su invocationId coincide con la
- * invocación que systemd acaba de ejecutar (evita leer un resultado viejo).
+ * El resultado de /run/zolvi-apache-helper/<op>.json se acepta SOLO si:
+ *   1. la unidad está cargada (LoadState=loaded);
+ *   2. el InvocationID posterior es nuevo (≠ al leído antes del start) y
+ *      coincide con el del archivo — systemd genera uno aleatorio de 128
+ *      bits por ejecución, así que un resultado viejo o de otra ejecución
+ *      no puede reutilizarse;
+ *   3. el archivo pasa la verificación de integridad y esquema;
+ *   4. su startedAt no es anterior a esta llamada;
+ *   5. lo que dice el archivo coincide con lo que systemd registró
+ *      (ExecMainStatus/Result y código de `systemctl start`).
+ * Las llamadas se serializan dentro del proceso: dos operaciones del propio
+ * ejecutor nunca comparten unidad ni pisan el InvocationID de la otra.
  */
-export function createHelperApache(run, fs) {
-  const exec = async (op) => {
+export function createHelperApache(run, fs, { now = () => Date.now() } = {}) {
+  let queue = Promise.resolve();
+  const show = async (unit) => parseShow((await run(APACHE_BIN.systemctl, ["show", "-p", "LoadState", "-p", "InvocationID", "-p", "ExecMainStatus", "-p", "Result", unit], { timeoutMs: 10_000 })).stdout);
+  const fail = (op, kind, extra = {}) => ({ ok: false, op, diagnostic: diagnose(op, { code: null, ...extra, kind, backend: "helper" }) });
+
+  const execOnce = async (op) => {
     if (!HELPER_OPS.includes(op)) throw new Error(`Operación de helper no permitida: ${op}`);
     const unit = `${HELPER_UNIT_PREFIX}${op}.service`;
+    const before = await show(unit);
+    if (before.LoadState !== "loaded") return fail(op, "HELPER_UNAVAILABLE", { stderr: `LoadState=${before.LoadState ?? "desconocido"}` });
+    const t0 = now();
     const started = await run(APACHE_BIN.systemctl, ["start", unit], { timeoutMs: APACHE_TIMEOUTS[op] + 15_000 });
-    const shown = await run(APACHE_BIN.systemctl, ["show", "-p", "InvocationID", "--value", unit], { timeoutMs: 10_000 });
-    const invocationId = String(shown.stdout ?? "").trim();
-    let result = null;
-    try { result = JSON.parse(fs.readFileSync(`${HELPER_RESULT_DIR}/${op}.json`, "utf8")); } catch { result = null; }
-    const fresh = result && invocationId && result.invocationId === invocationId && result.op === op;
-
-    if (!fresh) {
-      // Sin resultado propio: la unidad no existe, no arrancó o expiró el job.
-      const kind = started.spawnError ? "SPAWN_FAILED"
-        : started.code !== 0 && /not (be )?found|not loaded|No such file/i.test(`${started.stderr}`) ? "HELPER_UNAVAILABLE"
-        : started.timedOut ? "TIMEOUT" : "HELPER_RESULT_MISSING";
-      return { ok: false, op, diagnostic: diagnose(op, { ...started, kind, backend: "helper" }) };
+    if (started.spawnError) return fail(op, "SPAWN_FAILED", started);
+    if (started.timedOut) return fail(op, "TIMEOUT", started);
+    const after = await show(unit);
+    const inv = after.InvocationID ?? "";
+    if (!INVOCATION_ID_RE.test(inv) || inv === before.InvocationID) {
+      return fail(op, "HELPER_RESULT_MISSING", { ...started, stderr: `${started.stderr ?? ""}\nsin invocación nueva de ${unit}` });
     }
-    const r = { code: result.exitCode, signal: result.signal, timedOut: result.timedOut, spawnError: result.spawnError, outputOverflow: result.outputOverflow, durationMs: result.durationMs, stderr: result.stderr, stdout: result.stdout, backend: "helper" };
-    return result.exitCode === 0 && !result.timedOut ? { ok: true, op, backend: "helper" } : { ok: false, op, diagnostic: diagnose(op, r) };
+    const read = readHelperResult(fs, op);
+    if (read.missing) return fail(op, "HELPER_RESULT_MISSING", started);
+    if (read.invalid) return fail(op, "HELPER_RESULT_INVALID", { stderr: read.invalid });
+    const result = read.result;
+    if (result.invocationId !== inv || Date.parse(result.startedAt) < t0 - CLOCK_SKEW_MS) {
+      return fail(op, "HELPER_RESULT_MISSING", { stderr: "el resultado pertenece a otra invocación" });
+    }
+    const fileOk = result.exitCode === 0 && !result.timedOut;
+    const unitOk = after.Result === "success" && after.ExecMainStatus === "0" && started.code === 0;
+    if (fileOk !== unitOk) {
+      return fail(op, "HELPER_RESULT_INCONSISTENT", { stderr: `archivo exit=${result.exitCode}; systemd Result=${after.Result} ExecMainStatus=${after.ExecMainStatus} start=${started.code}` });
+    }
+    if (fileOk) return { ok: true, op, backend: "helper" };
+    return { ok: false, op, diagnostic: diagnose(op, { code: result.exitCode, signal: result.signal, timedOut: result.timedOut, spawnError: result.spawnError, outputOverflow: result.outputOverflow, durationMs: result.durationMs, stderr: result.stderr, stdout: result.stdout, backend: "helper" }) };
+  };
+  const exec = (op) => {
+    const p = queue.then(() => execOnce(op));
+    queue = p.catch(() => {});
+    return p;
   };
   return { backend: "helper", rebuild: () => exec("rebuild"), configtest: () => exec("configtest"), graceful: () => exec("graceful") };
 }
 
 /** Selecciona backend por ZOLVI_SIGNER_APACHE_MODE (helper | direct; por defecto direct). */
-export function createApache({ run, fs, mode }) {
-  return mode === "helper" ? createHelperApache(run, fs) : createDirectApache(run);
+export function createApache({ run, fs, mode, now }) {
+  return mode === "helper" ? createHelperApache(run, fs, { now }) : createDirectApache(run);
 }
