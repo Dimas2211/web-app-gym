@@ -134,3 +134,26 @@ No duplicar la venta al haber perdido el estado temporal de la pantalla de alta.
 Validación automatizada del acceso: FEX en estados pendiente, validado, firmado,
 rechazado y aceptado; oculto sin permiso fiscal, para otros tipos DTE o sin
 selección. El montaje no abre ni ejecuta acciones fiscales automáticamente.
+
+
+## Invalidación FEX 11 y entrega externa
+
+El esquema oficial `anulacion-schema-v2.json` admite `documento.tipoDte=11`.
+El servicio de creación permite FEX 11 ACCEPTED junto a FE01, CCFE03 y NC05,
+conservando los controles de sello, emisor/ambiente, tenant/location y evento
+activo. El evento se crea DRAFT; este cambio no firma, transmite ni invalida
+ninguna factura de forma automática. Una prueba construye el evento tipo 2 desde
+un FEX v3 real, con receptor extranjero e IVA cero, y lo valida con AJV.
+
+Para verificar entrega en MetaTraining: invalidar explícitamente el DTE aceptado,
+esperar la aceptación y sello del evento MH y usar `Entrega DTE` → `Entregar
+invalidación DTE`. El servicio existente inserta el evento en la tabla de
+invalidaciones configurada por organización y registra
+`EXTERNAL_INVALIDATION_DELIVERY`. El sello MH confirma la aceptación fiscal;
+el log de entrega externa con `ok=true`/`affectedRows=1` confirma la inserción en
+MariaDB. La visualización posterior en el portal debe verificarse aparte.
+
+La integración de MetaTraining tiene modo manual. Su última prueba de conexión
+registró encontradas `dtes_metatraining` e `invalidaciones_metatraining`.
+No hay confirmación de entrega externa de una invalidación hasta ejecutar ese
+paso y comprobar su resultado; crear/transmitir el evento a MH no lo sustituye.
