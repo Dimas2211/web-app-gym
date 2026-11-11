@@ -124,6 +124,27 @@ rm -f /etc/apache2/conf.d/userdata/ssl/2_4/<usuario>/signer-ops.getzolvi.com/zol
 
 Sin las variables `ZOLVI_SIGNER_EXECUTOR_*`, Zolvi vuelve a modo solo PLAN.
 
+## Recarga de Apache compartido y APPLY interrumpido
+
+El ejecutor usa `rebuildhttpdconf`, `apachectl -t` y después `apachectl -k graceful`
+(en lugar de `restartsrv_httpd --graceful`). Es una recarga gradual, **no garantiza
+cero impacto** en todas las conexiones y debe realizarse en una ventana de mantenimiento
+aprobada para el VPS compartido. No se cambian los vhosts de terceros; la regeneración
+de configuración y señal de Apache afectan al servicio global.
+
+Si APPLY pierde la respuesta HTTPS (EXECUTOR_UNREACHABLE/TIMEOUT), el Control Plane
+ejecuta solo `INSPECT` para comparar los recursos reales. Si están completos y las
+huellas coinciden, queda `INFRA_READY` a falta de VERIFY. Si están incompletos queda
+`APPLY_PARTIAL`; si tampoco INSPECT responde, queda `APPLY_UNCERTAIN`. En ambos
+casos NO hay un reintento automático ni un rollback automático. Verificar estado
+real, huella, include SSL, contenedores existentes y ventana de mantenimiento
+antes de autorizar otra acción.
+
+**REC TEST, incidente 2026-11-10:** se creó API Key + Compose + contenedor
+`dte-firmador-rechightraining-test` (127.0.0.1:8120), pero el include Apache
+no quedó instalado. Conservar estos recursos; no ejecutar ROLLBACK ni crear una
+clave nueva. El proxy queda pendiente de una recuperación controlada.
+
 ## Flujo por cliente (desde el panel de la organización)
 
 1. Guardar especificación (slug, hostname `firmador-<cliente>-<test|prod>.getzolvi.com`, usuario cPanel, NIT, issuer).
