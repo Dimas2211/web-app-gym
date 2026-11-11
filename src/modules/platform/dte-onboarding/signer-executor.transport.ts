@@ -74,6 +74,40 @@ export class NotConfiguredSignerExecutorTransport implements SignerExecutorTrans
   }
 }
 
+/**
+ * Para observabilidad de fallos de red en Vercel: solamente codigos
+ * estructurados de Node/Undici. No registrar mensajes, URL, headers,
+ * cuerpos HMAC, certificados ni secretos.
+ */
+const SAFE_NETWORK_CAUSE_CODES = new Set([
+  "ENOTFOUND", "EAI_AGAIN", "ECONNREFUSED", "ECONNRESET", "ETIMEDOUT",
+  "ENETUNREACH", "EHOSTUNREACH", "EPIPE", "ECONNABORTED",
+  "UND_ERR_CONNECT_TIMEOUT", "UND_ERR_HEADERS_TIMEOUT",
+  "UND_ERR_BODY_TIMEOUT", "UND_ERR_SOCKET",
+  "CERT_HAS_EXPIRED", "UNABLE_TO_VERIFY_LEAF_SIGNATURE",
+  "UNABLE_TO_GET_ISSUER_CERT_LOCALLY", "SELF_SIGNED_CERT_IN_CHAIN",
+  "DEPTH_ZERO_SELF_SIGNED_CERT", "ERR_TLS_CERT_ALTNAME_INVALID",
+  "ERR_SSL_WRONG_VERSION_NUMBER", "ERR_HTTP2_ERROR",
+]);
+
+function safeTransportCauseCodes(error: unknown): string {
+  const codes = new Set<string>();
+  const walk = (value: unknown, depth: number) => {
+    if (depth > 3 || !value || typeof value !== "object") return;
+    const item = value as { code?: unknown; cause?: unknown; errors?: unknown };
+    if (typeof item.code === "string") {
+      // Allowlist fija: nunca imprimir el contenido de un codigo arbitrario.
+      codes.add(SAFE_NETWORK_CAUSE_CODES.has(item.code) ? item.code : "UNKNOWN_CAUSE_CODE");
+    }
+    if (item.cause) walk(item.cause, depth + 1);
+    if (Array.isArray(item.errors)) {
+      for (const nested of item.errors.slice(0, 4)) walk(nested, depth + 1);
+    }
+  };
+  walk(error, 0);
+  return Array.from(codes).slice(0, 4).join(",") || "NO_CAUSE_CODE";
+}
+
 export class HttpSignerExecutorTransport implements SignerExecutorTransport {
   readonly configured = true;
   constructor(
@@ -101,6 +135,9 @@ export class HttpSignerExecutorTransport implements SignerExecutorTransport {
       return json;
     } catch (err) {
       const aborted = err instanceof Error && err.name === "AbortError";
+      console.warn(
+        `[signer-executor-transport] op=${op} result=${aborted ? "TIMEOUT" : "UNREACHABLE"} cause_codes=${safeTransportCauseCodes(err)}`,
+      );
       return {
         ok: false,
         code: aborted ? "EXECUTOR_TIMEOUT" : "EXECUTOR_UNREACHABLE",
