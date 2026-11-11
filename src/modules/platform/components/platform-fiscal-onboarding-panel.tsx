@@ -30,6 +30,9 @@ import {
 } from "../actions/fiscal-onboarding.action";
 import type { FiscalOnboardingStatus, OnboardingStepStatus } from "../dte-onboarding/fiscal-onboarding-status.service";
 import type { SignerProvisioningMode, SignerProvisioningRunResult } from "../dte-onboarding/signer-provisioning.service";
+import { presentSignerState, type Tone } from "../dte-onboarding/signer-provisioning.presenter";
+
+const TONE: Record<Tone, string> = { ok: "text-emerald-700", warning: "text-amber-700", error: "text-red-600", neutral: "text-zinc-500" };
 
 type Env = "TEST" | "PRODUCTION";
 
@@ -112,12 +115,13 @@ export function PlatformFiscalOnboardingPanel({ organizationId }: { organization
     startTransition(async () => {
       const r = await runSignerProvisioningAction(organizationId, env, mode, opts);
       setLastRun(r);
-      setMsg({ ok: r.ok, text: r.ok ? `${mode} completado (${r.status ?? ""}).` : `${mode}: ${r.error ?? r.code ?? "falló"}` });
+      setMsg({ ok: r.ok, text: r.ok ? `${mode} completado · estado del aprovisionamiento: ${r.status ?? "—"}.` : `${mode}: ${r.error ?? r.code ?? "falló"}` });
       load(false);
     });
   };
 
   const s = status?.signer;
+  const sp = s?.exists ? presentSignerState(s) : null;
   const resourceId = s?.resource_id ?? "";
   const applyRuns = (s?.recent_runs ?? []).filter((r) => r.mode === "APPLY");
 
@@ -179,7 +183,28 @@ export function PlatformFiscalOnboardingPanel({ organizationId }: { organization
               {s?.signer_url && <span>URL: {s.signer_url}</span>}
               {!s?.executor_configured && <span className="text-amber-600">Ejecutor VPS no configurado (solo PLAN disponible).</span>}
             </div>
-            {s?.last_error && <p className="text-xs text-red-600 break-words">{s.last_error}</p>}
+            {sp && (
+              <dl className="text-xs grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
+                <dt className="text-zinc-500">Última inspección</dt>
+                <dd className={TONE[sp.inspection.tone]}>{sp.inspection.text}{sp.inspection.at && <span className="text-zinc-400"> · {sp.inspection.at.toLocaleString()}</span>}</dd>
+                <dt className="text-zinc-500">Aprovisionamiento</dt>
+                <dd className={TONE[sp.provisioning.tone]}>{sp.provisioning.text}</dd>
+                {sp.pending.length > 0 && (<>
+                  <dt className="text-zinc-500">Pendiente</dt>
+                  <dd className="text-amber-700">{sp.pending.join(" · ")}</dd>
+                </>)}
+                {sp.lastApply && (<>
+                  <dt className="text-zinc-500">Último APPLY</dt>
+                  <dd className={`${TONE[sp.lastApply.tone]} break-words`}>{sp.lastApply.text}<span className="text-zinc-400"> · {sp.lastApply.at.toLocaleString()}</span></dd>
+                </>)}
+                {sp.lastError && !sp.lastError.fromLastApply && (<>
+                  <dt className="text-zinc-500">Último error registrado</dt>
+                  <dd className={`${sp.lastError.historical ? "text-zinc-500" : "text-red-600"} break-words`}>
+                    {sp.lastError.text} <span className="text-zinc-400">({sp.lastError.origin}{sp.lastError.historical ? "; histórico, posterior INSPECT exitoso" : ""})</span>
+                  </dd>
+                </>)}
+              </dl>
+            )}
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div><label className={LABEL}>Slug</label><input className={INPUT} value={spec.slug} onChange={(e) => setSpec({ ...spec, slug: e.target.value })} placeholder="metatraining" autoComplete="off" /></div>

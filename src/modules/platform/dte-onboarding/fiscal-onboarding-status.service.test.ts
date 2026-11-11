@@ -15,7 +15,7 @@ const NO_SIGNER = (env: "TEST" | "PRODUCTION"): SignerProvisioningSummary => ({
   exists: false, id: null, environment: env, slug: null, hostname: null, port: null, container_name: null, cpanel_user: null,
   signer_nit: null, issuer_config_id: null, status: "NOT_CONFIGURED", template_version: null, api_key_fingerprint: null,
   credential_registered_at: null, mh_authorization_confirmed_at: null, mh_authorization_reference: null, last_error: null,
-  resource_id: null, signer_url: null, executor_configured: false, recent_runs: [],
+  resource_id: null, signer_url: null, executor_configured: false, recent_runs: [], last_inspect_run: null, last_apply_run: null, observed: null,
 });
 
 const NO_MARIADB: DteMariaDbIntegrationSummary = {

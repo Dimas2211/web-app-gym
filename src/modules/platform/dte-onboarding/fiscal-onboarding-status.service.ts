@@ -212,7 +212,7 @@ export async function getFiscalOnboardingStatus(
     code: "SIGNER_INFRA", label: "Infraestructura del firmador (Docker/HTTPS/API Key)",
     status: infraStatus,
     detail: !signer.exists ? (ownSigner ? "Firmador existente registrado manualmente (no administrado por el aprovisionador)." : "Sin firmador registrado.")
-      : `${signer.status}${signer.last_error ? ` — ${signer.last_error}` : ""}`,
+      : `${signer.status}${signer.last_error ? ` — último error registrado (APPLY/VERIFY/ROLLBACK): ${signer.last_error}` : ""}`,
   });
   // Firmador administrado: INFRA_READY solo refleja lo que reportó el
   // ejecutor tras APPLY. Para contar como firmador efectivo verificado hace

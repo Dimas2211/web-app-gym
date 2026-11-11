@@ -278,7 +278,14 @@ export async function runSignerProvisioning(
   // ── INSPECT ──
   if (mode === "INSPECT") {
     const res = await transport.call("inspect", { spec });
-    if (!res.ok) return fail(res.code ?? "EXECUTOR_ERROR", res.message ?? "INSPECT falló.", {}, "FAILED");
+    if (!res.ok) {
+      // El código viaja en la bitácora: distingue un fallo NUEVO de INSPECT
+      // del last_error persistido por un APPLY anterior.
+      const code = res.code ?? "EXECUTOR_ERROR";
+      return fail(code, `${code}: ${res.message ?? "INSPECT falló."}`, {}, "FAILED");
+    }
+    // INSPECT solo observa: no modifica status ni last_error (evidencia del
+    // último APPLY/VERIFY/ROLLBACK). La UI distingue ambos con la bitácora.
     await db.platformDteSignerProvisioning.update({ where: { id: row.id }, data: { observed_state: sanitizeObserved(res.observed) } });
     const runId = await recordRun(db, row, mode, "SUCCESS", { steps: null, userId: input.userId, startedAt, finishedAt: now() });
     return { ok: true, mode, runId, status: row.status, plan: buildPlan(res.observed ?? null) };
@@ -610,6 +617,38 @@ export interface SignerProvisioningSummary {
   signer_url:      string | null;
   executor_configured: boolean;
   recent_runs:     Array<{ id: string; mode: string; status: string; started_at: Date; error_message: string | null }>;
+  /** Últimos runs por modo (independientes del tope de recent_runs). */
+  last_inspect_run: SignerRunDigest | null;
+  last_apply_run:   SignerRunDigest | null;
+  /** Resumen sin secretos del último observed_state (INSPECT/APPLY/VERIFY). */
+  observed:         ObservedDigest | null;
+}
+
+export type SignerRunDigest = { id: string; mode: string; status: string; started_at: Date; error_message: string | null };
+export type ObservedDigest = {
+  container_running: boolean | null;
+  container_managed: boolean | null;
+  cert_present:      boolean | null;
+  api_key_present:   boolean | null;
+  compose_matches:   boolean | null;
+  vhost_present:     boolean | null;
+  vhost_matches:     boolean | null;
+};
+
+/** Solo booleanos: nunca huellas, rutas ni contenedores de otros clientes. */
+export function digestObservedState(raw: unknown): ObservedDigest | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const o = raw as SignerExecutorObserved;
+  const b = (v: unknown) => (typeof v === "boolean" ? v : null);
+  return {
+    container_running: o.container === undefined ? null : o.container?.state === "running",
+    container_managed: o.container === undefined ? null : (b(o.container?.managed) ?? false),
+    cert_present:      b(o.cert?.present),
+    api_key_present:   b(o.apiKey?.present),
+    compose_matches:   b(o.compose?.matches),
+    vhost_present:     b(o.vhost?.present),
+    vhost_matches:     b(o.vhost?.matches),
+  };
 }
 
 export async function getSignerProvisioningSummary(
@@ -628,6 +667,11 @@ export async function getSignerProvisioningSummary(
         select: { id: true, mode: true, status: true, started_at: true, error_message: true },
       })
     : [];
+  const runDigest = { id: true, mode: true, status: true, started_at: true, error_message: true } as const;
+  const [lastInspect, lastApply] = row
+    ? await Promise.all((["INSPECT", "APPLY"] as const).map((mode) =>
+        db.platformDteSignerProvisioningRun.findFirst({ where: { provisioning_id: row.id, mode }, orderBy: { started_at: "desc" }, select: runDigest })))
+    : [null, null];
   const names = row && validateSignerSpec(specFromRow(row, deps)).ok ? deriveResourceNames(specFromRow(row, deps)) : null;
   return {
     exists: !!row, id: row?.id ?? null, environment,
@@ -643,5 +687,8 @@ export async function getSignerProvisioningSummary(
     resource_id: names?.id ?? null, signer_url: names?.signerUrl ?? null,
     executor_configured: transport.configured,
     recent_runs: runs,
+    last_inspect_run: lastInspect ?? null,
+    last_apply_run:   lastApply ?? null,
+    observed:         digestObservedState(row?.observed_state),
   };
 }
