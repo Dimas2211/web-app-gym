@@ -48,7 +48,6 @@ export const BIN = Object.freeze({
   ss:         "/usr/sbin/ss",
   apachectl:  "/usr/sbin/apachectl",
   rebuild:    "/usr/local/cpanel/scripts/rebuildhttpdconf",
-  restart:    "/usr/local/cpanel/scripts/restartsrv_httpd",
 });
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -241,12 +240,14 @@ export function createExecutor(deps = {}) {
   }
 
   async function apacheReload(steps) {
+    // El script de cPanel --graceful puede detener el httpd compartido y cortar
+    // la propia conexión HTTPS del ejecutor. No usar restartsrv_httpd aquí.
     const rebuild = await run(BIN.rebuild, []);
-    if (rebuild.code !== 0) return { ok: false, detail: "rebuildhttpdconf falló." };
+    if (rebuild.code !== 0) return { ok: false, phase: "rebuild", detail: "rebuildhttpdconf falló." };
     const test = await run(BIN.apachectl, ["-t"]);
-    if (test.code !== 0) return { ok: false, detail: `apachectl -t falló: ${firstLine(test.stderr).slice(0, 200)}` };
-    const restart = await run(BIN.restart, ["--graceful"]);
-    if (restart.code !== 0) return { ok: false, detail: "restartsrv_httpd --graceful falló." };
+    if (test.code !== 0) return { ok: false, phase: "syntax", detail: `apachectl -t falló: ${firstLine(test.stderr).slice(0, 200)}` };
+    const graceful = await run(BIN.apachectl, ["-k", "graceful"]);
+    if (graceful.code !== 0) return { ok: false, phase: "signal", detail: "apachectl -k graceful falló." };
     steps.push({ op: "APACHE_RELOAD", status: "OK" });
     return { ok: true };
   }
@@ -318,9 +319,22 @@ export function createExecutor(deps = {}) {
         else fs.writeFileSync(n.vhostIncludePath, previousVhost, { mode: 0o644 });
         delete manifest.resources.VHOST;
         writeManifest(n, manifest);
-        await run(BIN.rebuild, []);
-        await run(BIN.restart, ["--graceful"]);
-        return { ok: false, op: "apply", code: "APACHE_FAILED", steps: [...steps, { op: "VHOST", status: "REVERTED", detail: reload.detail }], observed: await observe(spec) };
+        // Si falló la comprobación ANTES de señalizar Apache, no hay razón
+        // para recargar una segunda vez. Si falló la señal, restaurar la
+        // configuración anterior con otra recarga gradual, nunca un restart.
+        const recovery = await run(BIN.rebuild, []);
+        const recoveryTest = recovery.code === 0 ? await run(BIN.apachectl, ["-t"]) : { code: 1 };
+        let recovered = recovery.code === 0 && recoveryTest.code === 0;
+        if (recovered && reload.phase === "signal") {
+          const restoreSignal = await run(BIN.apachectl, ["-k", "graceful"]);
+          recovered = restoreSignal.code === 0;
+        }
+        return {
+          ok: false, op: "apply", code: recovered ? "APACHE_FAILED" : "APACHE_RECOVERY_FAILED",
+          steps: [...steps, { op: "VHOST", status: "REVERTED", detail: reload.detail },
+            { op: "APACHE_RECOVERY", status: recovered ? "OK" : "FAILED", detail: recovered ? "Configuración anterior validada." : "Revisar Apache manualmente; sin reinicio automático." }],
+          observed: await observe(spec),
+        };
       }
     }
 
