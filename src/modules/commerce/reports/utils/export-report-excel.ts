@@ -7,6 +7,8 @@
 // Reportes detalle: filas de grupo intercaladas con ítems.
 // ─────────────────────────────────────────────────────────────────
 
+import { groupSalesReportLines } from "./group-sales-report-lines";
+import { salesMovementLabel, salesMovementCountsLabel } from "./sales-report-movements";
 import * as XLSX from "xlsx";
 import type {
   SalesListRow,
@@ -43,6 +45,7 @@ function paymentStatusLabel(status: string): string {
     case "PAID":    return "Pagado";
     case "PARTIAL": return "Parcial";
     case "UNPAID":  return "Pendiente";
+    case "REFUNDED": return "Reintegrado";
     default:        return status;
   }
 }
@@ -91,7 +94,7 @@ function finalizeAndDownload(
 export function exportSalesListExcel(rows: SalesListRow[], filters: TabularFilters): void {
   const meta = metaBlock("Ventas Listado", filters);
 
-  const headers = ["Fecha", "N° Venta", "Cliente", "Estado pago", "Ítems", "Subtotal", "IVA", "Total"];
+  const headers = ["Fecha mov.", "Movimiento", "N° Venta", "Cliente", "Estado pago", "Ítems", "Subtotal", "IVA", "Total"];
 
   const totSubtotal = rows.reduce((s, r) => s + r.subtotal, 0);
   const totTax      = rows.reduce((s, r) => s + r.tax_amount, 0);
@@ -100,6 +103,7 @@ export function exportSalesListExcel(rows: SalesListRow[], filters: TabularFilte
 
   const dataRows = rows.map((r) => [
     r.sale_date,
+    salesMovementLabel(r.movement_type),
     r.sale_code,
     r.customer_name ?? "",
     paymentStatusLabel(r.payment_status),
@@ -110,8 +114,8 @@ export function exportSalesListExcel(rows: SalesListRow[], filters: TabularFilte
   ]);
 
   const totalRow = [
-    `TOTAL — ${rows.length} ${rows.length === 1 ? "venta" : "ventas"}`,
-    "", "", "",
+    `NETO — ${salesMovementCountsLabel(rows)}`,
+    "", "", "", "",
     totItems, totSubtotal, totTax, totTotal,
   ];
 
@@ -121,14 +125,15 @@ export function exportSalesListExcel(rows: SalesListRow[], filters: TabularFilte
   const dataStart   = meta.length + 1;
   const dataEnd     = dataStart + rows.length - 1;
   const totalRowIdx = dataEnd + 1;
+  ws["!merges"] = [{ s: { r: totalRowIdx, c: 0 }, e: { r: totalRowIdx, c: 4 } }];
 
-  applyFmt(ws, dataStart, totalRowIdx, 4, NUMBER_FMT);
-  applyFmt(ws, dataStart, totalRowIdx, 5, CURRENCY_FMT);
+  applyFmt(ws, dataStart, totalRowIdx, 5, NUMBER_FMT);
   applyFmt(ws, dataStart, totalRowIdx, 6, CURRENCY_FMT);
   applyFmt(ws, dataStart, totalRowIdx, 7, CURRENCY_FMT);
+  applyFmt(ws, dataStart, totalRowIdx, 8, CURRENCY_FMT);
 
   finalizeAndDownload(ws, "Ventas Listado",
-    [12, 12, 24, 14, 8, 12, 12, 12],
+    [12, 14, 14, 26, 14, 8, 12, 12, 12],
     `commerce-ventas-listado-${todayStr()}.xlsx`);
 }
 
@@ -151,23 +156,13 @@ export function exportSalesExcel(rows: SalesLineReportRow[], filters: TabularFil
   const totCost     = rows.reduce((s, r) => s + (r.cost_estimate ?? 0), 0);
   const totMargin   = rows.reduce((s, r) => s + (r.margin_estimate ?? 0), 0);
 
-  // Group consecutive rows by sale_code
-  type Group = { saleCode: string; saleDate: string; customer: string | null; items: SalesLineReportRow[] };
-  const groups: Group[] = [];
-  for (const row of rows) {
-    const last = groups[groups.length - 1];
-    if (last && last.saleCode === row.sale_code) {
-      last.items.push(row);
-    } else {
-      groups.push({ saleCode: row.sale_code, saleDate: row.sale_date, customer: row.customer_name, items: [row] });
-    }
-  }
+  const groups = groupSalesReportLines(rows);
 
   // Build aoa with group header rows
   const bodyRows: (string | number | null)[][] = [];
   for (const group of groups) {
     const groupTotal = group.items.reduce((s, r) => s + r.line_total, 0);
-    const hdrText    = `${group.saleDate}  ·  ${group.saleCode}  ·  ${group.customer ?? "Sin cliente"}  ·  Total: $${groupTotal.toFixed(2)}`;
+    const hdrText    = `${salesMovementLabel(group.movementType)} · ${group.saleDate}  ·  ${group.saleCode}  ·  ${group.customerName ?? "Sin cliente"}  ·  Total: $${groupTotal.toFixed(2)}`;
     // Group header — all string, no numeric formatting
     bodyRows.push([hdrText, ...Array(headers.length - 1).fill(null)]);
 
@@ -189,7 +184,7 @@ export function exportSalesExcel(rows: SalesLineReportRow[], filters: TabularFil
   }
 
   const totalRow: (string | number | null)[] = [
-    `TOTAL — ${groups.length} ${groups.length === 1 ? "venta" : "ventas"}`,
+    `NETO — ${salesMovementCountsLabel(rows)}`,
     "", "", "", "",
     totQty, null, totSubtotal, totTax, totTotal,
     ...(hasCost ? [totCost, totMargin] : []),
@@ -218,6 +213,7 @@ export function exportSalesExcel(rows: SalesLineReportRow[], filters: TabularFil
     currentRow += group.items.length;
   }
 
+  ws["!merges"] = [{ s: { r: currentRow, c: 0 }, e: { r: currentRow, c: 4 } }];
   // Total row numeric formats
   applyFmt(ws, currentRow, currentRow, 5, NUMBER_FMT);
   applyFmt(ws, currentRow, currentRow, 7, CURRENCY_FMT);

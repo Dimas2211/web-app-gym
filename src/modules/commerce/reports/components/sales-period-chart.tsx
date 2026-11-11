@@ -16,7 +16,7 @@ export function SalesPeriodChart({ data }: Props) {
   if (!data.length) {
     return (
       <div className="flex items-center justify-center h-32 text-sm text-zinc-500">
-        Sin ventas confirmadas en el período.
+        Sin movimientos de ventas en el período.
       </div>
     );
   }
@@ -30,7 +30,8 @@ export function SalesPeriodChart({ data }: Props) {
   return (
     <VerticalBarChart
       data={chartData}
-      title="Ventas por día"
+      allowNegative
+      title="Ventas netas por día"
       valueFormatter={shortCurrency}
     />
   );

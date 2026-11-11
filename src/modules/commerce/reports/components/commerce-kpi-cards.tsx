@@ -39,11 +39,13 @@ export function CommerceKpiCards({ summary }: Props) {
   return (
     <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
       <KpiCard
-        label="Total vendido"
+        label="Ventas netas"
         value={formatCurrency(summary.total_sales)}
-        sub={`${formatNumber(summary.sales_count)} ventas confirmadas`}
+        sub={`${formatNumber(summary.sales_count)} ventas · ${formatNumber(summary.cancellations_count)} anulaciones`}
         accent="green"
       />
+      <KpiCard label="Ventas brutas" value={formatCurrency(summary.gross_sales)} accent="green" />
+      <KpiCard label="Anulaciones" value={formatCurrency(summary.cancelled_sales)} sub={`${summary.cancellations_count} anulaciones`} accent="red" />
       <KpiCard
         label="Total comprado"
         value={formatCurrency(summary.total_purchases)}
@@ -63,10 +65,10 @@ export function CommerceKpiCards({ summary }: Props) {
       <KpiCard
         label="Ticket promedio"
         value={formatCurrency(summary.avg_ticket)}
-        sub="por venta confirmada"
+        sub="sobre ventas brutas"
       />
       <KpiCard
-        label="Ventas confirmadas"
+        label="Ventas registradas"
         value={formatNumber(summary.sales_count)}
       />
       <KpiCard

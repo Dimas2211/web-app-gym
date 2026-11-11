@@ -7,8 +7,10 @@
 // Reportes detalle: ítems agrupados por documento.
 // ─────────────────────────────────────────────────────────────────
 
+import { groupSalesReportLines } from "./group-sales-report-lines";
+import { salesMovementLabel, salesMovementCountsLabel } from "./sales-report-movements";
 import jsPDF from "jspdf";
-import { autoTable } from "jspdf-autotable";
+import { autoTable, type CellInput } from "jspdf-autotable";
 import type {
   SalesListRow,
   SalesLineReportRow,
@@ -53,6 +55,7 @@ function paymentStatusLabel(status: string): string {
     case "PAID":    return "Pagado";
     case "PARTIAL": return "Parcial";
     case "UNPAID":  return "Pendiente";
+    case "REFUNDED": return "Reintegrado";
     default:        return status;
   }
 }
@@ -133,7 +136,7 @@ function addPageNumbers(doc: jsPDF): void {
   doc.setTextColor(0);
 }
 
-// ── Ventas listado (1 fila por venta) ────────────────────────────
+// ── Ventas listado (1 fila por movimiento) ────────────────────────────
 
 export function exportSalesListPdf(rows: SalesListRow[], filters: TabularFilters): void {
   const doc    = createDoc("l");
@@ -144,10 +147,11 @@ export function exportSalesListPdf(rows: SalesListRow[], filters: TabularFilters
   const totTotal    = rows.reduce((s, r) => s + r.total_amount, 0);
   const totItems    = rows.reduce((s, r) => s + r.item_count, 0);
 
-  const head = [["Fecha", "N° Venta", "Cliente", "Estado pago", "Ítems", "Subtotal", "IVA", "Total"]];
+  const head = [["Fecha mov.", "Movimiento", "N° Venta", "Cliente", "Estado pago", "Ítems", "Subtotal", "IVA", "Total"]];
 
   const body = rows.map((r) => [
     r.sale_date,
+    salesMovementLabel(r.movement_type),
     r.sale_code,
     r.customer_name ?? "—",
     paymentStatusLabel(r.payment_status),
@@ -158,8 +162,7 @@ export function exportSalesListPdf(rows: SalesListRow[], filters: TabularFilters
   ]);
 
   const foot = [[
-    `TOTAL — ${rows.length} ${rows.length === 1 ? "venta" : "ventas"}`,
-    "", "", "",
+    { content: `NETO — ${salesMovementCountsLabel(rows)}`, colSpan: 5 },
     String(totItems),
     c(totSubtotal),
     c(totTax),
@@ -171,13 +174,13 @@ export function exportSalesListPdf(rows: SalesListRow[], filters: TabularFilters
     startY,
     ...TABLE_STYLES,
     columnStyles: {
-      4: { halign: "right" },
+      8: { halign: "right" },
       5: { halign: "right" },
       6: { halign: "right" },
       7: { halign: "right" },
     },
     didParseCell: (data) => {
-      if ([4, 5, 6, 7].includes(data.column.index)) {
+      if ([5, 6, 7, 8].includes(data.column.index)) {
         data.cell.styles.halign = "right";
       }
     },
@@ -203,26 +206,16 @@ export function exportSalesPdf(rows: SalesLineReportRow[], filters: TabularFilte
   const totCost     = rows.reduce((s, r) => s + (r.cost_estimate ?? 0), 0);
   const totMargin   = rows.reduce((s, r) => s + (r.margin_estimate ?? 0), 0);
 
-  // Group consecutive rows by sale_code
-  type Group = { saleCode: string; saleDate: string; customer: string | null; items: SalesLineReportRow[] };
-  const groups: Group[] = [];
-  for (const row of rows) {
-    const last = groups[groups.length - 1];
-    if (last && last.saleCode === row.sale_code) {
-      last.items.push(row);
-    } else {
-      groups.push({ saleCode: row.sale_code, saleDate: row.sale_date, customer: row.customer_name, items: [row] });
-    }
-  }
+  const groups = groupSalesReportLines(rows);
 
   // Build body with group header rows interleaved
-  const body:         string[][] = [];
+  const body:         CellInput[][] = [];
   const isGroupHeader: boolean[] = [];
 
   for (const group of groups) {
     const groupTotal = group.items.reduce((s, r) => s + r.line_total, 0);
-    const hdr        = `${group.saleDate}   ${group.saleCode}   ${group.customer ?? "Sin cliente"}   Total: ${c(groupTotal)}`;
-    body.push([hdr, ...Array(colCount - 1).fill("")]);
+    const hdr        = `${salesMovementLabel(group.movementType)} · ${group.saleDate}   ${group.saleCode}   ${group.customerName ?? "Sin cliente"}   Total: ${c(groupTotal)}`;
+    body.push([{ content: hdr, colSpan: colCount }]);
     isGroupHeader.push(true);
 
     for (const r of group.items) {
@@ -250,8 +243,7 @@ export function exportSalesPdf(rows: SalesLineReportRow[], filters: TabularFilte
   ]];
 
   const foot = [[
-    `TOTAL — ${groups.length} ${groups.length === 1 ? "venta" : "ventas"}`,
-    "", "", "", "",
+    { content: `NETO — ${salesMovementCountsLabel(rows)}`, colSpan: 5 },
     n(totQty), "",
     c(totSubtotal), c(totTax), c(totTotal),
     ...(hasCost ? [c(totCost), c(totMargin)] : []),

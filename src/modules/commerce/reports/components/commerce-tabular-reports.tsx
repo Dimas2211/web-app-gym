@@ -13,6 +13,8 @@
 //   7. Proveedores
 // ─────────────────────────────────────────────────────────────────
 
+import { groupSalesReportLines } from "../utils/group-sales-report-lines";
+import { salesMovementLabel, salesMovementCountsLabel } from "../utils/sales-report-movements";
 import { Fragment, useState, useCallback, useRef } from "react";
 import { Loader2, FileSpreadsheet, FileText } from "lucide-react";
 import type {
@@ -65,7 +67,7 @@ interface TabMeta {
 }
 
 const TABS: TabMeta[] = [
-  { id: "sales-list",     label: "Ventas listado",  hint: "1 fila por venta" },
+  { id: "sales-list",     label: "Ventas listado",  hint: "ventas y anulaciones" },
   { id: "sales",          label: "Ventas detalle",  hint: "ítems por venta" },
   { id: "purchases-list", label: "Compras listado", hint: "1 fila por compra" },
   { id: "purchases",      label: "Compras detalle", hint: "ítems por compra" },
@@ -183,6 +185,7 @@ function paymentStatusLabel(status: string): string {
     case "PAID":    return "Pagado";
     case "PARTIAL": return "Parcial";
     case "UNPAID":  return "Pendiente";
+    case "REFUNDED": return "Reintegrado";
     default:        return status;
   }
 }
@@ -209,7 +212,8 @@ function SalesListTable({ rows }: { rows: SalesListRow[] }) {
     <TableShell>
       <thead>
         <tr>
-          <Th>Fecha</Th>
+          <Th>Fecha mov.</Th>
+          <Th>Movimiento</Th>
           <Th>N° Venta</Th>
           <Th>Cliente</Th>
           <Th>Estado pago</Th>
@@ -221,8 +225,9 @@ function SalesListTable({ rows }: { rows: SalesListRow[] }) {
       </thead>
       <tbody>
         {rows.map((r) => (
-          <tr key={r.sale_id} className="hover:bg-zinc-800/30">
+          <tr key={r.movement_id} className={r.movement_type === "CANCELLATION" ? "bg-rose-950/20" : "hover:bg-zinc-800/30"}>
             <Td dim>{r.sale_date}</Td>
+            <Td><span className={r.movement_type === "CANCELLATION" ? "text-rose-400" : "text-emerald-400"}>{salesMovementLabel(r.movement_type)}</span></Td>
             <Td mono>{r.sale_code}</Td>
             <Td>{r.customer_name ?? <span className="text-zinc-600">—</span>}</Td>
             <Td dim>{paymentStatusLabel(r.payment_status)}</Td>
@@ -235,10 +240,7 @@ function SalesListTable({ rows }: { rows: SalesListRow[] }) {
       </tbody>
       <tfoot>
         <TotalRow>
-          <TotalLabelTd>TOTAL — {rows.length} {rows.length === 1 ? "venta" : "ventas"}</TotalLabelTd>
-          <TotalBlankTd />{/* N° Venta */}
-          <TotalBlankTd />{/* Cliente */}
-          <TotalBlankTd />{/* Estado pago */}
+          <td colSpan={5} className="px-3 py-2 font-semibold text-zinc-200">NETO — {salesMovementCountsLabel(rows)}</td>
           <Td right mono>{totItems}</Td>
           <Td right mono>{c(totSubtotal)}</Td>
           <Td right mono>{c(totTax)}</Td>
@@ -257,27 +259,7 @@ function SalesLinesDetailTable({ rows }: { rows: SalesLineReportRow[] }) {
   const hasCost  = rows.some((r) => r.cost_estimate !== null);
   const colCount = 10 + (hasCost ? 2 : 0);
 
-  // Group consecutive rows by sale_code (query already orders by date, code, line_number)
-  type Group = {
-    saleCode:     string;
-    saleDate:     string;
-    customerName: string | null;
-    items:        SalesLineReportRow[];
-  };
-  const groups: Group[] = [];
-  for (const row of rows) {
-    const last = groups[groups.length - 1];
-    if (last && last.saleCode === row.sale_code) {
-      last.items.push(row);
-    } else {
-      groups.push({
-        saleCode:     row.sale_code,
-        saleDate:     row.sale_date,
-        customerName: row.customer_name,
-        items:        [row],
-      });
-    }
-  }
+  const groups = groupSalesReportLines(rows);
 
   const totQty      = rows.reduce((s, r) => s + r.quantity, 0);
   const totSubtotal = rows.reduce((s, r) => s + r.line_subtotal, 0);
@@ -308,11 +290,11 @@ function SalesLinesDetailTable({ rows }: { rows: SalesLineReportRow[] }) {
         {groups.map((group) => {
           const groupTotal = group.items.reduce((s, r) => s + r.line_total, 0);
           return (
-            <Fragment key={`grp-${group.saleCode}`}>
+            <Fragment key={group.movementId}>
               {/* Group header row */}
               <tr className="bg-zinc-800/70 border-t-2 border-zinc-600">
                 <td colSpan={colCount} className="px-3 py-1.5 text-xs font-semibold">
-                  <span className="text-zinc-400">{group.saleDate}</span>
+                  <span className="text-zinc-400">{salesMovementLabel(group.movementType)} · {group.saleDate}</span>
                   <span className="text-zinc-600 mx-1.5">·</span>
                   <span className="font-mono text-blue-400">{group.saleCode}</span>
                   <span className="text-zinc-600 mx-1.5">·</span>
@@ -353,11 +335,7 @@ function SalesLinesDetailTable({ rows }: { rows: SalesLineReportRow[] }) {
       </tbody>
       <tfoot>
         <TotalRow>
-          <TotalLabelTd>TOTAL — {groups.length} {groups.length === 1 ? "venta" : "ventas"}</TotalLabelTd>
-          <TotalBlankTd />{/* Código */}
-          <TotalBlankTd />{/* Producto / Servicio */}
-          <TotalBlankTd />{/* Categoría */}
-          <TotalBlankTd />{/* Línea */}
+          <td colSpan={5} className="px-3 py-2 font-semibold text-zinc-200">NETO — {salesMovementCountsLabel(rows)}</td>
           <Td right mono>{n(totQty, 0)}</Td>
           <TotalBlankTd />{/* P. Unit. */}
           <Td right mono>{c(totSubtotal)}</Td>
@@ -900,7 +878,7 @@ export function CommerceTabularReports({ filters }: Props) {
         if (!data)   return empty;
         return (
           <>
-            <RowCount count={data.length} label="venta" />
+            <p className="mb-3 text-xs text-zinc-500">{salesMovementCountsLabel(data)}</p>
             <SalesListTable rows={data} />
           </>
         );

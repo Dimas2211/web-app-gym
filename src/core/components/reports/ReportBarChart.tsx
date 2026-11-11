@@ -53,6 +53,7 @@ export interface StackedBarItem {
 
 interface VerticalBarChartProps {
   data: BarItem[];
+  allowNegative?: boolean;
   defaultColor?: string;
   /** Formatter for value labels on top of bars (keep short for narrow bars) */
   valueFormatter?: (v: number) => string;
@@ -62,6 +63,7 @@ interface VerticalBarChartProps {
 
 export function VerticalBarChart({
   data,
+  allowNegative = false,
   defaultColor = "#3b82f6",
   valueFormatter,
   title,
@@ -76,8 +78,12 @@ export function VerticalBarChart({
   const cH = H - pad.top - pad.bottom;
 
   const maxVal = Math.max(...data.map((d) => d.value), 1);
+  const minVal = allowNegative ? Math.min(0, ...data.map((d) => d.value)) : 0;
+  const span = maxVal - minVal;
+  const yAt = (value: number) => pad.top + cH - ((value - minVal) / span) * cH;
+  const zeroY = yAt(0);
   const nTicks = 4;
-  const yTicks = Array.from({ length: nTicks + 1 }, (_, i) => (maxVal / nTicks) * i);
+  const yTicks = Array.from({ length: nTicks + 1 }, (_, i) => minVal + (span / nTicks) * i);
 
   const slotW = cW / data.length;
   const barW = Math.max(Math.min(slotW * 0.72, 56), 4);
@@ -105,7 +111,7 @@ export function VerticalBarChart({
 
       {/* Y grid lines + tick labels */}
       {yTicks.map((tick) => {
-        const y = pad.top + cH - (tick / maxVal) * cH;
+        const y = yAt(tick);
         return (
           <g key={tick}>
             <line x1={pad.left} y1={y} x2={pad.left + cW} y2={y} stroke={C.grid} strokeWidth="0.5" />
@@ -125,10 +131,10 @@ export function VerticalBarChart({
 
       {/* Bars */}
       {data.map((item, i) => {
-        const barH = Math.max((item.value / maxVal) * cH, item.value > 0 ? 2 : 0);
+        const barH = Math.max((Math.abs(item.value) / span) * cH, item.value !== 0 ? 2 : 0);
         const x = pad.left + i * slotW + (slotW - barW) / 2;
-        const y = pad.top + cH - barH;
-        const c = item.color ?? defaultColor;
+        const y = item.value < 0 && allowNegative ? zeroY : zeroY - barH;
+        const c = item.value < 0 && allowNegative ? "#f43f5e" : item.color ?? defaultColor;
 
         const maxChars = Math.max(Math.floor(slotW / 5.8), 3);
         const catLabel =
@@ -139,10 +145,10 @@ export function VerticalBarChart({
         return (
           <g key={`vbar-${i}`}>
             <rect x={x} y={y} width={barW} height={barH} fill={c} rx="2" opacity="0.9" />
-            {showValLabels && item.value > 0 && (
+            {showValLabels && (item.value > 0 || (allowNegative && item.value < 0)) && (
               <text
                 x={x + barW / 2}
-                y={Math.max(y - 4, pad.top + 10)}
+                y={item.value < 0 ? Math.min(y + barH + 11, pad.top + cH + 10) : Math.max(y - 4, pad.top + 10)}
                 fill={C.value}
                 fontSize="9"
                 textAnchor="middle"
