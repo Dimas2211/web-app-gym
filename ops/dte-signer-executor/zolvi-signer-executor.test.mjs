@@ -184,6 +184,23 @@ describe("ejecutor — APPLY idempotente, conflictos y rollback", () => {
     await expect(ex(bare).apply({ spec: SPEC, runId: randomUUID(), apiKey: KEY() })).rejects.toMatchObject({ code: "PORT_CONFLICT" });
   });
 
+  it("APPLY usa apachectl -k graceful y nunca el restart de cPanel", async () => {
+    placeCert(vps);
+    const r = await ex(vps).apply({ spec: SPEC, runId: randomUUID(), apiKey: KEY() });
+    expect(r.ok).toBe(true);
+    expect(vps.state.calls).toContainEqual([BIN.apachectl, "-k", "graceful"]);
+    expect(vps.state.calls.some((c) => c[0].includes("restartsrv_httpd"))).toBe(false);
+    expect(vps.state.calls.filter((c) => c[0] === BIN.apachectl && c.includes("graceful"))).toHaveLength(1);
+  });
+
+  it("fallo de sintaxis no envía señal graceful ni reinicia el Apache compartido", async () => {
+    placeCert(vps);
+    vps.state.apacheTestFails = true;
+    const r = await ex(vps).apply({ spec: SPEC, runId: randomUUID(), apiKey: KEY() });
+    expect(r.code).toBe("APACHE_FAILED");
+    expect(vps.state.calls.some((c) => c[0] === BIN.apachectl && c.includes("graceful"))).toBe(false);
+  });
+
   it("Apache inválido -> revierte el include y devuelve APACHE_FAILED", async () => {
     placeCert(vps);
     vps.state.apacheTestFails = true;
