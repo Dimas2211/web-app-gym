@@ -7,7 +7,8 @@ import {
   createExecutor, createExecutorHandler, createRequestVerifier, signExecutorRequest, BIN,
 } from "./zolvi-signer-executor.mjs";
 import { createFileNonceStore } from "./lib/executor-auth.mjs";
-import { HTTPD_CONF } from "./lib/apache-ops.mjs";
+import { HTTPD_CONF, HELPER_RESULT_DIR } from "./lib/apache-ops.mjs";
+import { runHelperOp } from "./zolvi-apache-helper.mjs";
 import {
   validateSignerSpec, deriveResourceNames, renderCompose, renderVhostInclude, renderApiKeyDefine,
   allocatePort, validatePort, RESERVED_PORTS,
@@ -40,12 +41,55 @@ function fakeVps({ containers = [], listening = [], apacheTestFails = false, htt
     unlinkSync: (p) => { files.delete(p); state.onUnlink?.(p, files); },
     renameSync: (a, b) => { files.set(b, files.get(a)); files.delete(a); state.renames = [...(state.renames ?? []), b]; },
     statSync: (p) => { if (!files.has(p)) throw Object.assign(new Error("ENOENT"), { code: "ENOENT" }); return { mode: 0o100644 }; },
+    lstatSync: (p) => {
+      if (dirs.has(p)) return { uid: 0, mode: 0o700, size: 0, isDirectory: () => true, isFile: () => false };
+      if (files.has(p)) return { uid: 0, mode: 0o600, size: Buffer.byteLength(files.get(p)), isDirectory: () => false, isFile: () => true };
+      throw Object.assign(new Error("ENOENT"), { code: "ENOENT" });
+    },
     readdirSync: (d) => [...files.keys()].filter((f) => f.slice(0, f.lastIndexOf("/")) === d).map((f) => f.slice(f.lastIndexOf("/") + 1)),
   };
+
+  // systemd simulado: `systemctl start zolvi-apache-helper@<op>` ejecuta el script REAL
+  // del helper FUERA del sandbox (hostRun con sandboxed=false) con un InvocationID nuevo.
+  const units = new Map();
+  state.helperCalls = [];
+  const hostRun = async (cmd, args) => { state.helperCalls.push([cmd, ...args]); return host(cmd, args, { sandboxed: false }); };
+  async function systemd(args) {
+    const unit = args.at(-1);
+    const m = /^zolvi-apache-helper@(.*)\.service$/.exec(unit);
+    const u = units.get(unit) ?? { inv: "", status: "0", result: "success" };
+    if (args[0] === "show") {
+      const load = m && state.helperInstalled !== false ? "loaded" : "not-found";
+      return { code: 0, stdout: `LoadState=${load}\nInvocationID=${u.inv}\nExecMainStatus=${u.status}\nResult=${u.result}\n`, stderr: "" };
+    }
+    if (args[0] === "start" && m) {
+      const inv = randomBytes(16).toString("hex");
+      const out = await runHelperOp(m[1], { run: hostRun, fs, env: { INVOCATION_ID: inv }, now: () => new Date("2026-11-10T00:00:01Z") });
+      units.set(unit, { inv, status: String(out.exitCode), result: out.exitCode === 0 ? "success" : "exit-code" });
+      return { code: out.exitCode === 0 ? 0 : 1, stdout: "", stderr: out.exitCode === 0 ? "" : `Job for ${unit} failed.` };
+    }
+    return { code: 1, stdout: "", stderr: "operación systemctl no simulada" };
+  }
+
+  // Proceso del ejecutor: todo lo que corre aquí está dentro del sandbox.
   const run = async (cmd, args) => {
     state.calls.push([cmd, ...args]);
+    if (cmd === BIN.systemctl) return systemd(args);
+    return host(cmd, args, { sandboxed: true });
+  };
+
+  const host = async (cmd, args, { sandboxed }) => {
     if (cmd === BIN.rebuild) {
       state.rebuilds += 1;
+      // Causa confirmada en el VPS: dentro del sandbox, cPanel no puede crear el lock de Cloudflare
+      // en /etc/apache2/conf.d/includes ni sincronizar /home/<usuario>/.htpasswds.
+      if (sandboxed && state.sandboxBlocksRebuild) {
+        return { code: 255, stdout: "", durationMs: 2100, stderr: [
+          "Cpanel::Exception::IO::FileCreateError/(XID 9k2m) The system failed to create the file “/etc/apache2/conf.d/includes/cloudflare.conf.lock” because of an error: Read-only file system",
+          "  at Cpanel::Template::Plugin::ApacheConfig::generate_cloudflare_config",
+          "Cpanel::FileProtect::Sync::sync_user_homedir: /home/getzolvi/.htpasswds: Permission denied",
+        ].join("\n") };
+      }
       state.onRebuild?.(files);
       const f = state.rebuildFailure;
       if (f && (f.times === undefined || state.rebuilds <= f.times)) {
@@ -600,6 +644,115 @@ describe("Apache — diagnóstico de rebuildhttpdconf y recuperación sin segund
     vps.state.apacheTestFailsAlways = true;
     const v = await ex(vps).verify({ spec: SPEC });
     expect(v.checks.find((c) => c.code === "APACHE_SYNTAX")).toMatchObject({ status: "failed", detail: expect.stringContaining("CONFIG_ERROR") });
+  });
+});
+
+// ── Causa raíz confirmada y recuperación de REC TEST con el helper ──
+describe("REC TEST — causa raíz confirmada (sandbox) y recuperación vía helper", () => {
+  const REC = { slug: "rechightraining", environment: "TEST", hostname: "firmador-rec-test.getzolvi.com", port: 8120, signerNit: "06140000000000", cpanelUser: "getzolvi" };
+  const n = deriveResourceNames(REC);
+  const existing = [
+    { name: "dte-firmador-trustme-prod", ports: "127.0.0.1:8113->8113/tcp" },
+    { name: "dte-firmador-trustme-test", ports: "127.0.0.1:8114->8113/tcp" },
+    { name: "dte-firmador-metatraining-test", ports: "127.0.0.1:8115->8113/tcp" },
+  ];
+  const at = (mode) => (vps) => createExecutor({ run: vps.run, fs: vps.fs, now: () => new Date("2026-11-10T00:00:00Z"), httpProbe: async () => ({ ok: true, status: 200 }), apacheMode: mode, stateDir: "/var/lib/zolvi-signer-executor" });
+
+  /** Estado real tras el primer APPLY de REC: todo creado salvo el include HTTPS. */
+  function recVps() {
+    const vps = fakeVps({ containers: existing, listening: [8113, 8114, 8115] });
+    const firstRun = randomUUID();
+    vps.dirs.add(n.dir); vps.dirs.add(n.certDir);
+    vps.files.set(n.certFile, "<certificado REC>");
+    vps.files.set(n.apiKeyFile, renderApiKeyDefine(REC, KEY()));
+    vps.files.set(n.composeFile, renderCompose(REC));
+    vps.files.set(n.manifestFile, JSON.stringify({ id: n.id, templateVersion: "zolvi-signer-v1", resources: { DIR: { createdBy: firstRun }, API_KEY: { createdBy: firstRun }, COMPOSE: { createdBy: firstRun }, CONTAINER: { createdBy: firstRun } } }));
+    vps.state.containers.push({ name: n.containerName, ports: "127.0.0.1:8120->8113/tcp", labels: `zolvi.managed=true,zolvi.signer.id=${n.id},zolvi.template.version=zolvi-signer-v1` });
+    vps.state.listening.push(8120);
+    vps.state.sandboxBlocksRebuild = true; // el VPS real
+    const photo = () => ({
+      key: vps.files.get(n.apiKeyFile), cert: vps.files.get(n.certFile), compose: vps.files.get(n.composeFile),
+      containers: JSON.stringify(vps.state.containers), listening: JSON.stringify([...vps.state.listening].sort()),
+    });
+    return { vps, firstRun, photo };
+  }
+
+  it("modo direct (el de producción hoy) reproduce el incidente: PERMISSION_DENIED con la ruta del lock de Cloudflare", async () => {
+    const { vps } = recVps();
+    const r = await at("direct")(vps).apply({ spec: REC, runId: randomUUID() });
+    expect(r.code).toBe("APACHE_FAILED"); // ahora con recuperación correcta (antes: APACHE_RECOVERY_FAILED)
+    const d = r.steps.find((s) => s.op === "APACHE_RELOAD").diagnostic;
+    expect(d).toMatchObject({ kind: "PERMISSION_DENIED", exitCode: 255, httpdConfChanged: false });
+    expect(d.stderr).toContain("/etc/apache2/conf.d/includes/cloudflare.conf.lock");
+    expect(d.stderr).toContain("/home/getzolvi/.htpasswds");
+    expect(vps.files.has(n.vhostIncludePath)).toBe(false);
+  });
+
+  it("modo helper: completa SOLO el include y llega a OK; certificado, API Key, contenedor y puertos intactos", async () => {
+    const { vps, firstRun, photo } = recVps();
+    const before = photo();
+    const r = await at("helper")(vps).apply({ spec: REC, runId: randomUUID() }); // sin apiKey: nunca se genera una nueva
+    expect(r.ok).toBe(true);
+    expect(Object.fromEntries(r.steps.map((s) => [s.op, s.status]))).toMatchObject({
+      DIR: "UNCHANGED", CERT_DIR: "UNCHANGED", API_KEY: "KEPT", CERT: "PRESENT", COMPOSE: "UNCHANGED", CONTAINER: "ENSURED", VHOST: "CREATED", APACHE_RELOAD: "OK",
+    });
+    expect(r.steps.find((s) => s.op === "APACHE_RELOAD").detail).toBe("backend helper");
+    expect(photo()).toEqual(before); // API Key, certificado, compose, contenedores (TrustMe, MetaTraining, REC) y puertos
+    expect(r.observed.container).toMatchObject({ name: n.containerName, managed: true, boundToExpectedPort: true, loopbackOnly: true });
+    expect(vps.files.get(HTTPD_CONF)).toContain(n.vhostIncludePath);
+    const manifest = JSON.parse(vps.files.get(n.manifestFile));
+    expect(manifest.resources).toMatchObject({ API_KEY: { createdBy: firstRun }, CONTAINER: { createdBy: firstRun }, COMPOSE: { createdBy: firstRun } });
+  });
+
+  it("modo helper: el proceso del ejecutor NUNCA ejecuta cPanel/apachectl; solo arranca las 3 unidades fijas", async () => {
+    const { vps } = recVps();
+    await at("helper")(vps).apply({ spec: REC, runId: randomUUID() });
+    expect(vps.state.calls.some((c) => c[0] === BIN.rebuild || c[0] === BIN.apachectl)).toBe(false);
+    const started = vps.state.calls.filter((c) => c[0] === BIN.systemctl && c[1] === "start").map((c) => c[2]);
+    expect(started).toEqual(["zolvi-apache-helper@rebuild.service", "zolvi-apache-helper@configtest.service", "zolvi-apache-helper@graceful.service"]);
+    expect(vps.state.calls.filter((c) => c[0] === BIN.systemctl).every((c) => ["start", "show"].includes(c[1]))).toBe(true);
+    // Fuera del sandbox el helper ejecutó exactamente los comandos fijos.
+    expect(vps.state.helperCalls).toEqual([[BIN.rebuild], [BIN.apachectl, "-t"], [BIN.apachectl, "-k", "graceful"]]);
+    // Docker: solo lectura y `compose up -d` idempotente; nada de down/rm/run/create/restart.
+    const docker = vps.state.calls.filter((c) => c[0] === BIN.docker).map((c) => c.slice(1).join(" "));
+    expect(docker.every((c) => c.startsWith("ps ") || /^compose -f \S+ -p zolvi-signer-rechightraining-test up -d$/.test(c))).toBe(true);
+    expect(JSON.parse(vps.files.get(`${HELPER_RESULT_DIR}/graceful.json`))).toMatchObject({ op: "graceful", exitCode: 0 });
+  });
+
+  it("modo helper + re-APPLY: idempotente, sin rebuild ni graceful; VERIFY completo", async () => {
+    const { vps } = recVps();
+    expect((await at("helper")(vps).apply({ spec: REC, runId: randomUUID() })).ok).toBe(true);
+    const helperBefore = vps.state.helperCalls.length;
+    const again = await at("helper")(vps).apply({ spec: REC, runId: randomUUID() });
+    expect(again.steps.find((s) => s.op === "VHOST").status).toBe("UNCHANGED");
+    expect(vps.state.helperCalls.length).toBe(helperBefore);
+    const v = await at("helper")(vps).verify({ spec: REC });
+    expect(v.checks.filter((c) => c.status !== "ok")).toEqual([]);
+  });
+
+  it("ROLLBACK del APPLY de recuperación retira SOLO el include; API Key, certificado y contenedor del primer APPLY quedan", async () => {
+    const { vps, photo } = recVps();
+    const before = photo();
+    const runId = randomUUID();
+    expect((await at("helper")(vps).apply({ spec: REC, runId })).ok).toBe(true);
+    const rb = await at("helper")(vps).rollback({ spec: REC, runId });
+    expect(rb.ok).toBe(true);
+    expect(rb.steps.map((s) => `${s.op}:${s.status}`)).toEqual(["VHOST:REMOVED", "APACHE_RELOAD:OK", "CERT:UNTOUCHED"]);
+    expect(vps.files.has(n.vhostIncludePath)).toBe(false);
+    expect(photo()).toEqual(before);
+    expect(vps.files.get(HTTPD_CONF)).not.toContain(n.vhostIncludePath);
+  });
+
+  it("helper no instalado: APPLY falla sin tocar Apache y revierte el include (HELPER_UNAVAILABLE)", async () => {
+    const { vps, photo } = recVps();
+    vps.state.helperInstalled = false;
+    const before = photo();
+    const r = await at("helper")(vps).apply({ spec: REC, runId: randomUUID() });
+    expect(r.ok).toBe(false);
+    expect(r.steps.find((s) => s.op === "APACHE_RELOAD").diagnostic.kind).toBe("HELPER_UNAVAILABLE");
+    expect(vps.files.has(n.vhostIncludePath)).toBe(false);
+    expect(vps.state.helperCalls).toEqual([]);
+    expect(photo()).toEqual(before);
   });
 });
 
