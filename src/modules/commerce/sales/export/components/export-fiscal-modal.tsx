@@ -70,7 +70,10 @@ export function ExportFiscalModal({ data, onChange, onClose, catalogCAT027, cata
             <select
               className={inputCls}
               value={data.itemTypeExport}
-              onChange={(e) => onChange({ itemTypeExport: Number(e.target.value) as 1 | 2 | 3 })}
+              onChange={(e) => {
+                const itemTypeExport = Number(e.target.value) as 1 | 2 | 3;
+                onChange({ itemTypeExport, ...(itemTypeExport === 2 ? { incotermCode: "", incotermDesc: "" } : {}) });
+              }}
             >
               {FEX_ITEM_TYPE_EXPORT.map((t) => <option key={t.code} value={t.code}>{t.label}</option>)}
             </select>
@@ -101,7 +104,10 @@ export function ExportFiscalModal({ data, onChange, onClose, catalogCAT027, cata
             </>
           )}
 
-          <div className={data.itemTypeExport !== 2 ? "" : "col-span-2"}>
+          {data.itemTypeExport === 2 ? (
+            <p className="col-span-2 text-xs text-zinc-400">INCOTERMS no aplica a exportación de servicios.</p>
+          ) : (
+          <div>
             <label className={labelCls}>INCOTERM (CAT-031)</label>
             <select
               className={inputCls}
@@ -111,9 +117,12 @@ export function ExportFiscalModal({ data, onChange, onClose, catalogCAT027, cata
                 onChange({ incotermCode: e.target.value, incotermDesc: inc?.item_label ?? "" });
               }}
             >
+              <option value="">Seleccione un INCOTERM</option>
               {catalogCAT031.map((i) => <option key={i.item_code} value={i.item_code}>{i.item_label}</option>)}
             </select>
           </div>
+
+          )}
 
           <div>
             <label className={labelCls}>Seguro (USD)</label>
