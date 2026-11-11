@@ -158,20 +158,47 @@ proceso expuesto a la red, el ejecutor (`ZOLVI_SIGNER_APACHE_MODE=helper`) pide 
 | `zolvi-apache-helper@configtest.service` | `/usr/sbin/apachectl -t` |
 | `zolvi-apache-helper@graceful.service` | `/usr/sbin/apachectl -k graceful` |
 
-Cualquier otra instancia sale con 64 sin ejecutar nada. No hay restart en ningún camino. El
-resultado saneado (sin PEM, claves ni hex largos) queda en `/run/zolvi-apache-helper/<op>.json`
-con el `InvocationID` de systemd; el ejecutor solo acepta el de la invocación que acaba de lanzar.
+Cualquier otra instancia sale con 64 sin ejecutar nada (comparación exacta: `restart`, `Rebuild`,
+`rebuild;id`, escapes `\x2d`…). Fuera de systemd (sin `INVOCATION_ID` válido) sale con 65, y si
+`/run/zolvi-apache-helper` no es un directorio real de root sin escritura de grupo/otros, con 66.
+No hay restart en ningún camino. Solo root puede arrancar la unidad; no tiene `[Install]`, socket ni
+timer. La unidad añade `NoNewPrivileges` y protecciones de kernel/reloj/hostname/namespaces; NO
+añade `ProtectSystem`, `PrivateTmp` ni recorte de capabilities porque eso reproduciría el fallo
+de cPanel (justificación línea a línea en la propia unidad).
+
+Integridad del resultado (`/run/zolvi-apache-helper/<op>.json`, 0600, escrito con `wx` + rename): el
+ejecutor lo acepta solo si (1) la unidad está cargada, (2) el `InvocationID` posterior al `start` es
+nuevo respecto al anterior y coincide con el del archivo —un resultado viejo nunca se reutiliza, aunque
+la unidad no llegue a arrancar—, (3) archivo y directorio son de root, regulares, sin escritura de
+grupo/otros y ≤ 64 KiB, con esquema estricto, (4) `startedAt` no es anterior a la llamada, y (5) el
+resultado coincide con `ExecMainStatus`/`Result` de systemd (si no: `HELPER_RESULT_INCONSISTENT`).
+Las llamadas del ejecutor al helper se serializan.
 
 Cada fallo de Apache devuelve `diagnostic` = `{ op, phase, kind, exitCode, signal, durationMs,
 stderr, stdout, backend, httpdConfChanged }`, con `kind` ∈ `SPAWN_FAILED | TIMEOUT |
 OUTPUT_OVERFLOW | PERMISSION_DENIED | CONFIG_ERROR | SIGNALED | NONZERO_EXIT |
 HELPER_UNAVAILABLE | HELPER_RESULT_MISSING`, y `message` resume la causa para la bitácora.
 
-Recuperación (APPLY): antes del rebuild se copia `httpd.conf` a
-`/var/lib/zolvi-signer-executor/httpd.conf.pre-<runId>`. Si falla: se retira el include y
-- si `httpd.conf` no cambió → solo `apachectl -t` (no hay segundo rebuild);
-- si cambió → se restaura la copia byte a byte y `apachectl -t`;
+Recuperación (APPLY): inmediatamente antes del rebuild se copia `httpd.conf` a
+`/var/lib/zolvi-signer-executor/httpd.conf.pre-<runId>`. Si falla, se retira el include y se compara
+`httpd.conf` (por líneas) con la copia:
+- sin cambios → solo `apachectl -t` (no hay segundo rebuild);
+- cambios que NO mencionan el directorio de nuestro include → son de otro (cPanel, AutoSSL,
+  administrador): no se escribe nada;
+- solo cambios de nuestro include → restauración compare-and-swap: únicamente si no existe
+  `httpd.conf.lock` de cPanel y el archivo sigue siendo exactamente el observado al fallar (se
+  compara antes de escribir el temporal y otra vez antes del `rename` atómico, y se verifica después);
+- cambios propios y ajenos mezclados, lock activo o cambio durante la restauración →
+  `CONCURRENT_CHANGE`: no se escribe, `APACHE_RECOVERY_FAILED` con la ruta de la copia previa para
+  intervención manual. Ventana residual aceptada: el lapso entre la última comparación y `rename(2)`;
+  cPanel también escribe con rename, así que nunca queda un archivo mezclado;
 - graceful de recuperación solo si Apache llegó a recibir la señal.
+
+El diagnóstico (`diagnostics/apache-rebuild-readonly-diagnostic.sh`) no ejecuta rebuild, apachectl ni
+graceful, no escribe archivos y pasa toda su salida por `lib/sanitize-cli.mjs` (falla cerrado si no
+puede sanear). Su única acción con efecto en systemd es una unidad transitoria de `systemd-run`
+(definición temporal en `/run/systemd/transient/`, `/tmp` privado y entrada de journal, eliminados
+con `--collect`), que solo hace `access(2)`; se omite con `SKIP_TRANSIENT=1`.
 
 ROLLBACK con fallo de Apache se detiene sin borrar contenedor ni API Key y deja el include
 como estaba, para no dejar `httpd.conf` apuntando a archivos ausentes.
@@ -203,7 +230,7 @@ systemd-analyze verify systemd/zolvi-signer-executor.service 'systemd/zolvi-apac
 
 # 3. Instalación (sin reiniciar Apache)
 install -m 0640 zolvi-signer-executor.mjs zolvi-apache-helper.mjs /opt/zolvi-signer-executor/
-install -m 0640 lib/apache-ops.mjs lib/executor-auth.mjs lib/signer-core.mjs /opt/zolvi-signer-executor/lib/
+install -m 0640 lib/apache-ops.mjs lib/sanitize-cli.mjs lib/executor-auth.mjs lib/signer-core.mjs /opt/zolvi-signer-executor/lib/
 install -m 0644 systemd/zolvi-signer-executor.service 'systemd/zolvi-apache-helper@.service' /etc/systemd/system/
 systemctl daemon-reload
 systemctl restart zolvi-signer-executor        # solo el ejecutor; Apache y contenedores no se tocan
