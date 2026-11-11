@@ -13,8 +13,13 @@
 //     carpeta, include Apache, variable Define);
 //   - plantillas versionadas Docker Compose + include Apache/cPanel.
 //
-// Cambiar una plantilla exige subir TEMPLATE_VERSION: el ejecutor marca
-// cada recurso con la versión y VERIFY detecta drift.
+// El ejecutor marca cada recurso con TEMPLATE_VERSION, pero VERIFY detecta
+// drift por igualdad EXACTA de contenido (COMPOSE/VHOST_TEMPLATE_CURRENT),
+// no por la versión. La versión es compartida por compose, include y label
+// del contenedor: subirla invalida los tres y obliga a APPLY (reescribe el
+// compose, recrea el contenedor y recarga Apache). Subirla solo cuando un
+// cambio deba forzar reaplicación; no para alinear la plantilla con una
+// corrección ya aplicada en el VPS (ErrorDocument 403 de REC TEST, 2026-11-11).
 // ─────────────────────────────────────────────────────────────────
 
 export const TEMPLATE_VERSION = "zolvi-signer-v1";
@@ -185,8 +190,15 @@ export function renderCompose(spec) {
  * Include Apache para el vhost SSL del subdominio (cPanel userdata).
  * - Exige X-DTE-Signer-Key == valor Define (archivo 0600 separado).
  * - Mantiene /.well-known/ abierto para AutoSSL.
- * - Sin ErrorDocument/RewriteRule: evita el bucle AH00124 observado en
- *   el incidente MetaTraining.
+ * - Sin RewriteRule ni ErrorDocument hacia una URL/ruta local: evita el
+ *   bucle AH00124 observado en el incidente MetaTraining.
+ * - `ErrorDocument 403 "Forbidden"` (texto literal, sin redirección
+ *   interna): sin él, el vhost hereda el `ErrorDocument 403 /403.shtml` de
+ *   cPanel; la redirección interna a /403.shtml cae en ProxyPass "/" y el
+ *   firmador responde 404 JSON (path="/403.shtml") en lugar de 403
+ *   (REC TEST, 2026-11-11). Un mensaje literal no genera subpetición, así
+ *   que no puede reintroducir AH00124. Va al final del include: coincide
+ *   byte a byte con la corrección aplicada en el VPS.
  */
 export function renderVhostInclude(spec) {
   assertValid(spec);
@@ -205,6 +217,7 @@ export function renderVhostInclude(spec) {
     `<Location "/.well-known/">`,
     `  Require all granted`,
     `</Location>`,
+    `ErrorDocument 403 "Forbidden"`,
     ``,
   ].join("\n");
 }

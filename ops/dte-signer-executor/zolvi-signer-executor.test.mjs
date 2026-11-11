@@ -7,6 +7,8 @@ import {
   createExecutor, createExecutorHandler, createRequestVerifier, signExecutorRequest, BIN,
 } from "./zolvi-signer-executor.mjs";
 import { createFileNonceStore } from "./lib/executor-auth.mjs";
+import { HTTPD_CONF, HELPER_RESULT_DIR } from "./lib/apache-ops.mjs";
+import { runHelperOp } from "./zolvi-apache-helper.mjs";
 import {
   validateSignerSpec, deriveResourceNames, renderCompose, renderVhostInclude, renderApiKeyDefine,
   allocatePort, validatePort, RESERVED_PORTS,
@@ -17,24 +19,102 @@ const SPEC_PROD = { ...SPEC, environment: "PRODUCTION", hostname: "firmador-clie
 const KEY = () => randomBytes(32).toString("hex");
 
 // ── Simulación de VPS ─────────────────────────────────────────────
-function fakeVps({ containers = [], listening = [], apacheTestFails = false } = {}) {
+// httpd.conf simulado: cPanel lo genera a partir de los includes userdata presentes.
+const renderHttpdConf = (files) => [
+  "# httpd.conf (cPanel)",
+  ...[...files.keys()].filter((p) => p.startsWith("/etc/apache2/conf.d/userdata/") && p.endsWith(".conf")).sort().map((p) => `Include "${p}"`),
+  "",
+].join("\n");
+
+function fakeVps({ containers = [], listening = [], apacheTestFails = false, httpdConf = true } = {}) {
   const files = new Map();
   const dirs = new Set(["/"]);
-  const state = { containers: [...containers], listening: [...listening], apacheTestFails, calls: [] };
+  // rebuildFailure: { code, stderr, stdout, timedOut, signal, spawnError, times } — falla las primeras `times` veces (∞ por defecto).
+  const state = { containers: [...containers], listening: [...listening], apacheTestFails, calls: [], rebuildFailure: null, gracefulFails: false, rebuilds: 0 };
+  if (httpdConf) files.set(HTTPD_CONF, renderHttpdConf(files));
   const fs = {
     readFileSync: (p) => { if (!files.has(p)) throw Object.assign(new Error("ENOENT"), { code: "ENOENT" }); return files.get(p); },
-    writeFileSync: (p, c) => { files.set(p, String(c)); },
-    existsSync: (p) => files.has(p) || dirs.has(p),
+    // Ganchos (state.onWrite/onUnlink/onRebuild/onConfigtest/onComposeUp) simulan a cPanel u otro administrador actuando en paralelo.
+    writeFileSync: (p, c) => { files.set(p, String(c)); state.onWrite?.(p, files); },
+    existsSync: (p) => { state.onExists?.(p, files); return files.has(p) || dirs.has(p); },
     mkdirSync: (p) => { dirs.add(p); },
-    unlinkSync: (p) => { files.delete(p); },
+    unlinkSync: (p) => { files.delete(p); state.onUnlink?.(p, files); },
+    renameSync: (a, b) => { files.set(b, files.get(a)); files.delete(a); state.renames = [...(state.renames ?? []), b]; },
+    statSync: (p) => { if (!files.has(p)) throw Object.assign(new Error("ENOENT"), { code: "ENOENT" }); return { mode: 0o100644 }; },
+    lstatSync: (p) => {
+      if (dirs.has(p)) return { uid: 0, mode: 0o700, size: 0, isDirectory: () => true, isFile: () => false };
+      if (files.has(p)) return { uid: 0, mode: 0o600, size: Buffer.byteLength(files.get(p)), isDirectory: () => false, isFile: () => true };
+      throw Object.assign(new Error("ENOENT"), { code: "ENOENT" });
+    },
     readdirSync: (d) => [...files.keys()].filter((f) => f.slice(0, f.lastIndexOf("/")) === d).map((f) => f.slice(f.lastIndexOf("/") + 1)),
   };
+
+  // systemd simulado: `systemctl start zolvi-apache-helper@<op>-<nonce>` ejecuta el script
+  // REAL del helper FUERA del sandbox (hostRun con sandboxed=false). Modela el GC real de
+  // systemd: al terminar, la instancia oneshot se descarga y `show` devuelve InvocationID
+  // vacío (lo que rompió el APPLY del 2026-11-10 con la correlación por InvocationID).
+  state.helperCalls = [];
+  state.helperResults = [];
+  const hostRun = async (cmd, args) => { state.helperCalls.push([cmd, ...args]); return host(cmd, args, { sandboxed: false }); };
+  async function systemd(args) {
+    const unit = args.at(-1);
+    const m = /^zolvi-apache-helper@(.*)\.service$/.exec(unit);
+    if (args[0] === "show") {
+      const load = m && state.helperInstalled !== false ? "loaded" : "not-found";
+      return { code: 0, stdout: `LoadState=${load}\nInvocationID=\nExecMainStatus=0\nResult=success\n`, stderr: "" };
+    }
+    if (args[0] === "start" && m) {
+      const inv = randomBytes(16).toString("hex");
+      const out = await runHelperOp(m[1], { run: hostRun, fs, env: { INVOCATION_ID: inv }, now: () => new Date() });
+      if (out.result) state.helperResults.push({ unit, ...out.result });
+      if (state.dropHelperResult?.(m[1])) for (const f of [...files.keys()]) if (f.startsWith(HELPER_RESULT_DIR)) files.delete(f);
+      return { code: out.exitCode === 0 ? 0 : 1, stdout: "", stderr: out.exitCode === 0 ? "" : `Job for ${unit} failed.` };
+    }
+    return { code: 1, stdout: "", stderr: "operación systemctl no simulada" };
+  }
+
+  // Proceso del ejecutor: todo lo que corre aquí está dentro del sandbox.
   const run = async (cmd, args) => {
     state.calls.push([cmd, ...args]);
+    if (cmd === BIN.systemctl) return systemd(args);
+    return host(cmd, args, { sandboxed: true });
+  };
+
+  const host = async (cmd, args, { sandboxed }) => {
+    if (cmd === BIN.rebuild) {
+      state.rebuilds += 1;
+      // Causa confirmada en el VPS: dentro del sandbox, cPanel no puede crear el lock de Cloudflare
+      // en /etc/apache2/conf.d/includes ni sincronizar /home/<usuario>/.htpasswds.
+      if (sandboxed && state.sandboxBlocksRebuild) {
+        return { code: 255, stdout: "", durationMs: 2100, stderr: [
+          "Cpanel::Exception::IO::FileCreateError/(XID 9k2m) The system failed to create the file “/etc/apache2/conf.d/includes/cloudflare.conf.lock” because of an error: Read-only file system",
+          "  at Cpanel::Template::Plugin::ApacheConfig::generate_cloudflare_config",
+          "Cpanel::FileProtect::Sync::sync_user_homedir: /home/getzolvi/.htpasswds: Permission denied",
+        ].join("\n") };
+      }
+      state.onRebuild?.(files);
+      const f = state.rebuildFailure;
+      if (f && (f.times === undefined || state.rebuilds <= f.times)) {
+        if (f.writesBeforeFail) files.set(HTTPD_CONF, renderHttpdConf(files));
+        state.afterRebuild?.(files);
+        return { code: f.code ?? 1, stdout: f.stdout ?? "", stderr: f.stderr ?? "", timedOut: !!f.timedOut, signal: f.signal ?? null, spawnError: f.spawnError ?? null, durationMs: f.durationMs ?? 1500 };
+      }
+      files.set(HTTPD_CONF, renderHttpdConf(files));
+      return { code: 0, stdout: "Built /etc/apache2/conf/httpd.conf OK", stderr: "" };
+    }
+    // gracefulFails: true = siempre; número = solo las primeras N señales.
+    if (cmd === BIN.apachectl && args[0] === "-k" && state.gracefulFails) {
+      state.graceful = (state.graceful ?? 0) + 1;
+      if (state.gracefulFails === true || state.graceful <= state.gracefulFails) {
+        return { code: 1, stdout: "", stderr: "httpd (pid 1234?) not running" };
+      }
+    }
     if (cmd === BIN.docker && args[0] === "ps") {
       return { code: 0, stdout: state.containers.map((c) => JSON.stringify({ Names: c.name, State: c.state ?? "running", Ports: c.ports ?? "", Labels: c.labels ?? "" })).join("\n"), stderr: "" };
     }
     if (cmd === BIN.ss) return { code: 0, stdout: state.listening.map((p) => `LISTEN 0 128 127.0.0.1:${p} 0.0.0.0:*`).join("\n"), stderr: "" };
+    if (cmd === BIN.docker && args[0] === "compose" && args.at(-2) === "up") state.onComposeUp?.(files);
+    if (cmd === BIN.apachectl && args[0] === "-t") state.onConfigtest?.(files);
     if (cmd === BIN.docker && args[0] === "compose" && args.at(-2) === "up") {
       const project = args[args.indexOf("-p") + 1];
       const id = project.replace("zolvi-signer-", "");
@@ -49,6 +129,10 @@ function fakeVps({ containers = [], listening = [], apacheTestFails = false } = 
       const id = args[args.indexOf("-p") + 1].replace("zolvi-signer-", "");
       state.containers = state.containers.filter((c) => c.name !== `dte-firmador-${id}`);
       return { code: 0, stdout: "", stderr: "" };
+    }
+    if (cmd === BIN.apachectl && args[0] === "-t" && state.strictIncludes) {
+      const missing = [...String(files.get(HTTPD_CONF) ?? "").matchAll(/Include "([^"]+)"/g)].map((m) => m[1]).filter((f) => !files.has(f));
+      if (missing.length) return { code: 1, stdout: "", stderr: `AH00526: Syntax error: Include ${missing[0]}: No such file or directory` };
     }
     if (cmd === BIN.apachectl) {
       // El fallo sintáctico simulado nace del include NUEVO: al retirarlo,
@@ -68,7 +152,7 @@ function placeCert(vps, spec = SPEC) {
   vps.files.set(n.certFile, "<certificado de prueba>");
 }
 
-const ex = (vps) => createExecutor({ run: vps.run, fs: vps.fs, now: () => new Date("2026-11-10T00:00:00Z"), httpProbe: async () => ({ ok: true, status: 200 }) });
+const ex = (vps) => createExecutor({ run: vps.run, fs: vps.fs, now: () => new Date("2026-11-10T00:00:00Z"), httpProbe: async () => ({ ok: true, status: 200 }), apacheMode: "direct", stateDir: "/var/lib/zolvi-signer-executor" });
 
 // ── signer-core ───────────────────────────────────────────────────
 describe("signer-core — validación, nombres y plantillas", () => {
@@ -101,12 +185,54 @@ describe("signer-core — validación, nombres y plantillas", () => {
     expect(c).not.toMatch(/0\.0\.0\.0/);
   });
 
-  it("include Apache: exige header, deja .well-known abierto, sin ErrorDocument (AH00124) y sin secreto inline", () => {
+  it("include Apache: exige header, deja .well-known abierto, sin RewriteRule ni ErrorDocument con redirección (AH00124) y sin secreto inline", () => {
     const v = renderVhostInclude(SPEC);
     expect(v).toContain("X-DTE-Signer-Key");
     expect(v).toContain('ProxyPass "/.well-known/" "!"');
-    expect(v).not.toMatch(/ErrorDocument|RewriteRule/);
+    expect(v).not.toMatch(/RewriteRule|RewriteEngine/);
+    // Único ErrorDocument permitido: 403 con texto literal (sin subpetición ni redirección).
+    expect(v.match(/^.*ErrorDocument.*$/gm)).toEqual(['ErrorDocument 403 "Forbidden"']);
+    expect(v).not.toMatch(/ErrorDocument\s+\d+\s+(\/|https?:)/);
     expect(v).not.toMatch(/[a-f0-9]{64}/);
+  });
+
+  // Corrección aplicada a mano en el VPS (REC TEST, 2026-11-11): el include heredaba
+  // `ErrorDocument 403 /403.shtml` de cPanel y la redirección interna llegaba al firmador
+  // por ProxyPass "/" (404 JSON path="/403.shtml"). Se añadió al FINAL del include la
+  // línea `ErrorDocument 403 "Forbidden"`. La plantilla debe coincidir byte a byte con
+  // ese archivo para que VHOST_TEMPLATE_CURRENT pase sin APPLY ni nueva recarga de Apache.
+  it("include corregido de REC TEST (plantilla v1 previa + ErrorDocument 403 al final) === plantilla actual", () => {
+    const REC = { slug: "rechightraining", environment: "TEST", hostname: "firmador-rec-test.getzolvi.com", port: 8120, signerNit: "06231903251119", cpanelUser: "getzolvi" };
+    const previousV1 = [
+      "# zolvi-signer-v1 — generado por Zolvi; no editar a mano (rechightraining-test)",
+      'Include "/opt/zolvi-signers/rechightraining-test/apikey.conf"',
+      "ProxyRequests Off",
+      "ProxyPreserveHost On",
+      'ProxyPass "/.well-known/" "!"',
+      'ProxyPass "/" "http://127.0.0.1:8120/" connectiontimeout=5 timeout=60 retry=0',
+      'ProxyPassReverse "/" "http://127.0.0.1:8120/"',
+      '<Location "/">',
+      "  Require expr \"%{HTTP:X-DTE-Signer-Key} == '${ZOLVI_SIGNER_KEY_RECHIGHTRAINING_TEST}'\"",
+      "</Location>",
+      '<Location "/.well-known/">',
+      "  Require all granted",
+      "</Location>",
+      "",
+    ].join("\n");
+    const onVps = `${previousV1}ErrorDocument 403 "Forbidden"\n`;
+    const v = renderVhostInclude(REC);
+    expect(v).toBe(onVps);
+    expect(v.endsWith('</Location>\nErrorDocument 403 "Forbidden"\n')).toBe(true);
+    expect(v).not.toContain("\r");
+    // La cabecera (versión) no cambia: compose y label del contenedor siguen vigentes.
+    expect(v.split("\n")[0]).toMatch(/^# zolvi-signer-v1 /);
+    expect(renderCompose(REC).split("\n")[0]).toMatch(/^# zolvi-signer-v1 /);
+    // Controles que la línea nueva no debe alterar: guard de API Key, proxy loopback, .well-known abierto.
+    expect(v).toContain("  Require expr \"%{HTTP:X-DTE-Signer-Key} == '${ZOLVI_SIGNER_KEY_RECHIGHTRAINING_TEST}'\"");
+    expect(v.match(/^ProxyPass(Reverse)? .*$/gm).filter((l) => l.includes("http")).every((l) => l.includes('"http://127.0.0.1:8120/"'))).toBe(true);
+    expect(v.indexOf('ProxyPass "/.well-known/" "!"')).toBeLessThan(v.indexOf('ProxyPass "/" '));
+    expect(v).toContain('<Location "/.well-known/">\n  Require all granted\n</Location>');
+    expect(v).not.toMatch(/ProxyRequests On|0\.0\.0\.0/);
   });
 
   it("Define de API Key solo acepta 64 hex (sin inyección de directivas)", () => {
@@ -249,6 +375,550 @@ describe("ejecutor — APPLY idempotente, conflictos y rollback", () => {
     await ex(vps).apply({ spec: SPEC, runId: randomUUID(), apiKey: KEY() });
     const v = await ex(vps).verify({ spec: SPEC });
     expect(v.checks.filter((c) => c.status !== "ok")).toEqual([]);
+  });
+});
+
+// ── Reconstrucción de Apache: diagnóstico y recuperación ───────────
+describe("Apache — diagnóstico de rebuildhttpdconf y recuperación sin segundo rebuild", () => {
+  const RO_STDERR = [
+    "info [rebuildhttpdconf] Rebuilding Apache configuration",
+    "Cpanel::Exception::IO::FileCreateError/(XID abc123) The system failed to create the file “/etc/userdatadomains.json.tmp” because of an error: Read-only file system",
+    "  at /usr/local/cpanel/Cpanel/Config/userdata/UpdateCache.pm line 210.",
+  ].join("\n");
+  // Otro cliente del Apache compartido (no Zolvi): nunca debe cambiar.
+  const FOREIGN = "/etc/apache2/conf.d/userdata/ssl/2_4/dhsoft/examenescpo.com.dhsoftware.app/custom.conf";
+  const FOREIGN_BODY = "# configuración del hospital\nProxyPass /api http://127.0.0.1:9000/\n";
+  const isGlobalRestart = (c) => c.some((a) => /restartsrv|^restart$|^stop$|^reload$/.test(String(a))) || (c.includes("-k") && !c.includes("graceful"));
+
+  let vps;
+  beforeEach(() => {
+    vps = fakeVps({ containers: [{ name: "dte-firmador-metatraining-test", ports: "127.0.0.1:8115->8113/tcp" }], listening: [8113, 8114, 8115], httpdConf: false });
+    vps.files.set(FOREIGN, FOREIGN_BODY);
+    vps.files.set(HTTPD_CONF, renderHttpdConf(vps.files));
+  });
+
+  it("1. reconstrucción exitosa: rebuild → -t → graceful, copia previa de httpd.conf guardada", async () => {
+    placeCert(vps);
+    const before = vps.files.get(HTTPD_CONF);
+    const runId = randomUUID();
+    const r = await ex(vps).apply({ spec: SPEC, runId, apiKey: KEY() });
+    expect(r.ok).toBe(true);
+    expect(r.steps.find((s) => s.op === "APACHE_RELOAD")).toMatchObject({ status: "OK", detail: "backend direct" });
+    expect(vps.files.get(HTTPD_CONF)).toContain(deriveResourceNames(SPEC).vhostIncludePath);
+    expect(vps.files.get(`/var/lib/zolvi-signer-executor/httpd.conf.pre-${runId}`)).toBe(before);
+    const apacheCalls = vps.state.calls.filter((c) => c[0] === BIN.rebuild || c[0] === BIN.apachectl);
+    expect(apacheCalls).toEqual([[BIN.rebuild], [BIN.apachectl, "-t"], [BIN.apachectl, "-k", "graceful"]]);
+  });
+
+  it("2. error de permisos (sandbox read-only): diagnóstico PERMISSION_DENIED con la ruta, sin segundo rebuild", async () => {
+    placeCert(vps);
+    const before = vps.files.get(HTTPD_CONF);
+    vps.state.rebuildFailure = { code: 255, stderr: RO_STDERR };
+    const r = await ex(vps).apply({ spec: SPEC, runId: randomUUID(), apiKey: KEY() });
+    expect(r).toMatchObject({ ok: false, code: "APACHE_FAILED" });
+    const failed = r.steps.find((s) => s.op === "APACHE_RELOAD");
+    expect(failed.diagnostic).toMatchObject({ op: "rebuild", phase: "rebuild", kind: "PERMISSION_DENIED", exitCode: 255, httpdConfChanged: false, backend: "direct" });
+    expect(failed.diagnostic.stderr).toContain("/etc/userdatadomains.json.tmp");
+    expect(failed.diagnostic.stderr).toContain("Read-only file system");
+    expect(r.message).toContain("PERMISSION_DENIED");
+    expect(r.message).not.toBe("rebuildhttpdconf falló.");
+    expect(vps.state.rebuilds).toBe(1);
+    expect(r.steps.find((s) => s.op === "APACHE_RECOVERY")).toMatchObject({ status: "OK" });
+    expect(r.steps.find((s) => s.op === "APACHE_RECOVERY").detail).toContain("sin cambios");
+    expect(vps.files.get(HTTPD_CONF)).toBe(before);
+    expect(vps.files.has(deriveResourceNames(SPEC).vhostIncludePath)).toBe(false);
+    expect(vps.state.calls.some((c) => c.includes("graceful"))).toBe(false);
+  });
+
+  it("3. error de sintaxis tras rebuild: CONFIG_ERROR y httpd.conf restaurado byte a byte sin reconstruir de nuevo", async () => {
+    placeCert(vps);
+    const before = vps.files.get(HTTPD_CONF);
+    vps.state.apacheTestFails = true;
+    const r = await ex(vps).apply({ spec: SPEC, runId: randomUUID(), apiKey: KEY() });
+    expect(r).toMatchObject({ ok: false, code: "APACHE_FAILED" });
+    expect(r.steps.find((s) => s.op === "APACHE_RELOAD").diagnostic).toMatchObject({ op: "configtest", phase: "syntax", kind: "CONFIG_ERROR", httpdConfChanged: true });
+    expect(vps.files.get(HTTPD_CONF)).toBe(before);
+    expect(vps.state.rebuilds).toBe(1);
+    expect(r.steps.find((s) => s.op === "APACHE_RECOVERY").detail).toContain("restaurado");
+    expect(vps.state.calls.some((c) => c.includes("graceful"))).toBe(false);
+  });
+
+  it("4. timeout del rebuild: diagnóstico TIMEOUT (no se confunde con error de configuración)", async () => {
+    placeCert(vps);
+    vps.state.rebuildFailure = { code: 1, timedOut: true, signal: "SIGTERM", stderr: "Syntax error parcial", durationMs: 90_000 };
+    const r = await ex(vps).apply({ spec: SPEC, runId: randomUUID(), apiKey: KEY() });
+    const d = r.steps.find((s) => s.op === "APACHE_RELOAD").diagnostic;
+    expect(d).toMatchObject({ kind: "TIMEOUT", signal: "SIGTERM", durationMs: 90_000 });
+    expect(r.message).toMatch(/TIMEOUT.*SIGTERM.*90s/);
+  });
+
+  it("4b. script ausente / no ejecutable: SPAWN_FAILED", async () => {
+    placeCert(vps);
+    vps.state.rebuildFailure = { code: 1, spawnError: "ENOENT" };
+    const r = await ex(vps).apply({ spec: SPEC, runId: randomUUID(), apiKey: KEY() });
+    expect(r.steps.find((s) => s.op === "APACHE_RELOAD").diagnostic).toMatchObject({ kind: "SPAWN_FAILED", spawnError: "ENOENT" });
+  });
+
+  it("5. recuperación exitosa tras fallo de la señal graceful: restaura, valida y re-señaliza (nunca restart)", async () => {
+    placeCert(vps);
+    const before = vps.files.get(HTTPD_CONF);
+    vps.state.gracefulFails = 1; // la primera señal falla; la de recuperación funciona
+    const r = await ex(vps).apply({ spec: SPEC, runId: randomUUID(), apiKey: KEY() });
+    expect(r).toMatchObject({ ok: false, code: "APACHE_FAILED" });
+    expect(r.steps.find((s) => s.op === "APACHE_RELOAD").diagnostic).toMatchObject({ phase: "signal", op: "graceful" });
+    expect(r.steps.find((s) => s.op === "APACHE_RECOVERY")).toMatchObject({ status: "OK", detail: expect.stringContaining("graceful de recuperación OK") });
+    expect(vps.files.get(HTTPD_CONF)).toBe(before);
+    expect(vps.files.has(deriveResourceNames(SPEC).vhostIncludePath)).toBe(false);
+    expect(vps.state.rebuilds).toBe(1);
+    expect(vps.state.calls.filter(isGlobalRestart)).toEqual([]);
+  });
+
+  it("5b. recuperación exitosa (rebuild intermitente que alcanzó a escribir httpd.conf)", async () => {
+    placeCert(vps);
+    const before = vps.files.get(HTTPD_CONF);
+    vps.state.rebuildFailure = { code: 1, stderr: "Error: unexpected failure", writesBeforeFail: true };
+    const r = await ex(vps).apply({ spec: SPEC, runId: randomUUID(), apiKey: KEY() });
+    expect(r).toMatchObject({ ok: false, code: "APACHE_FAILED" });
+    expect(r.steps.find((s) => s.op === "APACHE_RELOAD").diagnostic).toMatchObject({ kind: "NONZERO_EXIT", httpdConfChanged: true });
+    expect(vps.files.get(HTTPD_CONF)).toBe(before);
+    expect(vps.state.rebuilds).toBe(1);
+  });
+
+  it("6. recuperación fallida: APACHE_RECOVERY_FAILED con diagnóstico propio y ruta de la copia previa", async () => {
+    placeCert(vps);
+    vps.state.rebuildFailure = { code: 2, stderr: RO_STDERR };
+    vps.state.apacheTestFailsAlways = true;
+    const runId = randomUUID();
+    const r = await ex(vps).apply({ spec: SPEC, runId, apiKey: KEY() });
+    expect(r).toMatchObject({ ok: false, code: "APACHE_RECOVERY_FAILED" });
+    const rec = r.steps.find((s) => s.op === "APACHE_RECOVERY");
+    expect(rec.status).toBe("FAILED");
+    expect(rec.diagnostic).toMatchObject({ op: "configtest", kind: "CONFIG_ERROR" });
+    expect(rec.detail).toContain(`httpd.conf.pre-${runId}`);
+    expect(vps.state.calls.some((c) => c.includes("graceful"))).toBe(false);
+  });
+
+  it("7+8. APPLY parcial de REC (sin include): reutiliza API Key, certificado, compose y contenedor; solo crea el include", async () => {
+    // Estado real tras el primer APPLY de REC: todo creado salvo el include HTTPS.
+    const rec = { slug: "rechightraining", environment: "TEST", hostname: "firmador-rec-test.getzolvi.com", port: 8120, signerNit: "06140000000000", cpanelUser: "getzolvi" };
+    const n = deriveResourceNames(rec);
+    const firstRun = randomUUID();
+    const key = KEY();
+    vps.dirs.add(n.dir); vps.dirs.add(n.certDir);
+    vps.files.set(n.certFile, "<certificado REC>");
+    vps.files.set(n.apiKeyFile, renderApiKeyDefine(rec, key));
+    vps.files.set(n.composeFile, renderCompose(rec));
+    vps.files.set(n.manifestFile, JSON.stringify({ id: n.id, templateVersion: "zolvi-signer-v1", resources: { DIR: { createdBy: firstRun }, API_KEY: { createdBy: firstRun }, COMPOSE: { createdBy: firstRun }, CONTAINER: { createdBy: firstRun } } }));
+    vps.state.containers.push({ name: n.containerName, ports: "127.0.0.1:8120->8113/tcp", labels: `zolvi.managed=true,zolvi.signer.id=${n.id},zolvi.template.version=zolvi-signer-v1` });
+    vps.state.listening.push(8120);
+    const snapshot = { key: vps.files.get(n.apiKeyFile), cert: vps.files.get(n.certFile), compose: vps.files.get(n.composeFile) };
+
+    // a) intento que falla por permisos (como el 2026-11-10) → nada se pierde.
+    vps.state.rebuildFailure = { code: 255, stderr: RO_STDERR, times: 1 };
+    const failed = await ex(vps).apply({ spec: rec, runId: randomUUID() });
+    expect(failed.code).toBe("APACHE_FAILED");
+    expect(vps.files.has(n.vhostIncludePath)).toBe(false);
+
+    // b) reintento con el helper ya operativo → completa solo lo pendiente.
+    const r = await ex(vps).apply({ spec: rec, runId: randomUUID() }); // sin apiKey: no se genera ninguna
+    expect(r.ok).toBe(true);
+    const st = Object.fromEntries(r.steps.map((s) => [s.op, s.status]));
+    expect(st).toMatchObject({ DIR: "UNCHANGED", API_KEY: "KEPT", CERT: "PRESENT", COMPOSE: "UNCHANGED", CONTAINER: "ENSURED", VHOST: "CREATED", APACHE_RELOAD: "OK" });
+    expect(vps.files.get(n.apiKeyFile)).toBe(snapshot.key);
+    expect(vps.files.get(n.certFile)).toBe(snapshot.cert);
+    expect(vps.files.get(n.composeFile)).toBe(snapshot.compose);
+    expect(vps.state.containers.filter((c) => c.name === n.containerName)).toHaveLength(1);
+    expect(r.observed.container).toMatchObject({ managed: true, boundToExpectedPort: true });
+    const manifest = JSON.parse(vps.files.get(n.manifestFile));
+    expect(manifest.resources).toMatchObject({ API_KEY: { createdBy: firstRun }, CONTAINER: { createdBy: firstRun }, COMPOSE: { createdBy: firstRun } });
+    expect(manifest.resources.VHOST.createdBy).not.toBe(firstRun);
+    expect(JSON.stringify([failed, r])).not.toContain(key);
+
+    // c) re-APPLY: idempotente, sin tocar Apache.
+    const callsBefore = vps.state.calls.length;
+    const again = await ex(vps).apply({ spec: rec, runId: randomUUID() });
+    expect(again.steps.find((s) => s.op === "VHOST").status).toBe("UNCHANGED");
+    expect(vps.state.calls.slice(callsBefore).some((c) => c[0] === BIN.rebuild || c.includes("graceful"))).toBe(false);
+  });
+
+  it("9+10. ningún reinicio global y la configuración de otros clientes y firmadores protegidos no cambia", async () => {
+    placeCert(vps);
+    const scenarios = [
+      () => { vps.state.rebuildFailure = { code: 255, stderr: RO_STDERR }; },
+      () => { vps.state.rebuildFailure = null; vps.state.apacheTestFails = true; },
+      () => { vps.state.apacheTestFails = false; vps.state.gracefulFails = true; },
+      () => { vps.state.gracefulFails = false; },
+    ];
+    for (const setup of scenarios) {
+      setup();
+      await ex(vps).apply({ spec: SPEC, runId: randomUUID(), apiKey: KEY() });
+    }
+    expect(vps.files.get(FOREIGN)).toBe(FOREIGN_BODY);
+    expect(vps.files.get(HTTPD_CONF)).toContain(`Include "${FOREIGN}"`);
+    expect(vps.state.containers.some((c) => c.name === "dte-firmador-metatraining-test" && c.ports === "127.0.0.1:8115->8113/tcp")).toBe(true);
+    expect(vps.state.calls.filter(isGlobalRestart)).toEqual([]);
+    // Los únicos binarios invocados son los fijos (sin shell, sin rutas libres).
+    expect(new Set(vps.state.calls.map((c) => c[0]))).toEqual(new Set([BIN.docker, BIN.ss, BIN.rebuild, BIN.apachectl]));
+  });
+
+  it("ROLLBACK con rebuild fallido: conserva include, API Key y contenedor (nada queda referenciado y ausente)", async () => {
+    placeCert(vps);
+    const runId = randomUUID();
+    expect((await ex(vps).apply({ spec: SPEC, runId, apiKey: KEY() })).ok).toBe(true);
+    const n = deriveResourceNames(SPEC);
+    const include = vps.files.get(n.vhostIncludePath);
+    const httpd = vps.files.get(HTTPD_CONF);
+    vps.state.rebuildFailure = { code: 255, stderr: RO_STDERR };
+    const r = await ex(vps).rollback({ spec: SPEC, runId });
+    expect(r).toMatchObject({ ok: false, code: "APACHE_FAILED" });
+    expect(vps.files.get(n.vhostIncludePath)).toBe(include);
+    expect(vps.files.has(n.apiKeyFile)).toBe(true);
+    expect(vps.state.containers.some((c) => c.name === n.containerName)).toBe(true);
+    expect(vps.files.get(HTTPD_CONF)).toBe(httpd);
+    expect(JSON.parse(vps.files.get(n.manifestFile)).resources.VHOST).toMatchObject({ createdBy: runId });
+  });
+
+  // ── Cambios concurrentes en httpd.conf (cPanel / AutoSSL / otro administrador) ──
+  const FOREIGN_LINE = 'Include "/etc/apache2/conf.d/userdata/ssl/2_4/dhsoft/examenescpo.com.dhsoftware.app/autossl.conf"';
+  const addForeign = (files) => files.set(HTTPD_CONF, `${files.get(HTTPD_CONF)}${FOREIGN_LINE}\n`);
+  const HTTPD_LOCK = `${HTTPD_CONF}.lock`;
+
+  it("concurrencia A: rebuild escribe lo propio + otro proceso cambia otra cosa → NO restaura (CONCURRENT_CHANGE)", async () => {
+    placeCert(vps);
+    vps.state.rebuildFailure = { code: 1, stderr: "Error: unexpected failure", writesBeforeFail: true };
+    vps.state.afterRebuild = addForeign; // cambio ajeno en la misma ventana
+    const r = await ex(vps).apply({ spec: SPEC, runId: randomUUID(), apiKey: KEY() });
+    expect(r.code).toBe("APACHE_RECOVERY_FAILED");
+    const rec = r.steps.find((s) => s.op === "APACHE_RECOVERY");
+    expect(rec.diagnostic).toMatchObject({ kind: "CONCURRENT_CHANGE" });
+    expect(rec.detail).toMatch(/cambios propios y ajenos/);
+    expect(vps.files.get(HTTPD_CONF)).toContain(FOREIGN_LINE); // el trabajo ajeno sigue ahí
+    expect(vps.state.renames ?? []).not.toContain(HTTPD_CONF);
+    expect(vps.state.calls.some((c) => c.includes("graceful"))).toBe(false);
+  });
+
+  it("concurrencia B: el rebuild no escribió y otro proceso cambió httpd.conf sin tocarnos → no se escribe, recuperación OK", async () => {
+    placeCert(vps);
+    vps.state.rebuildFailure = { code: 255, stderr: RO_STDERR };
+    vps.state.onRebuild = addForeign;
+    const r = await ex(vps).apply({ spec: SPEC, runId: randomUUID(), apiKey: KEY() });
+    expect(r.code).toBe("APACHE_FAILED");
+    expect(r.steps.find((s) => s.op === "APACHE_RECOVERY").detail).toMatch(/otro proceso.*no se toca/);
+    expect(vps.files.get(HTTPD_CONF)).toContain(FOREIGN_LINE);
+    expect(vps.state.renames ?? []).not.toContain(HTTPD_CONF);
+  });
+
+  it("concurrencia C: lock de cPanel activo al restaurar → no escribe", async () => {
+    placeCert(vps);
+    vps.state.apacheTestFails = true;
+    vps.state.onConfigtest = (files) => files.set(HTTPD_LOCK, "12345");
+    const r = await ex(vps).apply({ spec: SPEC, runId: randomUUID(), apiKey: KEY() });
+    expect(r.code).toBe("APACHE_RECOVERY_FAILED");
+    expect(r.steps.find((s) => s.op === "APACHE_RECOVERY").detail).toMatch(/lock de cPanel/);
+    expect(vps.state.renames ?? []).not.toContain(HTTPD_CONF);
+  });
+
+  it("concurrencia D: httpd.conf cambia entre el fallo y la restauración → no escribe", async () => {
+    placeCert(vps);
+    vps.state.apacheTestFails = true;
+    const n = deriveResourceNames(SPEC);
+    // Justo antes de restaurar (comprobación del lock), otro proceso cambia httpd.conf.
+    let fired = false;
+    vps.state.onExists = (p, files) => { if (p === HTTPD_LOCK && !fired) { fired = true; addForeign(files); } };
+    const r = await ex(vps).apply({ spec: SPEC, runId: randomUUID(), apiKey: KEY() });
+    expect(r.code).toBe("APACHE_RECOVERY_FAILED");
+    expect(r.steps.find((s) => s.op === "APACHE_RECOVERY").detail).toMatch(/cambió después del fallo/);
+    expect(vps.files.get(HTTPD_CONF)).toContain(FOREIGN_LINE);
+    // httpd.conf sigue referenciando el include → se CONSERVA (nunca un Include roto).
+    expect(vps.files.has(n.vhostIncludePath)).toBe(true);
+    expect(r.steps.find((s) => s.op === "VHOST" && s.status === "KEPT")).toBeTruthy();
+  });
+
+  it("concurrencia E: carrera durante la escritura del temporal (compare-and-swap) → no renombra y borra el temporal", async () => {
+    placeCert(vps);
+    vps.state.apacheTestFails = true;
+    vps.state.onWrite = (p, files) => { if (p.endsWith(".zolvi-restore")) addForeign(files); };
+    const r = await ex(vps).apply({ spec: SPEC, runId: randomUUID(), apiKey: KEY() });
+    expect(r.code).toBe("APACHE_RECOVERY_FAILED");
+    expect(r.steps.find((s) => s.op === "APACHE_RECOVERY").detail).toMatch(/cambió durante la restauración/);
+    expect(vps.files.get(HTTPD_CONF)).toContain(FOREIGN_LINE);
+    expect(vps.files.has(`${HTTPD_CONF}.zolvi-restore`)).toBe(false);
+    expect(vps.state.renames ?? []).not.toContain(HTTPD_CONF);
+  });
+
+  it("concurrencia F: la copia se toma justo antes del rebuild (cambios ajenos previos no se revierten)", async () => {
+    placeCert(vps);
+    vps.state.onComposeUp = addForeign; // ocurre antes del paso Apache
+    vps.state.rebuildFailure = { code: 255, stderr: RO_STDERR };
+    const runId = randomUUID();
+    const r = await ex(vps).apply({ spec: SPEC, runId, apiKey: KEY() });
+    expect(r.code).toBe("APACHE_FAILED");
+    expect(vps.files.get(`/var/lib/zolvi-signer-executor/httpd.conf.pre-${runId}`)).toContain(FOREIGN_LINE);
+    expect(vps.files.get(HTTPD_CONF)).toContain(FOREIGN_LINE);
+  });
+
+  it("error de escritura al restaurar se informa como RESTORE_FAILED (no como concurrencia)", async () => {
+    placeCert(vps);
+    vps.state.apacheTestFails = true;
+    const orig = vps.fs.renameSync;
+    vps.fs.renameSync = (a, b) => { if (b === HTTPD_CONF) throw Object.assign(new Error("EROFS"), { code: "EROFS" }); return orig(a, b); };
+    const r = await ex(vps).apply({ spec: SPEC, runId: randomUUID(), apiKey: KEY() });
+    expect(r.code).toBe("APACHE_RECOVERY_FAILED");
+    expect(r.steps.find((s) => s.op === "APACHE_RECOVERY").diagnostic).toMatchObject({ kind: "RESTORE_FAILED", stderr: "error EROFS" });
+  });
+
+  it("restauración legítima (solo cambios propios) conserva el resultado exacto y no deja temporales", async () => {
+    placeCert(vps);
+    const before = vps.files.get(HTTPD_CONF);
+    vps.state.apacheTestFails = true;
+    const r = await ex(vps).apply({ spec: SPEC, runId: randomUUID(), apiKey: KEY() });
+    expect(r.code).toBe("APACHE_FAILED");
+    expect(vps.files.get(HTTPD_CONF)).toBe(before);
+    expect(vps.files.has(`${HTTPD_CONF}.zolvi-restore`)).toBe(false);
+  });
+
+  it("ROLLBACK con cambios ajenos concurrentes tampoco restaura httpd.conf", async () => {
+    placeCert(vps);
+    const runId = randomUUID();
+    expect((await ex(vps).apply({ spec: SPEC, runId, apiKey: KEY() })).ok).toBe(true);
+    vps.state.rebuildFailure = { code: 1, stderr: "Error", writesBeforeFail: true };
+    vps.state.afterRebuild = addForeign;
+    const r = await ex(vps).rollback({ spec: SPEC, runId });
+    expect(r.ok).toBe(false);
+    expect(r.steps.find((s) => s.op === "APACHE_RECOVERY").diagnostic).toMatchObject({ kind: "CONCURRENT_CHANGE" });
+    expect(vps.files.get(HTTPD_CONF)).toContain(FOREIGN_LINE);
+    expect(vps.files.has(deriveResourceNames(SPEC).vhostIncludePath)).toBe(true);
+  });
+
+  it("VERIFY informa el diagnóstico de apachectl -t", async () => {
+    placeCert(vps);
+    await ex(vps).apply({ spec: SPEC, runId: randomUUID(), apiKey: KEY() });
+    vps.state.apacheTestFailsAlways = true;
+    const v = await ex(vps).verify({ spec: SPEC });
+    expect(v.checks.find((c) => c.code === "APACHE_SYNTAX")).toMatchObject({ status: "failed", detail: expect.stringContaining("CONFIG_ERROR") });
+  });
+});
+
+// ── Causa raíz confirmada y recuperación de REC TEST con el helper ──
+describe("REC TEST — causa raíz confirmada (sandbox) y recuperación vía helper", () => {
+  const REC = { slug: "rechightraining", environment: "TEST", hostname: "firmador-rec-test.getzolvi.com", port: 8120, signerNit: "06140000000000", cpanelUser: "getzolvi" };
+  const n = deriveResourceNames(REC);
+  const existing = [
+    { name: "dte-firmador-trustme-prod", ports: "127.0.0.1:8113->8113/tcp" },
+    { name: "dte-firmador-trustme-test", ports: "127.0.0.1:8114->8113/tcp" },
+    { name: "dte-firmador-metatraining-test", ports: "127.0.0.1:8115->8113/tcp" },
+  ];
+  const at = (mode) => (vps) => createExecutor({ run: vps.run, fs: vps.fs, now: () => new Date("2026-11-10T00:00:00Z"), httpProbe: async () => ({ ok: true, status: 200 }), apacheMode: mode, stateDir: "/var/lib/zolvi-signer-executor" });
+
+  /** Estado real tras el primer APPLY de REC: todo creado salvo el include HTTPS. */
+  function recVps() {
+    const vps = fakeVps({ containers: existing, listening: [8113, 8114, 8115] });
+    const firstRun = randomUUID();
+    vps.dirs.add(n.dir); vps.dirs.add(n.certDir);
+    vps.files.set(n.certFile, "<certificado REC>");
+    vps.files.set(n.apiKeyFile, renderApiKeyDefine(REC, KEY()));
+    vps.files.set(n.composeFile, renderCompose(REC));
+    vps.files.set(n.manifestFile, JSON.stringify({ id: n.id, templateVersion: "zolvi-signer-v1", resources: { DIR: { createdBy: firstRun }, API_KEY: { createdBy: firstRun }, COMPOSE: { createdBy: firstRun }, CONTAINER: { createdBy: firstRun } } }));
+    vps.state.containers.push({ name: n.containerName, ports: "127.0.0.1:8120->8113/tcp", labels: `zolvi.managed=true,zolvi.signer.id=${n.id},zolvi.template.version=zolvi-signer-v1` });
+    vps.state.listening.push(8120);
+    vps.state.sandboxBlocksRebuild = true; // el VPS real
+    const photo = () => ({
+      key: vps.files.get(n.apiKeyFile), cert: vps.files.get(n.certFile), compose: vps.files.get(n.composeFile),
+      containers: JSON.stringify(vps.state.containers), listening: JSON.stringify([...vps.state.listening].sort()),
+    });
+    return { vps, firstRun, photo };
+  }
+
+  it("modo direct (el de producción hoy) reproduce el incidente: PERMISSION_DENIED con la ruta del lock de Cloudflare", async () => {
+    const { vps } = recVps();
+    const r = await at("direct")(vps).apply({ spec: REC, runId: randomUUID() });
+    expect(r.code).toBe("APACHE_FAILED"); // ahora con recuperación correcta (antes: APACHE_RECOVERY_FAILED)
+    const d = r.steps.find((s) => s.op === "APACHE_RELOAD").diagnostic;
+    expect(d).toMatchObject({ kind: "PERMISSION_DENIED", exitCode: 255, httpdConfChanged: false });
+    expect(d.stderr).toContain("/etc/apache2/conf.d/includes/cloudflare.conf.lock");
+    expect(d.stderr).toContain("/home/getzolvi/.htpasswds");
+    expect(vps.files.has(n.vhostIncludePath)).toBe(false);
+  });
+
+  it("modo helper: completa SOLO el include y llega a OK; certificado, API Key, contenedor y puertos intactos", async () => {
+    const { vps, firstRun, photo } = recVps();
+    const before = photo();
+    const r = await at("helper")(vps).apply({ spec: REC, runId: randomUUID() }); // sin apiKey: nunca se genera una nueva
+    expect(r.ok).toBe(true);
+    expect(Object.fromEntries(r.steps.map((s) => [s.op, s.status]))).toMatchObject({
+      DIR: "UNCHANGED", CERT_DIR: "UNCHANGED", API_KEY: "KEPT", CERT: "PRESENT", COMPOSE: "UNCHANGED", CONTAINER: "ENSURED", VHOST: "CREATED", APACHE_RELOAD: "OK",
+    });
+    expect(r.steps.find((s) => s.op === "APACHE_RELOAD").detail).toBe("backend helper");
+    expect(photo()).toEqual(before); // API Key, certificado, compose, contenedores (TrustMe, MetaTraining, REC) y puertos
+    expect(r.observed.container).toMatchObject({ name: n.containerName, managed: true, boundToExpectedPort: true, loopbackOnly: true });
+    expect(vps.files.get(HTTPD_CONF)).toContain(n.vhostIncludePath);
+    const manifest = JSON.parse(vps.files.get(n.manifestFile));
+    expect(manifest.resources).toMatchObject({ API_KEY: { createdBy: firstRun }, CONTAINER: { createdBy: firstRun }, COMPOSE: { createdBy: firstRun } });
+  });
+
+  it("modo helper: el proceso del ejecutor NUNCA ejecuta cPanel/apachectl; solo arranca las 3 unidades fijas", async () => {
+    const { vps } = recVps();
+    await at("helper")(vps).apply({ spec: REC, runId: randomUUID() });
+    expect(vps.state.calls.some((c) => c[0] === BIN.rebuild || c[0] === BIN.apachectl)).toBe(false);
+    const started = vps.state.calls.filter((c) => c[0] === BIN.systemctl && c[1] === "start").map((c) => c[2]);
+    expect(started.map((u) => u.replace(/-[0-9a-f]{16}\.service$/, ""))).toEqual(["zolvi-apache-helper@rebuild", "zolvi-apache-helper@configtest", "zolvi-apache-helper@graceful"]);
+    started.forEach((u) => expect(u).toMatch(/^zolvi-apache-helper@(rebuild|configtest|graceful)-[0-9a-f]{16}\.service$/));
+    expect(vps.state.calls.filter((c) => c[0] === BIN.systemctl).every((c) => ["start", "show"].includes(c[1]))).toBe(true);
+    // Fuera del sandbox el helper ejecutó exactamente los comandos fijos.
+    expect(vps.state.helperCalls).toEqual([[BIN.rebuild], [BIN.apachectl, "-t"], [BIN.apachectl, "-k", "graceful"]]);
+    // Docker: solo lectura y `compose up -d` idempotente; nada de down/rm/run/create/restart.
+    const docker = vps.state.calls.filter((c) => c[0] === BIN.docker).map((c) => c.slice(1).join(" "));
+    expect(docker.every((c) => c.startsWith("ps ") || /^compose -f \S+ -p zolvi-signer-rechightraining-test up -d$/.test(c))).toBe(true);
+    expect(vps.state.helperResults.at(-1)).toMatchObject({ op: "graceful", exitCode: 0 });
+    // Resultados leídos y borrados: nada se acumula en /run.
+    expect([...vps.files.keys()].filter((f) => f.startsWith(HELPER_RESULT_DIR))).toEqual([]);
+  });
+
+  it("modo helper + re-APPLY: idempotente, sin rebuild ni graceful; VERIFY completo", async () => {
+    const { vps } = recVps();
+    expect((await at("helper")(vps).apply({ spec: REC, runId: randomUUID() })).ok).toBe(true);
+    const helperBefore = vps.state.helperCalls.length;
+    const again = await at("helper")(vps).apply({ spec: REC, runId: randomUUID() });
+    expect(again.steps.find((s) => s.op === "VHOST").status).toBe("UNCHANGED");
+    expect(vps.state.helperCalls.length).toBe(helperBefore);
+    const v = await at("helper")(vps).verify({ spec: REC });
+    expect(v.checks.filter((c) => c.status !== "ok")).toEqual([]);
+  });
+
+  it("ROLLBACK del APPLY de recuperación retira SOLO el include; API Key, certificado y contenedor del primer APPLY quedan", async () => {
+    const { vps, photo } = recVps();
+    const before = photo();
+    const runId = randomUUID();
+    expect((await at("helper")(vps).apply({ spec: REC, runId })).ok).toBe(true);
+    const rb = await at("helper")(vps).rollback({ spec: REC, runId });
+    expect(rb.ok).toBe(true);
+    expect(rb.steps.map((s) => `${s.op}:${s.status}`)).toEqual(["VHOST:REMOVED", "APACHE_RELOAD:OK", "CERT:UNTOUCHED"]);
+    expect(vps.files.has(n.vhostIncludePath)).toBe(false);
+    expect(photo()).toEqual(before);
+    expect(vps.files.get(HTTPD_CONF)).not.toContain(n.vhostIncludePath);
+  });
+
+  // ── Incidente APPLY 2026-11-10 23:57 (correlación por InvocationID + reversión prematura) ──
+  const REC_FOREIGN = 'Include "/etc/apache2/conf.d/userdata/ssl/2_4/dhsoft/examenescpo.com.dhsoftware.app/autossl.conf"';
+
+  it("estado que dejó el incidente (httpd.conf referencia el include REC ausente) → APPLY por helper lo completa y la config vuelve a ser válida", async () => {
+    const { vps, photo } = recVps();
+    vps.state.strictIncludes = true;
+    // El rebuild del helper sí corrió y escribió httpd.conf con el include; luego el ejecutor lo borró.
+    vps.files.set(n.vhostIncludePath, "x");
+    vps.files.set(HTTPD_CONF, renderHttpdConf(vps.files));
+    vps.files.delete(n.vhostIncludePath);
+    expect((await at("helper")(vps).verify({ spec: REC })).checks.find((c) => c.code === "APACHE_SYNTAX").status).toBe("failed");
+    const before = photo();
+    const r = await at("helper")(vps).apply({ spec: REC, runId: randomUUID() });
+    expect(r.ok).toBe(true);
+    expect(r.steps.find((s) => s.op === "VHOST").status).toBe("CREATED");
+    expect(r.steps.find((s) => s.op === "APACHE_RELOAD").status).toBe("OK");
+    expect(photo()).toEqual(before);
+    const v = await at("helper")(vps).verify({ spec: REC });
+    expect(v.checks.filter((c) => c.status !== "ok")).toEqual([]);
+  });
+
+  it("cambio MIXTO en httpd.conf: el include se CONSERVA, apachectl -t se ejecuta y la config en disco queda válida (antes: Include roto)", async () => {
+    const { vps, photo } = recVps();
+    vps.state.sandboxBlocksRebuild = false;
+    vps.state.strictIncludes = true;
+    vps.state.rebuildFailure = { code: 1, stderr: "Error: unexpected failure", writesBeforeFail: true };
+    vps.state.afterRebuild = (files) => files.set(HTTPD_CONF, `${files.get(HTTPD_CONF)}${REC_FOREIGN}\n`);
+    vps.files.set(REC_FOREIGN.slice(9, -1), "# ajeno");
+    const before = photo();
+    const r = await at("helper")(vps).apply({ spec: REC, runId: randomUUID() });
+    expect(r.code).toBe("APACHE_RECOVERY_FAILED");
+    expect(r.message).toMatch(/config en disco válida; include conservado/);
+    expect(r.steps.find((s) => s.op === "VHOST" && s.status === "KEPT")).toBeTruthy();
+    const rec = r.steps.find((s) => s.op === "APACHE_RECOVERY");
+    expect(rec).toMatchObject({ status: "FAILED", configValid: true, diagnostic: { kind: "CONCURRENT_CHANGE" } });
+    expect(vps.files.has(n.vhostIncludePath)).toBe(true);
+    expect(vps.files.get(HTTPD_CONF)).toContain(REC_FOREIGN);
+    expect(vps.state.helperResults.map((x) => x.op)).toEqual(["rebuild", "configtest"]); // sin graceful
+    // El manifiesto conserva el VHOST de esta corrida: un ROLLBACK posterior lo puede retirar.
+    expect(JSON.parse(vps.files.get(n.manifestFile)).resources.VHOST).toBeTruthy();
+    expect(photo()).toEqual(before);
+    expect((await at("helper")(vps).verify({ spec: REC })).checks.find((c) => c.code === "APACHE_SYNTAX").status).toBe("ok");
+  });
+
+  it("resultado del helper perdido tras un rebuild que escribió solo lo propio → httpd.conf restaurado, include retirado, config válida", async () => {
+    const { vps, photo } = recVps();
+    vps.state.strictIncludes = true;
+    vps.state.dropHelperResult = (inst) => inst.startsWith("rebuild-");
+    const confBefore = vps.files.get(HTTPD_CONF);
+    const before = photo();
+    const r = await at("helper")(vps).apply({ spec: REC, runId: randomUUID() });
+    expect(r.code).toBe("APACHE_FAILED");
+    const d = r.steps.find((s) => s.op === "APACHE_RELOAD").diagnostic;
+    expect(d).toMatchObject({ kind: "HELPER_RESULT_MISSING", httpdConfChanged: true });
+    expect(r.message).toMatch(/zolvi-apache-helper@rebuild-[0-9a-f]{16}\.service/); // la unidad se ve, no [EMAIL REDACTADO]
+    expect(r.message).not.toMatch(/REDACTADO/);
+    expect(r.steps.filter((s) => s.op === "VHOST").map((s) => s.status)).toEqual(["CREATED", "REVERTED"]);
+    expect(r.steps.find((s) => s.op === "APACHE_RECOVERY")).toMatchObject({ status: "OK", configValid: true });
+    expect(vps.files.get(HTTPD_CONF)).toBe(confBefore);
+    expect(vps.files.has(n.vhostIncludePath)).toBe(false);
+    expect(photo()).toEqual(before);
+  });
+
+  // ── 403 → 404 /403.shtml (2026-11-11): include corregido a mano en el VPS ──
+  const PREVIOUS_V1 = () => renderVhostInclude(REC).replace(/ErrorDocument 403 "Forbidden"\n$/, "");
+  /** Estado tras el APPLY por helper: include cargado y referenciado por httpd.conf. */
+  function recWithInclude(content) {
+    const ctx = recVps();
+    ctx.vps.state.strictIncludes = true;
+    ctx.vps.files.set(n.vhostIncludePath, content);
+    ctx.vps.files.set(HTTPD_CONF, renderHttpdConf(ctx.vps.files));
+    return ctx;
+  }
+
+  it("include v1 previo (sin ErrorDocument 403): VERIFY marca SOLO VHOST_TEMPLATE_CURRENT", async () => {
+    expect(PREVIOUS_V1()).not.toContain("ErrorDocument");
+    const { vps } = recWithInclude(PREVIOUS_V1());
+    const v = await at("helper")(vps).verify({ spec: REC });
+    expect(v.ok).toBe(false);
+    expect(v.checks.filter((c) => c.status !== "ok").map((c) => c.code)).toEqual(["VHOST_TEMPLATE_CURRENT"]);
+  });
+
+  it("include corregido a mano (v1 + ErrorDocument 403 al final): VERIFY completo; INSPECT/re-APPLY no reescriben ni recargan Apache", async () => {
+    const { vps, photo } = recWithInclude(`${PREVIOUS_V1()}ErrorDocument 403 "Forbidden"\n`);
+    const before = photo();
+    const included = vps.files.get(n.vhostIncludePath);
+    const v = await at("helper")(vps).verify({ spec: REC });
+    expect(v.checks.filter((c) => c.status !== "ok")).toEqual([]);
+    expect(v.ok).toBe(true);
+    expect(v.observed.vhost).toEqual({ present: true, templateVersion: "zolvi-signer-v1", matches: true });
+    expect(v.observed.compose.matches).toBe(true);
+    // VERIFY no ejecutó rebuild ni graceful (solo configtest vía helper).
+    expect(vps.state.helperCalls).toEqual([[BIN.apachectl, "-t"]]);
+    // Un APPLY eventual vería el include al día: sin rebuild, sin graceful, sin tocar nada.
+    const again = await at("helper")(vps).apply({ spec: REC, runId: randomUUID() });
+    expect(again.ok).toBe(true);
+    expect(again.steps.find((s) => s.op === "VHOST").status).toBe("UNCHANGED");
+    expect(vps.state.helperCalls.some((c) => c[0] === BIN.rebuild || c.includes("graceful"))).toBe(false);
+    expect(vps.files.get(n.vhostIncludePath)).toBe(included);
+    expect(photo()).toEqual(before);
+  });
+
+  it("comparación estricta: CRLF, sin newline final o línea fuera de lugar NO cuentan como plantilla vigente", async () => {
+    const good = `${PREVIOUS_V1()}ErrorDocument 403 "Forbidden"\n`;
+    for (const drift of [good.replace(/\n/g, "\r\n"), good.slice(0, -1), `${good}\n`, good.replace('ErrorDocument 403 "Forbidden"\n', "").replace("ProxyRequests Off\n", 'ProxyRequests Off\nErrorDocument 403 "Forbidden"\n')]) {
+      const { vps } = recWithInclude(drift);
+      const v = await at("helper")(vps).verify({ spec: REC });
+      expect(v.checks.find((c) => c.code === "VHOST_TEMPLATE_CURRENT").status).toBe("failed");
+    }
+  });
+
+  it("helper no instalado: APPLY falla sin tocar Apache y revierte el include (HELPER_UNAVAILABLE)", async () => {
+    const { vps, photo } = recVps();
+    vps.state.helperInstalled = false;
+    const before = photo();
+    const r = await at("helper")(vps).apply({ spec: REC, runId: randomUUID() });
+    expect(r.ok).toBe(false);
+    expect(r.steps.find((s) => s.op === "APACHE_RELOAD").diagnostic.kind).toBe("HELPER_UNAVAILABLE");
+    expect(vps.files.has(n.vhostIncludePath)).toBe(false);
+    expect(vps.state.helperCalls).toEqual([]);
+    expect(photo()).toEqual(before);
   });
 });
 

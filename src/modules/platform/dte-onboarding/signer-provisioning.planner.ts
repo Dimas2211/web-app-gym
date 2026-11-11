@@ -155,7 +155,7 @@ export function planSignerProvisioning(input: {
   });
   const vhostAction = est(obs?.vhost?.present, obs?.vhost?.matches);
   operations.push({ op: "VHOST", action: vhostAction, detail: names.vhostIncludePath });
-  if (vhostAction !== "KEEP") operations.push({ op: "APACHE_RELOAD", action: "RELOAD", detail: "rebuildhttpdconf + apachectl -t + restart graceful (auto-reversión si falla)." });
+  if (vhostAction !== "KEEP") operations.push({ op: "APACHE_RELOAD", action: "RELOAD", detail: "rebuildhttpdconf + apachectl -t + apachectl -k graceful vía helper privilegiado (sin restart; auto-reversión si falla)." });
   operations.push({
     op: "REGISTER_CREDENTIAL",
     action: input.credentialRegistered ? "KEEP" : "CREATE",

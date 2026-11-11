@@ -9,7 +9,7 @@ process.env.PLATFORM_ENCRYPTION_KEY = randomBytes(32).toString("base64");
 
 vi.mock("@/modules/platform/runtime/control-plane-prisma", () => ({ controlPlanePrisma: {} }));
 
-import { runSignerProvisioning, upsertSignerProvisioningSpec, type SignerProvisioningDeps } from "./signer-provisioning.service";
+import { registerSignerCredentialForProvisioning, runSignerProvisioning, upsertSignerProvisioningSpec, type SignerProvisioningDeps } from "./signer-provisioning.service";
 import { planSignerProvisioning } from "./signer-provisioning.planner";
 import type { SignerExecutorOp, SignerExecutorParams, SignerExecutorResponse, SignerExecutorTransport } from "./signer-executor.transport";
 
@@ -283,6 +283,110 @@ describe("runSignerProvisioning", () => {
       transport: t.transport, readCredentialFingerprint: async () => ({ ok: true, signerHost: SPEC_IN.hostname, apiKeyFingerprint: t.vps.keyFp }),
     }));
     expect(right).toMatchObject({ ok: true, status: "SIGNER_READY" });
+  });
+
+  // Recuperación REC TEST (2026-11-11): la fila quedó FAILED por VHOST_TEMPLATE_CURRENT
+  // (include corregido a mano con ErrorDocument 403) y la credencial aún no existe.
+  describe("recuperación desde FAILED: VERIFY → registrar credencial existente → VERIFY", () => {
+    type Check = { code: string; status: string };
+    const INFRA_OK: Check[] = ["CONTAINER_RUNNING", "CONTAINER_MANAGED", "PORT_LOOPBACK_ONLY", "CERT_PRESENT", "API_KEY_PRESENT",
+      "COMPOSE_TEMPLATE_CURRENT", "VHOST_TEMPLATE_CURRENT", "SIGNER_LOCAL_HTTP", "APACHE_SYNTAX"].map((code) => ({ code, status: "ok" }));
+    const withFailed = (code: string): Check[] => INFRA_OK.map((c) => (c.code === code ? { code, status: "failed" } : c));
+
+    async function failedRow() {
+      const t = fakeTransport();
+      await runSignerProvisioning({ organizationId: "org-a", environment: "TEST", mode: "APPLY", userId: "u", confirm: `APPLY ${ID}` }, deps({ transport: t.transport }));
+      const row = db.rows[0];
+      Object.assign(row, { status: "FAILED", last_error: "VHOST_TEMPLATE_CURRENT: · ZOLVI_CREDENTIAL_MATCH: Sin credencial." });
+      let localChecks: Check[] = withFailed("VHOST_TEMPLATE_CURRENT");
+      const base = t.transport.call;
+      const transport: SignerExecutorTransport = {
+        configured: true,
+        call: vi.fn(async (op: SignerExecutorOp, params: SignerExecutorParams) => {
+          if (op !== "verify") return base(op, params);
+          const r = await base("inspect", params);
+          return { ok: localChecks.every((c) => c.status === "ok"), checks: localChecks, observed: r.observed };
+        }),
+      };
+      // DteCredential simulada: sin credencial del firmador hasta que se registra.
+      const cred: { signerHost: string | null; apiKeyFingerprint: string | null } = { signerHost: null, apiKeyFingerprint: null };
+      const registered: Array<{ signerUrl: string; signerApiKey: string; signerNit: string | null }> = [];
+      const regDeps = (extra: Partial<SignerProvisioningDeps> = {}) => deps({
+        transport,
+        readCredentialFingerprint: async () => ({ ok: true, ...cred }),
+        registerCredential: vi.fn(async (input) => {
+          registered.push({ signerUrl: input.signerUrl, signerApiKey: input.signerApiKey, signerNit: input.signerNit ?? null });
+          cred.signerHost = new URL(input.signerUrl).hostname;
+          cred.apiKeyFingerprint = fp(input.signerApiKey);
+          return { ok: true as const };
+        }),
+        ...extra,
+      });
+      return { t, row, transport, cred, registered, regDeps, setLocal: (c: Check[]) => { localChecks = c; } };
+    }
+    const verify = (d: SignerProvisioningDeps) => runSignerProvisioning({ organizationId: "org-a", environment: "TEST", mode: "VERIFY", userId: "u" }, d);
+    const register = (d: SignerProvisioningDeps) => registerSignerCredentialForProvisioning("org-a", "TEST", "u", d);
+
+    it("FAILED: el registro se rechaza; VERIFY con VHOST_TEMPLATE_CURRENT fallido conserva FAILED", async () => {
+      const s = await failedRow();
+      expect(await register(s.regDeps())).toMatchObject({ ok: false, code: "INFRA_NOT_READY" });
+      expect(s.registered).toEqual([]);
+      const r = await verify(s.regDeps());
+      expect(r).toMatchObject({ ok: false, status: "FAILED" });
+      expect(r.error).toContain("VHOST_TEMPLATE_CURRENT");
+      expect(await register(s.regDeps())).toMatchObject({ ok: false, code: "INFRA_NOT_READY" });
+    });
+
+    it("infra válida + credencial ausente: FAILED → INFRA_READY → registro (misma API Key, sin rotar) → SIGNER_READY", async () => {
+      const s = await failedRow();
+      const keyFpBefore = s.row.api_key_fingerprint;
+      const encryptedBefore = s.row.encrypted_api_key;
+      s.setLocal(INFRA_OK);
+
+      const v1 = await verify(s.regDeps());
+      expect(v1).toMatchObject({ ok: false, status: "INFRA_READY" });
+      expect(v1.checks?.find((c) => c.code === "ZOLVI_CREDENTIAL_MATCH")?.status).toBe("failed");
+      expect(v1.checks?.filter((c) => c.code !== "ZOLVI_CREDENTIAL_MATCH").every((c) => c.status === "ok")).toBe(true);
+      expect(db.rows[0].status).toBe("INFRA_READY");
+
+      expect(await register(s.regDeps())).toEqual({ ok: true });
+      expect(s.registered).toHaveLength(1);
+      expect(s.registered[0].signerUrl).toBe(`https://${SPEC_IN.hostname}/firmardocumento/`);
+      expect(fp(s.registered[0].signerApiKey)).toBe(keyFpBefore);             // la clave existente, no una nueva
+      expect(s.registered[0].signerNit).toBe(SPEC_IN.signerNit);
+      expect(db.rows[0]).toMatchObject({ api_key_fingerprint: keyFpBefore, encrypted_api_key: encryptedBefore });
+      expect(db.rows[0].credential_registered_at).toBeInstanceOf(Date);
+      expect(s.t.call.mock.calls.map((c) => c[0])).not.toContain("rollback");
+
+      const v2 = await verify(s.regDeps());
+      expect(v2).toMatchObject({ ok: true, status: "SIGNER_READY" });
+      expect(db.rows[0].last_error).toBeNull();
+      expect(s.transport.call).not.toHaveBeenCalledWith("apply", expect.anything());
+    });
+
+    it("sin debilitar controles: huella del VPS distinta o verificación pública fallida mantienen FAILED y bloquean el registro", async () => {
+      const s = await failedRow();
+      s.setLocal(INFRA_OK);
+      s.t.vps.keyFp = "0000000000000000"; // API Key del VPS ≠ la registrada en Zolvi
+      expect(await verify(s.regDeps())).toMatchObject({ ok: false, status: "FAILED" });
+      expect(await register(s.regDeps())).toMatchObject({ ok: false, code: "INFRA_NOT_READY" });
+
+      const s2 = await failedRow();
+      s2.setLocal(INFRA_OK);
+      const publicFail = s2.regDeps({ verifier: vi.fn(async () => ({ ok: false, checks: [{ code: "NO_KEY_403" as const, status: "failed" as const, detail: "HTTP 404 (esperado 403)." }] })) });
+      const r = await verify(publicFail);
+      expect(r).toMatchObject({ ok: false, status: "FAILED" });
+      expect(r.error).toContain("NO_KEY_403");
+      expect(await register(publicFail)).toMatchObject({ ok: false, code: "INFRA_NOT_READY" });
+    });
+
+    it("credencial registrada con host correcto pero otra API Key: INFRA_READY, nunca SIGNER_READY", async () => {
+      const s = await failedRow();
+      s.setLocal(INFRA_OK);
+      s.cred.signerHost = SPEC_IN.hostname;
+      s.cred.apiKeyFingerprint = "ffffffffffffffff";
+      expect(await verify(s.regDeps())).toMatchObject({ ok: false, status: "INFRA_READY" });
+    });
   });
 
   it("ROLLBACK exige confirmación y un runId de APPLY propio; descarta la clave eliminada", async () => {
