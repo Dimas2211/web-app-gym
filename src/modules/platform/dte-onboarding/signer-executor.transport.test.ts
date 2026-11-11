@@ -6,7 +6,7 @@ const secret = "s".repeat(64);
 const params = {
   spec: {
     slug: "testing",
-    environment: "TEST",
+    environment: "TEST" as const,
     hostname: "firmador-testing-test.getzolvi.com",
     cpanelUser: "getzolvi",
     signerNit: "01234567890123",
