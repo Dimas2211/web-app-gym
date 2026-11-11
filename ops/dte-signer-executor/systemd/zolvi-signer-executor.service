@@ -2,10 +2,17 @@
 # Requiere root para docker/apache, pero con escritura limitada a rutas propias.
 # Antes de habilitarlo: `systemd-analyze verify` y la checklist del README
 # (ruta de node, docker compose como plugin de sistema, rutas de cPanel).
+#
+# Node.js: en el VPS WHM/cPanel no hay node en el PATH de root; el runtime confirmado
+# es el de EasyApache (ea-nodejs22, v22.23.4). Debe coincidir con la unidad
+# zolvi-apache-helper@.service. Si EasyApache cambia de versión (ea-nodejs24…), actualizar
+# AMBAS unidades y validar con el preflight del README antes de reiniciar.
 [Unit]
 Description=Zolvi DTE signer executor (predefined operations only)
 After=network-online.target docker.service
 Wants=network-online.target
+# Falla con un mensaje claro (en vez de 203/EXEC) si el runtime no existe.
+AssertFileIsExecutable=/opt/cpanel/ea-nodejs22/bin/node
 
 [Service]
 Type=simple
@@ -18,9 +25,13 @@ StateDirectoryMode=0700
 Environment=ZOLVI_SIGNER_EXECUTOR_NONCE_FILE=/var/lib/zolvi-signer-executor/nonces.json
 # rebuildhttpdconf / apachectl NO corren dentro de este sandbox: se delegan a la unidad
 # oneshot fija zolvi-apache-helper@{rebuild,configtest,graceful}.service vía systemctl.
+# Causa confirmada (VPS, 2026-11-10): dentro de este sandbox rebuildhttpdconf falla al crear
+# /etc/apache2/conf.d/includes/cloudflare.conf.lock (EROFS por ProtectSystem=strict) y al
+# sincronizar /home/<usuario>/.htpasswds (EACCES por ProtectHome=true). NO se amplían
+# ReadWritePaths ni se quita ProtectHome: el sandbox de este proceso expuesto a red se mantiene.
 # Requiere instalar systemd/zolvi-apache-helper@.service (ver README). "direct" = modo anterior.
 Environment=ZOLVI_SIGNER_APACHE_MODE=helper
-ExecStart=/usr/bin/node /opt/zolvi-signer-executor/zolvi-signer-executor.mjs serve --port 9750
+ExecStart=/opt/cpanel/ea-nodejs22/bin/node /opt/zolvi-signer-executor/zolvi-signer-executor.mjs serve --port 9750
 Restart=on-failure
 RestartSec=5
 NoNewPrivileges=true

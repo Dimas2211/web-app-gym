@@ -1,11 +1,19 @@
 # FISCAL-ONBOARDING — helper privilegiado de Apache/cPanel para el ejecutor de firmadores.
 #
-# Por qué existe: rebuildhttpdconf (cPanel) escribe en rutas de /etc, /var/cpanel y
-# /usr/local/cpanel que cPanel no documenta y que cambian entre versiones; dentro del
-# sandbox del ejecutor (ProtectSystem=strict, ProtectHome, PrivateTmp) puede fallar
-# aunque funcione como root interactivo. Esta unidad lo ejecuta en el contexto que
-# cPanel espera, sin abrir el sandbox del proceso que sí está expuesto a la red.
-# (Hipótesis pendiente de confirmar con diagnostics/apache-rebuild-readonly-diagnostic.sh.)
+# Por qué existe (causa CONFIRMADA en el VPS, APPLY 2026-11-10 22:28 CST): dentro del
+# sandbox del ejecutor, rebuildhttpdconf falla en
+#   - Cpanel::Template::Plugin::ApacheConfig::generate_cloudflare_config: crear
+#     /etc/apache2/conf.d/includes/cloudflare.conf.lock → Read-only file system
+#     (ProtectSystem=strict; /etc/apache2/conf.d no está en ReadWritePaths);
+#   - Cpanel::FileProtect::Sync::sync_user_homedir: /home/<usuario>/.htpasswds →
+#     Permission denied (ProtectHome=true).
+# Como root interactivo ambas rutas son escribibles y el rebuild funciona. Esta unidad
+# lo ejecuta en ese mismo contexto (sin ProtectSystem/ProtectHome/ReadWritePaths), sin
+# abrir el sandbox del proceso expuesto a la red. Lo que cPanel haga en esas rutas es su
+# comportamiento normal de cualquier rebuild como root; Zolvi no cambia permisos allí.
+#
+# Node.js: ea-nodejs22 de EasyApache (no hay node en el PATH de root del VPS). Mantener
+# igual que en zolvi-signer-executor.service.
 #
 # Superficie: SOLO tres instancias válidas, validadas por el script con comparación exacta:
 #   zolvi-apache-helper@rebuild.service     -> rebuildhttpdconf
@@ -22,25 +30,27 @@
 #   SÍ  NoNewPrivileges, ProtectKernelModules/Logs/Tunables, ProtectClock, ProtectHostname,
 #       RestrictRealtime, RestrictNamespaces, LockPersonality, SystemCallArchitectures,
 #       ProtectControlGroups: solo bloquean módulos de kernel, sysctl, reloj, hostname,
-#       cgroups y namespaces; rebuildhttpdconf y apachectl no escriben ahí. Si el
-#       diagnóstico real mostrara lo contrario, quitar SOLO la directiva implicada.
-#   NO  ProtectSystem/ProtectHome/ReadWritePaths: es justo lo que rompe rebuildhttpdconf
-#       (escritura en rutas no documentadas). Recortarlo de nuevo reproduciría el fallo.
+#       cgroups y namespaces; las dos operaciones que fallaban (lock en /etc/apache2/conf.d
+#       y sincronización de /home) no dependen de ninguna. NoNewPrivileges no impide que
+#       root cambie de uid (cPanel baja privilegios al tocar /home) ni use sus capabilities.
+#   NO  ProtectSystem/ProtectHome/ReadOnlyPaths/InaccessiblePaths/ReadWritePaths: son
+#       EXACTAMENTE lo que rompió rebuildhttpdconf (EROFS en conf.d/includes, EACCES en /home).
 #   NO  PrivateTmp: cPanel usa /tmp compartido para algunos locks/temporales.
-#   NO  CapabilityBoundingSet: rebuild necesita chown/fowner/dac_override y graceful kill;
-#       la lista exacta no está documentada por cPanel. Revisar tras el diagnóstico.
+#   NO  User=/CapabilityBoundingSet: FileProtect necesita chown/fowner/dac_override como root
+#       y graceful necesita kill; la lista exacta no está documentada por cPanel.
 #   NO  PrivateNetwork/RestrictAddressFamilies: cPanel puede consultar cpsrvd/DNS local.
 #   NO  MemoryDenyWriteExecute: el helper es Node (JIT) y cPanel usa Perl con XS.
 [Unit]
 Description=Zolvi Apache helper (%i) — predefined cPanel/Apache operation
 AssertPathExists=/opt/zolvi-signer-executor/zolvi-apache-helper.mjs
+AssertFileIsExecutable=/opt/cpanel/ea-nodejs22/bin/node
 # Evita arrancar si Apache no está activo: graceful/configtest no deben "levantar" nada.
 Requisite=httpd.service
 After=httpd.service
 
 [Service]
 Type=oneshot
-ExecStart=/usr/bin/node /opt/zolvi-signer-executor/zolvi-apache-helper.mjs "%i"
+ExecStart=/opt/cpanel/ea-nodejs22/bin/node /opt/zolvi-signer-executor/zolvi-apache-helper.mjs "%i"
 TimeoutStartSec=120
 # Resultado saneado para el ejecutor; se conserva hasta el siguiente arranque.
 RuntimeDirectory=zolvi-apache-helper

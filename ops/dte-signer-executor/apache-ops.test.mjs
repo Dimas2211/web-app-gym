@@ -231,7 +231,7 @@ describe("zolvi-apache-helper — instancias no autorizadas, contexto systemd y 
   it("la unidad systemd pasa %i como un único argumento y no tiene [Install] ni reinicios", () => {
     const unit = readFileSync(new URL("./systemd/zolvi-apache-helper@.service", import.meta.url), "utf8");
     const exec = unit.split(/\r?\n/).find((l) => l.startsWith("ExecStart="));
-    expect(exec).toBe('ExecStart=/usr/bin/node /opt/zolvi-signer-executor/zolvi-apache-helper.mjs "%i"');
+    expect(exec).toBe('ExecStart=/opt/cpanel/ea-nodejs22/bin/node /opt/zolvi-signer-executor/zolvi-apache-helper.mjs "%i"');
     expect(unit).not.toMatch(/^\[Install\]/m);
     expect(unit).toMatch(/^Type=oneshot$/m);
     expect(unit).toMatch(/^NoNewPrivileges=true$/m);
