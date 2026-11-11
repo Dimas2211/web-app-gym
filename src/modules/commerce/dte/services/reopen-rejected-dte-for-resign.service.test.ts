@@ -18,6 +18,7 @@ const TENANT_ID = "tenant-1";
 const LOCATION_ID = "loc-1";
 
 interface DocRow {
+  sale_id: string | null;
   id: string;
   tenant_id: string;
   location_id: string;
@@ -46,6 +47,7 @@ interface LogRow {
 
 function baseDoc(overrides: Partial<DocRow> = {}): DocRow {
   return {
+    sale_id: "sale-1",
     id: "doc-1",
     tenant_id: TENANT_ID,
     location_id: LOCATION_ID,
@@ -65,6 +67,7 @@ function baseDoc(overrides: Partial<DocRow> = {}): DocRow {
 }
 
 interface FakeDbApi {
+  sale: { findFirst: (args: unknown) => Promise<{ id: string } | null> };
   dteOutgoingDocument: {
     findFirst: (args: { where: { id: string; tenant_id: string; location_id: string } }) => Promise<DocRow | null>;
     update: (args: { where: { id: string }; data: Partial<DocRow> }) => Promise<DocRow>;
@@ -76,12 +79,13 @@ interface FakeDbApi {
   $transaction: (cb: (tx: FakeDbApi) => Promise<unknown>) => Promise<unknown>;
 }
 
-function createFakeDb(opts: { doc: DocRow; sendLogs?: LogRow[] }) {
+function createFakeDb(opts: { doc: DocRow; sendLogs?: LogRow[]; saleStatus?: string }) {
   const docs = new Map<string, DocRow>([[opts.doc.id, { ...opts.doc }]]);
   let logs: LogRow[] = (opts.sendLogs ?? []).map((l) => ({ ...l }));
   let logIdSeq = 0;
 
   const api: FakeDbApi = {
+    sale: { findFirst: async () => opts.saleStatus === "CANCELLED" ? null : { id: "sale-1" } },
     dteOutgoingDocument: {
       findFirst: async ({ where }: { where: { id: string; tenant_id: string; location_id: string } }) => {
         const row = docs.get(where.id);
@@ -163,6 +167,14 @@ describe("reopenRejectedDteForResign — flujo normal", () => {
     const retryLog = logs().find((l) => l.operation_type === "RETRY_PREPARE");
     expect(retryLog).toBeTruthy();
   });
+});
+
+it("no permite reabrir un rechazo 802 después de anular la venta", async () => {
+  const { db, docs, logs } = createFakeDb({ doc: baseDoc(), saleStatus: "CANCELLED", sendLogs: [resignableSendLog()] });
+  const result = await reopenRejectedDteForResign({ dteDocumentId: "doc-1", tenantId: TENANT_ID, locationId: LOCATION_ID, userId: "u1" }, db);
+  expect(result).toMatchObject({ ok: false });
+  expect(docs.get("doc-1")!.dte_status).toBe("REJECTED");
+  expect(logs()).toHaveLength(1);
 });
 
 describe("reopenRejectedDteForResign — preconditions (fail closed)", () => {

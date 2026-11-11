@@ -16,6 +16,9 @@ vi.mock("@/lib/db/prisma", () => ({
   prisma: new Proxy({}, { get() { throw new Error("Prisma global NO debe usarse"); } }),
 }));
 
+import { getSalesByPeriod } from "../../reports/queries/get-sales-by-period";
+import { getSalesListReport } from "../../reports/queries/get-sales-list-report";
+import { getCommerceReportSummary } from "../../reports/queries/get-commerce-report-summary";
 import { cancelConfirmedSale, evaluateSaleDteCancelGate, SALE_CANCEL_MESSAGES as MSG } from "./sale.service";
 
 const T = "tenant-A";
@@ -112,7 +115,7 @@ function createFakeDb(o: Options = {}) {
           ...head,
           items: items.map((i) => ({ ...i })),
           payments: payments.map((p) => ({ ...p })),
-          dte_documents: state.dteDocs.filter((d) => d.tenant_id === where.tenant_id).map((d) => ({ dte_status: d.dte_status })),
+          dte_documents: state.dteDocs.filter((d) => d.tenant_id === where.tenant_id).map((d) => ({ dte_status: d.dte_status, reception_stamp: d.reception_stamp ?? null })),
         };
       },
       updateMany: async ({ where, data }: { where: Row; data: Row }) => {
@@ -124,7 +127,7 @@ function createFakeDb(o: Options = {}) {
       },
     },
     dteOutgoingDocument: {
-      findMany: async ({ where }: { where: Row }) => state.dteDocs.filter((d) => match(d, where)).map((d) => ({ dte_status: d.dte_status })),
+      findMany: async ({ where }: { where: Row }) => state.dteDocs.filter((d) => match(d, where)).map((d) => ({ dte_status: d.dte_status, reception_stamp: d.reception_stamp ?? null })),
     },
     cashSession: {
       findMany: async ({ where }: { where: Row }) => state.cashSessions.filter((s) => match(s, where)).map((s) => ({ ...s })),
@@ -309,7 +312,7 @@ describe("cancelConfirmedSale — DTE", () => {
     expect(fake.state.sale.status).toBe("CANCELLED");
   });
 
-  it.each(["PENDING_GENERATION", "GENERATED", "SCHEMA_VALIDATED", "SIGNED", "SENT", "CONTINGENCY_PENDING", "INVALIDATION_PENDING", "REJECTED"])(
+  it.each(["PENDING_GENERATION", "GENERATED", "SCHEMA_VALIDATED", "SIGNED", "SENT", "CONTINGENCY_PENDING", "INVALIDATION_PENDING"])(
     "(15) DTE en estado %s bloquea (fail closed)",
     async (dte_status) => {
       const fake = createFakeDb({ dteDocs: [{ dte_status }] });
@@ -317,6 +320,34 @@ describe("cancelConfirmedSale — DTE", () => {
       expect(fake.state.sale.status).toBe("CONFIRMED");
     },
   );
+
+  it.each(["01", "03", "05", "11"])("DTE %s rechazado sin sello permite anular conservando historial", async (dte_type_code) => {
+    const fake = createFakeDb({ dteDocs: [{ dte_type_code, dte_status: "REJECTED", reception_stamp: null }] });
+    expect(await run(fake)).toEqual({ ok: true });
+    expect(fake.state.sale.status).toBe("CANCELLED");
+    expect(fake.state.dteDocs[0].dte_status).toBe("REJECTED");
+  });
+
+  it("rechazo anterior + DTE invalidado permite anular la venta completa", async () => {
+    const fake = createFakeDb({ dteDocs: [
+      { dte_status: "REJECTED", reception_stamp: null },
+      { dte_status: "INVALIDATED", reception_stamp: "stamp" },
+    ] });
+    expect(await run(fake)).toEqual({ ok: true });
+    expect(fake.state.sale.status).toBe("CANCELLED");
+    expect(returnIns(fake.state)).toHaveLength(2);
+  });
+
+  it.each(["ACCEPTED", "OBSERVED", "SIGNED", "SENT"])("un rechazo histórico no permite saltar un DTE %s", async (dte_status) => {
+    const fake = createFakeDb({ dteDocs: [{ dte_status: "REJECTED", reception_stamp: null }, { dte_status }] });
+    expect((await run(fake)).ok).toBe(false);
+    expect(fake.state.sale.status).toBe("CONFIRMED");
+  });
+
+  it("REJECTED con sello se bloquea por evidencia de recepción MH", async () => {
+    const fake = createFakeDb({ dteDocs: [{ dte_status: "REJECTED", reception_stamp: "stamp" }] });
+    expect(await run(fake)).toEqual({ ok: false, error: MSG.DTE_ACCEPTED });
+  });
 
   it("gate: estado activo pesa más que ACCEPTED; OBSERVED exige invalidar; NOT_REQUIRED permite", () => {
     expect(evaluateSaleDteCancelGate([])).toBeNull();
@@ -432,5 +463,36 @@ describe("cancelConfirmedSale — pagos y caja", () => {
     expect(fake.state.sale.status).toBe("CONFIRMED");
     expect(stock(fake.state, "p1")).toBe(10);
     expect(fake.state.cashSessions[0].expected_cash_amount).toBe(100);
+  });
+});
+
+
+describe("anulación y reportes comerciales para todos los tipos de venta", () => {
+  it.each(["01", "03", "05", "11"])("la venta %s deja de sumar en resumen, detalle por día y listado después de anularla", async (dte_type_code) => {
+    const fake = createFakeDb({ dteDocs: [{ dte_type_code, dte_status: "REJECTED", reception_stamp: null }] });
+    Object.assign(fake.state.sale, {
+      sale_date: new Date("2026-11-11T00:00:00Z"), total_amount: 376.29,
+      subtotal: 376.29, tax_amount: 0, customer: { name: "Cliente de prueba" }, _count: { items: 1 },
+    });
+    const filters = { tenant_id: T, location_id: L, date_from: "2026-11-01", date_to: "2026-11-30" };
+    const rows = (where: Row) => match(fake.state.sale, where) ? [fake.state.sale] : [];
+    const reportDb = {
+      sale: {
+        findMany: async ({ where }: { where: Row }) => rows(where),
+        groupBy: async ({ where }: { where: Row }) => rows(where).map((s) => ({ sale_date: s.sale_date, _sum: { total_amount: s.total_amount } })),
+        aggregate: async ({ where }: { where: Row }) => ({ _sum: { total_amount: rows(where).reduce((sum, s) => sum + Number(s.total_amount), 0) }, _count: { id: rows(where).length } }),
+      },
+      purchase: { aggregate: async () => ({ _sum: { total_amount: 0 }, _count: { id: 0 } }) },
+      saleItem: { groupBy: async () => [] },
+    } as never;
+    expect((await getCommerceReportSummary(filters, reportDb)).total_sales).toBe(376.29);
+    expect(await getSalesByPeriod(filters, reportDb)).toHaveLength(1);
+    expect(await getSalesListReport(filters, reportDb)).toHaveLength(1);
+    expect(await run(fake)).toEqual({ ok: true });
+    expect((await getCommerceReportSummary(filters, reportDb)).total_sales).toBe(0);
+    expect(await getSalesByPeriod(filters, reportDb)).toEqual([]);
+    expect(await getSalesListReport(filters, reportDb)).toEqual([]);
+    expect(fake.state.sale.status).toBe("CANCELLED");
+    expect(fake.state.dteDocs[0].dte_status).toBe("REJECTED");
   });
 });

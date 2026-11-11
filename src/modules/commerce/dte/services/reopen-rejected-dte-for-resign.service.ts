@@ -67,6 +67,7 @@ export async function reopenRejectedDteForResign(
         where: { id: dteDocumentId, tenant_id: tenantId, location_id: locationId },
         select: {
           id:              true,
+          sale_id:         true,
           dte_status:      true,
           reception_stamp: true,
           json_document:   true,
@@ -79,6 +80,13 @@ export async function reopenRejectedDteForResign(
         throw new ReopenRejectedDteBusinessError(
           "El documento DTE no existe o no pertenece a la location activa.",
         );
+      }
+      if (dteDoc.sale_id) {
+        const sale = await tx.sale.findFirst({
+          where: { id: dteDoc.sale_id, tenant_id: tenantId, location_id: locationId, status: "CONFIRMED" },
+          select: { id: true },
+        });
+        if (!sale) throw new ReopenRejectedDteBusinessError("La venta no está confirmada o fue anulada. No se puede reabrir su DTE.");
       }
       if (dteDoc.dte_status !== "REJECTED") {
         throw new ReopenRejectedDteBusinessError(
