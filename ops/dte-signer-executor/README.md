@@ -25,7 +25,10 @@ comandos arbitrarios desde el navegador.
 - Contenedor `dte-firmador-<slug>-<test|prod>`, imagen `svfe/svfe-api-firmador:v20230109`, puerto solo
   `127.0.0.1:<8120-8199>`, certificado montado **read-only**, `mem_limit 512m`, labels `zolvi.managed=true`.
 - Include Apache en `/etc/apache2/conf.d/userdata/ssl/2_4/<usuario>/<hostname>/zolvi-signer-<id>.conf`:
-  exige `X-DTE-Signer-Key`, deja `/.well-known/` abierto y no usa `ErrorDocument`/`RewriteRule`.
+  exige `X-DTE-Signer-Key`, deja `/.well-known/` abierto, no usa `RewriteRule` ni `ErrorDocument` hacia
+  URL/ruta (AH00124) y termina con `ErrorDocument 403 "Forbidden"` (texto literal): sin esa línea el vhost
+  hereda `ErrorDocument 403 /403.shtml` de cPanel y el rechazo sin clave llega al firmador como
+  404 `/403.shtml`. Ver `deploy/RUNBOOK-apache-helper.md` § «403 → 404 /403.shtml».
 - Puertos reservados: 8113, 8114 (TrustMe) y 8115 (MetaTraining TEST). El contenedor
   `dte-firmador-metatraining-test` está **protegido**: el ejecutor rechaza cualquier operación mutante.
 

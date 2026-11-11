@@ -185,12 +185,54 @@ describe("signer-core — validación, nombres y plantillas", () => {
     expect(c).not.toMatch(/0\.0\.0\.0/);
   });
 
-  it("include Apache: exige header, deja .well-known abierto, sin ErrorDocument (AH00124) y sin secreto inline", () => {
+  it("include Apache: exige header, deja .well-known abierto, sin RewriteRule ni ErrorDocument con redirección (AH00124) y sin secreto inline", () => {
     const v = renderVhostInclude(SPEC);
     expect(v).toContain("X-DTE-Signer-Key");
     expect(v).toContain('ProxyPass "/.well-known/" "!"');
-    expect(v).not.toMatch(/ErrorDocument|RewriteRule/);
+    expect(v).not.toMatch(/RewriteRule|RewriteEngine/);
+    // Único ErrorDocument permitido: 403 con texto literal (sin subpetición ni redirección).
+    expect(v.match(/^.*ErrorDocument.*$/gm)).toEqual(['ErrorDocument 403 "Forbidden"']);
+    expect(v).not.toMatch(/ErrorDocument\s+\d+\s+(\/|https?:)/);
     expect(v).not.toMatch(/[a-f0-9]{64}/);
+  });
+
+  // Corrección aplicada a mano en el VPS (REC TEST, 2026-11-11): el include heredaba
+  // `ErrorDocument 403 /403.shtml` de cPanel y la redirección interna llegaba al firmador
+  // por ProxyPass "/" (404 JSON path="/403.shtml"). Se añadió al FINAL del include la
+  // línea `ErrorDocument 403 "Forbidden"`. La plantilla debe coincidir byte a byte con
+  // ese archivo para que VHOST_TEMPLATE_CURRENT pase sin APPLY ni nueva recarga de Apache.
+  it("include corregido de REC TEST (plantilla v1 previa + ErrorDocument 403 al final) === plantilla actual", () => {
+    const REC = { slug: "rechightraining", environment: "TEST", hostname: "firmador-rec-test.getzolvi.com", port: 8120, signerNit: "06231903251119", cpanelUser: "getzolvi" };
+    const previousV1 = [
+      "# zolvi-signer-v1 — generado por Zolvi; no editar a mano (rechightraining-test)",
+      'Include "/opt/zolvi-signers/rechightraining-test/apikey.conf"',
+      "ProxyRequests Off",
+      "ProxyPreserveHost On",
+      'ProxyPass "/.well-known/" "!"',
+      'ProxyPass "/" "http://127.0.0.1:8120/" connectiontimeout=5 timeout=60 retry=0',
+      'ProxyPassReverse "/" "http://127.0.0.1:8120/"',
+      '<Location "/">',
+      "  Require expr \"%{HTTP:X-DTE-Signer-Key} == '${ZOLVI_SIGNER_KEY_RECHIGHTRAINING_TEST}'\"",
+      "</Location>",
+      '<Location "/.well-known/">',
+      "  Require all granted",
+      "</Location>",
+      "",
+    ].join("\n");
+    const onVps = `${previousV1}ErrorDocument 403 "Forbidden"\n`;
+    const v = renderVhostInclude(REC);
+    expect(v).toBe(onVps);
+    expect(v.endsWith('</Location>\nErrorDocument 403 "Forbidden"\n')).toBe(true);
+    expect(v).not.toContain("\r");
+    // La cabecera (versión) no cambia: compose y label del contenedor siguen vigentes.
+    expect(v.split("\n")[0]).toMatch(/^# zolvi-signer-v1 /);
+    expect(renderCompose(REC).split("\n")[0]).toMatch(/^# zolvi-signer-v1 /);
+    // Controles que la línea nueva no debe alterar: guard de API Key, proxy loopback, .well-known abierto.
+    expect(v).toContain("  Require expr \"%{HTTP:X-DTE-Signer-Key} == '${ZOLVI_SIGNER_KEY_RECHIGHTRAINING_TEST}'\"");
+    expect(v.match(/^ProxyPass(Reverse)? .*$/gm).filter((l) => l.includes("http")).every((l) => l.includes('"http://127.0.0.1:8120/"'))).toBe(true);
+    expect(v.indexOf('ProxyPass "/.well-known/" "!"')).toBeLessThan(v.indexOf('ProxyPass "/" '));
+    expect(v).toContain('<Location "/.well-known/">\n  Require all granted\n</Location>');
+    expect(v).not.toMatch(/ProxyRequests On|0\.0\.0\.0/);
   });
 
   it("Define de API Key solo acepta 64 hex (sin inyección de directivas)", () => {
@@ -817,6 +859,54 @@ describe("REC TEST — causa raíz confirmada (sandbox) y recuperación vía hel
     expect(vps.files.get(HTTPD_CONF)).toBe(confBefore);
     expect(vps.files.has(n.vhostIncludePath)).toBe(false);
     expect(photo()).toEqual(before);
+  });
+
+  // ── 403 → 404 /403.shtml (2026-11-11): include corregido a mano en el VPS ──
+  const PREVIOUS_V1 = () => renderVhostInclude(REC).replace(/ErrorDocument 403 "Forbidden"\n$/, "");
+  /** Estado tras el APPLY por helper: include cargado y referenciado por httpd.conf. */
+  function recWithInclude(content) {
+    const ctx = recVps();
+    ctx.vps.state.strictIncludes = true;
+    ctx.vps.files.set(n.vhostIncludePath, content);
+    ctx.vps.files.set(HTTPD_CONF, renderHttpdConf(ctx.vps.files));
+    return ctx;
+  }
+
+  it("include v1 previo (sin ErrorDocument 403): VERIFY marca SOLO VHOST_TEMPLATE_CURRENT", async () => {
+    expect(PREVIOUS_V1()).not.toContain("ErrorDocument");
+    const { vps } = recWithInclude(PREVIOUS_V1());
+    const v = await at("helper")(vps).verify({ spec: REC });
+    expect(v.ok).toBe(false);
+    expect(v.checks.filter((c) => c.status !== "ok").map((c) => c.code)).toEqual(["VHOST_TEMPLATE_CURRENT"]);
+  });
+
+  it("include corregido a mano (v1 + ErrorDocument 403 al final): VERIFY completo; INSPECT/re-APPLY no reescriben ni recargan Apache", async () => {
+    const { vps, photo } = recWithInclude(`${PREVIOUS_V1()}ErrorDocument 403 "Forbidden"\n`);
+    const before = photo();
+    const included = vps.files.get(n.vhostIncludePath);
+    const v = await at("helper")(vps).verify({ spec: REC });
+    expect(v.checks.filter((c) => c.status !== "ok")).toEqual([]);
+    expect(v.ok).toBe(true);
+    expect(v.observed.vhost).toEqual({ present: true, templateVersion: "zolvi-signer-v1", matches: true });
+    expect(v.observed.compose.matches).toBe(true);
+    // VERIFY no ejecutó rebuild ni graceful (solo configtest vía helper).
+    expect(vps.state.helperCalls).toEqual([[BIN.apachectl, "-t"]]);
+    // Un APPLY eventual vería el include al día: sin rebuild, sin graceful, sin tocar nada.
+    const again = await at("helper")(vps).apply({ spec: REC, runId: randomUUID() });
+    expect(again.ok).toBe(true);
+    expect(again.steps.find((s) => s.op === "VHOST").status).toBe("UNCHANGED");
+    expect(vps.state.helperCalls.some((c) => c[0] === BIN.rebuild || c.includes("graceful"))).toBe(false);
+    expect(vps.files.get(n.vhostIncludePath)).toBe(included);
+    expect(photo()).toEqual(before);
+  });
+
+  it("comparación estricta: CRLF, sin newline final o línea fuera de lugar NO cuentan como plantilla vigente", async () => {
+    const good = `${PREVIOUS_V1()}ErrorDocument 403 "Forbidden"\n`;
+    for (const drift of [good.replace(/\n/g, "\r\n"), good.slice(0, -1), `${good}\n`, good.replace('ErrorDocument 403 "Forbidden"\n', "").replace("ProxyRequests Off\n", 'ProxyRequests Off\nErrorDocument 403 "Forbidden"\n')]) {
+      const { vps } = recWithInclude(drift);
+      const v = await at("helper")(vps).verify({ spec: REC });
+      expect(v.checks.find((c) => c.code === "VHOST_TEMPLATE_CURRENT").status).toBe("failed");
+    }
   });
 
   it("helper no instalado: APPLY falla sin tocar Apache y revierte el include (HELPER_UNAVAILABLE)", async () => {

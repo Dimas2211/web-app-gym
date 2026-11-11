@@ -79,7 +79,7 @@ contenido que generó el APPLY (plantilla del ejecutor instalado; apunta a `apik
 T=$(mktemp -d /root/zolvi-r0.XXXX); NIT=$(basename "$(ls "$REC"/cert/*.crt)" .crt)
 printf '{"slug":"rechightraining","environment":"TEST","hostname":"firmador-rec-test.getzolvi.com","port":8120,"signerNit":"%s","cpanelUser":"getzolvi"}\n' "$NIT" > "$T/spec-rec.json"
 "$NODE" --input-type=module -e 'import { renderVhostInclude } from "/opt/zolvi-signer-executor/lib/signer-core.mjs"; import { readFileSync } from "node:fs"; process.stdout.write(renderVhostInclude(JSON.parse(readFileSync(process.argv[1], "utf8"))));' "$T/spec-rec.json" > "$T/inc.conf"
-grep -c . "$T/inc.conf"                                              # 13 líneas; sin la API Key (solo ${Define})
+grep -c . "$T/inc.conf"                                              # 13 líneas (14 desde la plantilla con ErrorDocument 403); sin la API Key (solo ${Define})
 test ! -e "$INC" && install -m 0644 -o root -g root "$T/inc.conf" "$INC"
 apachectl -t; echo "apachectl_t=$?"                                  # 0  ⛔ si no: retirar "$INC" y avisar
 ```
@@ -249,6 +249,124 @@ curl -s -o /dev/null -w '%{http_code}\n' https://firmador-rec-test.getzolvi.com/
 ```
 
 Luego en Zolvi: VERIFY → «Registrar credencial del firmador» → VERIFY (`SIGNER_READY`).
+
+## 403 → 404 /403.shtml y alineación de la plantilla (REC TEST, 2026-11-11)
+
+Estado de partida: commit `818ddce` instalado, F0–F3 OK, APPLY de REC por helper OK (include cargado,
+`httpd` con el mismo PID).
+
+**Síntoma.** Tras el graceful, `curl` sin `X-DTE-Signer-Key` devolvía **404 JSON** del firmador con
+`path="/403.shtml"` en vez de 403.
+
+**Causa (confirmada).** El vhost SSL de cPanel hereda `ErrorDocument 403 /403.shtml`. El `Require expr`
+del include rechazaba correctamente (403), pero Apache atendía el 403 con una **redirección interna** a
+`/403.shtml`; esa URI coincide con `ProxyPass "/"` y se enviaba al firmador, que respondía 404. El guard
+de API Key nunca dejó pasar una petición sin clave; lo incorrecto era el código y el cuerpo del rechazo.
+
+**Corrección en el VPS (ya aplicada a mano).** Al FINAL del include:
+`ErrorDocument 403 "Forbidden"` — mensaje literal: Apache responde 403 directamente, sin subpetición ni
+redirección, por lo que no puede reintroducir el bucle AH00124 de MetaTraining (que sigue prohibiendo
+`RewriteRule` y `ErrorDocument` hacia URL/ruta). configtest + graceful vía helper; resultado: sin clave
+403, clave errónea 403, clave correcta 405 (`KEY_ACCEPTED`).
+
+**Por qué VERIFY seguía fallando.** `VHOST_TEMPLATE_CURRENT` compara el include **byte a byte** con
+`renderVhostInclude()` del ejecutor instalado, que no tenía esa línea. Con un check de infraestructura
+fallido, VERIFY no sale de `FAILED` y el registro de la credencial exige `INFRA_READY`/`SIGNER_READY`
+(«El firmador está en FAILED…»). `ZOLVI_CREDENTIAL_MATCH` fallaba solo porque la credencial aún no existe.
+
+**Solución.** La plantilla incluye ahora la línea como última directiva (plantilla v1 previa + línea +
+`\n`). `TEMPLATE_VERSION` sigue en `zolvi-signer-v1` a propósito: es compartida con el compose y el
+label del contenedor; subirla invalidaría `COMPOSE_TEMPLATE_CURRENT` y obligaría a un APPLY (reescritura
+de compose, recreación del contenedor y recarga de Apache) solo para cambiar una cabecera. El drift se
+detecta por contenido exacto, no por versión. Solo cambia `lib/signer-core.mjs`; no hay migración ni
+cambio en el Control Plane.
+
+### Instalación (⚠ autorización; NO requiere APPLY, rebuild ni graceful; reinicia SOLO el ejecutor)
+
+Variables: las de la sección «Variables» (`NODE`, `S` = copia del commit aprobado con LF, `X`, `REC`,
+`INC`). Detenerse ante cualquier ⛔.
+
+```bash
+# E0 — Preflight (solo lectura; escribe únicamente en /root/zolvi-errdoc.*)
+sha256sum "$S/lib/signer-core.mjs"          # a4f3cbeb8bf917d4c5a89308a3dac6b3715ce5b06b1f95565aa421f6d1cc33bf  ⛔ si difiere
+grep -c $'\r' "$S/lib/signer-core.mjs"      # 0  ⛔ si > 0
+"$NODE" --check "$S/lib/signer-core.mjs" && echo SYNTAX_OK
+diff -u "$X/lib/signer-core.mjs" "$S/lib/signer-core.mjs"   # solo comentarios + la línea `ErrorDocument 403 "Forbidden"`  ⛔ si hay más
+systemctl is-active httpd zolvi-signer-executor docker      # active ×3
+T=$(mktemp -d /root/zolvi-errdoc.XXXX); NIT=$(basename "$(ls "$REC"/cert/*.crt)" .crt); echo "NIT=$NIT"   # 06231903251119
+printf '{"slug":"rechightraining","environment":"TEST","hostname":"firmador-rec-test.getzolvi.com","port":8120,"signerNit":"%s","cpanelUser":"getzolvi"}\n' "$NIT" > "$T/spec-rec.json"
+R='import { renderVhostInclude, renderCompose } from "'"$S"'/lib/signer-core.mjs"; import { readFileSync } from "node:fs"; const s = JSON.parse(readFileSync(process.argv[1], "utf8")); process.stdout.write(process.argv[2] === "vhost" ? renderVhostInclude(s) : renderCompose(s));'
+"$NODE" --input-type=module -e "$R" "$T/spec-rec.json" vhost   > "$T/vhost.expected"
+"$NODE" --input-type=module -e "$R" "$T/spec-rec.json" compose > "$T/compose.expected"
+cmp "$T/vhost.expected" "$INC"                 && echo VHOST_MATCH     # ⛔ si difiere: NO instalar (ver nota)
+cmp "$T/compose.expected" "$REC/docker-compose.yml" && echo COMPOSE_MATCH # ⛔ si difiere
+tail -n 2 "$INC"                               # </Location> / ErrorDocument 403 "Forbidden"
+# Include ya cargado (sin recargar nada):
+grep -c 'firmador-rec-test.getzolvi.com/' /etc/apache2/conf/httpd.conf                        # ≥ 1
+apachectl -t                                                                                  # Syntax OK
+curl -s -o /dev/null -w '%{http_code}\n' https://firmador-rec-test.getzolvi.com/firmardocumento/  # 403  ⛔ si 404
+```
+
+Si `VHOST_MATCH` falla: `diff "$T/vhost.expected" "$INC" | cat -A` muestra la diferencia (CRLF, línea en
+blanco extra, falta de `\n` final, posición). La comparación es estricta a propósito; no instalar y
+reportar el diff antes de decidir (no corregir el include con APPLY sin ventana).
+
+```bash
+# E1 — Respaldo (escribe solo en /root)
+B=/root/zolvi-executor-backup-errdoc-$(date +%Y%m%d-%H%M%S); install -d -m 0700 "$B"; echo "B=$B"
+cp -a "$X/lib/signer-core.mjs" "$B/signer-core.mjs"
+cp -a "$INC" "$B/include.conf"
+sha256sum "$INC" "$REC/apikey.conf" "$REC/docker-compose.yml" "$REC"/cert/*.crt > "$B/rec.sha256"
+systemctl show -p MainPID --value httpd > "$B/httpd-mainpid.txt"
+docker inspect -f '{{.Name}} {{.Id}} {{.State.StartedAt}} {{.HostConfig.PortBindings}}' \
+  $(docker ps -a --format '{{.Names}}' | grep -E 'firmador') > "$B/signers-before.txt"
+
+# E2 — Instalación (⚠): un solo archivo; reinicio SOLO del ejecutor (Apache y contenedores no se tocan)
+journalctl -u zolvi-signer-executor --since -10min --no-pager | tail -n 5   # sin operaciones en curso desde Zolvi
+install -m 0640 "$S/lib/signer-core.mjs" "$X/lib/signer-core.mjs"
+sha256sum "$X/lib/signer-core.mjs"                                           # a4f3cbeb…33bf
+systemctl restart zolvi-signer-executor
+sleep 3; systemctl is-active zolvi-signer-executor                           # active  ⛔ si no → E-R
+curl -fsS http://127.0.0.1:9750/healthz; echo                                # {"ok":true,...}
+curl -s -o /dev/null -w '%{http_code}\n' -X POST http://127.0.0.1:9750/v1/execute -d '{}'   # 401
+
+# E3 — Comprobación (solo lectura: docker ps, ss y archivos; no toca Apache)
+"$NODE" "$X/zolvi-signer-executor.mjs" inspect --spec "$T/spec-rec.json" \
+  | "$NODE" -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const o=JSON.parse(s).observed;console.log("vhost",JSON.stringify(o.vhost),"compose",JSON.stringify(o.compose),"container",o.container?.state,o.container?.managed)})'
+#   vhost {"present":true,"templateVersion":"zolvi-signer-v1","matches":true} compose {...,"matches":true} container running true
+sha256sum -c "$B/rec.sha256"                                                 # todo OK (include, API Key, compose, cert intactos)
+[ "$(systemctl show -p MainPID --value httpd)" = "$(cat "$B/httpd-mainpid.txt")" ] && echo "httpd sin reinicio ni recarga"
+docker inspect -f '{{.Name}} {{.Id}} {{.State.StartedAt}} {{.HostConfig.PortBindings}}' \
+  $(docker ps -a --format '{{.Names}}' | grep -E 'firmador') | diff "$B/signers-before.txt" - && echo "contenedores intactos"
+rm -rf "$T"
+```
+
+**E-R — Reversión de la instalación** (solo si E2 falla): `install -m 0640 "$B/signer-core.mjs"
+"$X/lib/signer-core.mjs" && systemctl restart zolvi-signer-executor`. No toca Apache ni el include.
+
+### Secuencia en Zolvi (sin APPLY)
+
+1. **VERIFY** → todos los checks de infraestructura `ok` (incluido `VHOST_TEMPLATE_CURRENT`); único fallo
+   `ZOLVI_CREDENTIAL_MATCH` (sin credencial) → estado **`INFRA_READY`** (sale de `FAILED` sin tocar la base).
+   ⛔ Si queda en `FAILED`, leer el check fallido; no forzar estados.
+2. **Registrar credencial del firmador** → registra la URL `https://firmador-rec-test.getzolvi.com/firmardocumento/`
+   con la **API Key existente** (la misma huella; no se genera ni rota ninguna clave) en el
+   `DteIssuerConfig` TEST `38d7e01d-9abb-47fe-a8ec-9862b0215094`.
+3. **VERIFY** → `ZOLVI_CREDENTIAL_MATCH ok` (host y huella coinciden) → **`SIGNER_READY`**.
+
+Cubierto por pruebas: `zolvi-signer-executor.test.mjs` (plantilla === include corregido; include v1
+previo → solo `VHOST_TEMPLATE_CURRENT` falla; include corregido → VERIFY completo y re-APPLY `UNCHANGED`
+sin rebuild/graceful; CRLF/sin `\n` final/posición distinta → drift) y
+`signer-provisioning.service.test.ts` (FAILED → INFRA_READY → registro con la misma clave → SIGNER_READY;
+huella del VPS distinta o verificación pública fallida mantienen FAILED y bloquean el registro).
+
+### Recuperación de infraestructura ≠ aceptación fiscal
+
+`SIGNER_READY` solo afirma que el firmador de REC está sano, protegido por API Key, publicado por
+HTTPS/loopback y que la credencial de Zolvi apunta a él con la clave correcta. **No** prueba que el
+certificado sea aceptado por el Ministerio de Hacienda, ni que un DTE firmado sea recibido o sellado.
+Esta reparación no transmite DTE, no contacta a Hacienda, no marca `READY_TEST` y no habilita
+producción: esos pasos siguen su propio flujo (firma de prueba controlada y transmisión TEST autorizadas).
 
 ## Recuperación
 
