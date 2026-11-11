@@ -259,3 +259,41 @@ Customers captura datos fiscales con los mismos catálogos que Suppliers, no con
 - No se firmó ni transmitió ningún documento
 - No se tocó inventario
 - No se modificó Prisma schema ni migraciones
+
+
+## Clientes extranjeros y FEX 11
+
+El maestro `/dashboard/customers` permite crear y editar `is_foreign`,
+`country_code` y `customer_person_type`. La consulta de detalle por ID o código
+incluye esos campos y `country_name`. El nombre del país se resuelve en el servidor
+contra el catálogo `Country` activo de la base operacional de la organización.
+
+Para habilitar un cliente en FEX se requiere: estado activo, condición de extranjero,
+país CAT-020 vigente distinto de SV, persona jurídica (1) o natural (2), documento
+CAT-022 y número, descripción de actividad y dirección. Se reutilizan los límites
+de validación del alta rápida FEX. Para documento 36 se usa NIT; para los demás,
+el campo de documento almacenado en `dui`. No se infiere la condición de extranjero
+por nombre, NIT, NRC ni por el tipo de contribuyente.
+
+El guard de edición existente (CUSTOMER_EDIT), el tenant y el cliente de base de
+datos operacional siguen aplicando. Editar conserva el ID, código, NIT, NRC y demás
+datos que no se modifiquen. Volver a nacional no borra el país previamente guardado.
+No requiere migración porque los campos ya existen en Prisma.
+
+El buscador FEX mantiene el filtro de activos y extranjeros y consulta la base en
+cada búsqueda. Incluye `Actualizar búsqueda` para repetir el mismo texto después
+de editar al receptor en otra pestaña. No se eliminan los filtros fiscales.
+
+### Prueba en MetaTraining con DH APPS
+
+La ficha Customer es común a los ambientes TEST y PRODUCTION. Marcar a una empresa
+nacional como extranjera para pruebas también cambia su uso en ventas futuras.
+Este cambio de código no modifica DH APPS, no asigna un país ficticio, no crea
+ventas ni transmite DTE. Para realizar la prueba se debe elegir explícitamente el
+país y los datos extranjeros y verificar que el emisor esté en TEST antes de emitir.
+Al terminar, restaurar la condición nacional si se reutilizó la ficha real.
+
+Validación automatizada: edición de nacional a extranjero sobre el mismo ID,
+consulta FEX antes/después, conservación de NIT/NRC, país oficial runtime, rechazo
+de SV/códigos legados/inexistentes, datos incompletos, aislamiento por tenant,
+edición parcial y regreso a nacional.

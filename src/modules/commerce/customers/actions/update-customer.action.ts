@@ -70,10 +70,12 @@ export async function updateCustomerAction(
 
     if (!result.ok) {
       return result.field
-        ? { ok: false, field: result.field, error: result.error }
+        ? { ok: false, field: result.field, error: result.error, errors: { [result.field]: [result.error] } }
         : { ok: false, error: result.error };
     }
 
+    revalidatePath("/dashboard/sales/export");
+    revalidatePath("/dashboard/sales/new");
     revalidatePath("/dashboard/customers");
     revalidatePath(`/dashboard/customers/${customer_id}`);
 

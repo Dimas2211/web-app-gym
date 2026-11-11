@@ -54,10 +54,9 @@ export type CreateExportSaleResult =
 
 // ── Crear cliente extranjero (alta rápida) ────────────────────────
 //
-// No reutiliza customers/services/customer.service.ts porque ese
-// servicio no modela los campos de exportación (is_foreign,
-// country_code, country_name, customer_person_type) en su Zod schema
-// público. Se apoya en el mismo maestro Customer (no lo duplica) y
+// Alta rápida del flujo FEX. El maestro de clientes también permite
+// capturar y editar estos datos de exportación. Se apoya en el mismo
+// maestro Customer (no lo duplica) y
 // usa un código propio con prefijo EXP- para no colisionar con el
 // generador numérico del maestro de clientes.
 

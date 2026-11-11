@@ -8,6 +8,10 @@ import { cat022IdTypeCodeEnum } from "@/modules/commerce/shared/cat-022-identifi
 const TAXPAYER_TYPES = ["FINAL_CONSUMER", "REGISTERED_TAXPAYER", "EXCLUDED_SUBJECT"] as const;
 
 export const createCustomerSchema = z.object({
+  is_foreign: z.boolean().optional(),
+  country_code: z.string().trim().max(10).optional().nullable(),
+  customer_person_type: z.enum(["1", "2"]).optional().nullable(),
+
   customer_code: z
     .string()
     .trim()

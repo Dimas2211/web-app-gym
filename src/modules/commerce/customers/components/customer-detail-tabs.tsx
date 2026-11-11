@@ -198,6 +198,11 @@ function IdentificacionTab({
             <FieldRow label="Código"      value={<span className="font-mono">{detail.customer_code}</span>} />
             <FieldRow label="Nombre"      value={detail.name} />
             <FieldRow label="Nombre legal" value={detail.legal_name} />
+            <FieldRow label="Cliente extranjero" value={detail.is_foreign ? "Sí" : "No"} />
+            {detail.is_foreign && <>
+              <FieldRow label="País de destino" value={detail.country_name ?? detail.country_code} />
+              <FieldRow label="Tipo de persona" value={detail.customer_person_type === "1" ? "Jurídica" : detail.customer_person_type === "2" ? "Natural" : null} />
+            </>}
             <FieldRow label="Tipo contrib."
               value={detail.taxpayer_type ? TAXPAYER_LABELS[detail.taxpayer_type] : null}
             />

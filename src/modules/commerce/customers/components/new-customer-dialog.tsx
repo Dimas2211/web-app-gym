@@ -20,6 +20,7 @@
 
 import { useEffect, useTransition, useState, useRef } from "react";
 import { X } from "lucide-react";
+import { CustomerExportFields } from "./customer-export-fields";
 import { createCustomerAction } from "../actions/create-customer.action";
 import type { CreateCustomerInput } from "../schemas/customer.schemas";
 import { ActivityPicker }     from "./activity-picker";
@@ -81,6 +82,8 @@ export function NewCustomerDialog({ onClose, onSuccess }: NewCustomerDialogProps
   const [error,       setError]      = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string[]>>({});
 
+  const [isForeign, setIsForeign] = useState(false);
+
   // id_type_code — cargado desde API CAT-022
   const [idTypes,       setIdTypes]       = useState(ID_TYPE_FALLBACK);
   const [selectedIdType, setSelectedIdType] = useState("");
@@ -104,6 +107,9 @@ export function NewCustomerDialog({ onClose, onSuccess }: NewCustomerDialogProps
 
     const input: CreateCustomerInput = {
       customer_code:      strVal(fd, "customer_code") ?? undefined,
+      is_foreign: isForeign,
+      country_code: isForeign ? strVal(fd, "country_code") : null,
+      customer_person_type: isForeign ? strVal(fd, "customer_person_type") as "1" | "2" | null : null,
       name:               strVal(fd, "name") ?? "",
       legal_name:         strVal(fd, "legal_name"),
       taxpayer_type:      (strVal(fd, "taxpayer_type") ?? "FINAL_CONSUMER") as CreateCustomerInput["taxpayer_type"],
@@ -231,6 +237,11 @@ export function NewCustomerDialog({ onClose, onSuccess }: NewCustomerDialogProps
             </div>
           </Section>
 
+          <CustomerExportFields
+            isForeign={isForeign} onForeignChange={setIsForeign}
+            errors={fieldErrors}
+          />
+
           {/* ── Sección 2: Documentación fiscal ──────────────────── */}
           <Section title="Documentación fiscal">
             <div className="grid grid-cols-2 gap-x-4 gap-y-3">
@@ -256,7 +267,7 @@ export function NewCustomerDialog({ onClose, onSuccess }: NewCustomerDialogProps
               </div>
 
               <div>
-                <label htmlFor="nc-dui" className={labelCls}>DUI</label>
+                <label htmlFor="nc-dui" className={labelCls}>{isForeign ? "Documento (DUI, pasaporte u otro)" : "DUI"}</label>
                 <input
                   id="nc-dui" name="dui"
                   type="text" maxLength={20} placeholder="00000000-0"
@@ -268,10 +279,19 @@ export function NewCustomerDialog({ onClose, onSuccess }: NewCustomerDialogProps
               {/* Actividad económica — selector CAT-019 */}
               <div className="col-span-2">
                 <label className={labelCls}>Actividad económica</label>
+                {isForeign ? (
+                  <>
+                    <input type="hidden" name="activity_code" value={""} />
+                    <input name="activity_name" aria-label="Actividad económica del receptor extranjero"
+                      required minLength={5} maxLength={150} className={inputCls} />
+                    <FieldError errors={fieldErrors.activity_name} />
+                  </>
+                ) : (
                 <ActivityPicker
                   errorCode={fieldErrors.activity_code}
                   errorName={fieldErrors.activity_name}
                 />
+                )}
               </div>
 
             </div>
@@ -283,7 +303,7 @@ export function NewCustomerDialog({ onClose, onSuccess }: NewCustomerDialogProps
 
               {/* Municipio / Departamento — selector CAT-013 */}
               <div>
-                <label className={labelCls}>Municipio / Departamento</label>
+                <label className={labelCls}>Municipio / Departamento {isForeign ? "(datos nacionales, opcionales para exportación)" : ""}</label>
                 <MunicipalityPicker
                   errorDept={fieldErrors.dept_code}
                   errorMuni={fieldErrors.municipality_code}
