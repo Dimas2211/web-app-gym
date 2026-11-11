@@ -339,7 +339,36 @@ export async function runSignerProvisioning(
       }
 
       await db.platformDteSignerProvisioning.update({ where: { id: row.id }, data: { status: "APPLYING", last_error: null } });
-      const res: SignerExecutorResponse = await transport.call("apply", { spec, runId, ...(apiKey ? { apiKey } : {}) });
+      let res: SignerExecutorResponse = await transport.call("apply", { spec, runId, ...(apiKey ? { apiKey } : {}) });
+
+      // Una recarga de Apache puede cortar la respuesta HTTPS del ejecutor
+      // aunque el VPS haya aplicado cambios. INSPECT es de solo lectura:
+      // reconcilia el estado, nunca ejecuta APPLY otra vez ni rota la clave.
+      if (res.code === "EXECUTOR_UNREACHABLE" || res.code === "EXECUTOR_TIMEOUT") {
+        const postFailure = await transport.call("inspect", { spec });
+        if (postFailure.ok && postFailure.observed) {
+          const o = postFailure.observed;
+          const expectedFp = fresh.api_key_fingerprint ?? (apiKey ? fingerprintSecret(apiKey) : null);
+          const ready =
+            o.container?.state === "running" &&
+            o.container.managed &&
+            o.container.loopbackOnly &&
+            o.container.boundToExpectedPort &&
+            o.cert?.present &&
+            o.apiKey?.present &&
+            !!expectedFp &&
+            o.apiKey.fingerprint === expectedFp &&
+            o.compose?.matches &&
+            o.vhost?.matches &&
+            !(o.vhostForeignIncludes?.length);
+          res = ready
+            ? { ok: true, op: "apply", observed: o, steps: [{ op: "RECONCILE", status: "OK", detail: "Infraestructura confirmada mediante INSPECT posterior a la pérdida de respuesta; ejecutar VERIFY." }] }
+            : { ok: false, op: "apply", code: "APPLY_PARTIAL", message: "APPLY perdió la conexión y el VPS presenta recursos incompletos. No se reintentó automáticamente.", observed: o,
+                steps: [{ op: "RECONCILE", status: "FAILED", detail: "INSPECT detectó infraestructura incompleta; revisar antes de reintentar." }] };
+        } else {
+          res = { ...res, code: "APPLY_UNCERTAIN", message: "Se perdió la respuesta de APPLY y no fue posible inspeccionar el VPS. No reintentar ni ejecutar ROLLBACK sin revisar su estado." };
+        }
+      }
 
       const keyStep = res.steps?.find((s) => s.op === "API_KEY");
       const vpsFp = res.observed?.apiKey?.fingerprint ?? null;
