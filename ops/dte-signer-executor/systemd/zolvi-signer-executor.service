@@ -16,6 +16,10 @@ Environment=DOCKER_CONFIG=/opt/zolvi-signer-executor/.docker
 StateDirectory=zolvi-signer-executor
 StateDirectoryMode=0700
 Environment=ZOLVI_SIGNER_EXECUTOR_NONCE_FILE=/var/lib/zolvi-signer-executor/nonces.json
+# rebuildhttpdconf / apachectl NO corren dentro de este sandbox: se delegan a la unidad
+# oneshot fija zolvi-apache-helper@{rebuild,configtest,graceful}.service vía systemctl.
+# Requiere instalar systemd/zolvi-apache-helper@.service (ver README). "direct" = modo anterior.
+Environment=ZOLVI_SIGNER_APACHE_MODE=helper
 ExecStart=/usr/bin/node /opt/zolvi-signer-executor/zolvi-signer-executor.mjs serve --port 9750
 Restart=on-failure
 RestartSec=5

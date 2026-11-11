@@ -12,6 +12,9 @@ comandos arbitrarios desde el navegador.
 | `lib/executor-auth.mjs` | Firma HMAC + anti-replay (compartido con Zolvi) |
 | `zolvi-signer-executor.mjs` | Ejecutor (CLI y servicio HTTP en `127.0.0.1`) |
 | `systemd/zolvi-signer-executor.service` | Unidad systemd endurecida |
+| `lib/apache-ops.mjs` | Operaciones Apache (backends `helper`/`direct`), diagnóstico y saneamiento de salida |
+| `zolvi-apache-helper.mjs` + `systemd/zolvi-apache-helper@.service` | Helper privilegiado oneshot: solo `rebuild`, `configtest`, `graceful` |
+| `diagnostics/apache-rebuild-readonly-diagnostic.sh` | Diagnóstico de solo lectura del fallo de `rebuildhttpdconf` bajo systemd |
 | `apache/signer-ops-vhost-include.conf` | Include del vhost HTTPS que expone el ejecutor a Zolvi |
 
 ## Recursos por organización/ambiente (plantilla `zolvi-signer-v1`)
@@ -44,8 +47,9 @@ ss -ltnH | grep -E ':(8113|8114|8115) ' | tee -a /root/zolvi-signers-before.txt
 ```bash
 install -d -m 0750 /opt/zolvi-signer-executor /opt/zolvi-signer-executor/lib /opt/zolvi-signers
 install -d -m 0700 /opt/zolvi-signer-executor/.docker
-install -m 0640 zolvi-signer-executor.mjs /opt/zolvi-signer-executor/
-install -m 0640 lib/executor-auth.mjs lib/signer-core.mjs /opt/zolvi-signer-executor/lib/
+install -m 0640 zolvi-signer-executor.mjs zolvi-apache-helper.mjs /opt/zolvi-signer-executor/
+install -m 0640 lib/executor-auth.mjs lib/signer-core.mjs lib/apache-ops.mjs /opt/zolvi-signer-executor/lib/
+install -m 0644 'systemd/zolvi-apache-helper@.service' /etc/systemd/system/   # sin enable: arranca bajo demanda
 # Secreto compartido con Zolvi (>= 32 chars). Nunca en el repositorio ni en logs.
 install -m 0600 /dev/null /etc/zolvi-signer-executor.env
 echo "ZOLVI_SIGNER_EXECUTOR_SECRET=$(openssl rand -hex 32)" > /etc/zolvi-signer-executor.env
@@ -140,10 +144,97 @@ casos NO hay un reintento automático ni un rollback automático. Verificar esta
 real, huella, include SSL, contenedores existentes y ventana de mantenimiento
 antes de autorizar otra acción.
 
+### Helper privilegiado de Apache (desde 2026-11-10)
+
+`rebuildhttpdconf` es un script de cPanel que escribe en rutas no documentadas (cachés de
+userdata en `/etc`, `/var/cpanel`, `/usr/local/cpanel`, plantillas compiladas…). El ejecutor corre
+con `ProtectSystem=strict`, `ProtectHome`, `PrivateTmp` y `ReadWritePaths` acotados, así que el
+script puede fallar ahí aunque funcione como root interactivo. En vez de abrir el sandbox del
+proceso expuesto a la red, el ejecutor (`ZOLVI_SIGNER_APACHE_MODE=helper`) pide a systemd:
+
+| Unidad | Comando fijo |
+|---|---|
+| `zolvi-apache-helper@rebuild.service` | `/usr/local/cpanel/scripts/rebuildhttpdconf` |
+| `zolvi-apache-helper@configtest.service` | `/usr/sbin/apachectl -t` |
+| `zolvi-apache-helper@graceful.service` | `/usr/sbin/apachectl -k graceful` |
+
+Cualquier otra instancia sale con 64 sin ejecutar nada. No hay restart en ningún camino. El
+resultado saneado (sin PEM, claves ni hex largos) queda en `/run/zolvi-apache-helper/<op>.json`
+con el `InvocationID` de systemd; el ejecutor solo acepta el de la invocación que acaba de lanzar.
+
+Cada fallo de Apache devuelve `diagnostic` = `{ op, phase, kind, exitCode, signal, durationMs,
+stderr, stdout, backend, httpdConfChanged }`, con `kind` ∈ `SPAWN_FAILED | TIMEOUT |
+OUTPUT_OVERFLOW | PERMISSION_DENIED | CONFIG_ERROR | SIGNALED | NONZERO_EXIT |
+HELPER_UNAVAILABLE | HELPER_RESULT_MISSING`, y `message` resume la causa para la bitácora.
+
+Recuperación (APPLY): antes del rebuild se copia `httpd.conf` a
+`/var/lib/zolvi-signer-executor/httpd.conf.pre-<runId>`. Si falla: se retira el include y
+- si `httpd.conf` no cambió → solo `apachectl -t` (no hay segundo rebuild);
+- si cambió → se restaura la copia byte a byte y `apachectl -t`;
+- graceful de recuperación solo si Apache llegó a recibir la señal.
+
+ROLLBACK con fallo de Apache se detiene sin borrar contenedor ni API Key y deja el include
+como estaba, para no dejar `httpd.conf` apuntando a archivos ausentes.
+
 **REC TEST, incidente 2026-11-10:** se creó API Key + Compose + contenedor
 `dte-firmador-rechightraining-test` (127.0.0.1:8120), pero el include Apache
 no quedó instalado. Conservar estos recursos; no ejecutar ROLLBACK ni crear una
 clave nueva. El proxy queda pendiente de una recuperación controlada.
+El segundo APPLY (~22:28) terminó en `APACHE_RECOVERY_FAILED`: el include se retiró, `httpd.conf`
+quedó idéntico al respaldo y Apache siguió activo con sintaxis válida. El rebuild de
+recuperación falló igual que el primero, aunque el include ya no estaba: indica una causa del
+entorno de ejecución, no del include. Ver `diagnostics/` y "Actualización del ejecutor".
+
+## Actualización del ejecutor en el VPS (helper de Apache)
+
+Requiere ventana aprobada solo para el paso 5 (único que toca Apache). Los pasos 1–4 no
+afectan Apache ni firmadores.
+
+```bash
+# 1. Respaldo (reversión = restaurar este directorio y la unidad)
+TS=$(date +%Y%m%d-%H%M%S); B=/root/zolvi-executor-backup-$TS; mkdir -p "$B"
+cp -a /opt/zolvi-signer-executor "$B/" && cp -a /etc/systemd/system/zolvi-signer-executor.service "$B/"
+cp -a /etc/apache2/conf/httpd.conf "$B/httpd.conf"
+docker ps --format '{{.Names}} {{.Status}} {{.Ports}}' > "$B/containers.txt"
+
+# 2. Validación previa de los archivos nuevos (desde el checkout del PR)
+node --check zolvi-signer-executor.mjs && node --check zolvi-apache-helper.mjs && node --check lib/apache-ops.mjs
+systemd-analyze verify systemd/zolvi-signer-executor.service 'systemd/zolvi-apache-helper@.service'
+
+# 3. Instalación (sin reiniciar Apache)
+install -m 0640 zolvi-signer-executor.mjs zolvi-apache-helper.mjs /opt/zolvi-signer-executor/
+install -m 0640 lib/apache-ops.mjs lib/executor-auth.mjs lib/signer-core.mjs /opt/zolvi-signer-executor/lib/
+install -m 0644 systemd/zolvi-signer-executor.service 'systemd/zolvi-apache-helper@.service' /etc/systemd/system/
+systemctl daemon-reload
+systemctl restart zolvi-signer-executor        # solo el ejecutor; Apache y contenedores no se tocan
+systemctl is-active zolvi-signer-executor && curl -fsS http://127.0.0.1:9750/healthz
+
+# 4. Comprobación sin efectos sobre Apache: configtest por el helper (solo lectura de config)
+systemctl start zolvi-apache-helper@configtest.service; cat /run/zolvi-apache-helper/configtest.json
+systemctl start zolvi-apache-helper@restart.service; echo "exit=$? (debe fallar: instancia no permitida)"
+# Desde Zolvi: INSPECT de REC TEST → debe seguir mostrando API_KEY/CERT/COMPOSE/CONTAINER presentes, VHOST ausente.
+
+# 5. (Ventana aprobada) APPLY de REC TEST desde el panel — ver "Recuperación de REC TEST".
+```
+
+**Reversión del despliegue:** `cp -a $B/zolvi-signer-executor/. /opt/zolvi-signer-executor/`,
+`cp -a $B/zolvi-signer-executor.service /etc/systemd/system/`,
+`rm -f '/etc/systemd/system/zolvi-apache-helper@.service'`, `systemctl daemon-reload`,
+`systemctl restart zolvi-signer-executor`. No requiere tocar Apache ni contenedores. Si un
+APPLY dejara Apache inconsistente, la copia exacta está en
+`/var/lib/zolvi-signer-executor/httpd.conf.pre-<runId>` (y `$B/httpd.conf`).
+
+## Recuperación de REC TEST (sin recrear recursos)
+
+1. PLAN debe mostrar `DIR/API_KEY/CERT/COMPOSE/CONTAINER: KEEP`, `VHOST: CREATE`, `APACHE_RELOAD: RELOAD`.
+2. APPLY (ventana aprobada). El ejecutor: deja la API Key (`KEPT`, misma huella; no se envía
+   ni genera clave nueva), certificado (`PRESENT`), compose (`UNCHANGED`), contenedor
+   (`ENSURED`: `docker compose up -d` sin cambios no recrea), puerto 8120; crea solo el include
+   y ejecuta rebuild → `-t` → graceful vía helper.
+3. Si vuelve a fallar, `steps[].diagnostic` trae la causa exacta y la configuración vuelve sola
+   al estado previo. No reintentar sin leer el diagnóstico.
+4. Si sale bien: `INFRA_READY` → VERIFY → registrar credencial → VERIFY (`SIGNER_READY`).
+5. Repetir la foto de la sección 4 (TrustMe 8113/8114 y MetaTraining 8115 sin cambios).
 
 ## Flujo por cliente (desde el panel de la organización)
 
