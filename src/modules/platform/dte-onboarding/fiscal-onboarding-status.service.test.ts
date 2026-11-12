@@ -1,7 +1,8 @@
 // FISCAL-ONBOARDING — estado del onboarding: READY_TEST nunca se
-// confunde con READY_PROD; MariaDB NOT_CONFIGURED no bloquea; el caso
-// MetaTraining (TEST operativo, PROD sin emisor/BD dedicada/MH) queda
-// bloqueado en PRODUCTION.
+// confunde con READY_PROD; MariaDB NOT_CONFIGURED no bloquea; SHARED y
+// DEDICATED se admiten en TEST y PRODUCTION (sin exigencia de base
+// dedicada); el caso MetaTraining (TEST operativo, PROD sin emisor/MH)
+// sigue bloqueado en PRODUCTION por sus requisitos fiscales reales.
 
 import { describe, it, expect, vi } from "vitest";
 
@@ -36,9 +37,11 @@ const TEST_FACTS: RuntimeFiscalFacts = {
   credential: OWN_CRED, effectiveSignerSource: "ISSUER_CREDENTIAL", acceptedCount: 3, preflight: null,
 };
 
-function deps(over: Partial<OnboardingStatusDeps> & { facts?: Partial<Record<"TEST" | "PRODUCTION", RuntimeFiscalFacts>>; dedicated?: boolean } = {}): OnboardingStatusDeps {
+type RuntimeModel = "SHARED" | "DEDICATED";
+
+function deps(over: Partial<OnboardingStatusDeps> & { facts?: Partial<Record<"TEST" | "PRODUCTION", RuntimeFiscalFacts>>; model?: RuntimeModel } = {}): OnboardingStatusDeps {
   return {
-    getOrganization: async () => ({ tenant_id: "tenant-mt", has_dedicated_profile: over.dedicated ?? false, shared_runtime_target_id: null }),
+    getOrganization: async () => ({ tenant_id: "tenant-mt", shared_runtime_target_id: over.model === "SHARED" ? "shared-target-1" : null }),
     getSigner: async (_o, env) => NO_SIGNER(env),
     getMariaDb: async () => NO_MARIADB,
     countJobs: async () => ({ pending: 0, uncertain: 0, failed: 0 }),
@@ -47,6 +50,19 @@ function deps(over: Partial<OnboardingStatusDeps> & { facts?: Partial<Record<"TE
   };
 }
 
+const PROD_FACTS: RuntimeFiscalFacts = {
+  ...TEST_FACTS, issuer: { ...TEST_FACTS.issuer!, id: "iss-prod" },
+  credential: { ...OWN_CRED, signer_host: "firmador-cliente-prod.getzolvi.com" },
+  preflight: { status: "READY", checks: [{ code: "SIGNER_REACHABLE", label: "Firmador", status: "ok" }], issuer_config_id: "iss-prod" } as never,
+};
+
+const PROD_SIGNER = async (): Promise<SignerProvisioningSummary> => ({
+  ...NO_SIGNER("PRODUCTION"), exists: true, hostname: "firmador-cliente-prod.getzolvi.com", status: "SIGNER_READY",
+  mh_authorization_confirmed_at: new Date(), mh_authorization_reference: "MH-REF-1",
+});
+
+const MODELS: RuntimeModel[] = ["SHARED", "DEDICATED"];
+
 describe("getFiscalOnboardingStatus", () => {
   it("MetaTraining TEST: firmador propio + DTE aceptados + MariaDB NOT_CONFIGURED -> READY_TEST (no READY_PROD)", async () => {
     const s = await getFiscalOnboardingStatus("org-mt", "TEST", {}, deps({ facts: { TEST: TEST_FACTS } }));
@@ -54,17 +70,74 @@ describe("getFiscalOnboardingStatus", () => {
     expect(s.readyTest).toBe(true);
     expect(s.readyProd).toBe(false);
     expect(s.steps.find((x) => x.code === "MARIADB")?.status).toBe("optional");
-    expect(s.steps.find((x) => x.code === "DEDICATED_DB")?.status).toBe("warning");
+    expect(s.steps.some((x) => x.code === "DEDICATED_DB")).toBe(false);
     expect(s.blockers).toEqual([]);
   });
 
-  it("MetaTraining PRODUCTION hoy: sin emisor PROD, sin BD dedicada, sin atestación MH -> bloqueado, no activable", async () => {
-    const s = await getFiscalOnboardingStatus("org-mt", "PRODUCTION", { probe: true }, deps({ facts: { TEST: TEST_FACTS } }));
+  it.each(MODELS)("TEST %s: mismo resultado READY_TEST (el modelo de base no altera TEST)", async (model) => {
+    const s = await getFiscalOnboardingStatus("org-mt", "TEST", {}, deps({ model, facts: { TEST: TEST_FACTS } }));
+    expect(s).toMatchObject({ state: "READY_TEST", readyTest: true, readyProd: false, canActivate: true, blockers: [] });
+  });
+
+  it("MetaTraining PRODUCTION hoy (SHARED): sin emisor PROD ni atestación MH -> bloqueado por requisitos fiscales, no por base dedicada", async () => {
+    const s = await getFiscalOnboardingStatus("org-mt", "PRODUCTION", { probe: true }, deps({ model: "SHARED", facts: { TEST: TEST_FACTS } }));
     expect(s.readyProd).toBe(false);
     expect(s.canActivate).toBe(false);
     expect(s.state).not.toBe("READY_PROD");
     const blocked = s.steps.filter((x) => x.status === "blocked").map((x) => x.code);
-    expect(blocked).toEqual(expect.arrayContaining(["DEDICATED_DB", "ISSUER_CONFIG", "MH_CREDENTIALS", "MH_PROD_AUTHORIZATION"]));
+    expect(blocked).toEqual(expect.arrayContaining(["ISSUER_CONFIG", "MH_CREDENTIALS", "SIGNER_CREDENTIAL", "MH_PROD_AUTHORIZATION"]));
+    expect(blocked).not.toContain("DEDICATED_DB");
+    expect(s.blockers.join(" ")).not.toMatch(/dedicad/i);
+  });
+
+  it.each(MODELS)("PRODUCTION %s completo (runtime OK, preflight OK, firmador verificado, atestación MH) -> READY_PROD", async (model) => {
+    const s = await getFiscalOnboardingStatus("org-c", "PRODUCTION", { probe: true }, deps({ model, getSigner: PROD_SIGNER, facts: { PRODUCTION: PROD_FACTS } }));
+    expect(s).toMatchObject({ state: "READY_PROD", readyProd: true, readyTest: false, canActivate: true, blockers: [] });
+    expect(s.steps.some((x) => x.code === "DEDICATED_DB")).toBe(false);
+  });
+
+  it.each(MODELS)("PRODUCTION %s: runtime inaccesible sigue bloqueando", async (model) => {
+    const s = await getFiscalOnboardingStatus("org-c", "PRODUCTION", { probe: true }, deps({
+      model, getSigner: PROD_SIGNER,
+      readRuntimeFacts: async () => ({ ok: false, error: "Runtime no disponible (Error).", issuer: null, credential: null, effectiveSignerSource: null, acceptedCount: 0, preflight: null }),
+    }));
+    expect(s.steps.find((x) => x.code === "RUNTIME_REACHABLE")?.status).toBe("blocked");
+    expect(s).toMatchObject({ readyProd: false, canActivate: false, state: "DRAFT" });
+  });
+
+  it.each(MODELS)("PRODUCTION %s: sin credenciales MH, sin firmador propio, sin preflight o sin atestación MH sigue bloqueando", async (model) => {
+    const noCred = await getFiscalOnboardingStatus("org-c", "PRODUCTION", { probe: true }, deps({
+      model, getSigner: PROD_SIGNER, facts: { PRODUCTION: { ...PROD_FACTS, credential: { ...PROD_FACTS.credential!, has_api_password: false } } },
+    }));
+    expect(noCred.steps.find((x) => x.code === "MH_CREDENTIALS")?.status).toBe("blocked");
+    expect(noCred.canActivate).toBe(false);
+
+    const globalSigner = await getFiscalOnboardingStatus("org-c", "PRODUCTION", { probe: true }, deps({
+      model, getSigner: PROD_SIGNER, facts: { PRODUCTION: { ...PROD_FACTS, effectiveSignerSource: "GLOBAL_ENV" } },
+    }));
+    expect(globalSigner.steps.find((x) => x.code === "SIGNER_CREDENTIAL")?.status).toBe("blocked");
+    expect(globalSigner.canActivate).toBe(false);
+
+    const noPreflight = await getFiscalOnboardingStatus("org-c", "PRODUCTION", { probe: false }, deps({
+      model, getSigner: PROD_SIGNER, facts: { PRODUCTION: { ...PROD_FACTS, preflight: null } },
+    }));
+    expect(noPreflight.steps.find((x) => x.code === "PROD_PREFLIGHT")?.status).toBe("pending");
+    expect(noPreflight.canActivate).toBe(false);
+
+    const noMh = await getFiscalOnboardingStatus("org-c", "PRODUCTION", { probe: true }, deps({
+      model, facts: { PRODUCTION: PROD_FACTS },
+      getSigner: async () => ({ ...(await PROD_SIGNER()), mh_authorization_confirmed_at: null, mh_authorization_reference: null }),
+    }));
+    expect(noMh.steps.find((x) => x.code === "MH_PROD_AUTHORIZATION")?.status).toBe("blocked");
+    expect(noMh.canActivate).toBe(false);
+  });
+
+  it("sin excepciones por cliente: organizaciones distintas con los mismos hechos obtienen el mismo estado", async () => {
+    const a = await getFiscalOnboardingStatus("org-metatraining", "PRODUCTION", { probe: true }, deps({ model: "SHARED", getSigner: PROD_SIGNER, facts: { PRODUCTION: PROD_FACTS } }));
+    const b = await getFiscalOnboardingStatus("org-otra", "PRODUCTION", { probe: true }, deps({ model: "SHARED", getSigner: PROD_SIGNER, facts: { PRODUCTION: PROD_FACTS } }));
+    // organizationId y la fecha de atestación del mock difieren; el resto debe coincidir.
+    const strip = (x: typeof a) => ({ ...x, organizationId: "-", signer: { ...x.signer, mh_authorization_confirmed_at: null } });
+    expect(strip(a)).toEqual(strip(b));
   });
 
   it("firmador efectivo GLOBAL_ENV (de otro cliente) nunca cuenta como firmador propio", async () => {
@@ -83,21 +156,14 @@ describe("getFiscalOnboardingStatus", () => {
     expect(s.readyTest).toBe(false);
   });
 
-  it("PRODUCTION completo (BD dedicada, preflight OK, atestación MH) -> READY_PROD; preflight BLOCKED lo impide", async () => {
-    const prodFacts: RuntimeFiscalFacts = {
-      ...TEST_FACTS, issuer: { ...TEST_FACTS.issuer!, id: "iss-prod" },
-      credential: { ...OWN_CRED, signer_host: "firmador-cliente-prod.getzolvi.com" },
-      preflight: { status: "READY", checks: [{ code: "SIGNER_REACHABLE", label: "Firmador", status: "ok" }], issuer_config_id: "iss-prod" } as never,
-    };
-    const signer = async (): Promise<SignerProvisioningSummary> => ({
-      ...NO_SIGNER("PRODUCTION"), exists: true, hostname: "firmador-cliente-prod.getzolvi.com", status: "SIGNER_READY",
-      mh_authorization_confirmed_at: new Date(), mh_authorization_reference: "MH-REF-1",
-    });
-    const ok = await getFiscalOnboardingStatus("org-c", "PRODUCTION", { probe: true }, deps({ dedicated: true, getSigner: signer, facts: { PRODUCTION: prodFacts } }));
+  it("PRODUCTION DEDICATED completo (preflight OK, atestación MH) -> READY_PROD; preflight BLOCKED lo impide", async () => {
+    const prodFacts = PROD_FACTS;
+    const signer = PROD_SIGNER;
+    const ok = await getFiscalOnboardingStatus("org-c", "PRODUCTION", { probe: true }, deps({ model: "DEDICATED", getSigner: signer, facts: { PRODUCTION: prodFacts } }));
     expect(ok).toMatchObject({ state: "READY_PROD", readyProd: true, readyTest: false, canActivate: true });
 
     const pfBlocked = await getFiscalOnboardingStatus("org-c", "PRODUCTION", { probe: true }, deps({
-      dedicated: true, getSigner: signer,
+      model: "DEDICATED", getSigner: signer,
       facts: { PRODUCTION: { ...prodFacts, preflight: { status: "BLOCKED", checks: [{ code: "SIGNER_NIT_MATCH", label: "NIT", status: "blocked" }], issuer_config_id: "iss-prod" } as never } },
     }));
     expect(pfBlocked.readyProd).toBe(false);
@@ -105,7 +171,7 @@ describe("getFiscalOnboardingStatus", () => {
 
     // Health check del firmador fallido (preflight WARNING) no basta para READY_PROD.
     const unreachable = await getFiscalOnboardingStatus("org-c", "PRODUCTION", { probe: true }, deps({
-      dedicated: true, getSigner: signer,
+      model: "DEDICATED", getSigner: signer,
       facts: { PRODUCTION: { ...prodFacts, preflight: { status: "WARNING", checks: [{ code: "SIGNER_REACHABLE", label: "Firmador", status: "warning", detail: "timeout" }], issuer_config_id: "iss-prod" } as never } },
     }));
     expect(unreachable.readyProd).toBe(false);
@@ -113,7 +179,7 @@ describe("getFiscalOnboardingStatus", () => {
 
     // Firmador administrado solo con APPLY (INFRA_READY, sin VERIFY) no es READY_PROD.
     const notVerified = await getFiscalOnboardingStatus("org-c", "PRODUCTION", { probe: true }, deps({
-      dedicated: true, facts: { PRODUCTION: prodFacts },
+      model: "DEDICATED", facts: { PRODUCTION: prodFacts },
       getSigner: async () => ({ ...(await signer()), status: "INFRA_READY" }),
     }));
     expect(notVerified.readyProd).toBe(false);
