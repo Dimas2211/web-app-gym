@@ -25,7 +25,8 @@
 // confirmar una compra — todo es accionado manualmente por el usuario.
 // ─────────────────────────────────────────────────────────────────
 
-import { useState, useTransition } from "react";
+import { useRef, useState, useTransition } from "react";
+import { ResumeDteDialog } from "@/modules/commerce/dte/continuation/resume-dte-dialog";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Loader2, ChevronDown, AlertTriangle } from "lucide-react";
@@ -77,6 +78,8 @@ interface PurchaseDteFiscalPanelProps {
 
 export function PurchaseDteFiscalPanel({ detail, correlativeStatus, isSuperAdmin }: PurchaseDteFiscalPanelProps) {
   const router = useRouter();
+  const [resumePurchaseId, setResumePurchaseId] = useState<string | null>(null);
+  const resumeRef = useRef<HTMLButtonElement>(null);
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [validationErrors, setValidationErrors] = useState<string[]>([]);
@@ -149,11 +152,21 @@ export function PurchaseDteFiscalPanel({ detail, correlativeStatus, isSuperAdmin
   return (
     <div className="flex-none border-t border-zinc-800 bg-zinc-900/60 px-3 py-2 space-y-2 max-h-[70vh] overflow-y-auto">
 
+      {dte && isConfirmed && dte.dte_status !== "CANCELLED" && resumePurchaseId === detail.id && (
+        <ResumeDteDialog key={dte.id} request={{ dteId: dte.id, origin: "purchase", originId: detail.id }}
+          type="14" originCode={detail.purchase_code} onFiscalChange={() => router.refresh()}
+          onClose={() => { setResumePurchaseId(null); resumeRef.current?.focus(); }} />
+      )}
+
       {/* ── Encabezado ─────────────────────────────────────────── */}
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <span className="text-[10px] font-semibold uppercase tracking-widest text-zinc-500">
           Panel Fiscal DTE — FSE 14
         </span>
+        {dte && isConfirmed && dte.dte_status !== "CANCELLED" && (
+          <button ref={resumeRef} type="button" onClick={() => setResumePurchaseId(detail.id)}
+            className="rounded border border-emerald-700 px-2 py-1 text-[10px] text-emerald-300">Continuar factura de sujeto excluido</button>
+        )}
         {dte ? (
           <>
             <span className={`text-[10px] font-medium ${envCls(dte.environment)}`}>{envLabel(dte.environment)}</span>
