@@ -26,8 +26,10 @@ import {
   processDeliveryOutboxAction,
   reconcileDeliveryJobAction,
   activateFiscalEnvironmentAction,
+  runFiscalEnvironmentDiagnosticsAction,
   type DeliveryJobRow,
 } from "../actions/fiscal-onboarding.action";
+import { DteEnvironmentDiagnosticsButton } from "@/modules/commerce/dte/settings/components/dte-environment-diagnostics-button";
 import type { FiscalOnboardingStatus, OnboardingStepStatus } from "../dte-onboarding/fiscal-onboarding-status.service";
 import type { SignerProvisioningMode, SignerProvisioningRunResult } from "../dte-onboarding/signer-provisioning.service";
 import { presentSignerState, type Tone } from "../dte-onboarding/signer-provisioning.presenter";
@@ -365,6 +367,24 @@ export function PlatformFiscalOnboardingPanel({ organizationId }: { organization
                 )}
             </Section>
           )}
+
+          {/* Disponible antes y después de activar: no depende de canActivate,
+              del preflight ni de la atestación MH, y no cambia estados. */}
+          <Section title="Prueba de conexión y firma">
+            <p className="text-xs text-zinc-500">
+              Autentica en Hacienda y firma un JSON de diagnóstico con las credenciales propias del emisor {env}.
+              No transmite documentos ni reserva correlativos.
+            </p>
+            {status.runtime.issuer ? (
+              <DteEnvironmentDiagnosticsButton
+                key={env}
+                environment={env}
+                runAction={(e) => runFiscalEnvironmentDiagnosticsAction(organizationId, e)}
+              />
+            ) : (
+              <p className="text-xs text-zinc-400">No existe configuración de emisor {env}.</p>
+            )}
+          </Section>
 
           <Section title="Activación">
             <p className="text-xs text-zinc-500">

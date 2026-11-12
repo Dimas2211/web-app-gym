@@ -16,6 +16,7 @@ import { FlaskConical, Rocket, ShieldCheck, ShieldAlert, ShieldX, KeyRound, Sett
 import { DteIssuerConfigFormDialog } from "./dte-issuer-config-form-dialog";
 import { DteCredentialFormDialog } from "./dte-credential-form-dialog";
 import { SwitchDteEnvironmentDialog } from "./switch-dte-environment-dialog";
+import { DteEnvironmentDiagnosticsButton } from "./dte-environment-diagnostics-button";
 import type { DteEnvironmentPanelData, DteEnvironmentPanelEntry } from "../../queries/get-dte-environment-panel-data";
 import type { DteEnvironment } from "../../types/dte.types";
 
@@ -178,6 +179,15 @@ function EnvironmentCard({
                 Activar {isProd ? "PRODUCCIÓN" : "PRUEBAS"}
               </button>
             )}
+          </div>
+        )}
+
+        {/* Diagnóstico por ambiente: funciona aunque el ambiente esté
+            inactivo y no depende del preflight ni de la autorización MH.
+            Oculto en solo lectura; el servidor además lo bloquea. */}
+        {!readOnly && hasConfig && (
+          <div className="pt-1 border-t border-zinc-100">
+            <DteEnvironmentDiagnosticsButton environment={entry.environment} />
           </div>
         )}
       </div>
