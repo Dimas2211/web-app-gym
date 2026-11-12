@@ -46,6 +46,7 @@ interface Options {
   cash_session_id?: string | null;
   dteDocs?: Row[];
   cashSessions?: Row[];
+  loseDteClaim?: boolean;
   failOn?: "inventoryMovement.create" | "cashMovement.create";
 }
 
@@ -121,7 +122,7 @@ function createFakeDb(o: Options = {}) {
           ...head,
           items: items.map((i) => ({ ...i })),
           payments: payments.map((p) => ({ ...p })),
-          dte_documents: state.dteDocs.filter((d) => d.tenant_id === where.tenant_id).map((d) => ({ dte_status: d.dte_status, reception_stamp: d.reception_stamp ?? null })),
+          dte_documents: state.dteDocs.filter((d) => d.tenant_id === where.tenant_id).map((d) => ({ ...d, reception_stamp: d.reception_stamp ?? null })),
         };
       },
       updateMany: async ({ where, data }: { where: Row; data: Row }) => {
@@ -133,7 +134,14 @@ function createFakeDb(o: Options = {}) {
       },
     },
     dteOutgoingDocument: {
-      findMany: async ({ where }: { where: Row }) => state.dteDocs.filter((d) => match(d, where)).map((d) => ({ dte_status: d.dte_status, reception_stamp: d.reception_stamp ?? null })),
+      findMany: async ({ where }: { where: Row }) => state.dteDocs.filter((d) => match(d, where)).map((d) => ({ ...d, reception_stamp: d.reception_stamp ?? null })),
+      updateMany: async ({ where, data }: { where: Row; data: Row }) => {
+        guardWrite();
+        if (o.loseDteClaim) return { count: 0 };
+        const docs = state.dteDocs.filter((d) => match(d, where));
+        docs.forEach((d) => Object.assign(d, data));
+        return { count: docs.length };
+      },
     },
     cashSession: {
       findMany: async ({ where }: { where: Row }) => state.cashSessions.filter((s) => match(s, where)).map((s) => ({ ...s })),
@@ -301,7 +309,57 @@ describe("cancelConfirmedSale — inventario", () => {
   });
 });
 
+function untouchedPending(overrides: Row = {}): Row {
+  return { id: "pending-1", location_id: L, dte_status: "PENDING_GENERATION",
+    updated_at: new Date("2026-11-11T20:00:00Z"), retry_count: 0, transmission_type_code: "1",
+    _count: { transmission_logs: 0, contingency_event_items: 0 },
+    control_number: "DTE-11-M001P001-000000000000001", generation_code: "GEN-1", ...overrides };
+}
+
 describe("cancelConfirmedSale — DTE", () => {
+  it.each(["01", "03", "05", "11"])("DTE %s pendiente intacto se cancela localmente junto a la venta", async (dte_type_code) => {
+    const fake = createFakeDb({ dteDocs: [untouchedPending({ dte_type_code })] });
+    expect(await run(fake)).toEqual({ ok: true });
+    expect(fake.state.sale.status).toBe("CANCELLED");
+    expect(fake.state.dteDocs[0]).toMatchObject({ dte_status: "CANCELLED", updated_by: U,
+      control_number: "DTE-11-M001P001-000000000000001", generation_code: "GEN-1" });
+    expect(returnIns(fake.state)).toHaveLength(2);
+    expect(fake.calls.writesOutsideTx).toBe(0);
+  });
+
+  it.each([
+    { signed_jws: "JWS" }, { sent_at: new Date() }, { generated_at: new Date() },
+    { json_document: {} }, { reception_stamp: "SELLO" }, { mh_response: {} },
+    { retry_count: 1 }, { transmission_type_code: "2" },
+    { _count: { transmission_logs: 1, contingency_event_items: 0 } },
+    { _count: { transmission_logs: 0, contingency_event_items: 1 } },
+  ])("pendiente con evidencia de actividad se bloquea: %j", async (evidence) => {
+    const fake = createFakeDb({ dteDocs: [untouchedPending(evidence)] });
+    expect((await run(fake)).ok).toBe(false);
+    expect(fake.state.sale.status).toBe("CONFIRMED");
+  });
+
+  it("si un generador gana el claim del DTE, la anulación revierte sin devolver stock", async () => {
+    const fake = createFakeDb({ dteDocs: [untouchedPending()], loseDteClaim: true });
+    expect(await run(fake)).toEqual({ ok: false, error: MSG.CONFLICT });
+    expect(fake.state.sale.status).toBe("CONFIRMED");
+    expect(fake.state.dteDocs[0].dte_status).toBe("PENDING_GENERATION");
+    expect(returnIns(fake.state)).toHaveLength(0);
+  });
+
+  it("si falla inventario se revierte también la cancelación local del DTE", async () => {
+    const fake = createFakeDb({ dteDocs: [untouchedPending()], failOn: "inventoryMovement.create" });
+    expect((await run(fake)).ok).toBe(false);
+    expect(fake.state.sale.status).toBe("CONFIRMED");
+    expect(fake.state.dteDocs[0].dte_status).toBe("PENDING_GENERATION");
+  });
+
+  it("otro DTE activo impide cancelar el pendiente de la misma venta", async () => {
+    const fake = createFakeDb({ dteDocs: [untouchedPending(), { dte_status: "ACCEPTED" }] });
+    expect((await run(fake)).ok).toBe(false);
+    expect(fake.state.dteDocs[0].dte_status).toBe("PENDING_GENERATION");
+  });
+
   it("(13) DTE ACCEPTED bloquea con mensaje de invalidación previa", async () => {
     const fake = createFakeDb({ dteDocs: [{ dte_status: "ACCEPTED" }] });
     expect(await run(fake)).toEqual({ ok: false, error: MSG.DTE_ACCEPTED });

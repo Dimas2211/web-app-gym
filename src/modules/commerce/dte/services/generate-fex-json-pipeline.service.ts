@@ -127,7 +127,7 @@ export async function generateAndPersistFexJsonForDte(
 
   // ── 3. Persistir json_document y avanzar a GENERATED ──────────────
   await db.dteOutgoingDocument.update({
-    where: { id: dte_document_id },
+    where: { id: dte_document_id, dte_status: { in: ["PENDING_GENERATION", "GENERATED", "SCHEMA_VALIDATED"] } },
     data:  {
       json_document: built.json as unknown as Prisma.InputJsonValue,
       dte_status:    "GENERATED",

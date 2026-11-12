@@ -9,7 +9,7 @@ vi.mock("../export/components/resume-export-dte-dialog", () => ({ ResumeExportDt
 function detail(type = "11", status = "REJECTED"): SaleDetail {
   const delivery = { hasSuccessfulDelivery: false, attemptsCount: 0, lastAttemptAt: null, lastErrorMessage: null };
   return {
-    id: "existing-sale", sale_code: "VTA-2026-11-0010",
+    id: "existing-sale", status: "CONFIRMED", sale_code: "VTA-2026-11-0010",
     dte_document: { id: "existing-dte", dte_type_code: type, dte_status: status, environment: "TEST", reception_stamp: null },
     dte_invalidation_events: [], dte_related_nc: null,
     external_delivery: delivery, external_invalidation_delivery: delivery,
@@ -21,6 +21,16 @@ describe("retomar una FEX guardada desde Ventas", () => {
     const html = renderToStaticMarkup(<SaleDteFiscalPanel detail={detail("11", status)} canManageFiscalDte />);
     expect(html).toContain("Continuar factura de exportación");
     expect(html).not.toContain('role="dialog"');
+  });
+  it("oculta continuar y muestra la cancelación local del DTE", () => {
+    const cancelled = { ...detail("11", "CANCELLED"), status: "CANCELLED" as const };
+    const html = renderToStaticMarkup(<SaleDteFiscalPanel detail={cancelled} canManageFiscalDte />);
+    expect(html).toContain("Cancelado localmente");
+    expect(html).not.toContain("Continuar factura de exportación");
+  });
+  it("no retoma un documento histórico si la venta ya está anulada", () => {
+    const cancelled = { ...detail(), status: "CANCELLED" as const };
+    expect(renderToStaticMarkup(<SaleDteFiscalPanel detail={cancelled} canManageFiscalDte />)).not.toContain("Continuar factura de exportación");
   });
   it("oculta el acceso cuando solo hay permiso de lectura de JSON", () => {
     const html = renderToStaticMarkup(<SaleDteFiscalPanel detail={detail()} canViewDteJson />);

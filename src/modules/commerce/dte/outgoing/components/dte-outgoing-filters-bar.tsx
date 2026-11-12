@@ -117,6 +117,7 @@ export function DteOutgoingFiltersBar({
             className={`${inputCls} w-36`}
           >
             <option value="">Todos</option>
+            <option value="CANCELLED">Cancelado localmente</option>
             <option value="PENDING_GENERATION">Pendiente</option>
             <option value="GENERATED">Generado</option>
             <option value="SCHEMA_VALIDATED">Validado</option>

@@ -52,6 +52,7 @@ function fmt(d: Date | null | undefined): string {
 
 function dteStatusLabel(s: string): string {
   const map: Record<string, string> = {
+    CANCELLED:            "Cancelado localmente",
     PENDING_GENERATION:   "Pendiente",
     GENERATED:            "Generado",
     SCHEMA_VALIDATED:     "Validado",
@@ -185,7 +186,7 @@ export function SaleDteFiscalPanel({
   return (
     <div className="flex-none border-t border-zinc-800 bg-zinc-900/60">
 
-      {canManageFiscalDte && dte.dte_type_code === "11" && resumeSaleId === detail.id && (
+      {canManageFiscalDte && detail.status === "CONFIRMED" && dte.dte_status !== "CANCELLED" && dte.dte_type_code === "11" && resumeSaleId === detail.id && (
         <ResumeExportDteDialog key={detail.id} dteId={dte.id} saleId={detail.id} saleCode={detail.sale_code}
           onFiscalChange={onFiscalChange}
           onClose={() => { setResumeSaleId(null); resumeButtonRef.current?.focus(); }} />
@@ -205,7 +206,7 @@ export function SaleDteFiscalPanel({
           <span className={`text-[10px] font-semibold ${dteStatusCls(dte.dte_status)}`}>
             · {dteStatusLabel(dte.dte_status)}
           </span>
-          {canManageFiscalDte && dte.dte_type_code === "11" && (
+          {canManageFiscalDte && detail.status === "CONFIRMED" && dte.dte_status !== "CANCELLED" && dte.dte_type_code === "11" && (
             <button ref={resumeButtonRef} type="button" onClick={() => setResumeSaleId(detail.id)}
               className="rounded border border-emerald-700 px-2 py-1 text-[10px] font-medium text-emerald-300 hover:bg-emerald-900/40">
               Continuar factura de exportación

@@ -132,7 +132,7 @@ describe("generateFeJsonForDte — FASE VI-E3 (runtime db injection)", () => {
     expect(db.dteIssuerConfig.findFirst).toHaveBeenCalledTimes(1);
     expect(db.dteOutgoingDocument.update).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { id: "dte-1" },
+        where: { id: "dte-1", dte_status: "PENDING_GENERATION" },
         data: expect.objectContaining({ dte_status: "GENERATED" }),
       }),
     );

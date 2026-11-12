@@ -566,7 +566,7 @@ export async function generateCcfeJsonForDte(
 
     // ── 20. Persistir: guardar JSON y cambiar estado ──────────────
     await db.dteOutgoingDocument.update({
-      where: { id: dte_document_id },
+      where: { id: dte_document_id, dte_status: "PENDING_GENERATION" },
       data:  {
         json_document: jsonDocument as unknown as Prisma.InputJsonValue,
         dte_status:    "GENERATED",

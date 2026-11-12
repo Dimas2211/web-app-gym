@@ -5,6 +5,7 @@
 export type DteEnvironment = "TEST" | "PRODUCTION";
 
 export type DteOutgoingStatus =
+  | "CANCELLED"
   | "NOT_REQUIRED"
   | "PENDING_GENERATION"
   | "GENERATED"

@@ -53,3 +53,11 @@ describe("computeDteOutgoingActionAvailability — canReconcile (FASE IV-C)", ()
     expect(av.canSign).toBe(false);
   });
 });
+
+it("CANCELLED local no ofrece generación, firma, transmisión ni reconciliación", () => {
+  const availability = computeDteOutgoingActionAvailability(baseInput({ dte_status: "CANCELLED" }));
+  expect(availability.canGenerateJson).toBe(false);
+  expect(availability.canSign).toBe(false);
+  expect(availability.canTransmit).toBe(false);
+  expect(availability.canReconcile).toBe(false);
+});
