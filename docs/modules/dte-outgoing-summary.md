@@ -419,3 +419,44 @@ Todos los campos son nullable. No rompen servicios existentes.
 - Todos los documentos aceptados con sello y entregados a sistema externo MariaDB.
 - Panel Fiscal DTE operativo en /dashboard/sales.
 - Ver docs/modules/dte-v1-operational-close.md para el cierre técnico-operativo completo.
+
+
+## Continuar DTE guardados desde ventas y compras (2026-11-11)
+
+Los documentos existentes pueden retomarse sin crear otra venta/compra ni
+reservar un nuevo correlativo. Abrir el diálogo solo consulta el estado en la
+base runtime efectiva; cada operación exige clic explícito.
+
+| Tipo | Acceso | Ubicación |
+|---|---|---|
+| FE 01 | Continuar factura | Panel fiscal de Ventas |
+| CCF 03 | Continuar CCF | Panel fiscal de Ventas |
+| NC 05 | Continuar nota de crédito | Panel fiscal y NC relacionada en Ventas |
+| FEX 11 | Continuar factura de exportación | Panel fiscal de Ventas (flujo existente) |
+| FSE 14 | Continuar factura de sujeto excluido | Panel fiscal del detalle de Compras |
+
+Para 01/03/05/14, el diálogo común de `dte/continuation` ofrece generación y
+validación, firma, transmisión, consulta MH y entrega externa según estado.
+Los generadores/validadores/firmadores/transmisores son las mismas actions
+existentes; el tipo real se lee del documento, nunca se confía en el navegador.
+FEX conserva su flujo especializado y sus controles de habilitación.
+
+- PENDING_GENERATION genera y valida. GENERATED reintenta validación (01/03/05)
+  o el pipeline FSE sin reservar otro número.
+- SCHEMA_VALIDATED ofrece firma; SIGNED ofrece consulta MH y transmisión manual.
+- ACCEPTED/OBSERVED con sello solo permiten entrega externa pendiente.
+- La reapertura técnica del mismo DTE se ofrece únicamente cuando el último log
+  SEND demuestra rechazo 802 y no hay sello; el servicio revalida la elegibilidad.
+- CANCELLED/INVALIDATED/origen anulado no ofrecen operaciones de emisión.
+  Un rechazo distinto de 802 se muestra para revisión, sin crear otro DTE.
+- Transmisión y entrega externa requieren confirmación explícita, indicando
+  ambiente y número de control. No se transmite al abrir ni al actualizar estado.
+
+La lectura y escritura exigen sesión admin, rol efectivo LIVE autorizado,
+módulo fiscal.dte, tenant, sucursal y origen exactos. La sesión de soporte
+read-only no puede ejecutar operaciones. No se devuelven JSON completo, JWS,
+respuestas MH completas ni credenciales. Se actualiza el panel de origen tras
+operar; errores de validación se conservan legibles.
+
+Sin migraciones, sin activar nuevos tipos y sin modificar documentos históricos
+como parte del despliegue.

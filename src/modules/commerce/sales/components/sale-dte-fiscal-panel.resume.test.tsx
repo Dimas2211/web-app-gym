@@ -4,6 +4,7 @@ import { SaleDteFiscalPanel } from "./sale-dte-fiscal-panel";
 import type { SaleDetail } from "../types/sale.types";
 
 vi.mock("@/modules/commerce/dte/outgoing/components/dte-json-actions", () => ({ DteJsonActions: () => null }));
+vi.mock("@/modules/commerce/dte/continuation/resume-dte-dialog", () => ({ ResumeDteDialog: () => null }));
 vi.mock("../export/components/resume-export-dte-dialog", () => ({ ResumeExportDteDialog: () => null }));
 
 function detail(type = "11", status = "REJECTED"): SaleDetail {
@@ -38,6 +39,18 @@ describe("retomar una FEX guardada desde Ventas", () => {
   });
   it.each(["01", "03", "05"])("no ofrece el flujo FEX para tipo %s", (type) => {
     expect(renderToStaticMarkup(<SaleDteFiscalPanel detail={detail(type)} canManageFiscalDte />)).not.toContain("Continuar factura de exportación");
+  });
+  it.each([["01", "Continuar factura"], ["03", "Continuar CCF"], ["05", "Continuar nota de crédito"]])("tipo %s permite retomar su DTE existente", (type, label) => {
+    const html = renderToStaticMarkup(<SaleDteFiscalPanel detail={detail(type)} canManageFiscalDte />);
+    expect(html).toContain(label);
+    expect(html).not.toContain('role="dialog"');
+    expect(renderToStaticMarkup(<SaleDteFiscalPanel detail={detail(type)} canViewDteJson />)).not.toContain(label);
+    const cancelled = { ...detail(type), status: "CANCELLED" as const };
+    expect(renderToStaticMarkup(<SaleDteFiscalPanel detail={cancelled} canManageFiscalDte />)).not.toContain(label);
+  });
+  it("permite retomar una NC relacionada sin crear otra", () => {
+    const withNc = { ...detail("03"), dte_related_nc: { id: "nc-1", dte_status: "GENERATED" } } as unknown as SaleDetail;
+    expect(renderToStaticMarkup(<SaleDteFiscalPanel detail={withNc} showTabs canManageFiscalDte />)).toContain("Continuar nota de crédito");
   });
   it("mantiene el placeholder sin venta seleccionada", () => {
     expect(renderToStaticMarkup(<SaleDteFiscalPanel detail={null} canManageFiscalDte />)).toContain("Sin documento fiscal");

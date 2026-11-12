@@ -16,6 +16,8 @@
 // ─────────────────────────────────────────────────────────────────
 
 import { useRef, useState } from "react";
+import { ResumeDteDialog } from "@/modules/commerce/dte/continuation/resume-dte-dialog";
+import { continuationLabel } from "@/modules/commerce/dte/continuation/availability";
 import { ResumeExportDteDialog } from "../export/components/resume-export-dte-dialog";
 import type { SaleDetail } from "../types/sale.types";
 import { getDteShortCode } from "../utils/dte-type-labels";
@@ -126,6 +128,8 @@ export function SaleDteFiscalPanel({
   const [activeTab, setActiveTab] = useState<Tab>("fiscal");
   const [resumeSaleId, setResumeSaleId] = useState<string | null>(null);
   const resumeButtonRef = useRef<HTMLButtonElement>(null);
+  const [resumeDocument, setResumeDocument] = useState<{ id: string; type: string; saleId: string } | null>(null);
+  const genericTriggerRef = useRef<HTMLButtonElement | null>(null);
 
   const dte = detail?.dte_document ?? null;
 
@@ -192,11 +196,17 @@ export function SaleDteFiscalPanel({
           onClose={() => { setResumeSaleId(null); resumeButtonRef.current?.focus(); }} />
       )}
 
+      {canManageFiscalDte && detail.status === "CONFIRMED" && resumeDocument?.saleId === detail.id && (
+        <ResumeDteDialog key={resumeDocument.id} request={{ dteId: resumeDocument.id, origin: "sale", originId: detail.id }}
+          type={resumeDocument.type} originCode={detail.sale_code} onFiscalChange={onFiscalChange}
+          onClose={() => { setResumeDocument(null); genericTriggerRef.current?.focus(); }} />
+      )}
+
       {/* ── BLOQUE PRINCIPAL FIJO ───────────────────────────────── */}
       <div className="px-3 py-2 space-y-1.5">
 
         {/* Encabezado */}
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <span className="text-[10px] font-semibold uppercase tracking-widest text-zinc-500">
             Panel Fiscal DTE
           </span>
@@ -210,6 +220,12 @@ export function SaleDteFiscalPanel({
             <button ref={resumeButtonRef} type="button" onClick={() => setResumeSaleId(detail.id)}
               className="rounded border border-emerald-700 px-2 py-1 text-[10px] font-medium text-emerald-300 hover:bg-emerald-900/40">
               Continuar factura de exportación
+            </button>
+          )}
+          {canManageFiscalDte && detail.status === "CONFIRMED" && dte.dte_status !== "CANCELLED" && ["01", "03", "05"].includes(dte.dte_type_code) && (
+            <button type="button" onClick={(event) => { genericTriggerRef.current = event.currentTarget; setResumeDocument({ id: dte.id, type: dte.dte_type_code, saleId: detail.id }); }}
+              className="rounded border border-emerald-700 px-2 py-1 text-[10px] font-medium text-emerald-300 hover:bg-emerald-900/40">
+              {continuationLabel(dte.dte_type_code)}
             </button>
           )}
           {canViewDteJson && (
@@ -322,6 +338,10 @@ export function SaleDteFiscalPanel({
                       <span className="block text-[10px] font-semibold uppercase tracking-widest text-zinc-500">
                         Nota de Crédito 05 relacionada
                       </span>
+                      {canManageFiscalDte && detail.status === "CONFIRMED" && nc.dte_status !== "CANCELLED" && (
+                        <button type="button" onClick={(event) => { genericTriggerRef.current = event.currentTarget; setResumeDocument({ id: nc.id, type: "05", saleId: detail.id }); }}
+                          className="rounded border border-emerald-700 px-2 py-1 text-[10px] text-emerald-300">Continuar nota de crédito</button>
+                      )}
                       {canViewDteJson && (
                         <DteJsonActions
                           dteId={nc.id}
