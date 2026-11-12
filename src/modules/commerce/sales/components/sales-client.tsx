@@ -909,7 +909,7 @@ export function SalesClient({
           description={
             <div className="space-y-2">
               <p>
-                Esta venta ya fue confirmada. Al anularla se conservará el registro y se
+                Esta venta ya fue confirmada. Si tiene un DTE pendiente sin generar ni transmitir, también se cancelará localmente. Al anularla se conservará el registro y se
                 revertirá el inventario cuando corresponda.
               </p>
               {dteRequiresInvalidation && (

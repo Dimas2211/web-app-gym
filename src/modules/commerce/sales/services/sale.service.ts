@@ -890,7 +890,7 @@ export async function cancelDraftSale(
 // count=1; cualquier fallo posterior revierte todo (estado, stock, caja).
 
 /** Estados DTE que no impiden anular la venta (documento fiscalmente inexistente). */
-const DTE_STATUSES_ALLOWING_SALE_CANCEL = new Set(["INVALIDATED", "NOT_REQUIRED"]);
+const DTE_STATUSES_ALLOWING_SALE_CANCEL = new Set(["INVALIDATED", "NOT_REQUIRED", "CANCELLED"]);
 /** Estados DTE válidos ante Hacienda: requieren invalidación previa. */
 const DTE_STATUSES_REQUIRING_INVALIDATION = new Set(["ACCEPTED", "OBSERVED"]);
 
@@ -913,16 +913,40 @@ export const SALE_CANCEL_MESSAGES = {
 
 class SaleCancelError extends Error {}
 
+// A pending document can be cancelled only before any generation or external work.
+// The projection is shared by preflight and the transactional recheck.
+const SALE_CANCEL_DTE_SELECT = {
+  id: true, dte_status: true, reception_stamp: true, updated_at: true,
+  json_document: true, signed_jws: true, mh_response: true, retry_count: true,
+  generated_at: true, schema_validated_at: true, signed_at: true, sent_at: true,
+  accepted_at: true, observed_at: true, rejected_at: true, invalidated_at: true,
+  transmission_type_code: true,
+  _count: { select: { transmission_logs: true, contingency_event_items: true } },
+} satisfies Prisma.DteOutgoingDocumentSelect;
+
+type CancelDteSnapshot = Prisma.DteOutgoingDocumentGetPayload<{ select: typeof SALE_CANCEL_DTE_SELECT }>;
+
+export function isUntouchedPendingSaleDte(doc: Omit<Partial<CancelDteSnapshot>, "dte_status"> & { dte_status: string }): boolean {
+  return doc.dte_status === "PENDING_GENERATION"
+    && Boolean(doc.id && doc.updated_at)
+    && doc.retry_count === 0 && doc.transmission_type_code === "1"
+    && doc._count?.transmission_logs === 0 && doc._count?.contingency_event_items === 0
+    && [doc.reception_stamp, doc.json_document, doc.signed_jws, doc.mh_response,
+      doc.generated_at, doc.schema_validated_at, doc.signed_at, doc.sent_at,
+      doc.accepted_at, doc.observed_at, doc.rejected_at, doc.invalidated_at].every((v) => v == null);
+}
+
 /**
  * Evalúa los DteOutgoingDocument de una venta para su anulación operativa.
  * Devuelve null si se permite, o el mensaje de bloqueo.
  */
 export function evaluateSaleDteCancelGate(
-  documents: ReadonlyArray<{ dte_status: string; reception_stamp?: string | null }>,
+  documents: ReadonlyArray<Omit<Partial<CancelDteSnapshot>, "dte_status"> & { dte_status: string }>,
 ): string | null {
   let requiresInvalidation = false;
   for (const doc of documents) {
     if (DTE_STATUSES_ALLOWING_SALE_CANCEL.has(doc.dte_status)) continue;
+    if (isUntouchedPendingSaleDte(doc)) continue;
     if (doc.dte_status === "REJECTED") {
       if (doc.reception_stamp) requiresInvalidation = true;
       continue;
@@ -969,7 +993,7 @@ export async function cancelConfirmedSale(
       },
       dte_documents: {
         where:  { tenant_id },
-        select: { dte_status: true, reception_stamp: true },
+        select: SALE_CANCEL_DTE_SELECT,
       },
     },
   });
@@ -1055,10 +1079,21 @@ export async function cancelConfirmedSale(
       // entre el pre-chequeo y el claim).
       const docs = await tx.dteOutgoingDocument.findMany({
         where:  { sale_id, tenant_id },
-        select: { dte_status: true, reception_stamp: true },
+        select: SALE_CANCEL_DTE_SELECT,
       });
       const txDteBlock = evaluateSaleDteCancelGate(docs);
       if (txDteBlock) throw new SaleCancelError(txDteBlock);
+
+      // Claim each untouched pending DTE using its exact snapshot. A generator
+      // that advanced it concurrently makes this fail and rolls back the sale.
+      for (const doc of docs.filter(isUntouchedPendingSaleDte)) {
+        const cancelled = await tx.dteOutgoingDocument.updateMany({
+          where: { id: doc.id, tenant_id, location_id, sale_id,
+            dte_status: "PENDING_GENERATION", updated_at: doc.updated_at },
+          data: { dte_status: "CANCELLED", updated_by: user_id },
+        });
+        if (cancelled.count !== 1) throw new SaleCancelError(SALE_CANCEL_MESSAGES.CONFLICT);
+      }
 
       // Paso C: devolver inventario (RETURN_IN). Los SALE_OUT no se tocan.
       for (const [productId, totalQty] of totalQtyByProduct) {

@@ -21,6 +21,7 @@ const SORT_FIELD_OPTIONS  = [
 // Todos los valores posibles de DteOutgoingStatus + "ALL"
 const DTE_STATUS_OPTIONS = [
   "ALL",
+  "CANCELLED",
   "NOT_REQUIRED",
   "PENDING_GENERATION",
   "GENERATED",

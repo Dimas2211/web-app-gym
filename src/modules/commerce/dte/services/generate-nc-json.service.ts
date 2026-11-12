@@ -460,7 +460,7 @@ export async function generateNcJsonForDte(
 
     // ── 18. Persistir: guardar JSON y cambiar estado ──────────────
     await db.dteOutgoingDocument.update({
-      where: { id: dteDocumentId },
+      where: { id: dteDocumentId, dte_status: "PENDING_GENERATION" },
       data:  {
         json_document: jsonDocument as unknown as Prisma.InputJsonValue,
         dte_status:    "GENERATED",

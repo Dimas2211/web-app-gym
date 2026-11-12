@@ -2011,6 +2011,7 @@ enum SalePaymentStatus {
 }
 
 enum DteOutgoingStatus {
+  CANCELLED
   NOT_REQUIRED
   PENDING_GENERATION
   GENERATED

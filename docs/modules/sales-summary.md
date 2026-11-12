@@ -309,7 +309,7 @@ bloquean. Se evalúa todo el historial de documentos, tanto antes como dentro
 de la transacción, incluyendo `reception_stamp` en ambas lecturas.
 
 Un ACCEPTED/OBSERVED sigue exigiendo invalidación previa. Un rechazo con sello
-se bloquea por evidencia de recepción. SIGNED, SENT, PENDING_GENERATION,
+se bloquea por evidencia de recepción. SIGNED, SENT,
 GENERATED, SCHEMA_VALIDATED, contingencia y demás estados en proceso siguen
 bloqueando. No se cambian ni borran los DTE rechazados ni su respuesta MH.
 
@@ -341,3 +341,26 @@ Regresión: rechazo sin sello en 01/03/05/11, rechazo histórico más invalidaci
 rechazo con sello, convivencia con documentos aceptados o activos, devolución
 única de inventario, caja/atomicidad/concurrencia, historial intacto y consultas
 reales de resumen/listado/ventas por día antes y después de anular.
+
+
+### DTE pendiente sin generar: cancelación local (2026-11-11)
+
+Al anular una venta confirmada, un DTE `PENDING_GENERATION` intacto pasa a
+`CANCELLED` en la misma transacción. Se exige que no tenga JSON, firma, respuesta
+MH, sello, timestamps de generación/validación/firma/transmisión/recepción,
+reintentos, logs ni vínculos de contingencia; además debe ser transmisión normal.
+Si faltan los datos necesarios para demostrarlo, se mantiene el bloqueo.
+
+`CANCELLED` significa cancelado localmente, nunca invalidado por Hacienda.
+Se conservan id, correlativo y código de generación: no se borra el documento
+ni se reutilizan números. `updated_at`/`updated_by` auditan el cambio y la venta
+conserva `cancelled_at`/`cancelled_by`. Los generadores 01/03/05/11 condicionan
+su escritura al estado generable, evitando resucitar un documento cancelado.
+La cancelación reclama también la versión del DTE (`updated_at`); si otro
+proceso lo avanzó, revierte toda la anulación. Fallos de caja/inventario revierten
+venta y DTE juntos. Documentos ya generados, firmados, enviados, inciertos o con
+recepción MH mantienen sus controles anteriores. Aplica a todos los tenants.
+
+La UI muestra «Cancelado localmente» y oculta continuar FEX para ventas anuladas.
+Los reportes mantienen la venta y la anulación como movimientos separados.
+La migración agrega `CANCELLED` a `DteOutgoingStatus` antes del despliegue.

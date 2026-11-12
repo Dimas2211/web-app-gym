@@ -152,7 +152,7 @@ describe("generateNcJsonForDte — FASE VI-E4B (runtime db injection)", () => {
     );
     expect(db.dteOutgoingDocument.update).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { id: "nc-1" },
+        where: { id: "nc-1", dte_status: "PENDING_GENERATION" },
         data: expect.objectContaining({ dte_status: "GENERATED" }),
       }),
     );

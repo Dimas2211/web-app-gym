@@ -13,6 +13,7 @@ import { isFiscallyReceivedByMh } from "../../utils/dte-fiscal-receipt.utils";
 
 export function dteStatusLabel(s: string): string {
   const map: Record<string, string> = {
+    CANCELLED:            "Cancelado localmente",
     NOT_REQUIRED:         "No requerido",
     PENDING_GENERATION:   "Pendiente",
     GENERATED:            "Generado",

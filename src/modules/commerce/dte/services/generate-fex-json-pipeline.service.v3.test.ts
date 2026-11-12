@@ -52,7 +52,7 @@ function buildInMemoryDb(overrides?: { countryCode?: string; environment?: "TEST
     dteOutgoingDocument: {
       findFirst: vi.fn(async ({ where }: { where: { id: string; tenant_id: string; location_id: string } }) =>
         scoped(where) ? { ...doc } : null),
-      update: vi.fn(async ({ data }: { data: DocState }) => {
+      update: vi.fn(async ({ data }: { data: DocState; where?: { dte_status?: { in: string[] } } }) => {
         // Prisma Json: persistir una copia (no la referencia del builder).
         Object.assign(doc, data, data.json_document ? { json_document: JSON.parse(JSON.stringify(data.json_document)) } : {});
         return { ...doc };
@@ -139,6 +139,26 @@ describe("pipeline FEX 11 v3 local (in-memory, sin MH)", () => {
 
     expect(result.ok).toBe(false);
     expect(db.sale.findFirst).not.toHaveBeenCalled();
+  });
+});
+
+describe("FEX cancelado localmente", () => {
+  it("no permite generar un documento CANCELLED", async () => {
+    const { db, doc } = buildInMemoryDb();
+    doc.dte_status = "CANCELLED";
+    expect((await generateAndPersistFexJsonForDte(PARAMS, db as never)).ok).toBe(false);
+    expect(db.dteOutgoingDocument.update).not.toHaveBeenCalled();
+  });
+  it("la escritura de generación exige un estado generable y no resucita CANCELLED", async () => {
+    const { db, doc } = buildInMemoryDb();
+    db.dteOutgoingDocument.update.mockImplementationOnce(async ({ where }) => {
+      doc.dte_status = "CANCELLED"; // cancellation won while the builder ran
+      expect(where?.dte_status?.in).not.toContain("CANCELLED");
+      throw new Error("P2025: concurrent cancellation");
+    });
+    await expect(generateAndPersistFexJsonForDte(PARAMS, db as never)).rejects.toThrow("P2025");
+    expect(doc.dte_status).toBe("CANCELLED");
+    expect(doc.json_document).toBeNull();
   });
 });
 
