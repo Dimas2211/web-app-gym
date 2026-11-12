@@ -40,6 +40,9 @@ import {
 import { processDueExternalDeliveryJobs, type ProcessDueJobsSummary } from "@/modules/commerce/dte/outbox/external-delivery-processor.service";
 import { getExternalDeliveryLedger } from "@/modules/commerce/dte/outbox/external-delivery-ledger";
 import type { ReconcileDecision } from "@/modules/commerce/dte/outbox/external-delivery-ledger.types";
+import { runDteEnvironmentDiagnostics } from "@/modules/commerce/dte/services/dte-environment-diagnostics.service";
+import type { RunDteEnvironmentDiagnosticsActionResult } from "@/modules/commerce/dte/actions/run-dte-environment-diagnostics.action";
+import { isRuntimeReadOnlyActive, RUNTIME_READONLY_MESSAGE } from "@/modules/platform/runtime/runtime-session";
 
 type Simple = { ok: true; message?: string } | { ok: false; error: string };
 
@@ -206,6 +209,53 @@ export async function reconcileDeliveryJobAction(
   const res = await getExternalDeliveryLedger().reconcile(jobId, decision, user.id, String(note).trim(), new Date());
   revalidateOrg(organizationId);
   return res ? { ok: true, message: `Entrega conciliada: ${res.status}.` } : { ok: false, error: "El estado actual de la entrega no permite esa conciliación." };
+}
+
+// ── Diagnóstico: probar conexión y firma ───────────────────────────
+//
+// Reutiliza runDteEnvironmentDiagnostics (mismo servicio que
+// /dashboard/settings/dte). Solo recibe organizationId + ambiente; el
+// tenant sale del Control Plane, el runtime del router por organización
+// (SHARED o DEDICATED), y el emisor/sucursal se resuelven en servidor con
+// la misma regla que el estado de onboarding (tenant + ambiente, activo
+// primero). No exige ambiente activo ni atestación MH; no cambia estados,
+// no activa ambientes y no revalida la página. Bloqueado bajo "Operar como
+// cliente" (solo lectura), igual que las acciones de credenciales.
+
+export async function runFiscalEnvironmentDiagnosticsAction(
+  organizationId: string,
+  environment: string,
+): Promise<RunDteEnvironmentDiagnosticsActionResult> {
+  await requireSuperAdmin();
+  if (await isRuntimeReadOnlyActive()) return { ok: false, error: RUNTIME_READONLY_MESSAGE };
+  if (environment !== "TEST" && environment !== "PRODUCTION") return { ok: false, error: "Ambiente inválido." };
+  const env: FiscalEnvironment = environment;
+  if (!(await assertOrganization(organizationId))) return { ok: false, error: "Organización no encontrada." };
+
+  const org = await controlPlanePrisma.platformOrganization.findUnique({ where: { id: organizationId }, select: { tenant_id: true } });
+  const tenantId = org?.tenant_id;
+  if (!tenantId) return { ok: false, error: "Organización sin tenant." };
+
+  const { withOrganizationRuntimePrisma } = await import("@/modules/platform/runtime/runtime-database-router");
+  try {
+    return await withOrganizationRuntimePrisma(organizationId, async (client): Promise<RunDteEnvironmentDiagnosticsActionResult> => {
+      const issuer = await client.dteIssuerConfig.findFirst({
+        where:   { tenant_id: tenantId, environment: env },
+        orderBy: [{ is_active: "desc" }, { created_at: "asc" }],
+        select:  { id: true, location_id: true },
+      });
+      if (!issuer) return { ok: false, error: `No existe configuración de emisor ${env} para esta organización.` };
+
+      const branch = await client.branch.findFirst({ where: { id: issuer.location_id, tenant_id: tenantId }, select: { id: true } });
+      if (!branch) return { ok: false, error: "La sucursal del emisor no pertenece al tenant de la organización." };
+
+      const outcome = await runDteEnvironmentDiagnostics({ tenantId, locationId: branch.id, environment: env, client });
+      if (!outcome.ok) return { ok: false, error: "Ya hay una prueba en curso para este ambiente. Espere a que termine." };
+      return { ok: true, result: outcome.result };
+    });
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? `Runtime no disponible (${err.name}).` : "Runtime no disponible." };
+  }
 }
 
 // ── Activación ─────────────────────────────────────────────────────
