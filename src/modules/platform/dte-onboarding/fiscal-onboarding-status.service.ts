@@ -7,8 +7,10 @@
 //
 // READY_TEST y READY_PROD son independientes: TEST listo nunca implica
 // PRODUCTION. READY_PROD exige además: preflight PRODUCTION sin bloqueos
-// (firmador efectivo propio), atestación de autorización MH y base
-// dedicada verificada (política Dedicated DB Only).
+// (firmador efectivo propio) y atestación de autorización MH.
+// El modelo de base runtime (SHARED o DEDICATED) no es requisito: ambos
+// se admiten en TEST y PRODUCTION; RUNTIME_REACHABLE valida el runtime
+// que resuelve el router de la organización.
 // MariaDB es opcional: NOT_CONFIGURED nunca bloquea la emisión.
 // ─────────────────────────────────────────────────────────────────
 
@@ -64,7 +66,7 @@ export interface FiscalOnboardingStatus {
 
 export interface OnboardingStatusDeps {
   readRuntimeFacts?: (input: { organizationId: string; tenantId: string; environment: FiscalEnvironment; probe: boolean; acceptedSince?: Date | null }) => Promise<RuntimeFiscalFacts>;
-  getOrganization?: (organizationId: string) => Promise<{ tenant_id: string | null; has_dedicated_profile: boolean; shared_runtime_target_id: string | null } | null>;
+  getOrganization?: (organizationId: string) => Promise<{ tenant_id: string | null; shared_runtime_target_id: string | null } | null>;
   getSigner?:  (organizationId: string, env: FiscalEnvironment) => Promise<SignerProvisioningSummary>;
   getMariaDb?: (organizationId: string) => Promise<DteMariaDbIntegrationSummary>;
   countJobs?:  (organizationId: string, env: FiscalEnvironment) => Promise<{ pending: number; uncertain: number; failed: number }>;
@@ -77,13 +79,10 @@ const EMPTY_FACTS: RuntimeFiscalFacts = {
 async function defaultGetOrganization(organizationId: string) {
   const org = await controlPlanePrisma.platformOrganization.findUnique({
     where:  { id: organizationId },
-    select: {
-      tenant_id: true, shared_runtime_target_id: true,
-      database_profiles: { where: { is_active: true }, select: { id: true }, take: 1 },
-    },
+    select: { tenant_id: true, shared_runtime_target_id: true },
   });
   if (!org) return null;
-  return { tenant_id: org.tenant_id, has_dedicated_profile: org.database_profiles.length > 0, shared_runtime_target_id: org.shared_runtime_target_id };
+  return { tenant_id: org.tenant_id, shared_runtime_target_id: org.shared_runtime_target_id };
 }
 
 async function defaultCountJobs(organizationId: string, environment: FiscalEnvironment) {
@@ -171,15 +170,8 @@ export async function getFiscalOnboardingStatus(
   add({ code: "ORG_TENANT", label: "Organización vinculada a tenant", status: org?.tenant_id ? "done" : "blocked",
         detail: org?.tenant_id ? undefined : "La organización no tiene tenant_id vinculado." });
 
-  // Política Dedicated DB Only: PROD exige perfil dedicado activo; TEST lo advierte.
-  add({
-    code: "DEDICATED_DB",
-    label: "Base runtime dedicada verificada",
-    status: org?.has_dedicated_profile ? "done" : isProd ? "blocked" : "warning",
-    detail: org?.has_dedicated_profile ? undefined
-      : "No hay PlatformDatabaseProfile activo para la organización: no puede afirmarse aislamiento físico (Dedicated DB Only). Reconciliar antes de PRODUCCIÓN.",
-  });
-
+  // Sin paso de base dedicada: SHARED y DEDICATED se admiten en ambos
+  // ambientes. El runtime real (el que resuelve el router) se valida aquí.
   add({
     code: "RUNTIME_REACHABLE", label: "Runtime fiscal accesible",
     status: runtime.ok ? "done" : "blocked",
@@ -277,8 +269,7 @@ export async function getFiscalOnboardingStatus(
     });
   }
 
-  // DEDICATED_DB solo es obligatorio en PRODUCTION (en TEST es advertencia).
-  const mandatory = steps.filter((s) => s.status !== "optional" && (s.code !== "DEDICATED_DB" || isProd));
+  const mandatory = steps.filter((s) => s.status !== "optional");
   const allMandatoryDone = mandatory.every((s) => s.status === "done" || s.status === "warning");
   const done = (code: string) => steps.find((s) => s.code === code)?.status === "done";
 
@@ -293,7 +284,7 @@ export async function getFiscalOnboardingStatus(
   if (readyTest) state = "READY_TEST";
   if (readyProd) state = "READY_PROD";
 
-  const blockers = steps.filter((s) => s.status === "blocked" && (s.code !== "DEDICATED_DB" || isProd)).map((s) => `${s.label}: ${s.detail ?? "bloqueado"}`);
+  const blockers = steps.filter((s) => s.status === "blocked").map((s) => `${s.label}: ${s.detail ?? "bloqueado"}`);
 
   return {
     organizationId, environment, state, readyTest, readyProd,
