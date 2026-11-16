@@ -1,0 +1,5 @@
+{
+  "/icon.svg/route": "app/icon.svg/route.js",
+  "/(auth)/login/page": "app/(auth)/login/page.js",
+  "/(portal)/portal/page": "app/(portal)/portal/page.js"
+}
