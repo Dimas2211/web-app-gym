@@ -1,6 +1,6 @@
 # Estado actual — Plataforma Multiindustria
 
-## Panorama general (resumen rápido, 2026-11-09)
+## Panorama general (resumen rápido, actualizado 2026-11-16)
 
 > Lectura de 1 minuto. El detalle por fase sigue más abajo; este bloque no reemplaza
 > "Estado vigente — Runtime…" ni "Estado vigente — DTE".
@@ -16,20 +16,28 @@
 - **Commerce:** todos los módulos cerrados y operativos. **DTE:** FE01, CCFE03, NC05, FSE14, FEX11
   (servicios) e invalidación; certificación interna PASS; NC05 e invalidación post-BUG-1 pendientes
   de recertificación externa MH.
+- **DTE / ventas (PRs #13–#28 en `main`, 2026-11-10 a 2026-11-12):** onboarding fiscal automatizado
+  (firmadores por organización/ambiente + MariaDB opcional) también para runtimes Shared en
+  PRODUCTION; diagnóstico "Probar conexión y firma" por ambiente; continuar DTE guardados
+  (01/03/05/11/14) sin nuevo correlativo; anulación de ventas con DTE rechazado sin sello o pendiente
+  sin generar (`CANCELLED` local); reportes de ventas por movimientos (venta y anulación separadas);
+  clientes extranjeros para FEX; INCOTERMS null en servicios FEX; invalidación de FEX 11. Dos
+  migraciones nuevas — ver "Estado global" (bullet "DTE / ventas — noviembre").
 - **Gym:** etapas 2–5D implementadas (motor de reservas, multimodalidad, operación del entrenador,
   seguimiento y analítica de entrenamiento). Ver sección "Estado global".
-- **UI (2026-11-09):** refresh visual al sistema de diseño de getzolvi.com en rama
-  `feat/ui-visual-refresh` — 3 commits publicados en `origin` (`f386e58`, `b9564a7`, `e59aea2`),
-  **sin PR ni merge a `main`**. Solo presentación (sin schema, sin migraciones, sin cambios de permisos
-  ni lógica de negocio). Auditoría pre-producción 2026-11-09 con correcciones en working tree (sin
-  commit): `docs/audits/ui-visual-refresh-production-review.md`. Detalle, antes/después y pendientes:
+- **UI (2026-11-09):** refresh visual al sistema de diseño de getzolvi.com — **mergeado a `main`
+  vía PR #9** (`fd01757`), incluidas las correcciones de la auditoría pre-producción (`2ab1653`,
+  `docs/audits/ui-visual-refresh-production-review.md`). Solo presentación (sin schema, sin
+  migraciones, sin cambios de permisos ni lógica de negocio). Detalle, antes/después y pendientes:
   `docs/modules/ui-visual-refresh-summary.md`.
 - **Entorno local de referencia:** Node ≥ 22.12 (probado v26), PostgreSQL 17 local `zolvi_local`,
   `.env` con `DATABASE_URL` y `DIRECT_URL` locales, seeds `db:seed:demo` → `db:seed:purchases` →
   `npx tsx prisma/seed-sales-demo.ts`. Ojo: `seed.demo` deja `tenant_id` NULL en tablas GYM
   (pantallas GYM vacías en local hasta corregirlo).
-- **Prioridades abiertas:** merge del refresh UI; corregir `seed.demo`; recertificación externa
-  NC05/invalidación; onboarding fiscal Shared; RLS; ver "Próximos pasos" y §10 del doc de UI.
+- **Prioridades abiertas:** confirmar las migraciones `20261110000000_dte_fiscal_onboarding_automation`
+  y `20261112030000_cancel_pending_sale_dte` en las bases reales; instalar ejecutor VPS y worker del
+  outbox MariaDB; corregir `seed.demo`; recertificación externa NC05/invalidación; RLS; ver
+  "Próximos pasos" y §10 del doc de UI.
 
 ## Estado global
 - Plataforma base multiindustria reorganizada.
@@ -51,7 +59,7 @@
 - commerce/dte — **FEX-PROD-0B (2026-09-25): código FEX 11 migrado a schema v3** (`fex-11-v3.schema.json`, copia oficial md5 `e40610cf…`; v1 solo legacy). Builder único v3, país receptor CAT-020 (`Country`) con corrección explícita de clientes legados, distrito desde `Municipality.district_code`, firma/transmisión exigen JSON v3. Solo **exportación de servicios** emitible: bienes bloqueados porque `emisor.tipoRegimen` no tiene catálogo oficial. Sin cambios Prisma. **No es FEX V3 CODE READY** — gaps abiertos: tipoRegimen (bienes), formato distrito/municipio CAT-013 v1.2, certificación MH TEST v3. `READY_FOR_FEX_PROD_1 = NO`. Ver §16 de docs/modules/fex11-production-readiness.md.
 - commerce/dte — **FEX11-FINAL-CLOSURE (2026-09-30): FEX 11 es un tipo DTE normal de `fiscal.dte`.** Acceso = módulo `fiscal.dte` + `DteIssuerConfig` activo único en la sucursal; ambiente desde `DteIssuerConfig.environment` → `DteOutgoingDocument.environment`. Retirados los flags `DTE_FEX11_TEST_ENABLED` / `DTE_FEX11_ENABLED` / `DTE_FEX11_PRODUCTION_ENABLED`, la capability `fiscal.dte.export` y la consola dev `/dashboard/dte/fex11-test`. Servicios emitibles (MH TEST PROCESADO); bienes/mixto siguen fail-closed (`tipoRegimen` sin fuente oficial). Sin cambios Prisma. Supera las notas FEX-PROD-0/0B de arriba. Ver docs/modules/fex11-standard-dte.md.
 - commerce/dte — **DTE-INTERNAL-CERTIFICATION (2026-10-12): `INTERNAL_DTE_CERTIFICATION = PASS`, `READY_FOR_EXTERNAL_MH_CERTIFICATION = YES`.** Ver "Estado vigente — DTE" abajo y docs/certification/dte-internal-certification.md.
-- commerce/dte + platform — **FISCAL-ONBOARDING (2026-11-10): implementado y probado localmente; sin commit; migración `20261110000000_dte_fiscal_onboarding_automation` NO aplicada a ninguna base real.** Incluye:
+- commerce/dte + platform — **FISCAL-ONBOARDING (2026-11-10): en `main` vía PR #13** (`b9cc2fb` + fixes de firmador/onboarding en PRs #14–#16). Al momento del commit la migración `20261110000000_dte_fiscal_onboarding_automation` **no estaba aplicada** en ninguna base; su aplicación posterior en bases reales **no está verificada en este documento**. Incluye:
   - aprovisionador de firmadores por organización/ambiente: ejecutor VPS con operaciones predefinidas y modos INSPECT/PLAN/APPLY/VERIFY/ROLLBACK;
   - preflight PROD sobre el firmador efectivo del emisor;
   - guard contra la confusión signerApiKey/apiPassword;
@@ -60,6 +68,15 @@
   - Cierre técnico (2026-11-10): corregidos el descubrimiento del worker (no pasaba de los primeros 50 DTE), la carrera de API Key en APPLY, READY_TEST/READY_PROD sin VERIFY real y la protección de hostnames de firmadores existentes. Se agregaron plantillas para programar el worker (no instaladas). Ejecutor y worker NO instalados.
 
   Ver docs/modules/dte-fiscal-onboarding-automation.md.
+  - PR #27 (`fcc775b`, 2026-11-11): se eliminó el paso `DEDICATED_DB`, que bloqueaba READY_PROD en organizaciones Shared. Shared y Dedicated pueden quedar listas en PRODUCTION; emisor, credenciales MH, firmador efectivo, preflight PROD y atestación MH siguen siendo obligatorios.
+  - PR #28 (`f63853c`, 2026-11-12): "Probar conexión y firma" por ambiente (TEST/PRODUCTION) en `/dashboard/settings/dte` y en el onboarding de Platform Admin. Hace una autenticación MH real y una firma real de un JSON de diagnóstico (no es DTE); no crea documentos, no consume correlativos, no transmite ni activa. Bloqueado en Support Session read-only.
+- commerce/dte + sales — **DTE / ventas — noviembre (PRs #18–#26, 2026-11-11 a 2026-11-12, en `main`):**
+  - Continuar DTE guardados sin nueva venta/compra ni nuevo correlativo: FE01/CCF03/NC05/FEX11 desde el panel fiscal de Ventas, FSE14 desde el detalle de Compras (PRs #21, #26). Ver docs/modules/dte-outgoing-summary.md y fex11-standard-dte.md.
+  - Anulación de ventas confirmadas (`cancelConfirmedSale`): no bloquea con DTE REJECTED sin sello ni INVALIDATED/NOT_REQUIRED (PR #23); un DTE `PENDING_GENERATION` intacto pasa a `CANCELLED` (cancelado localmente, **nunca** invalidación MH) en la misma transacción (PR #25). ACCEPTED/OBSERVED sigue exigiendo invalidación previa. Ver docs/modules/sales-summary.md.
+  - Reportes de ventas por movimientos: la venta suma en `sale_date` y la anulación resta en `cancelled_at` (PR #24).
+  - FEX 11: clientes extranjeros editables en el maestro de customers (PR #19); INCOTERMS null para servicios (rechazo MH 007, PR #20); invalidación de FEX 11 ACCEPTED (PR #22). Ver docs/modules/customers-summary.md.
+  - Guard de la acción de correlativos alineado con su página (PR #18).
+  - **Migraciones nuevas en `main`:** `20261110000000_dte_fiscal_onboarding_automation` (aditiva) y `20261112030000_cancel_pending_sale_dte` (agrega `CANCELLED` a `DteOutgoingStatus`; requerida antes de desplegar PR #25). Estado de aplicación en Control Plane / Runtime Shared / TrustMe **no verificado aquí** — revisar con `npx prisma migrate status` por base.
 - platform — **RUNTIME LICENSE ENFORCEMENT (2026-10-13): la licencia comercial SÍ se aplica en runtime.** Política central única `evaluateOrganizationAccess()` (capa técnica `status` + capa comercial `license_status`/fechas date-only inclusivas en el timezone de la organización), aplicada en el login runtime y revalidada en vivo por request en `requireRuntimeOrganizationContext()`. Una licencia bloqueada redirige a `/access-restricted`. PLATFORM/Support Session sin gate comercial. Settings gym/codes editables por RUNTIME_CLIENT super_admin (rol LIVE); Sports/Goals read-only sin counts cross-tenant. Sin migración. Ver docs/modules/platform-runtime-license-enforcement.md.
 - gym/bookings — **Etapas 2A/2B (2026-10-20):** fundación de datos y motor unificado `GymBookingService` certificados y desplegados en producción. La migración `20261020000000_gym_bookings_capacity_check` está **aplicada** en las bases físicas Control Plane (`nygdqnlzoalmhrqwijjn`) y Runtime Shared/TrustMe (`vkoywmzlgygypaddxjtn`), verificada en solo lectura el 2026-10-21 (`finished_at` presente, sin rollback). En ambas existe `scheduled_classes_booked_count_capacity_chk` con `convalidated = false`, según el diseño `NOT VALID`. Sin cambios en `schema.prisma` para 2B. Ver docs/modules/gym-bookings-summary.md §11.
 - gym/bookings — **Etapa 3A (2026-10-20): administración multimodalidad** (clientes e historial, planes, snapshots de venta, entrenador PERSONALIZED, GymSettings, sesiones OPEN/PERSONALIZED/GROUP, ausencias, series y actividades). Implementada y auditada, incluida en el release Etapa 3; sin migraciones ni activación automática de nuevas modalidades. Ver docs/modules/gym-bookings-stage3a.md.
@@ -120,9 +137,9 @@
 - **Operar como cliente**: Platform Admin → Shared Runtime Targets → Organizaciones → organización → Operar como cliente. Support Session `readOnly = true`.
 - **Clientes Shared**: Commerce Pilot (`commerce-pilot-0001`, COMMERCE_ONLY, certificado, aislamiento vs TrustMe PASS) y Metatraining (`meta-training`, primer cliente Shared real; primer Data Onboarding EXECUTE en PRODUCTION: `categories`, created = 1).
 - **CAT-022**: solo `02`, `03`, `13`, `36`, `37`. `00 — Consumidor final` retirado; Consumidor Final es `taxpayer_type = FINAL_CONSUMER`.
-- **DTE Shared**: onboarding fiscal **DEFERRED**. Metatraining sin `DteIssuerConfig`/`DteCredential`/`DteCorrelative`/`DteOutgoingDocument`. No emitir/transmitir DTE desde Support Session (readOnly).
+- **DTE Shared**: *(HISTÓRICO / SUPERADO 2026-11-11: el onboarding fiscal Shared ya existe — FISCAL-ONBOARDING + PR #27; Metatraining emite DTE con entrega MariaDB por organización, ver "Estado global".)* No emitir/transmitir DTE desde Support Session (readOnly).
 - **Licencia runtime**: enforcement real vigente — `evaluateOrganizationAccess()` en login + revalidación live por request; bloqueo → `/access-restricted`; solo afecta `RUNTIME_CLIENT`. Deuda: `provisioning-validator.ts` aún no delega en la política. Ver `docs/modules/platform-runtime-license-enforcement.md`.
-- **Deuda diferida (no bloqueante)**: onboarding fiscal Shared, credenciales MH por tenant, concurrencia de Data Onboarding (volumen 5K certificado en ONBOARDING-5K), RLS.
+- **Deuda diferida (no bloqueante)**: credenciales MH por tenant, concurrencia de Data Onboarding (volumen 5K certificado en ONBOARDING-5K), RLS.
 
 ## Estado vigente — DTE (fuente rápida de verdad, 2026-10-12)
 
@@ -1273,7 +1290,7 @@ Auditoría + cierre de gaps puntuales, no construcción desde cero. Ver
 - `DEDICATED_RUNTIME_V1 = CERTIFIED` — pendiente de un "Cliente 3" end-to-end
   real (fase futura, fuera de alcance de VI-E7/E8 por decisión explícita).
 - ~~Runner controlado `SEED_TENANT_BASE`~~ — *SUPERADO*: provisioning controlado desde Platform Admin (Shared/Dedicated, retry-safe, con baseline Commerce). Ver docs/context/shared-pilot-4c-closure.md.
-- Onboarding fiscal DTE de clientes Shared (DteIssuerConfig/DteCredential/DteCorrelative por tenant, credenciales MH reales) — **DEFERRED**, bloque explícito futuro. Metatraining no tiene configuración fiscal.
+- ~~Onboarding fiscal DTE de clientes Shared~~ — *SUPERADO*: FISCAL-ONBOARDING (PR #13) + PR #27. Pendiente operativo: instalar ejecutor VPS y worker del outbox MariaDB (plantillas en `ops/`, no instalados al momento del merge).
 - Pruebas de concurrencia real de Data Onboarding (volumen hasta 5,000 registros certificado en ONBOARDING-5K).
 - RLS como capa adicional de aislamiento Shared — deuda arquitectónica futura.
 - Fase futura de operación editable completa desde plataforma (products, customers, suppliers, purchases, sales, inventory, cash, DTE) — solo mencionada como pendiente, no diseñada todavía.
@@ -1282,10 +1299,10 @@ Auditoría + cierre de gaps puntuales, no construcción desde cero. Ver
 - QR URL pública, PDF, entrega por email.
 - Reintentos automáticos de delivery externo.
 - Estrategia del firmador fuera de localhost para producción/Vercel.
-- Anulación de ventas confirmadas (con reversión en caja y opción de nota de crédito).
+- ~~Anulación de ventas confirmadas~~ — *implementada* (`cancelConfirmedSale`, con RETURN_IN de inventario y reintegro de caja; reglas DTE ampliadas en PRs #23/#25). Pendiente: opción de nota de crédito desde la anulación.
 - Acceso rol reception a operaciones de caja (si requerido operativamente).
 
-- **UI (pendientes del refresh visual, 2026-11-09):** merge de `feat/ui-visual-refresh`; acción
+- **UI (pendientes del refresh visual, 2026-11-09; merge hecho en PR #9):** acción
   principal en la franja de módulo; búsqueda Ctrl+K; estados vacíos; toasts de confirmación;
   tablas como tarjetas en móvil; portal del socio con el nuevo look; badges de estado unificados.
   Ver §10 de `docs/modules/ui-visual-refresh-summary.md`.
