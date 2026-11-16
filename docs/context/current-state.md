@@ -1302,6 +1302,10 @@ Auditoría + cierre de gaps puntuales, no construcción desde cero. Ver
 - ~~Anulación de ventas confirmadas~~ — *implementada* (`cancelConfirmedSale`, con RETURN_IN de inventario y reintegro de caja; reglas DTE ampliadas en PRs #23/#25). Pendiente: opción de nota de crédito desde la anulación.
 - Acceso rol reception a operaciones de caja (si requerido operativamente).
 
+- **Branding por cliente (marca propia por subdominio) — PLANIFICADO (2026-11-16):** se quiere y se
+  hará después de cerrar los frentes en curso; diagnóstico hecho y listo para implementar. Hoy
+  `PlatformBranding` solo se guarda/edita en Platform Admin y no se aplica en ninguna pantalla.
+  Alcance inicial: login + portal del socio. Ver `docs/modules/client-branding-summary.md`.
 - **UI (pendientes del refresh visual, 2026-11-09; merge hecho en PR #9):** acción
   principal en la franja de módulo; búsqueda Ctrl+K; estados vacíos; toasts de confirmación;
   tablas como tarjetas en móvil; portal del socio con el nuevo look; badges de estado unificados.
