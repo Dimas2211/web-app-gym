@@ -65,8 +65,36 @@ export interface MhTestRuntimeScopeInput {
   tenantId:       string;
   locationId:     string;
   issuerConfigId: string;
-  /** Actor runtime (User.id existente en la base runtime). */
+  /**
+   * Usuario de PLATAFORMA que autorizó la corrida (Control Plane). Es la
+   * identidad de auditoría (run.authorized_by / created_by / decided_by).
+   * NO se exige que exista en la base runtime: ver resolveMhTestRuntimeActor.
+   */
   userId:         string;
+}
+
+/**
+ * Actor para las columnas de auditoría del runtime (created_by, updated_by,
+ * requested_by → FK a User de la base runtime). Mismo mecanismo que el
+ * registro de credenciales del onboarding (signer-provisioning.service):
+ * el mismo id si ese usuario existe en el runtime del tenant; si no, null.
+ * Nunca se crean usuarios ni se suplanta a un usuario del cliente; la
+ * identidad real queda auditada en el Control Plane.
+ */
+export async function resolveMhTestRuntimeActor(db: PrismaClient, scope: Pick<MhTestRuntimeScopeInput, "userId" | "tenantId">): Promise<string | null> {
+  if (!scope.userId) return null;
+  const actor = await db.user.findFirst({ where: { id: scope.userId, tenant_id: scope.tenantId }, select: { id: true } });
+  return actor?.id ?? null;
+}
+
+/**
+ * Los servicios DTE existentes tipan userId como string, pero solo lo
+ * escriben en columnas FK NULLABLES (updated_by / requested_by; verificado
+ * por mh-test-run.runtime-port.test.ts contra el schema). null = "sin actor
+ * runtime", igual que upsertDteCredential(user_id: null).
+ */
+function serviceActor(actor: string | null): string {
+  return actor as string;
 }
 
 export const MH_TEST_INVALIDATION_REASON = "Prueba de certificación MH (ambiente TEST) — anulación de documento de prueba.";
@@ -99,18 +127,26 @@ export async function runMhTestPreflight(db: PrismaClient, scope: MhTestRuntimeS
   const signer = await resolveDteSignerConfigForIssuer({ issuerConfigId: scope.issuerConfigId, environment: "TEST", client: db });
   if (!signer.ok || signer.source !== "ISSUER_CREDENTIAL") errors.push("El firmador no se resuelve desde la credencial del emisor (ISSUER_CREDENTIAL).");
 
-  const actor = await db.user.findFirst({ where: { id: scope.userId, tenant_id: scope.tenantId }, select: { id: true } });
-  if (!actor) errors.push("El actor autorizado no existe en el runtime del cliente.");
+  // El usuario de plataforma no necesita existir en el runtime (ver resolveMhTestRuntimeActor).
   return { ok: errors.length === 0, errors };
 }
 
 export function createRuntimeMhTestPort(scope: MhTestRuntimeScopeInput): MhTestRuntimePort {
-  const ctx = { tenantId: scope.tenantId, locationId: scope.locationId, issuerConfigId: scope.issuerConfigId, userId: scope.userId };
-  const svcParams = { userId: scope.userId, tenantId: scope.tenantId, locationId: scope.locationId };
+  // Actor runtime resuelto una vez por puerto (un tick) contra la propia base runtime.
+  let actor: Promise<string | null> | null = null;
+  type Rt = { ctx: { tenantId: string; locationId: string; issuerConfigId: string; userId: string | null }; svcParams: { userId: string; tenantId: string; locationId: string }; actorId: string | null };
 
-  async function rt<T>(fn: (db: PrismaClient) => Promise<T>): Promise<T> {
+  async function rt<T>(fn: (db: PrismaClient, a: Rt) => Promise<T>): Promise<T> {
     const { withOrganizationRuntimePrisma } = await import("@/modules/platform/runtime/runtime-database-router");
-    return withOrganizationRuntimePrisma(scope.organizationId, (client) => fn(client));
+    return withOrganizationRuntimePrisma(scope.organizationId, async (client) => {
+      actor ??= resolveMhTestRuntimeActor(client, scope);
+      const actorId = await actor;
+      return fn(client, {
+        actorId,
+        ctx:       { tenantId: scope.tenantId, locationId: scope.locationId, issuerConfigId: scope.issuerConfigId, userId: actorId },
+        svcParams: { userId: serviceActor(actorId), tenantId: scope.tenantId, locationId: scope.locationId },
+      });
+    });
   }
   const docs = () => import("@/modules/commerce/dte/mh-test-runs/mh-test-documents.service");
 
@@ -119,35 +155,35 @@ export function createRuntimeMhTestPort(scope: MhTestRuntimeScopeInput): MhTestR
 
     materialize: async (items, contingency) => {
       const m = await docs();
-      return rt((db) => m.materializeMhTestDocuments(db, { ...ctx, contingency }, items));
+      return rt((db, { ctx }) => m.materializeMhTestDocuments(db, { ...ctx, contingency }, items));
     },
     readDoc: async (key) => {
       const m = await docs();
-      return rt((db) => m.readMhTestDocByKey(db, ctx, key));
+      return rt((db, { ctx }) => m.readMhTestDocByKey(db, ctx, key));
     },
     generate: async (input) => {
       const m = await docs();
-      return rt((db) => m.generateMhTestDocumentJson(db, ctx, input));
+      return rt((db, { ctx }) => m.generateMhTestDocumentJson(db, ctx, input));
     },
     validate: async (id) => {
       const { validateDteJsonSchema } = await import("@/modules/commerce/dte/services/validate-dte-json-schema.service");
-      const r = await rt((db) => validateDteJsonSchema(id, scope.tenantId, scope.locationId, scope.userId, db));
+      const r = await rt((db, { actorId }) => validateDteJsonSchema(id, scope.tenantId, scope.locationId, serviceActor(actorId), db));
       if (r.ok) return { ok: true };
       const detail = (r.validation_errors ?? []).slice(0, 5).map((e) => `${e.path} ${e.message}`).join("; ");
       return { ok: false, error: detail ? `${r.error} (${detail})` : r.error };
     },
     sign: async (id) => {
       const { signDteDocument } = await import("@/modules/commerce/dte/services/sign-dte-document.service");
-      const r = await rt((db) => signDteDocument({ dteDocumentId: id, ...svcParams }, db));
+      const r = await rt((db, { svcParams }) => signDteDocument({ dteDocumentId: id, ...svcParams }, db));
       return r.ok ? { ok: true } : { ok: false, error: r.error };
     },
     transmit: async (id) => {
       const { transmitDteDocument } = await import("@/modules/commerce/dte/services/transmit-dte-document.service");
-      return rt((db) => transmitDteDocument({ dteDocumentId: id, ...svcParams }, db));
+      return rt((db, { svcParams }) => transmitDteDocument({ dteDocumentId: id, ...svcParams }, db));
     },
     reconcile: async (id) => {
       const { reconcileDteWithMh } = await import("@/modules/commerce/dte/services/dte-reconciliation.service");
-      return rt((db) => reconcileDteWithMh({ dteDocumentId: id, tenantId: scope.tenantId, locationId: scope.locationId, runtimeDb: db, userId: scope.userId }));
+      return rt((db, { actorId }) => reconcileDteWithMh({ dteDocumentId: id, tenantId: scope.tenantId, locationId: scope.locationId, runtimeDb: db, userId: actorId }));
     },
     lastLog: async (id, op) => {
       const m = await docs();
@@ -155,19 +191,19 @@ export function createRuntimeMhTestPort(scope: MhTestRuntimeScopeInput): MhTestR
     },
     prepareCreditNote: async (ncKey, ccfeKey) => {
       const m = await docs();
-      return rt((db) => m.prepareMhTestCreditNote(db, ctx, { ncKey, ccfeKey }));
+      return rt((db, { ctx }) => m.prepareMhTestCreditNote(db, ctx, { ncKey, ccfeKey }));
     },
     cancelUnsigned: async (key) => {
       const m = await docs();
-      return rt((db) => m.cancelUnsignedMhTestDocument(db, ctx, key));
+      return rt((db, { ctx }) => m.cancelUnsignedMhTestDocument(db, ctx, key));
     },
     findInvalidation: async (docId, eventId) => {
       const m = await docs();
-      return rt((db) => m.findMhTestInvalidationEvent(db, ctx, docId, eventId));
+      return rt((db, { ctx }) => m.findMhTestInvalidationEvent(db, ctx, docId, eventId));
     },
     createInvalidation: async (docId, responsible) => {
       const { createInvalidationEvent } = await import("@/modules/commerce/dte/services/create-invalidation-event.service");
-      const r = await rt((db) => createInvalidationEvent({
+      const r = await rt((db, { svcParams }) => createInvalidationEvent({
         dteDocumentId: docId, invalidationTypeCode: "2", reason: MH_TEST_INVALIDATION_REASON, replacementGenerationCode: null,
         responsable: persona(responsible), solicita: persona(responsible), ...svcParams,
       }, db));
@@ -175,29 +211,29 @@ export function createRuntimeMhTestPort(scope: MhTestRuntimeScopeInput): MhTestR
     },
     signInvalidation: async (eventId) => {
       const { signInvalidationEvent } = await import("@/modules/commerce/dte/services/sign-invalidation-event.service");
-      const r = await rt((db) => signInvalidationEvent({ invalidationEventId: eventId, ...svcParams }, db));
+      const r = await rt((db, { svcParams }) => signInvalidationEvent({ invalidationEventId: eventId, ...svcParams }, db));
       return r.ok ? { ok: true } : { ok: false, error: r.error };
     },
     transmitInvalidation: async (eventId) => {
       const { transmitInvalidationEvent } = await import("@/modules/commerce/dte/services/transmit-invalidation-event.service");
-      const r = await rt((db) => transmitInvalidationEvent({ invalidationEventId: eventId, ...svcParams }, db));
+      const r = await rt((db, { actorId }) => transmitInvalidationEvent({ invalidationEventId: eventId, userId: actorId, tenantId: scope.tenantId, locationId: scope.locationId }, db));
       return r.ok
         ? { ok: true, eventStatus: r.eventStatus, mhEstado: r.mhEstado, descripcion: r.descripcionMsg, sello: r.selloRecibido }
         : { ok: false, error: r.error };
     },
     findContingency: async (ids, eventId) => {
       const m = await docs();
-      return rt((db) => m.findMhTestContingencyEvent(db, ctx, ids, eventId));
+      return rt((db, { ctx }) => m.findMhTestContingencyEvent(db, ctx, ids, eventId));
     },
     emissionWindow: async (keys) => {
       const m = await docs();
-      return rt((db) => m.readMhTestEmissionWindow(db, ctx, keys));
+      return rt((db, { ctx }) => m.readMhTestEmissionWindow(db, ctx, keys));
     },
     createContingency: async (ids, window, settings, responsible) => {
       const { createContingencyEvent } = await import("@/modules/commerce/dte/services/create-contingency-event.service");
       const [fDate, fTime] = window.first.split(" ");
       const [lDate, lTime] = window.last.split(" ");
-      const r = await rt((db) => createContingencyEvent({
+      const r = await rt((db, { svcParams }) => createContingencyEvent({
         dteDocumentIds: ids, contingencyTypeCode: settings.contingencyTypeCode, reason: settings.reason,
         periodStartDate: new Date(`${fDate}T00:00:00Z`), periodStartTime: fTime,
         periodEndDate: new Date(`${lDate}T00:00:00Z`), periodEndTime: lTime,

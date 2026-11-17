@@ -91,7 +91,7 @@ function toMaterialized(rows: Awaited<ReturnType<typeof readByKeys>>): MhTestMat
 
 export async function materializeMhTestDocuments(
   db: PrismaClient,
-  scope: MhTestRuntimeScope & { userId: string; contingency: MhTestContingencySettings | null },
+  scope: MhTestRuntimeScope & { userId: string | null; contingency: MhTestContingencySettings | null },
   items: MhTestMaterializeItem[],
 ): Promise<MhTestMaterializeResult> {
   if (items.length === 0) return { ok: true, recovered: false, docs: [] };
@@ -234,7 +234,7 @@ export type MhTestStepResult = { ok: true; skipped?: boolean } | { ok: false; er
 
 export async function generateMhTestDocumentJson(
   db: PrismaClient,
-  scope: MhTestRuntimeScope & { userId: string },
+  scope: MhTestRuntimeScope & { userId: string | null },
   input: { key: string; scenario: MhTestScenarioCode; index: number; receptors: MhTestReceptors; now?: Date },
 ): Promise<MhTestStepResult> {
   const doc = await db.dteOutgoingDocument.findFirst({
@@ -272,7 +272,7 @@ export const MH_TEST_NC_REASON = "Prueba de certificación MH (ambiente TEST) �
 
 export async function prepareMhTestCreditNote(
   db: PrismaClient,
-  scope: MhTestRuntimeScope & { userId: string },
+  scope: MhTestRuntimeScope & { userId: string | null },
   input: { ncKey: string; ccfeKey: string },
 ): Promise<MhTestStepResult> {
   const [nc, ccfe] = await Promise.all([
@@ -312,12 +312,13 @@ export async function prepareMhTestCreditNote(
       },
     });
   }
-  const gen = await generateNcJsonForDte({ dteDocumentId: nc.id, userId: scope.userId, tenantId: scope.tenantId, locationId: scope.locationId }, db);
+  // userId solo se escribe en updated_by (FK nullable): null = sin actor runtime (Control Plane).
+  const gen = await generateNcJsonForDte({ dteDocumentId: nc.id, userId: scope.userId as string, tenantId: scope.tenantId, locationId: scope.locationId }, db);
   return gen.ok ? { ok: true } : { ok: false, error: gen.message, code: "NC_GENERATION_FAILED" };
 }
 
 /** Cancela un documento de prueba que nunca se firmó (p. ej. NC cuyo CCFE fue rechazado). */
-export async function cancelUnsignedMhTestDocument(db: PrismaClient, scope: MhTestRuntimeScope & { userId: string }, key: string): Promise<boolean> {
+export async function cancelUnsignedMhTestDocument(db: PrismaClient, scope: MhTestRuntimeScope & { userId: string | null }, key: string): Promise<boolean> {
   const res = await db.dteOutgoingDocument.updateMany({
     where: {
       tenant_id: scope.tenantId, location_id: scope.locationId, ...CERT_WHERE, certification_item_key: key,

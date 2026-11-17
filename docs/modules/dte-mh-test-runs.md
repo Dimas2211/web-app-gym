@@ -79,7 +79,7 @@ Desde el Control Plane, solo un Platform Admin emite lotes de documentos de prue
 - Pausar / Reanudar / Cancelar (`CANCELAR`).
   - Pausar y cancelar se permiten con el flag apagado; crear, avanzar, decidir y reanudar, no.
   - Apagar el flag **no** pausa corridas ni desactiva barreras.
-- El actor que escribe en el runtime es `run.authorized_by`, el usuario de plataforma. Debe **existir en la base runtime** (`created_by` es FK), y el preflight lo verifica (misma regla que la activación).
+- La identidad auditada es `run.authorized_by` (usuario de plataforma), registrada en el Control Plane. **No necesita existir en la base runtime** (en runtimes SHARED no existe). En el runtime se escribe el mismo id solo si existe en el tenant; si no, `null` en las FK de auditoría nullables (mismo mecanismo que el registro de credenciales del onboarding). Ver `resolveMhTestRuntimeActor` y su prueba de nulabilidad. "Activar TEST" sigue exigiendo el usuario en el runtime (no cambia con esto).
 
 ## Configuración
 
