@@ -47,6 +47,40 @@ export interface DteCorrelativeIssuerContext {
   cod_punto_venta_mh: string;
 }
 
+// ── 0. Máxima secuencia ya usada en DteOutgoingDocument ────────────
+//
+// Mayor secuencia ya usada realmente en DteOutgoingDocument para el mismo
+// prefijo (estable+puntoVenta+tipo), sin filtrar por estado NI por
+// propósito — un numeroControl ya usado (aunque haya sido REJECTED, o sea
+// de una prueba MH TEST de certificación) nunca debe repetirse.
+async function readMaxSequenceUsedInOutgoing(
+  client: Pick<Prisma.TransactionClient, "dteOutgoingDocument">,
+  ctx: Pick<DteCorrelativeIssuerContext, "tenant_id" | "location_id" | "environment" | "dte_type_code" | "cod_estable_mh" | "cod_punto_venta_mh">,
+): Promise<number> {
+  const prefix = buildControlNumberPrefix({
+    dte_type_code:      ctx.dte_type_code,
+    cod_estable_mh:     ctx.cod_estable_mh,
+    cod_punto_venta_mh: ctx.cod_punto_venta_mh,
+  });
+
+  const existing = await client.dteOutgoingDocument.findMany({
+    where: {
+      tenant_id:      ctx.tenant_id,
+      location_id:    ctx.location_id,
+      environment:    ctx.environment,
+      dte_type_code:  ctx.dte_type_code,
+      control_number: { startsWith: prefix },
+    },
+    select: { control_number: true },
+  });
+
+  return existing.reduce((max, doc) => {
+    const seqStr = doc.control_number?.slice(prefix.length) ?? "";
+    const seq = Number.parseInt(seqStr, 10);
+    return Number.isFinite(seq) && seq > max ? seq : max;
+  }, 0);
+}
+
 // ── 1. Reserva atómica del siguiente numeroControl ─────────────────
 //
 // Debe llamarse DENTRO de una transacción Prisma ya abierta por el
@@ -92,31 +126,8 @@ export async function reserveDteControlNumber(
     select: { last_sequence: true, external_baseline_last_used_sequence: true },
   });
 
-  // Mayor secuencia ya usada realmente en DteOutgoingDocument para el mismo
-  // prefijo (estable+puntoVenta+tipo), sin filtrar por estado — un
-  // numeroControl ya usado (aunque haya sido REJECTED) nunca debe repetirse.
-  const prefix = buildControlNumberPrefix({
-    dte_type_code:      ctx.dte_type_code,
-    cod_estable_mh:     ctx.cod_estable_mh,
-    cod_punto_venta_mh: ctx.cod_punto_venta_mh,
-  });
-
-  const existing = await tx.dteOutgoingDocument.findMany({
-    where: {
-      tenant_id:      ctx.tenant_id,
-      location_id:    ctx.location_id,
-      environment:    ctx.environment,
-      dte_type_code:  ctx.dte_type_code,
-      control_number: { startsWith: prefix },
-    },
-    select: { control_number: true },
-  });
-
-  const maxUsedInOutgoing = existing.reduce((max, doc) => {
-    const seqStr = doc.control_number?.slice(prefix.length) ?? "";
-    const seq = Number.parseInt(seqStr, 10);
-    return Number.isFinite(seq) && seq > max ? seq : max;
-  }, 0);
+  // Mayor secuencia ya usada (ver readMaxSequenceUsedInOutgoing).
+  const maxUsedInOutgoing = await readMaxSequenceUsedInOutgoing(tx, ctx);
 
   const floor = Math.max(
     correlative.last_sequence,
@@ -146,6 +157,116 @@ export async function reserveDteControlNumber(
   });
 
   return { sequence, control_number };
+}
+
+// ── 1b. Reserva atómica de un BLOQUE contiguo (pruebas MH TEST) ─────
+//
+// DTE-MH-TEST-RUNS — reserva `count` números contiguos empezando EXACTAMENTE
+// en `firstSequence` ("primer número a utilizar"), coordinada con el
+// asignador normal:
+//   - toma primero el row lock de DteCorrelative (UPDATE), de modo que las
+//     reservas operativas concurrentes (reserveDteControlNumber) esperan;
+//   - calcula el piso con la MISMA regla (last_sequence, máximo usado en
+//     DteOutgoingDocument, baseline externo) ya bajo el lock;
+//   - rechaza si firstSequence <= piso (número ya usado o reservado) e
+//     informa el siguiente disponible; nunca retrocede el contador;
+//   - deja last_sequence = firstSequence + count - 1: la siguiente reserva
+//     operativa continúa después del bloque.
+// Los números entre piso+1 y firstSequence-1 (si el operador declaró uso
+// externo) quedan saltados, igual que con un baseline externo; el motivo
+// queda registrado en la ejecución de pruebas, no aquí.
+// No toca los campos external_baseline_*.
+// Debe llamarse dentro de la transacción que crea los documentos.
+
+export type ReserveDteControlNumberBlockResult =
+  | { ok: true; floor: number; reserved: Array<{ sequence: number; control_number: string }> }
+  | { ok: false; code: "INVALID_INPUT" | "FIRST_SEQUENCE_ALREADY_USED"; error: string; next_available: number | null };
+
+export const MAX_DTE_CONTROL_NUMBER_BLOCK = 500;
+const MAX_CONTROL_SEQUENCE = 999_999_999_999_999;
+
+export async function reserveDteControlNumberBlock(
+  tx:   Prisma.TransactionClient,
+  ctx:  DteCorrelativeIssuerContext,
+  opts: { firstSequence: number; count: number },
+): Promise<ReserveDteControlNumberBlockResult> {
+  const { firstSequence, count } = opts;
+  if (!Number.isSafeInteger(firstSequence) || firstSequence < 1 || firstSequence > MAX_CONTROL_SEQUENCE) {
+    return { ok: false, code: "INVALID_INPUT", error: "El primer número debe ser un entero mayor o igual a 1.", next_available: null };
+  }
+  if (!Number.isInteger(count) || count < 1 || count > MAX_DTE_CONTROL_NUMBER_BLOCK) {
+    return { ok: false, code: "INVALID_INPUT", error: `La cantidad debe estar entre 1 y ${MAX_DTE_CONTROL_NUMBER_BLOCK}.`, next_available: null };
+  }
+  if (firstSequence + count - 1 > MAX_CONTROL_SEQUENCE) {
+    return { ok: false, code: "INVALID_INPUT", error: "El rango excede el máximo de 15 dígitos.", next_available: null };
+  }
+
+  const year = new Date().getFullYear();
+  const key = {
+    tenant_id_location_id_issuer_config_id_environment_dte_type_code_year: {
+      tenant_id:        ctx.tenant_id,
+      location_id:      ctx.location_id,
+      issuer_config_id: ctx.issuer_config_id,
+      environment:      ctx.environment,
+      dte_type_code:    ctx.dte_type_code,
+      year,
+    },
+  };
+
+  // Alta atómica de la fila (INSERT … ON CONFLICT DO NOTHING). A diferencia
+  // de upsert (SELECT + INSERT), no falla con P2002 cuando dos reservas
+  // concurrentes crean por primera vez el mismo tipo/año.
+  await tx.dteCorrelative.createMany({
+    data: [{
+      tenant_id:          ctx.tenant_id,
+      location_id:        ctx.location_id,
+      issuer_config_id:   ctx.issuer_config_id,
+      environment:        ctx.environment,
+      dte_type_code:      ctx.dte_type_code,
+      cod_estable_mh:     ctx.cod_estable_mh,
+      cod_punto_venta_mh: ctx.cod_punto_venta_mh,
+      year,
+      last_sequence:      0,
+    }],
+    skipDuplicates: true,
+  });
+
+  // Row lock ANTES de leer el piso: serializa con reservas concurrentes.
+  const locked = await tx.dteCorrelative.update({
+    where:  key,
+    data:   { updated_at: new Date() },
+    select: { last_sequence: true, external_baseline_last_used_sequence: true },
+  });
+
+  const maxUsedInOutgoing = await readMaxSequenceUsedInOutgoing(tx, ctx);
+  const floor = Math.max(locked.last_sequence, maxUsedInOutgoing, locked.external_baseline_last_used_sequence ?? 0);
+
+  if (firstSequence <= floor) {
+    return {
+      ok:             false,
+      code:           "FIRST_SEQUENCE_ALREADY_USED",
+      error:          `El número ${firstSequence} ya fue usado o reservado (último usado: ${floor}). Siguiente disponible: ${floor + 1}.`,
+      next_available: floor + 1,
+    };
+  }
+
+  const last = firstSequence + count - 1;
+  await tx.dteCorrelative.update({ where: key, data: { last_sequence: last } });
+
+  const reserved = Array.from({ length: count }, (_, i) => {
+    const sequence = firstSequence + i;
+    return {
+      sequence,
+      control_number: buildControlNumber({
+        dte_type_code:      ctx.dte_type_code,
+        cod_estable_mh:     ctx.cod_estable_mh,
+        cod_punto_venta_mh: ctx.cod_punto_venta_mh,
+        sequence,
+      }),
+    };
+  });
+
+  return { ok: true, floor, reserved };
 }
 
 // ── 2. Estado de un correlativo (lectura, para UI administrativa) ──
@@ -199,28 +320,7 @@ export async function getDteCorrelativeStatus(
     },
   });
 
-  const prefix = buildControlNumberPrefix({
-    dte_type_code:      params.dte_type_code,
-    cod_estable_mh:     params.cod_estable_mh,
-    cod_punto_venta_mh: params.cod_punto_venta_mh,
-  });
-
-  const existing = await db.dteOutgoingDocument.findMany({
-    where: {
-      tenant_id:      params.tenant_id,
-      location_id:    params.location_id,
-      environment:    params.environment,
-      dte_type_code:  params.dte_type_code,
-      control_number: { startsWith: prefix },
-    },
-    select: { control_number: true },
-  });
-
-  const maxUsedInOutgoing = existing.reduce((max, doc) => {
-    const seqStr = doc.control_number?.slice(prefix.length) ?? "";
-    const seq = Number.parseInt(seqStr, 10);
-    return Number.isFinite(seq) && seq > max ? seq : max;
-  }, 0);
+  const maxUsedInOutgoing = await readMaxSequenceUsedInOutgoing(db, params);
 
   const localLastSequence = correlative?.last_sequence ?? 0;
   const baselineLastUsed  = correlative?.external_baseline_last_used_sequence ?? null;

@@ -25,6 +25,7 @@ import {
   requireOperationalContext,
   OperationalContextError,
 } from "@/modules/platform/runtime/require-operational-context";
+import { blockNonOperationalDteForRuntimeAction } from "../utils/dte-document-purpose";
 
 export type GenerateNcJsonActionResult =
   | {
@@ -56,6 +57,10 @@ export async function generateNcJsonAction(
     if (!context.locationId) {
       return { ok: false, message: "La sesión no tiene una location activa." };
     }
+
+    // DTE-MH-TEST-RUNS — documentos de pruebas MH (Control Plane) no se operan desde el runtime.
+    const certificationBlock = await blockNonOperationalDteForRuntimeAction(context.client, context.tenantId, { dteDocumentId: dteDocumentId });
+    if (certificationBlock) return { ok: false, message: certificationBlock };
 
     const result = await generateNcJsonForDte(
       {

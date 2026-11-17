@@ -30,6 +30,7 @@ import {
 import type { DeliverDteToExternalDbResult } from "../types/external-dte-delivery.types";
 import { getExternalDeliveryLedger } from "./external-delivery-ledger";
 import type { ExternalDeliveryLedger } from "./external-delivery-ledger.types";
+import { OPERATIONAL_DTE_WHERE, DTE_CERTIFICATION_EXCLUDED_CODE } from "../utils/dte-document-purpose";
 
 export const OUTBOX_SYSTEM_USER = "system:dte-external-delivery-outbox";
 
@@ -99,7 +100,8 @@ export async function discoverAcceptedDocumentsForAutoDelivery(
       for (let page = 0; page < DISCOVERY_MAX_PAGES && docs.length < limit; page++) {
         const batch = await runner(org.organizationId, (client) =>
           client.dteOutgoingDocument.findMany({
-            where:   { tenant_id: org.tenantId, dte_status: "ACCEPTED", accepted_at: { gte: org.enabledAt } },
+            // DTE-MH-TEST-RUNS — solo documentos operativos (nunca pruebas MH).
+            where:   { tenant_id: org.tenantId, dte_status: "ACCEPTED", accepted_at: { gte: org.enabledAt }, ...OPERATIONAL_DTE_WHERE },
             select:  { id: true, location_id: true, environment: true, generation_code: true },
             orderBy: [{ accepted_at: "asc" }, { id: "asc" }],
             skip:    page * DISCOVERY_PAGE_SIZE,
@@ -210,6 +212,13 @@ export async function processDueExternalDeliveryJobs(
     } else if (result.errorCode === "UNCERTAIN" || result.errorCode === "REQUIRES_RECONCILIATION") {
       summary.uncertain++;
       summary.details.push({ jobId: job.id, organizationId: job.organization_id, outcome: "UNCERTAIN", errorCode: result.errorCode });
+    } else if (result.errorCode === DTE_CERTIFICATION_EXCLUDED_CODE) {
+      // DTE-MH-TEST-RUNS — job de un documento de pruebas MH (creado por
+      // error o antes de las barreras): nunca se entrega; se cancela para que
+      // no vuelva a quedar vencido. No llegó al adapter.
+      await ledger.reconcile(job.id, "CANCEL", OUTBOX_SYSTEM_USER, "Documento de pruebas MH (certificación): excluido de MariaDB por propósito.", now);
+      summary.skipped++;
+      summary.details.push({ jobId: job.id, organizationId: job.organization_id, outcome: "CANCELLED_CERTIFICATION", errorCode: result.errorCode });
     } else if (result.errorCode === "ALREADY_DELIVERED") {
       summary.skipped++;
       summary.details.push({ jobId: job.id, organizationId: job.organization_id, outcome: "ALREADY_DELIVERED" });

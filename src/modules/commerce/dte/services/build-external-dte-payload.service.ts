@@ -22,6 +22,7 @@ import type {
 } from "../types/external-dte-delivery.types";
 import { canUseFex11InServerFlow, FEX11_INVALID_ENVIRONMENT_ERROR } from "../utils/fex11-environment";
 import { isFiscallyReceivedByMh } from "../utils/dte-fiscal-receipt.utils";
+import { isOperationalDtePurpose, DTE_CERTIFICATION_EXCLUDED_MESSAGE } from "../utils/dte-document-purpose";
 
 // ── Forma esperada del documento cargado ─────────────────────────
 
@@ -41,6 +42,8 @@ export interface DteDocumentForExternalPayload {
   signed_jws:       string | null;
   reception_stamp:  string | null;
   mh_response:      unknown;
+  // DTE-MH-TEST-RUNS — obligatorio: solo OPERATIONAL produce payload externo.
+  purpose:          string;
 }
 
 // ── Tipos de error ────────────────────────────────────────────────
@@ -61,6 +64,13 @@ const SUPPORTED_TYPES = new Set(["01", "03", "05", "14"]);
 export function buildExternalDtePayload(
   doc: DteDocumentForExternalPayload,
 ): BuildExternalDtePayloadResult {
+  // DTE-MH-TEST-RUNS — barrera final: un documento de certificación (o sin
+  // propósito informado) nunca produce payload, así el adapter MariaDB no
+  // puede recibirlo aunque un caller omita los controles previos.
+  if (!isOperationalDtePurpose(doc.purpose)) {
+    return { ok: false, error: DTE_CERTIFICATION_EXCLUDED_MESSAGE };
+  }
+
   if (!isFiscallyReceivedByMh(doc.dte_status, doc.reception_stamp)) {
     return {
       ok:    false,

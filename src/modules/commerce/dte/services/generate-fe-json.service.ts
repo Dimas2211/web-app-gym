@@ -66,6 +66,100 @@ function mapTipoItem(productTypeSnapshot: string | null): number {
   return productTypeSnapshot === "SERVICE" ? 2 : 1;
 }
 
+// ── Datos cargados (selects compartidos por carga y armado) ─────────
+
+const FE_SALE_SELECT = {
+  id:                       true,
+  sale_date:                true,
+  status:                   true,
+  inventory_moved:          true,
+  customer_id:              true,
+  condition_operation_code: true,
+  payment_method_code:      true,
+  payment_term_code:        true,
+  payment_term_value:       true,
+  subtotal:                 true,
+  discount_amount:          true,
+  tax_amount:               true,
+  total_amount:             true,
+  customer: {
+    select: {
+      id:                 true,
+      name:               true,
+      id_type_code:       true,
+      nit:                true,
+      nrc:                true,
+      dui:                true,
+      activity_code:      true,
+      activity_name:      true,
+      dept_code:          true,
+      municipality_code:  true,
+      address_complement: true,
+      phone:              true,
+      email:              true,
+    },
+  },
+  items: {
+    orderBy: { line_number: "asc" },
+    select: {
+      line_number:           true,
+      product_code_snapshot: true,
+      product_name_snapshot: true,
+      product_type_snapshot: true,
+      quantity:              true,
+      unit_price:            true,
+      discount_amount:       true,
+      tax_rate_snapshot:     true,
+      tax_amount:            true,
+      line_subtotal:         true,
+      line_total:            true,
+    },
+  },
+  payments: {
+    select: {
+      mh_payment_form_code: true,
+      amount:               true,
+      reference:            true,
+    },
+  },
+} as const satisfies Prisma.SaleSelect;
+
+const FE_ISSUER_SELECT = {
+  nit:                     true,
+  nrc:                     true,
+  name:                    true,
+  legal_name:              true,
+  activity_code:           true,
+  activity_name:           true,
+  establishment_code:      true,
+  establishment_type_code: true,
+  point_of_sale_code:      true,
+  dept_code:               true,
+  municipality_code:       true,
+  address_complement:      true,
+  phone:                   true,
+  email:                   true,
+  environment:             true,
+} as const satisfies Prisma.DteIssuerConfigSelect;
+
+export type FeBuildSale   = Prisma.SaleGetPayload<{ select: typeof FE_SALE_SELECT }>;
+export type FeBuildIssuer = Prisma.DteIssuerConfigGetPayload<{ select: typeof FE_ISSUER_SELECT }>;
+export interface FeBuildDocument {
+  control_number:         string | null;
+  generation_code:        string | null;
+  transmission_type_code: string;
+  contingency_type_code:  string | null;
+  contingency_reason:     string | null;
+}
+export interface FeBuildInput {
+  dteDoc:       FeBuildDocument;
+  sale:         FeBuildSale;
+  issuerConfig: FeBuildIssuer;
+}
+export type FeBuildResult =
+  | { ok: true;  json: Record<string, unknown> }
+  | { ok: false; error: string };
+
 // ── Tipo de resultado público ─────────────────────────────────────
 
 export type GenerateFeJsonResult =
@@ -137,61 +231,7 @@ export async function generateFeJsonForDte(
     // ── 5. Cargar venta completa ──────────────────────────────────
     const sale = await db.sale.findFirst({
       where: { id: dteDoc.sale_id, tenant_id, location_id },
-      select: {
-        id:                       true,
-        sale_date:                true,
-        status:                   true,
-        inventory_moved:          true,
-        customer_id:              true,
-        condition_operation_code: true,
-        payment_method_code:      true,
-        payment_term_code:        true,
-        payment_term_value:       true,
-        subtotal:                 true,
-        discount_amount:          true,
-        tax_amount:               true,
-        total_amount:             true,
-        customer: {
-          select: {
-            id:                 true,
-            name:               true,
-            id_type_code:       true,
-            nit:                true,
-            nrc:                true,
-            dui:                true,
-            activity_code:      true,
-            activity_name:      true,
-            dept_code:          true,
-            municipality_code:  true,
-            address_complement: true,
-            phone:              true,
-            email:              true,
-          },
-        },
-        items: {
-          orderBy: { line_number: "asc" },
-          select: {
-            line_number:           true,
-            product_code_snapshot: true,
-            product_name_snapshot: true,
-            product_type_snapshot: true,
-            quantity:              true,
-            unit_price:            true,
-            discount_amount:       true,
-            tax_rate_snapshot:     true,
-            tax_amount:            true,
-            line_subtotal:         true,
-            line_total:            true,
-          },
-        },
-        payments: {
-          select: {
-            mh_payment_form_code: true,
-            amount:               true,
-            reference:            true,
-          },
-        },
-      },
+      select: FE_SALE_SELECT,
     });
 
     if (!sale) {
@@ -232,23 +272,7 @@ export async function generateFeJsonForDte(
     // ── 8. Cargar configuración del emisor ────────────────────────
     const issuerConfig = await db.dteIssuerConfig.findFirst({
       where: { id: dteDoc.issuer_config_id, tenant_id, location_id },
-      select: {
-        nit:                     true,
-        nrc:                     true,
-        name:                    true,
-        legal_name:              true,
-        activity_code:           true,
-        activity_name:           true,
-        establishment_code:      true,
-        establishment_type_code: true,
-        point_of_sale_code:      true,
-        dept_code:               true,
-        municipality_code:       true,
-        address_complement:      true,
-        phone:                   true,
-        email:                   true,
-        environment:             true,
-      },
+      select: FE_ISSUER_SELECT,
     });
 
     if (!issuerConfig) {
@@ -276,331 +300,13 @@ export async function generateFeJsonForDte(
     }, db);
     if (!receptorAddrCheck.ok) return { ok: false, error: receptorAddrCheck.error };
 
-    // ── 9. Construir cuerpoDocumento ──────────────────────────────
-
-    type LineaTributo = string[];
-
-    interface CuerpoItem {
-      numItem:        number;
-      tipoItem:       number;
-      numeroDocumento: null;
-      cantidad:       number;
-      codigo:         string;
-      codTributo:     null;
-      uniMedida:      number;
-      descripcion:    string;
-      precioUni:      number;
-      montoDescu:     number;
-      ventaNoSuj:     number;
-      ventaExenta:    number;
-      ventaGravada:   number;
-      tributos:       LineaTributo | null;
-      psv:            number;
-      noGravado:      number;
-      ivaItem:        number;
-    }
-
-    const cuerpoDocumento: CuerpoItem[] = sale.items.map((item) => {
-      const qty              = Number(item.quantity);
-      const unitPriceWithIva = Number(item.unit_price);      // CON IVA — fuente de verdad
-      const descuWithIva     = Number(item.discount_amount); // CON IVA
-      const taxRate          = Number(item.tax_rate_snapshot ?? 0);
-      const hasIva           = taxRate > 0;
-
-      // FE-01: precioUni y montoDescu van CON IVA para líneas gravadas.
-      // unit_price ya es CON IVA — sin multiplicación adicional por taxFactor.
-      const precioUniLine = r2(unitPriceWithIva);
-      const descuLine     = r2(descuWithIva);
-
-      // ventaGravada/ventaExenta: total neto por línea CON IVA incluido.
-      const lineNetWithIva   = r2(qty * precioUniLine - descuLine);
-      const ventaGravadaLine = hasIva ? lineNetWithIva : 0;
-      const ventaExentaLine  = hasIva ? 0 : lineNetWithIva;
-
-      // ivaItem: IVA extraído del precio final — informativo, usa valor persistido.
-      // MH schema exige number (no null); ítems sin IVA envían 0.
-      const ivaItemLine = hasIva ? r2(Number(item.tax_amount)) : 0;
-
-      return {
-        numItem:         item.line_number,
-        tipoItem:        mapTipoItem(item.product_type_snapshot),
-        numeroDocumento: null,
-        cantidad:        qty,
-        codigo:          item.product_code_snapshot,
-        codTributo:      null,
-        uniMedida:       59, // CAT-014 "Unidades" — MVP: UnitOfMeasure no tiene código fiscal MH
-        descripcion:     item.product_name_snapshot,
-        precioUni:       precioUniLine,
-        montoDescu:      descuLine,
-        ventaNoSuj:      0,
-        ventaExenta:     ventaExentaLine,
-        ventaGravada:    ventaGravadaLine,
-        // FE-01: tributos no incluye "20" (IVA); el IVA por línea va en ivaItem.
-        tributos:        null,
-        psv:             0,
-        noGravado:       0,
-        ivaItem:         ivaItemLine,
-      };
-    });
-
-    // ── 10. Calcular totales del resumen ──────────────────────────
-
-    let totalGravada = 0;
-    let totalExenta  = 0;
-    let descuGravada = 0;
-    let descuExenta  = 0;
-    let totalIva     = 0;
-
-    for (const item of cuerpoDocumento) {
-      totalGravada += item.ventaGravada;
-      totalExenta  += item.ventaExenta;
-      if (item.ventaGravada > 0) {
-        descuGravada += item.montoDescu;
-      } else {
-        descuExenta += item.montoDescu;
-      }
-      if (item.ivaItem != null) {
-        totalIva += item.ivaItem;
-      }
-    }
-    totalGravada = r2(totalGravada);
-    totalExenta  = r2(totalExenta);
-    descuGravada = r2(descuGravada);
-    descuExenta  = r2(descuExenta);
-    totalIva     = r2(totalIva);
-    const totalDescu = r2(descuGravada + descuExenta);
-
-    const totalNoSuj       = 0;
-    // FE-01: totalGravada ya incluye IVA → subTotalVentas y montoTotalOperacion
-    // son el total con IVA. totalIva es solo informativo; no se suma al total.
-    const subTotalVentas      = r2(totalNoSuj + totalExenta + totalGravada);
-    const subTotal            = subTotalVentas;
-    const montoTotalOperacion = subTotal; // + totalNoGravado (0 para MVP)
-    const totalPagar          = montoTotalOperacion;
-
-    // Validar que el total calculado coincide con el total_amount de la venta (ambos con IVA)
-    if (Math.abs(montoTotalOperacion - r2(totalAmount)) > TOLERANCE) {
-      return {
-        ok:    false,
-        error: `Inconsistencia: montoTotalOperacion calculado (${montoTotalOperacion}) difiere del total_amount de la venta (${r2(totalAmount)}).`,
-      };
-    }
-
-    // ── 11. Construir pagos ───────────────────────────────────────
-
-    interface PagoItem {
-      codigo:     string;
-      montoPago:  number;
-      referencia: string | null;
-      plazo:      string | null;
-      periodo:    number | null;
-    }
-
-    let pagos: PagoItem[];
-
-    const validPayments = sale.payments.filter((p) => p.mh_payment_form_code);
-    if (validPayments.length > 0) {
-      pagos = validPayments.map((p) => ({
-        codigo:     p.mh_payment_form_code!,
-        montoPago:  r2(Number(p.amount)),
-        referencia: p.reference ?? null,
-        plazo:      null,
-        periodo:    null,
-      }));
-    } else {
-      const condicion = sale.condition_operation_code ?? "1";
-      pagos = [{
-        codigo:     sale.payment_method_code || "99", // CAT-017: usa código de venta si existe; fallback "99" (Otros)
-        montoPago:  totalPagar,
-        referencia: null,
-        plazo:      condicion === "2" ? (sale.payment_term_code ?? null) : null,
-        periodo:    condicion === "2" ? (sale.payment_term_value ?? null) : null,
-      }];
-    }
-
-    // ── 12. Construir receptor ────────────────────────────────────
-
-    interface Direccion {
-      departamento: string | null;
-      municipio:    string | null;
-      complemento:  string | null;
-    }
-
-    interface Receptor {
-      tipoDocumento: string | null;
-      numDocumento:  string | null;
-      nrc:           string | null;
-      nombre:        string | null;
-      codActividad:  string | null;
-      descActividad: string | null;
-      direccion:     Direccion | null;
-      telefono:      string | null;
-      correo:        string | null;
-    }
-
-    const c = sale.customer;
-    let receptor: Receptor | null;
-
-    if (c && c.id_type_code && c.id_type_code !== "00") {
-      const idTypeCode = c.id_type_code;
-
-      // Seleccionar número de documento según tipo:
-      // "36" (NIT) → c.nit; "13" (DUI) → c.dui; otros → dui ?? nit ?? null
-      let rawNumDoc: string | null;
-      if (idTypeCode === "36") {
-        rawNumDoc = c.nit ?? null;
-      } else if (idTypeCode === "13") {
-        rawNumDoc = c.dui ?? null;
-      } else {
-        rawNumDoc = c.dui ?? c.nit ?? null;
-      }
-
-      const numDoc = idTypeCode === "36"
-        ? normalizeNitForDte(rawNumDoc)
-        : rawNumDoc;
-
-      // FE-01 schema: nrc solo puede tener valor si tipoDocumento === "36";
-      // para cualquier otro tipo el schema exige nrc = null.
-      const nrcValue = idTypeCode === "36" && c.nrc
-        ? normalizeNrcForDte(c.nrc)
-        : null;
-
-      const hasDireccion = c.dept_code || c.municipality_code || c.address_complement;
-
-      receptor = {
-        tipoDocumento: idTypeCode,
-        numDocumento:  numDoc,
-        nrc:           nrcValue,
-        nombre:        c.name,
-        codActividad:  c.activity_code ?? null,
-        descActividad: c.activity_name ?? null,
-        direccion:     hasDireccion
-          ? { departamento: c.dept_code ?? null, municipio: c.municipality_code ?? null, complemento: c.address_complement ?? null }
-          : null,
-        telefono:      c.phone ?? null,
-        correo:        c.email ?? null,
-      };
-    } else {
-      // Sin cliente, sin tipo de documento, o "00" (consumidor final)
-      receptor = {
-        tipoDocumento: null,
-        numDocumento:  null,
-        nrc:           null,
-        nombre:        "CONSUMIDOR FINAL",
-        codActividad:  null,
-        descActividad: null,
-        direccion:     null,
-        telefono:      null,
-        correo:        null,
-      };
-    }
-
-    // ── 13. Derivar bloque de contingencia (CAT-004 / CAT-023) ─────
-
-    const contingencyBlock = buildContingencyIdentificationBlock({
-      transmission_type_code: dteDoc.transmission_type_code,
-      contingency_type_code:  dteDoc.contingency_type_code,
-      contingency_reason:     dteDoc.contingency_reason,
-      motivoContinMinLength:  FE01_MOTIVO_CONTIN_MIN_LENGTH,
-    });
-
-    if (!contingencyBlock.ok) {
-      return { ok: false, error: contingencyBlock.error };
-    }
-
-    // ── 14. Construir identificacion ──────────────────────────────
-
-    const now                    = new Date();
-    const { date: fecEmi, time: horEmi } = svDateTime(now);
-    const condicion    = sale.condition_operation_code
-      ? parseInt(sale.condition_operation_code, 10) || 1
-      : 1;
-
-    const identificacion = {
-      version:         1,
-      ambiente:        mapAmbiente(issuerConfig.environment),
-      tipoDte:         "01",
-      numeroControl:   dteDoc.control_number,
-      codigoGeneracion: dteDoc.generation_code,
-      tipoModelo:      contingencyBlock.data.tipoModelo,        // CAT-003
-      tipoOperacion:   contingencyBlock.data.tipoOperacion,     // CAT-004
-      tipoContingencia: contingencyBlock.data.tipoContingencia, // CAT-023
-      motivoContin:    contingencyBlock.data.motivoContin,
-      fecEmi,
-      horEmi,
-      tipoMoneda:      "USD",
-    };
-
-    // ── 15. Construir emisor ──────────────────────────────────────
-
-    const hasDireccionEmisor =
-      issuerConfig.dept_code || issuerConfig.municipality_code || issuerConfig.address_complement;
-
-    const emisor = {
-      nit:                 normalizeNitForDte(issuerConfig.nit),
-      nrc:                 normalizeNrcForDte(issuerConfig.nrc),
-      nombre:              issuerConfig.name,
-      codActividad:        issuerConfig.activity_code,
-      descActividad:       issuerConfig.activity_name,
-      nombreComercial:     issuerConfig.legal_name ?? null,
-      tipoEstablecimiento: issuerConfig.establishment_type_code ?? "02",
-      direccion:           hasDireccionEmisor
-        ? {
-            departamento: issuerConfig.dept_code         ?? null,
-            municipio:    issuerConfig.municipality_code ?? null,
-            complemento:  issuerConfig.address_complement ?? null,
-          }
-        : null,
-      telefono:        issuerConfig.phone  ?? null,
-      correo:          issuerConfig.email  ?? null,
-      codEstableMH:    issuerConfig.establishment_code  ?? null,
-      codEstable:      issuerConfig.establishment_code  ?? null,
-      codPuntoVentaMH: issuerConfig.point_of_sale_code  ?? null,
-      codPuntoVenta:   issuerConfig.point_of_sale_code  ?? null,
-    };
-
-    // ── 16. Construir resumen ─────────────────────────────────────
-
-    const resumen = {
-      totalNoSuj:           totalNoSuj,
-      totalExenta:          totalExenta,
-      totalGravada:         totalGravada,
-      subTotalVentas:       subTotalVentas,
-      descuNoSuj:           0,
-      descuExenta:          descuExenta,
-      descuGravada:         descuGravada,
-      porcentajeDescuento:  0,
-      totalDescu:           totalDescu,
-      // FE-01: resumen.tributos no acepta código "20"; el IVA total va en totalIva.
-      tributos:             null,
-      subTotal:             subTotal,
-      ivaRete1:             0,
-      reteRenta:            0,
-      montoTotalOperacion:  montoTotalOperacion,
-      totalNoGravado:       0,
-      totalPagar:           totalPagar,
-      totalLetras:          numeroALetras(totalPagar),
-      totalIva:             totalIva,
-      saldoFavor:           0,
-      condicionOperacion:   condicion,
-      pagos,
-      numPagoElectronico:   null,
-    };
-
-    // ── 17. Ensamblar json_document completo ──────────────────────
-
-    const jsonDocument = {
-      identificacion,
-      documentoRelacionado: null,
-      emisor,
-      receptor,
-      otrosDocumentos: null,
-      ventaTercero:    null,
-      cuerpoDocumento,
-      resumen,
-      extension:  null,
-      apendice:   null,
-    };
+    // ── Armado puro del JSON (buildFeJsonFromLoadedData) ─────────────────────────
+    // Carga y validaciones de origen arriba; el armado vive en una función
+    // pura reutilizable (también la usan las pruebas MH TEST del onboarding).
+    const now   = new Date();
+    const built = buildFeJsonFromLoadedData({ dteDoc, sale, issuerConfig }, now);
+    if (!built.ok) return { ok: false, error: built.error };
+    const jsonDocument = built.json;
 
     // ── 18. Persistir: guardar JSON y cambiar estado ──────────────
     await db.dteOutgoingDocument.update({
@@ -621,4 +327,345 @@ export async function generateFeJsonForDte(
     }
     throw error;
   }
+}
+
+// ── Armado puro ───────────────────────────────────────────────────
+//
+// buildFeJsonFromLoadedData — construye el json_document a partir de datos ya
+// cargados y validados. No lee ni escribe base de datos. Puede lanzar el
+// error de negocio del módulo, que el caller convierte en { ok: false }.
+
+export function buildFeJsonFromLoadedData(
+  input: FeBuildInput,
+  now:   Date,
+): FeBuildResult {
+  const { dteDoc, sale, issuerConfig } = input;
+  const totalAmount = Number(sale.total_amount);
+
+  // ── 9. Construir cuerpoDocumento ──────────────────────────────
+
+  type LineaTributo = string[];
+
+  interface CuerpoItem {
+    numItem:        number;
+    tipoItem:       number;
+    numeroDocumento: null;
+    cantidad:       number;
+    codigo:         string;
+    codTributo:     null;
+    uniMedida:      number;
+    descripcion:    string;
+    precioUni:      number;
+    montoDescu:     number;
+    ventaNoSuj:     number;
+    ventaExenta:    number;
+    ventaGravada:   number;
+    tributos:       LineaTributo | null;
+    psv:            number;
+    noGravado:      number;
+    ivaItem:        number;
+  }
+
+  const cuerpoDocumento: CuerpoItem[] = sale.items.map((item) => {
+    const qty              = Number(item.quantity);
+    const unitPriceWithIva = Number(item.unit_price);      // CON IVA — fuente de verdad
+    const descuWithIva     = Number(item.discount_amount); // CON IVA
+    const taxRate          = Number(item.tax_rate_snapshot ?? 0);
+    const hasIva           = taxRate > 0;
+
+    // FE-01: precioUni y montoDescu van CON IVA para líneas gravadas.
+    // unit_price ya es CON IVA — sin multiplicación adicional por taxFactor.
+    const precioUniLine = r2(unitPriceWithIva);
+    const descuLine     = r2(descuWithIva);
+
+    // ventaGravada/ventaExenta: total neto por línea CON IVA incluido.
+    const lineNetWithIva   = r2(qty * precioUniLine - descuLine);
+    const ventaGravadaLine = hasIva ? lineNetWithIva : 0;
+    const ventaExentaLine  = hasIva ? 0 : lineNetWithIva;
+
+    // ivaItem: IVA extraído del precio final — informativo, usa valor persistido.
+    // MH schema exige number (no null); ítems sin IVA envían 0.
+    const ivaItemLine = hasIva ? r2(Number(item.tax_amount)) : 0;
+
+    return {
+      numItem:         item.line_number,
+      tipoItem:        mapTipoItem(item.product_type_snapshot),
+      numeroDocumento: null,
+      cantidad:        qty,
+      codigo:          item.product_code_snapshot,
+      codTributo:      null,
+      uniMedida:       59, // CAT-014 "Unidades" — MVP: UnitOfMeasure no tiene código fiscal MH
+      descripcion:     item.product_name_snapshot,
+      precioUni:       precioUniLine,
+      montoDescu:      descuLine,
+      ventaNoSuj:      0,
+      ventaExenta:     ventaExentaLine,
+      ventaGravada:    ventaGravadaLine,
+      // FE-01: tributos no incluye "20" (IVA); el IVA por línea va en ivaItem.
+      tributos:        null,
+      psv:             0,
+      noGravado:       0,
+      ivaItem:         ivaItemLine,
+    };
+  });
+
+  // ── 10. Calcular totales del resumen ──────────────────────────
+
+  let totalGravada = 0;
+  let totalExenta  = 0;
+  let descuGravada = 0;
+  let descuExenta  = 0;
+  let totalIva     = 0;
+
+  for (const item of cuerpoDocumento) {
+    totalGravada += item.ventaGravada;
+    totalExenta  += item.ventaExenta;
+    if (item.ventaGravada > 0) {
+      descuGravada += item.montoDescu;
+    } else {
+      descuExenta += item.montoDescu;
+    }
+    if (item.ivaItem != null) {
+      totalIva += item.ivaItem;
+    }
+  }
+  totalGravada = r2(totalGravada);
+  totalExenta  = r2(totalExenta);
+  descuGravada = r2(descuGravada);
+  descuExenta  = r2(descuExenta);
+  totalIva     = r2(totalIva);
+  const totalDescu = r2(descuGravada + descuExenta);
+
+  const totalNoSuj       = 0;
+  // FE-01: totalGravada ya incluye IVA → subTotalVentas y montoTotalOperacion
+  // son el total con IVA. totalIva es solo informativo; no se suma al total.
+  const subTotalVentas      = r2(totalNoSuj + totalExenta + totalGravada);
+  const subTotal            = subTotalVentas;
+  const montoTotalOperacion = subTotal; // + totalNoGravado (0 para MVP)
+  const totalPagar          = montoTotalOperacion;
+
+  // Validar que el total calculado coincide con el total_amount de la venta (ambos con IVA)
+  if (Math.abs(montoTotalOperacion - r2(totalAmount)) > TOLERANCE) {
+    return {
+      ok:    false,
+      error: `Inconsistencia: montoTotalOperacion calculado (${montoTotalOperacion}) difiere del total_amount de la venta (${r2(totalAmount)}).`,
+    };
+  }
+
+  // ── 11. Construir pagos ───────────────────────────────────────
+
+  interface PagoItem {
+    codigo:     string;
+    montoPago:  number;
+    referencia: string | null;
+    plazo:      string | null;
+    periodo:    number | null;
+  }
+
+  let pagos: PagoItem[];
+
+  const validPayments = sale.payments.filter((p) => p.mh_payment_form_code);
+  if (validPayments.length > 0) {
+    pagos = validPayments.map((p) => ({
+      codigo:     p.mh_payment_form_code!,
+      montoPago:  r2(Number(p.amount)),
+      referencia: p.reference ?? null,
+      plazo:      null,
+      periodo:    null,
+    }));
+  } else {
+    const condicion = sale.condition_operation_code ?? "1";
+    pagos = [{
+      codigo:     sale.payment_method_code || "99", // CAT-017: usa código de venta si existe; fallback "99" (Otros)
+      montoPago:  totalPagar,
+      referencia: null,
+      plazo:      condicion === "2" ? (sale.payment_term_code ?? null) : null,
+      periodo:    condicion === "2" ? (sale.payment_term_value ?? null) : null,
+    }];
+  }
+
+  // ── 12. Construir receptor ────────────────────────────────────
+
+  interface Direccion {
+    departamento: string | null;
+    municipio:    string | null;
+    complemento:  string | null;
+  }
+
+  interface Receptor {
+    tipoDocumento: string | null;
+    numDocumento:  string | null;
+    nrc:           string | null;
+    nombre:        string | null;
+    codActividad:  string | null;
+    descActividad: string | null;
+    direccion:     Direccion | null;
+    telefono:      string | null;
+    correo:        string | null;
+  }
+
+  const c = sale.customer;
+  let receptor: Receptor | null;
+
+  if (c && c.id_type_code && c.id_type_code !== "00") {
+    const idTypeCode = c.id_type_code;
+
+    // Seleccionar número de documento según tipo:
+    // "36" (NIT) → c.nit; "13" (DUI) → c.dui; otros → dui ?? nit ?? null
+    let rawNumDoc: string | null;
+    if (idTypeCode === "36") {
+      rawNumDoc = c.nit ?? null;
+    } else if (idTypeCode === "13") {
+      rawNumDoc = c.dui ?? null;
+    } else {
+      rawNumDoc = c.dui ?? c.nit ?? null;
+    }
+
+    const numDoc = idTypeCode === "36"
+      ? normalizeNitForDte(rawNumDoc)
+      : rawNumDoc;
+
+    // FE-01 schema: nrc solo puede tener valor si tipoDocumento === "36";
+    // para cualquier otro tipo el schema exige nrc = null.
+    const nrcValue = idTypeCode === "36" && c.nrc
+      ? normalizeNrcForDte(c.nrc)
+      : null;
+
+    const hasDireccion = c.dept_code || c.municipality_code || c.address_complement;
+
+    receptor = {
+      tipoDocumento: idTypeCode,
+      numDocumento:  numDoc,
+      nrc:           nrcValue,
+      nombre:        c.name,
+      codActividad:  c.activity_code ?? null,
+      descActividad: c.activity_name ?? null,
+      direccion:     hasDireccion
+        ? { departamento: c.dept_code ?? null, municipio: c.municipality_code ?? null, complemento: c.address_complement ?? null }
+        : null,
+      telefono:      c.phone ?? null,
+      correo:        c.email ?? null,
+    };
+  } else {
+    // Sin cliente, sin tipo de documento, o "00" (consumidor final)
+    receptor = {
+      tipoDocumento: null,
+      numDocumento:  null,
+      nrc:           null,
+      nombre:        "CONSUMIDOR FINAL",
+      codActividad:  null,
+      descActividad: null,
+      direccion:     null,
+      telefono:      null,
+      correo:        null,
+    };
+  }
+
+  // ── 13. Derivar bloque de contingencia (CAT-004 / CAT-023) ─────
+
+  const contingencyBlock = buildContingencyIdentificationBlock({
+    transmission_type_code: dteDoc.transmission_type_code,
+    contingency_type_code:  dteDoc.contingency_type_code,
+    contingency_reason:     dteDoc.contingency_reason,
+    motivoContinMinLength:  FE01_MOTIVO_CONTIN_MIN_LENGTH,
+  });
+
+  if (!contingencyBlock.ok) {
+    return { ok: false, error: contingencyBlock.error };
+  }
+
+  // ── 14. Construir identificacion ──────────────────────────────
+
+  const { date: fecEmi, time: horEmi } = svDateTime(now);
+  const condicion    = sale.condition_operation_code
+    ? parseInt(sale.condition_operation_code, 10) || 1
+    : 1;
+
+  const identificacion = {
+    version:         1,
+    ambiente:        mapAmbiente(issuerConfig.environment),
+    tipoDte:         "01",
+    numeroControl:   dteDoc.control_number,
+    codigoGeneracion: dteDoc.generation_code,
+    tipoModelo:      contingencyBlock.data.tipoModelo,        // CAT-003
+    tipoOperacion:   contingencyBlock.data.tipoOperacion,     // CAT-004
+    tipoContingencia: contingencyBlock.data.tipoContingencia, // CAT-023
+    motivoContin:    contingencyBlock.data.motivoContin,
+    fecEmi,
+    horEmi,
+    tipoMoneda:      "USD",
+  };
+
+  // ── 15. Construir emisor ──────────────────────────────────────
+
+  const hasDireccionEmisor =
+    issuerConfig.dept_code || issuerConfig.municipality_code || issuerConfig.address_complement;
+
+  const emisor = {
+    nit:                 normalizeNitForDte(issuerConfig.nit),
+    nrc:                 normalizeNrcForDte(issuerConfig.nrc),
+    nombre:              issuerConfig.name,
+    codActividad:        issuerConfig.activity_code,
+    descActividad:       issuerConfig.activity_name,
+    nombreComercial:     issuerConfig.legal_name ?? null,
+    tipoEstablecimiento: issuerConfig.establishment_type_code ?? "02",
+    direccion:           hasDireccionEmisor
+      ? {
+          departamento: issuerConfig.dept_code         ?? null,
+          municipio:    issuerConfig.municipality_code ?? null,
+          complemento:  issuerConfig.address_complement ?? null,
+        }
+      : null,
+    telefono:        issuerConfig.phone  ?? null,
+    correo:          issuerConfig.email  ?? null,
+    codEstableMH:    issuerConfig.establishment_code  ?? null,
+    codEstable:      issuerConfig.establishment_code  ?? null,
+    codPuntoVentaMH: issuerConfig.point_of_sale_code  ?? null,
+    codPuntoVenta:   issuerConfig.point_of_sale_code  ?? null,
+  };
+
+  // ── 16. Construir resumen ─────────────────────────────────────
+
+  const resumen = {
+    totalNoSuj:           totalNoSuj,
+    totalExenta:          totalExenta,
+    totalGravada:         totalGravada,
+    subTotalVentas:       subTotalVentas,
+    descuNoSuj:           0,
+    descuExenta:          descuExenta,
+    descuGravada:         descuGravada,
+    porcentajeDescuento:  0,
+    totalDescu:           totalDescu,
+    // FE-01: resumen.tributos no acepta código "20"; el IVA total va en totalIva.
+    tributos:             null,
+    subTotal:             subTotal,
+    ivaRete1:             0,
+    reteRenta:            0,
+    montoTotalOperacion:  montoTotalOperacion,
+    totalNoGravado:       0,
+    totalPagar:           totalPagar,
+    totalLetras:          numeroALetras(totalPagar),
+    totalIva:             totalIva,
+    saldoFavor:           0,
+    condicionOperacion:   condicion,
+    pagos,
+    numPagoElectronico:   null,
+  };
+
+  // ── 17. Ensamblar json_document completo ──────────────────────
+
+  const jsonDocument = {
+    identificacion,
+    documentoRelacionado: null,
+    emisor,
+    receptor,
+    otrosDocumentos: null,
+    ventaTercero:    null,
+    cuerpoDocumento,
+    resumen,
+    extension:  null,
+    apendice:   null,
+  };
+
+  return { ok: true, json: jsonDocument };
 }

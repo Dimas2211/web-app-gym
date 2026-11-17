@@ -2026,6 +2026,16 @@ enum DteOutgoingStatus {
   INVALIDATED
 }
 
+// DTE-MH-TEST-RUNS — propósito del documento fiscal.
+// OPERATIONAL: documento comercial normal (todos los existentes, default).
+// MH_TEST_CERTIFICATION: documento de pruebas de Hacienda creado desde el
+// onboarding fiscal del Control Plane. Sin venta/compra, solo TEST (CHECK en
+// la migración) y excluido por diseño de MariaDB, Panel Fiscal y reportes.
+enum DteDocumentPurpose {
+  OPERATIONAL
+  MH_TEST_CERTIFICATION
+}
+
 enum DteEnvironment {
   TEST
   PRODUCTION
@@ -2599,6 +2609,11 @@ model DteOutgoingDocument {
   // Estado fiscal — independiente de Sale.status
   dte_status DteOutgoingStatus @default(PENDING_GENERATION)
 
+  // DTE-MH-TEST-RUNS — propósito y clave idempotente del ítem de la ejecución
+  // de pruebas MH (`<runId>:<seq>`). Solo MH_TEST_CERTIFICATION puede tener clave.
+  purpose                DteDocumentPurpose @default(OPERATIONAL)
+  certification_item_key String?            @unique
+
   // Documento DTE
   json_document    Json? // JSON DTE antes de firma
   signed_jws       String? @db.Text // JWS firmado recibido del firmador
@@ -2666,6 +2681,7 @@ model DteOutgoingDocument {
   @@index([dte_type_code])
   @@index([control_number])
   @@index([reception_stamp])
+  @@index([tenant_id, purpose, environment])
   @@map("dte_outgoing_documents")
 }
 
@@ -3304,6 +3320,7 @@ model PlatformOrganization {
   dte_signer_provisionings     PlatformDteSignerProvisioning[]
   dte_signer_provisioning_runs PlatformDteSignerProvisioningRun[]
   dte_external_delivery_jobs   PlatformDteExternalDeliveryJob[]
+  dte_mh_test_runs             PlatformDteMhTestRun[]
 
   @@index([tenant_id])
   @@index([status])
@@ -4096,4 +4113,79 @@ model PlatformDteExternalDeliveryJob {
   @@index([status, next_attempt_at])
   @@index([organization_id, status])
   @@map("platform_dte_external_delivery_jobs")
+}
+
+// ── DTE-MH-TEST-RUNS — Pruebas de Hacienda desde el onboarding fiscal ──
+// Ejecuciones de certificación MH TEST autorizadas por un administrador de
+// plataforma. Viven en Control Plane; los documentos reales viven en la base
+// runtime del cliente (DteOutgoingDocument.purpose = MH_TEST_CERTIFICATION).
+// environment = 'TEST' y una sola ejecución activa por organización+ambiente
+// se garantizan con CHECK / índice parcial en la migración.
+// lease_epoch = token de fencing: toda escritura del worker exige su epoch.
+model PlatformDteMhTestRun {
+  id               String    @id @default(uuid())
+  organization_id  String
+  tenant_id        String
+  location_id      String
+  issuer_config_id String
+  environment      String    @default("TEST")
+  status           String // DRAFT|QUEUED|RUNNING|PAUSED|NEEDS_REVIEW|COMPLETED|FAILED|CANCELLED
+  plan             Json // tipos, cantidades, primer número, rango, códigos MH, escenarios y receptores (sin secretos)
+  authorized_by    String?
+  authorized_at    DateTime?
+  lease_owner      String?
+  lease_epoch      Int       @default(0)
+  lease_expires_at DateTime?
+  last_error       String?
+  created_by       String?
+  started_at       DateTime?
+  finished_at      DateTime?
+  created_at       DateTime  @default(now())
+  updated_at       DateTime  @updatedAt
+
+  organization PlatformOrganization       @relation(fields: [organization_id], references: [id])
+  items        PlatformDteMhTestRunItem[]
+
+  @@index([organization_id, created_at])
+  @@index([status])
+  @@map("platform_dte_mh_test_runs")
+}
+
+model PlatformDteMhTestRunItem {
+  id                            String    @id @default(uuid())
+  run_id                        String
+  seq                           Int
+  kind                          String // DTE|INVALIDATION|CONTINGENCY_EVENT
+  dte_type_code                 String?
+  scenario_code                 String
+  depends_on_item_id            String?
+  planned_sequence              Int?
+  control_number                String?
+  generation_code               String?
+  runtime_dte_document_id       String?
+  runtime_invalidation_event_id String?
+  runtime_contingency_event_id  String?
+  step                          String // PLANNED|RESERVED|GENERATED|VALIDATED|SIGNED|TRANSMITTING|ACCEPTED|OBSERVED|REJECTED|UNCERTAIN|SKIPPED|CANCELLED|ABANDONED
+  claim_epoch                   Int?
+  attempts                      Int       @default(0)
+  query_attempts                Int       @default(0)
+  mh_estado                     String?
+  mh_codigo_msg                 String?
+  mh_descripcion                String?
+  reception_stamp               String?
+  evidence                      Json? // saneada, sin JWS ni secretos
+  last_error_code               String?
+  last_error_message            String?
+  operator_decision             String? // RETRANSMIT_SAME|ABANDON
+  operator_note                 String?
+  decided_by                    String?
+  decided_at                    DateTime?
+  created_at                    DateTime  @default(now())
+  updated_at                    DateTime  @updatedAt
+
+  run PlatformDteMhTestRun @relation(fields: [run_id], references: [id])
+
+  @@unique([run_id, seq])
+  @@index([run_id, step])
+  @@map("platform_dte_mh_test_run_items")
 }

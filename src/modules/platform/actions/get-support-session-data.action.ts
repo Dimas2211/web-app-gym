@@ -59,6 +59,7 @@ import type {
   DatabaseInspectionCatalogSummary,
   DatabaseInspectionDteConfig,
 } from "../types/platform.types";
+import { OPERATIONAL_DTE_WHERE } from "@/modules/commerce/dte/utils/dte-document-purpose";
 
 // ── Helpers de serialización segura ──────────────────────────────
 
@@ -374,9 +375,10 @@ export async function getSupportSessionDataAction(
 
       // ── Bloque 9: DTE — documentos ──────────────────────────────────
       try {
-        summary.dteDocuments = await client.dteOutgoingDocument.count({ where: { tenant_id: tenantId } });
+        // DTE-MH-TEST-RUNS — solo documentos operativos (las pruebas MH viven en Control Plane).
+        summary.dteDocuments = await client.dteOutgoingDocument.count({ where: { tenant_id: tenantId, ...OPERATIONAL_DTE_WHERE } });
         const rawDte = await client.dteOutgoingDocument.findMany({
-          where: { tenant_id: tenantId },
+          where: { tenant_id: tenantId, ...OPERATIONAL_DTE_WHERE },
           select: {
             id: true, dte_type_code: true, dte_status: true,
             generation_code: true, control_number: true, reception_stamp: true,

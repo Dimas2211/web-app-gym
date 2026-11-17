@@ -30,12 +30,17 @@
 import type { PrismaClient }           from "@prisma/client";
 import { prisma }                      from "@/lib/db/prisma";
 import { ExternalDteMariaDbAdapter }   from "../adapters/external-dte-mariadb.adapter";
+import { isOperationalDtePurpose, DTE_CERTIFICATION_EXCLUDED_MESSAGE } from "../utils/dte-document-purpose";
 import { resolveExternalDteMariaDbDestination } from "../config/resolve-external-dte-destination";
 import {
   buildExternalInvalidationPayload,
   type DteInvalidationEventForExternalPayload,
 } from "./build-external-invalidation-payload.service";
-import type { DeliverInvalidationToExternalDbResult } from "../types/external-dte-delivery.types";
+import type {
+  DeliverInvalidationToExternalDbResult,
+  ExternalDteDeliveryResult,
+  ExternalDteMariaDbConfig,
+} from "../types/external-dte-delivery.types";
 
 // ── Parámetros ────────────────────────────────────────────────────
 
@@ -76,8 +81,13 @@ class DeliverInvalidationBusinessError extends Error {
 
 // ── Función principal ─────────────────────────────────────────────
 
+export interface DeliverInvalidationToExternalDbDeps {
+  adapter?: { insert(config: ExternalDteMariaDbConfig, payload: unknown, tableName?: string): Promise<ExternalDteDeliveryResult> };
+}
+
 export async function deliverInvalidationToExternalDb(
   params: DeliverInvalidationToExternalDbParams,
+  deps: DeliverInvalidationToExternalDbDeps = {},
 ): Promise<DeliverInvalidationToExternalDbResult> {
   const { invalidationEventId, userId, tenantId, locationId, client = prisma, organizationId, allowLegacyEnvFallback } = params;
 
@@ -132,8 +142,14 @@ export async function deliverInvalidationToExternalDb(
     //     El event_json de anulación MH no incluye nrc en emisor — viene del DTE base.
     const dteDoc = await client.dteOutgoingDocument.findFirst({
       where:  { id: event.dte_document_id },
-      select: { json_document: true },
+      select: { json_document: true, purpose: true },
     });
+
+    // DTE-MH-TEST-RUNS — la invalidación de un documento de pruebas MH (o de
+    // un documento no encontrado) nunca llega al payload ni al adapter.
+    if (!isOperationalDtePurpose(dteDoc?.purpose)) {
+      return { ok: false, error: DTE_CERTIFICATION_EXCLUDED_MESSAGE };
+    }
 
     const dteJsonDoc    = dteDoc?.json_document as Record<string, unknown> | null | undefined;
     const dteEmisor     = dteJsonDoc?.["emisor"] as Record<string, unknown> | undefined;
@@ -154,6 +170,7 @@ export async function deliverInvalidationToExternalDb(
       mh_descripcion_msg:  event.mh_descripcion_msg,
       mh_observaciones:    event.mh_observaciones,
       codigoEmpresa,
+      dte_document_purpose: dteDoc?.purpose ?? null,
     };
 
     const buildResult = buildExternalInvalidationPayload(eventForPayload);
@@ -162,7 +179,7 @@ export async function deliverInvalidationToExternalDb(
     }
 
     // 3. Insertar en MariaDB externa — tabla de invalidaciones
-    const adapter = new ExternalDteMariaDbAdapter();
+    const adapter = deps.adapter ?? new ExternalDteMariaDbAdapter();
 
     // Pasar tableName explícito — FE/CCF/NC usan config.table; invalidaciones usan config.invalidationTable.
     const deliveryResult = await adapter.insert(

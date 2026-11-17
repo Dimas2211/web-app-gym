@@ -22,6 +22,8 @@ import type {
 
 // ── Forma esperada del evento cargado ─────────────────────────────
 
+import { isOperationalDtePurpose, DTE_CERTIFICATION_EXCLUDED_MESSAGE } from "../utils/dte-document-purpose";
+
 export interface DteInvalidationEventForExternalPayload {
   id:                  string;
   tenant_id:           string;
@@ -37,6 +39,8 @@ export interface DteInvalidationEventForExternalPayload {
   mh_observaciones:    unknown;
   // Resuelto por el service desde DteOutgoingDocument.json_document.emisor.nrc
   codigoEmpresa:       string | null;
+  // DTE-MH-TEST-RUNS — propósito del DTE invalidado; solo OPERATIONAL se entrega.
+  dte_document_purpose: string | null;
 }
 
 // ── Tipos de resultado ────────────────────────────────────────────
@@ -50,6 +54,11 @@ export type BuildExternalInvalidationPayloadResult =
 export function buildExternalInvalidationPayload(
   event: DteInvalidationEventForExternalPayload,
 ): BuildExternalInvalidationPayloadResult {
+  // DTE-MH-TEST-RUNS — barrera final (ver build-external-dte-payload.service.ts).
+  if (!isOperationalDtePurpose(event.dte_document_purpose)) {
+    return { ok: false, error: DTE_CERTIFICATION_EXCLUDED_MESSAGE };
+  }
+
   if (event.status !== "ACCEPTED") {
     return {
       ok:    false,

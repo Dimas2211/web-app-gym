@@ -17,6 +17,7 @@ import type { DteInvalidationStatus } from "../../types/dte-invalidation.types";
 import { buildDeliverySummary } from "../utils/dte-delivery-summary.utils";
 import { computeDteOutgoingActionAvailability } from "../utils/dte-action-availability.utils";
 import { listDteQueryHistory } from "../../queries/list-dte-query-history";
+import { OPERATIONAL_DTE_WHERE } from "@/modules/commerce/dte/utils/dte-document-purpose";
 
 // ─────────────────────────────────────────────────────────────────
 
@@ -32,7 +33,7 @@ export async function getDteOutgoingDetailById(params: {
   const [row, allLogs] = await Promise.all([
 
     client.dteOutgoingDocument.findFirst({
-      where: { id: dteId, tenant_id: tenantId, location_id: locationId },
+      where: { id: dteId, tenant_id: tenantId, location_id: locationId, ...OPERATIONAL_DTE_WHERE }, // DTE-MH-TEST-RUNS — solo documentos operativos (las pruebas MH viven en Control Plane).
       select: {
         id:               true,
         sale_id:          true,

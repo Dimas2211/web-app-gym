@@ -22,6 +22,12 @@ export interface DteContingencyTransmissionInput {
   nit: string;
   /** JWS firmado del Evento de Contingencia */
   signedJws: string;
+  /**
+   * BUG-2 (CONTINGENCY_AUTH_ISSUER_CREDENTIAL_GAP) — emisor cuyo
+   * DteCredential autentica ante MH. Mismo criterio que la recepción DTE y la
+   * invalidación (BUG-1): el token se cachea por emisor+ambiente.
+   */
+  issuerConfigId?: string;
 }
 
 // ── Body oficial POST /fesv/contingencia ──────────────────────────

@@ -60,6 +60,14 @@
   - Cierre técnico (2026-11-10): corregidos el descubrimiento del worker (no pasaba de los primeros 50 DTE), la carrera de API Key en APPLY, READY_TEST/READY_PROD sin VERIFY real y la protección de hostnames de firmadores existentes. Se agregaron plantillas para programar el worker (no instaladas). Ejecutor y worker NO instalados.
 
   Ver docs/modules/dte-fiscal-onboarding-automation.md.
+- commerce/dte + platform — **DTE-MH-TEST-RUNS (2026-11-16): implementado y probado localmente en `feat/dte-mh-test-runs`; sin commit ni push; migración `20261116000000_dte_mh_test_runs` NO aplicada a ninguna base real; flag `DTE_MH_TEST_RUNS_ENABLED` apagado por defecto.**
+  - Pruebas de Hacienda TEST desde Onboarding fiscal: FE 01, CCFE 03, NC 05, FEX 11 servicios, FSE 14, invalidación y contingencia 01/03.
+  - `purpose = MH_TEST_CERTIFICATION`: separado de ventas, compras, metering y Panel Fiscal; exclusión MariaDB absoluta.
+  - Reserva de correlativos en bloque, lease con fencing y sin retransmisión automática con resultado incierto.
+  - Incluye BUG-2: el Evento de Contingencia se autentica con la credencial del emisor.
+  - La migración debe aplicarse a TODAS las bases antes del deploy (ver doc).
+
+  Ver docs/modules/dte-mh-test-runs.md.
 - platform — **RUNTIME LICENSE ENFORCEMENT (2026-10-13): la licencia comercial SÍ se aplica en runtime.** Política central única `evaluateOrganizationAccess()` (capa técnica `status` + capa comercial `license_status`/fechas date-only inclusivas en el timezone de la organización), aplicada en el login runtime y revalidada en vivo por request en `requireRuntimeOrganizationContext()`. Una licencia bloqueada redirige a `/access-restricted`. PLATFORM/Support Session sin gate comercial. Settings gym/codes editables por RUNTIME_CLIENT super_admin (rol LIVE); Sports/Goals read-only sin counts cross-tenant. Sin migración. Ver docs/modules/platform-runtime-license-enforcement.md.
 - gym/bookings — **Etapas 2A/2B (2026-10-20):** fundación de datos y motor unificado `GymBookingService` certificados y desplegados en producción. La migración `20261020000000_gym_bookings_capacity_check` está **aplicada** en las bases físicas Control Plane (`nygdqnlzoalmhrqwijjn`) y Runtime Shared/TrustMe (`vkoywmzlgygypaddxjtn`), verificada en solo lectura el 2026-10-21 (`finished_at` presente, sin rollback). En ambas existe `scheduled_classes_booked_count_capacity_chk` con `convalidated = false`, según el diseño `NOT VALID`. Sin cambios en `schema.prisma` para 2B. Ver docs/modules/gym-bookings-summary.md §11.
 - gym/bookings — **Etapa 3A (2026-10-20): administración multimodalidad** (clientes e historial, planes, snapshots de venta, entrenador PERSONALIZED, GymSettings, sesiones OPEN/PERSONALIZED/GROUP, ausencias, series y actividades). Implementada y auditada, incluida en el release Etapa 3; sin migraciones ni activación automática de nuevas modalidades. Ver docs/modules/gym-bookings-stage3a.md.

@@ -74,6 +74,7 @@ interface StoredDoc {
   dte_type_code: string; control_number: string | null; generation_code: string | null;
   environment: string; dte_status: string; accepted_at: Date | null;
   json_document: unknown; signed_jws: string | null; reception_stamp: string | null; mh_response: unknown;
+  purpose: string;
   transmission_logs: LogRow[];
 }
 
@@ -84,6 +85,7 @@ function extDoc(over: Partial<StoredDoc> = {}): StoredDoc {
     dte_type_code: "01", control_number: "DTE-01-M001P001-000000000000002", generation_code: GEN,
     environment: "TEST", dte_status: "ACCEPTED", accepted_at: new Date("2026-11-02T16:15:00Z"),
     json_document: EXT_JSON, signed_jws: JWS, reception_stamp: SELLO, mh_response: MH_RESPONSE,
+    purpose: "OPERATIONAL",
     transmission_logs: [],
     ...over,
   };

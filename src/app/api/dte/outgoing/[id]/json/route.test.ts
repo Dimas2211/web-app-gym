@@ -204,7 +204,7 @@ describe("GET /api/dte/outgoing/:id/json", () => {
 
     // La query nunca selecciona columnas sensibles y siempre filtra el scope.
     const args = findFirst.mock.calls[0][0];
-    expect(args.where).toEqual({ id: "dte-fe", tenant_id: "tenant-A", location_id: "loc-1" });
+    expect(args.where).toEqual({ id: "dte-fe", tenant_id: "tenant-A", location_id: "loc-1", purpose: "OPERATIONAL" });
     expect(args.select).not.toHaveProperty("signed_jws");
     expect(args.select).not.toHaveProperty("mh_response");
     expect(args.select).not.toHaveProperty("reception_stamp");

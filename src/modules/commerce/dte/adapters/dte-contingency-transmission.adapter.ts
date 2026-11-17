@@ -82,7 +82,8 @@ export class MhContingencyTransmissionAdapter {
     const env    = input.environment ?? config.environment;
 
     // 1. Obtener token MH
-    const authResult = await this.authAdapter.getCachedToken(env);
+    // BUG-2 — token por emisor (DteCredential), nunca solo por ambiente.
+    const authResult = await this.authAdapter.getCachedToken(env, input.issuerConfigId);
     if (!authResult.ok) {
       return makeError("MH_CONTINGENCY_AUTH_FAILED", authResult.message);
     }
@@ -127,7 +128,7 @@ export class MhContingencyTransmissionAdapter {
 
     // 4. Reintento único en 401
     if (raw.status === 401 && !isRetry) {
-      this.authAdapter.clearTokenCache(env);
+      this.authAdapter.clearTokenCache(env, input.issuerConfigId);
       return this._transmitWithRetry(input, true);
     }
 

@@ -33,6 +33,7 @@ import { DteEnvironmentDiagnosticsButton } from "@/modules/commerce/dte/settings
 import type { FiscalOnboardingStatus, OnboardingStepStatus } from "../dte-onboarding/fiscal-onboarding-status.service";
 import type { SignerProvisioningMode, SignerProvisioningRunResult } from "../dte-onboarding/signer-provisioning.service";
 import { presentSignerState, type Tone } from "../dte-onboarding/signer-provisioning.presenter";
+import { PlatformMhTestRunsSection } from "./platform-mh-test-runs-section";
 
 const TONE: Record<Tone, string> = { ok: "text-emerald-700", warning: "text-amber-700", error: "text-red-600", neutral: "text-zinc-500" };
 
@@ -385,6 +386,13 @@ export function PlatformFiscalOnboardingPanel({ organizationId }: { organization
               <p className="text-xs text-zinc-400">No existe configuración de emisor {env}.</p>
             )}
           </Section>
+
+          {/* DTE-MH-TEST-RUNS — solo TEST; carga bajo demanda. */}
+          {env === "TEST" && (
+            <Section title="Pruebas de Hacienda (TEST)">
+              <PlatformMhTestRunsSection organizationId={organizationId} />
+            </Section>
+          )}
 
           <Section title="Activación">
             <p className="text-xs text-zinc-500">

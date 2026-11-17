@@ -1,0 +1,25 @@
+# DTE-MH-TEST-RUNS — un tick HTTPS de las pruebas de Hacienda TEST.
+# Plantilla: NO instalada ni habilitada. Corre en el VPS de firmadores (o
+# cualquier host con salida HTTPS): solo conoce la URL del tick y su token.
+# No tiene credenciales del Control Plane, de clientes ni de Hacienda.
+# Oneshot: systemd no lanza un segundo tick mientras el anterior sigue activo;
+# además el lease con fencing del Control Plane impide trabajo concurrente.
+[Unit]
+Description=Zolvi DTE MH TEST runs tick (one HTTPS slice)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=zolvi-tick
+EnvironmentFile=/etc/zolvi-dte-mh-test-tick.env
+# MH_TEST_TICK_URL=https://<control-plane>/api/platform/dte-mh-test-runs/tick
+# MH_TEST_TICK_TOKEN=<mismo valor que DTE_MH_TEST_TICK_SECRET, >= 32 caracteres>
+# El token se pasa por stdin (config de curl; printf es builtin de sh) para no exponerlo en argv.
+# `$$` evita que systemd expanda las variables en la línea de comandos: las expande sh.
+ExecStart=/bin/sh -c 'printf "header = \\"Authorization: Bearer %%s\\"\n" "$$MH_TEST_TICK_TOKEN" | /usr/bin/curl --silent --show-error --fail-with-body --proto =https --max-time 75 -X POST --config - "$$MH_TEST_TICK_URL"'
+TimeoutStartSec=90s
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true

@@ -90,3 +90,7 @@ Correcciones sobre la implementación inicial (con pruebas de regresión):
 - Migración `prisma/migrations/20261110000000_dte_fiscal_onboarding_automation/` (aditiva): 3 tablas, 2 enums y 2 columnas en `platform_external_integrations`.
 - Se probó en una base local desechable: `migrate deploy` correcto, `migrate diff` sin diferencias y concurrencia real del ledger (20 `ensureJob` producen 1 fila; 20 `claim`, 1 ganador). Esa base se eliminó después.
 - **No se aplicó** a `TrustmeDB` local ni a ninguna base remota.
+
+## Pruebas de Hacienda TEST (2026-11-16)
+
+Hay una nueva sección "Pruebas de Hacienda (TEST)" en este panel, visible solo en el ambiente TEST. Emite lotes de certificación con el motor DTE real, separados de la operación comercial mediante `purpose = MH_TEST_CERTIFICATION`. Están excluidos de MariaDB, del Panel Fiscal y del metering. Se controla con el flag `DTE_MH_TEST_RUNS_ENABLED`, apagado por defecto. Diseño, despliegue y rollback: `docs/modules/dte-mh-test-runs.md`. El cambio incluye la corrección BUG-2: la autenticación del Evento de Contingencia ahora usa la credencial del emisor.

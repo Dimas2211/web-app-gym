@@ -31,6 +31,7 @@ import {
   requireOperationalContext,
   OperationalContextError,
 } from "@/modules/platform/runtime/require-operational-context";
+import { blockNonOperationalDteForRuntimeAction } from "../utils/dte-document-purpose";
 
 // ── Zod schema ────────────────────────────────────────────────────
 
@@ -103,6 +104,10 @@ export async function createInvalidationEventAction(
         errors:  parsed.error.flatten().fieldErrors as Record<string, string[]>,
       };
     }
+
+    // DTE-MH-TEST-RUNS — documentos de pruebas MH (Control Plane) no se operan desde el runtime.
+    const certificationBlock = await blockNonOperationalDteForRuntimeAction(context.client, context.tenantId, { dteDocumentId: parsed.data.dteDocumentId });
+    if (certificationBlock) return { ok: false, message: certificationBlock };
 
     const result = await createInvalidationEvent(
       {

@@ -60,7 +60,7 @@ const BASE_DTE_ROW = {
   id: "dte-1", tenant_id: "tenant-x", location_id: "loc-x", sale_id: "sale-1", purchase_id: null,
   dte_type_code: "01", control_number: "DTE-001", generation_code: "GEN-1", environment: "TEST",
   dte_status: "ACCEPTED", accepted_at: new Date(), json_document: { some: "doc" }, signed_jws: "jws",
-  reception_stamp: "stamp", mh_response: {}, retry_count: 0,
+  reception_stamp: "stamp", mh_response: {}, retry_count: 0, purpose: "OPERATIONAL",
 };
 
 beforeEach(() => {

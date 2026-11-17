@@ -62,6 +62,68 @@ const SCHEMA_MAP: Record<string, object> = {
   "14": fseSchema  as object,
 };
 
+// ── Validación pura (sin base de datos) ───────────────────────────
+//
+// DTE-MH-TEST-RUNS — extraída sin cambio de comportamiento para que las
+// pruebas MH del onboarding validen escenarios en seco (dry-run) ANTES de
+// reservar correlativos. validateDteJsonSchema la usa tal cual.
+
+export type DteJsonSchemaCheckResult =
+  | { ok: true }
+  | { ok: false; error: string; validation_errors?: DteValidationError[] };
+
+export function hasOfficialDteJsonSchema(dteTypeCode: string): boolean {
+  return Boolean(SCHEMA_MAP[dteTypeCode]);
+}
+
+export function validateDteJsonAgainstOfficialSchema(
+  dteTypeCode:  string,
+  documentData: unknown,
+): DteJsonSchemaCheckResult {
+  const schema = SCHEMA_MAP[dteTypeCode];
+  if (!schema) {
+    return {
+      ok:    false,
+      error: `No existe schema oficial MH para el tipo DTE "${dteTypeCode}". Solo se admiten "01" (FE), "03" (CCFE), "05" (NC), "11" (FEX) y "14" (FSE).`,
+    };
+  }
+
+  //    strict: false           → no lanza error por keywords desconocidas ni formats sin registrar.
+  //    allErrors: true         → recopila todos los errores en lugar de detenerse en el primero.
+  //    multipleOfPrecision: 2  → evita falsos positivos de multipleOf 0.01 por precisión flotante JS.
+  const ajv      = new Ajv({ strict: false, allErrors: true, multipleOfPrecision: 2 });
+  addFormats(ajv);
+  const validate = ajv.compile(schema);
+  const valid    = validate(documentData);
+
+  if (!valid && validate.errors && validate.errors.length > 0) {
+    // Filtrar errores genéricos de wrapper if/then/else — los errores hoja son más específicos.
+    const leafErrors = validate.errors.filter((e) => e.keyword !== "if");
+    const errorsToShow = leafErrors.length > 0 ? leafErrors : validate.errors;
+
+    const validationErrors: DteValidationError[] = errorsToShow.map((err) => {
+      let message = err.message ?? "Error de validación desconocido";
+      if (
+        err.keyword === "additionalProperties" &&
+        typeof (err.params as Record<string, unknown>).additionalProperty === "string"
+      ) {
+        const extra = (err.params as Record<string, unknown>).additionalProperty as string;
+        message = `propiedad adicional no permitida: "${extra}"`;
+      }
+      return {
+        path:    err.instancePath || "(raíz)",
+        message,
+      };
+    });
+    return {
+      ok:               false,
+      error:            "El documento no cumple el schema oficial MH.",
+      validation_errors: validationErrors,
+    };
+  }
+  return { ok: true };
+}
+
 // ── Función principal ─────────────────────────────────────────────
 
 export async function validateDteJsonSchema(
@@ -104,8 +166,7 @@ export async function validateDteJsonSchema(
     }
 
     // 4. Verificar que existe schema para el tipo
-    const schema = SCHEMA_MAP[dteDoc.dte_type_code];
-    if (!schema) {
+    if (!hasOfficialDteJsonSchema(dteDoc.dte_type_code)) {
       throw new DteValidationBusinessError(
         `No existe schema oficial MH para el tipo DTE "${dteDoc.dte_type_code}". Solo se admiten "01" (FE), "03" (CCFE), "05" (NC), "11" (FEX) y "14" (FSE).`,
       );
@@ -124,40 +185,9 @@ export async function validateDteJsonSchema(
       );
     }
 
-    // 6. Validar con AJV
-    //    strict: false           → no lanza error por keywords desconocidas ni formats sin registrar.
-    //    allErrors: true         → recopila todos los errores en lugar de detenerse en el primero.
-    //    multipleOfPrecision: 2  → evita falsos positivos de multipleOf 0.01 por precisión flotante JS.
-    const ajv      = new Ajv({ strict: false, allErrors: true, multipleOfPrecision: 2 });
-    addFormats(ajv);
-    const validate = ajv.compile(schema);
-    const valid    = validate(documentData);
-
-    if (!valid && validate.errors && validate.errors.length > 0) {
-      // Filtrar errores genéricos de wrapper if/then/else — los errores hoja son más específicos.
-      const leafErrors = validate.errors.filter((e) => e.keyword !== "if");
-      const errorsToShow = leafErrors.length > 0 ? leafErrors : validate.errors;
-
-      const validationErrors: DteValidationError[] = errorsToShow.map((err) => {
-        let message = err.message ?? "Error de validación desconocido";
-        if (
-          err.keyword === "additionalProperties" &&
-          typeof (err.params as Record<string, unknown>).additionalProperty === "string"
-        ) {
-          const extra = (err.params as Record<string, unknown>).additionalProperty as string;
-          message = `propiedad adicional no permitida: "${extra}"`;
-        }
-        return {
-          path:    err.instancePath || "(raíz)",
-          message,
-        };
-      });
-      return {
-        ok:               false,
-        error:            "El documento no cumple el schema oficial MH.",
-        validation_errors: validationErrors,
-      };
-    }
+    // 6. Validar con AJV (validateDteJsonAgainstOfficialSchema — misma configuración)
+    const check = validateDteJsonAgainstOfficialSchema(dteDoc.dte_type_code, documentData);
+    if (!check.ok) return check;
 
     // 7. Actualizar estado → SCHEMA_VALIDATED
     await db.dteOutgoingDocument.update({

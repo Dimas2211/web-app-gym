@@ -28,6 +28,7 @@ import { prisma }  from "@/lib/db/prisma";
 import { Prisma }  from "@prisma/client";
 import { normalizeNitForDte } from "../utils/fiscal-id.utils";
 import { MhContingencyTransmissionAdapter } from "../adapters/dte-contingency-transmission.adapter";
+import { MhAuthAdapter } from "../adapters/dte-auth.adapter";
 
 // ── Tipos públicos ────────────────────────────────────────────────
 
@@ -86,7 +87,7 @@ export async function transmitContingencyEvent(
         status:     true,
         signed_jws: true,
         items: {
-          take: 1,
+          orderBy: { no_item: "asc" },
           select: {
             dte_document_id: true,
             dte_document: { select: { issuer_config_id: true } },
@@ -114,10 +115,19 @@ export async function transmitContingencyEvent(
         "El Evento de Contingencia no tiene un documento DTE con issuer_config_id asociado.",
       );
     }
+    // BUG-2 — un Evento autentica con UN emisor: todos sus documentos deben
+    // pertenecer a ese mismo emisor.
+    const issuerIds = new Set(event.items.map((i) => i.dte_document.issuer_config_id));
+    if (issuerIds.size !== 1) {
+      throw new TransmitContingencyBusinessError(
+        "El Evento de Contingencia contiene documentos de emisores distintos. Transmisión bloqueada.",
+      );
+    }
+    const issuerConfigId = refItem.dte_document.issuer_config_id;
 
     // 2. Cargar emisor (nit + environment)
     const issuerConfig = await db.dteIssuerConfig.findFirst({
-      where:  { id: refItem.dte_document.issuer_config_id },
+      where:  { id: issuerConfigId, tenant_id: tenantId, location_id: locationId },
       select: { nit: true, environment: true },
     });
     if (!issuerConfig?.nit) {
@@ -141,8 +151,9 @@ export async function transmitContingencyEvent(
     });
 
     // 4. Transmitir a MH
-    const adapter = new MhContingencyTransmissionAdapter();
-    const result  = await adapter.transmit({ environment, nit, signedJws: event.signed_jws });
+    // BUG-2 — credenciales MH del emisor leídas en la MISMA base runtime (db).
+    const adapter = new MhContingencyTransmissionAdapter(new MhAuthAdapter({ credentialClient: db }));
+    const result  = await adapter.transmit({ environment, nit, signedJws: event.signed_jws, issuerConfigId });
 
     const contingenciaUrl = environment === "PRODUCTION"
       ? (process.env["DTE_MH_CONTINGENCIA_URL_PROD"] ?? "https://api.dtes.mh.gob.sv/fesv/contingencia")

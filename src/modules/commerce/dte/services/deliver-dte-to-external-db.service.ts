@@ -39,6 +39,11 @@ import type { PrismaClient }           from "@prisma/client";
 import { randomUUID }                  from "node:crypto";
 import { controlPlanePrisma }          from "@/modules/platform/runtime/control-plane-prisma";
 import { ExternalDteMariaDbAdapter }   from "../adapters/external-dte-mariadb.adapter";
+import {
+  isOperationalDtePurpose,
+  DTE_CERTIFICATION_EXCLUDED_CODE,
+  DTE_CERTIFICATION_EXCLUDED_MESSAGE,
+} from "../utils/dte-document-purpose";
 import { resolveExternalDteMariaDbDestination } from "../config/resolve-external-dte-destination";
 import {
   buildExternalDtePayload,
@@ -219,11 +224,19 @@ export async function deliverDteToExternalDb(
         dte_type_code: true, control_number: true, generation_code: true, environment: true,
         dte_status: true, accepted_at: true, json_document: true, signed_jws: true,
         reception_stamp: true, mh_response: true, retry_count: true,
+        purpose: true,
       },
     });
 
     if (!dteDoc) {
       throw new DeliverDteBusinessError("El documento DTE no existe o no pertenece a la location activa.");
+    }
+
+    // DTE-MH-TEST-RUNS — un documento de pruebas MH nunca se entrega ni se
+    // registra en el ledger: se rechaza antes del payload, del ledger y del
+    // adapter (cubre la entrega manual, el worker y jobs creados por error).
+    if (!isOperationalDtePurpose(dteDoc.purpose)) {
+      return { ok: false, error: DTE_CERTIFICATION_EXCLUDED_MESSAGE, targetTable: null, errorCode: DTE_CERTIFICATION_EXCLUDED_CODE };
     }
 
     // 2. Payload externo (valida elegibilidad: ACCEPTED + sello + firma).
@@ -234,6 +247,7 @@ export async function deliverDteToExternalDb(
       environment: dteDoc.environment, dte_status: dteDoc.dte_status, accepted_at: dteDoc.accepted_at,
       json_document: dteDoc.json_document, signed_jws: dteDoc.signed_jws,
       reception_stamp: dteDoc.reception_stamp, mh_response: dteDoc.mh_response,
+      purpose: dteDoc.purpose,
     };
 
     const buildResult = buildExternalDtePayload(doc);

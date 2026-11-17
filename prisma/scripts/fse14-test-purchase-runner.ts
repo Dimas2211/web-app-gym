@@ -1098,7 +1098,7 @@ async function stepDeliver(client: PrismaClient, tenantId: string, mode: Mode) {
       id: true, tenant_id: true, location_id: true, sale_id: true, purchase_id: true,
       dte_type_code: true, control_number: true, generation_code: true, environment: true,
       dte_status: true, accepted_at: true, json_document: true, signed_jws: true,
-      reception_stamp: true, mh_response: true, retry_count: true,
+      reception_stamp: true, mh_response: true, retry_count: true, purpose: true,
     },
   });
   if (!dteDoc) throw new RunnerInputError("El DteOutgoingDocument no existe en el tenant runtime.");
@@ -1140,6 +1140,7 @@ async function stepDeliver(client: PrismaClient, tenantId: string, mode: Mode) {
     environment: dteDoc.environment, dte_status: dteDoc.dte_status, accepted_at: dteDoc.accepted_at,
     json_document: dteDoc.json_document, signed_jws: dteDoc.signed_jws,
     reception_stamp: dteDoc.reception_stamp, mh_response: dteDoc.mh_response,
+    purpose: dteDoc.purpose,
   };
   const built = buildExternalDtePayload(docForPayload);
   if (!built.ok) throw new RunnerInputError(`No se pudo construir el payload externo: ${built.error}`);

@@ -205,6 +205,7 @@ export async function createContingencyEvent(
         transmission_type_code: true,
         contingency_type_code:  true,
         json_document:          true,
+        purpose:                true,
       },
     });
 
@@ -219,6 +220,14 @@ export async function createContingencyEvent(
     // Reordenar según el orden de entrada para asignar no_item estable
     const docsById = new Map(dteDocs.map((d) => [d.id, d]));
     const orderedDocs = dteDocumentIds.map((id) => docsById.get(id)!);
+
+    // DTE-MH-TEST-RUNS — un Evento de Contingencia nunca mezcla documentos
+    // operativos con documentos de pruebas MH (certificación).
+    if (new Set(dteDocs.map((d) => d.purpose)).size > 1) {
+      throw new ContingencyEventBusinessError(
+        "El Evento de Contingencia no puede mezclar documentos operativos con documentos de pruebas de Hacienda.",
+      );
+    }
 
     // ── 6. Validar cada DTE ──────────────────────────────────────────
     for (const doc of orderedDocs) {

@@ -69,6 +69,100 @@ function mapTipoItem(productTypeSnapshot: string | null): number {
   return productTypeSnapshot === "SERVICE" ? 2 : 1;
 }
 
+// ── Datos cargados (selects compartidos por carga y armado) ─────────
+
+const CCFE_SALE_SELECT = {
+  id:                       true,
+  sale_date:                true,
+  status:                   true,
+  inventory_moved:          true,
+  customer_id:              true,
+  condition_operation_code: true,
+  payment_method_code:      true,
+  payment_term_code:        true,
+  payment_term_value:       true,
+  subtotal:                 true,
+  discount_amount:          true,
+  tax_amount:               true,
+  total_amount:             true,
+  customer: {
+    select: {
+      id:                 true,
+      name:               true,
+      legal_name:         true,
+      taxpayer_type:      true,
+      nit:                true,
+      nrc:                true,
+      activity_code:      true,
+      activity_name:      true,
+      dept_code:          true,
+      municipality_code:  true,
+      address_complement: true,
+      phone:              true,
+      email:              true,
+    },
+  },
+  items: {
+    orderBy: { line_number: "asc" },
+    select: {
+      line_number:           true,
+      product_code_snapshot: true,
+      product_name_snapshot: true,
+      product_type_snapshot: true,
+      quantity:              true,
+      unit_price:            true,
+      discount_amount:       true,
+      tax_rate_snapshot:     true,
+      tax_amount:            true,
+      line_subtotal:         true,
+      line_total:            true,
+    },
+  },
+  payments: {
+    select: {
+      mh_payment_form_code: true,
+      amount:               true,
+      reference:            true,
+    },
+  },
+} as const satisfies Prisma.SaleSelect;
+
+const CCFE_ISSUER_SELECT = {
+  nit:                     true,
+  nrc:                     true,
+  name:                    true,
+  legal_name:              true,
+  activity_code:           true,
+  activity_name:           true,
+  establishment_code:      true,
+  establishment_type_code: true,
+  point_of_sale_code:      true,
+  dept_code:               true,
+  municipality_code:       true,
+  address_complement:      true,
+  phone:                   true,
+  email:                   true,
+  environment:             true,
+} as const satisfies Prisma.DteIssuerConfigSelect;
+
+export type CcfeBuildSale   = Prisma.SaleGetPayload<{ select: typeof CCFE_SALE_SELECT }>;
+export type CcfeBuildIssuer = Prisma.DteIssuerConfigGetPayload<{ select: typeof CCFE_ISSUER_SELECT }>;
+export interface CcfeBuildDocument {
+  control_number:         string | null;
+  generation_code:        string | null;
+  transmission_type_code: string;
+  contingency_type_code:  string | null;
+  contingency_reason:     string | null;
+}
+export interface CcfeBuildInput {
+  dteDoc:       CcfeBuildDocument;
+  sale:         CcfeBuildSale;
+  issuerConfig: CcfeBuildIssuer;
+}
+export type CcfeBuildResult =
+  | { ok: true;  json: Record<string, unknown> }
+  | { ok: false; error: string };
+
 // ── Tipo de resultado público ─────────────────────────────────────
 
 export type GenerateCcfeJsonResult =
@@ -140,61 +234,7 @@ export async function generateCcfeJsonForDte(
     // ── 5. Cargar venta completa ──────────────────────────────────
     const sale = await db.sale.findFirst({
       where: { id: dteDoc.sale_id, tenant_id, location_id },
-      select: {
-        id:                       true,
-        sale_date:                true,
-        status:                   true,
-        inventory_moved:          true,
-        customer_id:              true,
-        condition_operation_code: true,
-        payment_method_code:      true,
-        payment_term_code:        true,
-        payment_term_value:       true,
-        subtotal:                 true,
-        discount_amount:          true,
-        tax_amount:               true,
-        total_amount:             true,
-        customer: {
-          select: {
-            id:                 true,
-            name:               true,
-            legal_name:         true,
-            taxpayer_type:      true,
-            nit:                true,
-            nrc:                true,
-            activity_code:      true,
-            activity_name:      true,
-            dept_code:          true,
-            municipality_code:  true,
-            address_complement: true,
-            phone:              true,
-            email:              true,
-          },
-        },
-        items: {
-          orderBy: { line_number: "asc" },
-          select: {
-            line_number:           true,
-            product_code_snapshot: true,
-            product_name_snapshot: true,
-            product_type_snapshot: true,
-            quantity:              true,
-            unit_price:            true,
-            discount_amount:       true,
-            tax_rate_snapshot:     true,
-            tax_amount:            true,
-            line_subtotal:         true,
-            line_total:            true,
-          },
-        },
-        payments: {
-          select: {
-            mh_payment_form_code: true,
-            amount:               true,
-            reference:            true,
-          },
-        },
-      },
+      select: CCFE_SALE_SELECT,
     });
 
     if (!sale) {
@@ -270,23 +310,7 @@ export async function generateCcfeJsonForDte(
     // ── 10. Cargar configuración del emisor ───────────────────────
     const issuerConfig = await db.dteIssuerConfig.findFirst({
       where: { id: dteDoc.issuer_config_id, tenant_id, location_id },
-      select: {
-        nit:                     true,
-        nrc:                     true,
-        name:                    true,
-        legal_name:              true,
-        activity_code:           true,
-        activity_name:           true,
-        establishment_code:      true,
-        establishment_type_code: true,
-        point_of_sale_code:      true,
-        dept_code:               true,
-        municipality_code:       true,
-        address_complement:      true,
-        phone:                   true,
-        email:                   true,
-        environment:             true,
-      },
+      select: CCFE_ISSUER_SELECT,
     });
 
     if (!issuerConfig) {
@@ -306,263 +330,13 @@ export async function generateCcfeJsonForDte(
     }, db);
     if (!emisorAddrCheck.ok) return { ok: false, error: emisorAddrCheck.error };
 
-    // ── 11. Construir cuerpoDocumento ─────────────────────────────
-
-    type LineaTributo = string[];
-
-    // CCFE-03: ivaItem NO existe en el schema oficial MH para cuerpoDocumento.
-    // El IVA va solo en resumen.tributos y resumen.ivaPerci1/ivaRete1.
-    interface CuerpoItem {
-      numItem:         number;
-      tipoItem:        number;
-      numeroDocumento: null;
-      cantidad:        number;
-      codigo:          string;
-      codTributo:      null;
-      uniMedida:       number;
-      descripcion:     string;
-      precioUni:       number;
-      montoDescu:      number;
-      ventaNoSuj:      number;
-      ventaExenta:     number;
-      ventaGravada:    number;
-      tributos:        LineaTributo | null;
-      psv:             number;
-      noGravado:       number;
-    }
-
-    const cuerpoDocumento: CuerpoItem[] = sale.items.map((item) => {
-      const qty              = Number(item.quantity);
-      const taxRate          = Number(item.tax_rate_snapshot ?? 0);
-      const hasIva           = taxRate > 0;
-      const taxFactor        = hasIva ? 1 + taxRate / 100 : 1;
-
-      // CCFE-03: precioUni y montoDescu deben ir SIN IVA (base gravada).
-      // unit_price y discount_amount están CON IVA — se dividen por taxFactor para extraer la base.
-      const unitPriceWithIva = Number(item.unit_price);
-      const descuWithIva     = Number(item.discount_amount);
-      const unitPrice        = hasIva ? r2(unitPriceWithIva / taxFactor) : r2(unitPriceWithIva);
-      const descu            = hasIva ? r2(descuWithIva / taxFactor)     : r2(descuWithIva);
-
-      // line_subtotal es la base gravada persistida (sin IVA) — fuente autorizada para ventaGravada.
-      const subtotal = r2(Number(item.line_subtotal));
-
-      return {
-        numItem:         item.line_number,
-        tipoItem:        mapTipoItem(item.product_type_snapshot),
-        numeroDocumento: null,
-        cantidad:        qty,
-        codigo:          item.product_code_snapshot,
-        codTributo:      null,
-        uniMedida:       59, // CAT-014 "Unidades" — MVP: UnitOfMeasure no tiene código fiscal MH
-        descripcion:     item.product_name_snapshot,
-        precioUni:       unitPrice,
-        montoDescu:      descu,
-        ventaNoSuj:      0,
-        ventaExenta:     hasIva ? 0 : subtotal,
-        ventaGravada:    hasIva ? subtotal : 0,
-        tributos:        hasIva ? ["20"] : null,
-        psv:             0,
-        noGravado:       0,
-      };
-    });
-
-    // ── 12. Calcular totales del resumen ──────────────────────────
-
-    let totalGravada = 0;
-    let totalExenta  = 0;
-    let descuGravada = 0;
-    let descuExenta  = 0;
-
-    for (const item of cuerpoDocumento) {
-      totalGravada += item.ventaGravada;
-      totalExenta  += item.ventaExenta;
-      if (item.ventaGravada > 0) {
-        descuGravada += item.montoDescu;
-      } else {
-        descuExenta += item.montoDescu;
-      }
-    }
-    totalGravada = r2(totalGravada);
-    totalExenta  = r2(totalExenta);
-    descuGravada = r2(descuGravada);
-    descuExenta  = r2(descuExenta);
-    const totalDescu = r2(descuGravada + descuExenta);
-
-    const totalNoSuj          = 0;
-    const subTotalVentas      = r2(totalNoSuj + totalExenta + totalGravada);
-    const subTotal            = subTotalVentas;
-    const totalIva            = r2(taxAmount);
-    const montoTotalOperacion = r2(totalAmount);
-    const totalPagar          = montoTotalOperacion;
-
-    if (Math.abs(subTotalVentas - r2(Number(sale.subtotal))) > TOLERANCE) {
-      return {
-        ok:    false,
-        error: `Inconsistencia en subTotalVentas: calculado=${subTotalVentas}, esperado=${r2(Number(sale.subtotal))}.`,
-      };
-    }
-    if (Math.abs(subTotal + totalIva - montoTotalOperacion) > TOLERANCE) {
-      return {
-        ok:    false,
-        error: `Inconsistencia: subTotal(${subTotal}) + totalIva(${totalIva}) = ${r2(subTotal + totalIva)} ≠ montoTotalOperacion(${montoTotalOperacion}).`,
-      };
-    }
-
-    // ── 13. Construir pagos ───────────────────────────────────────
-
-    interface PagoItem {
-      codigo:     string;
-      montoPago:  number;
-      referencia: string | null;
-      plazo:      string | null;
-      periodo:    number | null;
-    }
-
-    let pagos: PagoItem[];
-
-    const validPayments = sale.payments.filter((p) => p.mh_payment_form_code);
-    if (validPayments.length > 0) {
-      pagos = validPayments.map((p) => ({
-        codigo:     p.mh_payment_form_code!,
-        montoPago:  r2(Number(p.amount)),
-        referencia: p.reference ?? null,
-        plazo:      null,
-        periodo:    null,
-      }));
-    } else {
-      const condicion = sale.condition_operation_code ?? "1";
-      pagos = [{
-        codigo:     sale.payment_method_code || "99", // CAT-017: usa código de venta si existe; fallback "99" (Otros)
-        montoPago:  totalPagar,
-        referencia: null,
-        plazo:      condicion === "2" ? (sale.payment_term_code ?? null) : null,
-        periodo:    condicion === "2" ? (sale.payment_term_value ?? null) : null,
-      }];
-    }
-
-    // ── 14. Construir receptor (CCFE: NIT + NRC obligatorios) ──────
-    // A diferencia de FE 01, CCFE no usa tipoDocumento/numDocumento.
-    // El receptor siempre es un contribuyente registrado con NIT y NRC.
-    const receptor = {
-      nit:             normalizeNitForDte(c.nit)!,
-      nrc:             normalizeNrcForDte(c.nrc)!,
-      nombre:          c.name,
-      codActividad:    c.activity_code!,
-      descActividad:   c.activity_name!,
-      nombreComercial: c.legal_name ?? null,
-      direccion: {
-        departamento: c.dept_code!,
-        municipio:    c.municipality_code!,
-        complemento:  c.address_complement!,
-      },
-      telefono: c.phone ?? null,
-      correo:   c.email ?? null,
-    };
-
-    // ── 15. Derivar bloque de contingencia (CAT-004 / CAT-023) ─────
-
-    const contingencyBlock = buildContingencyIdentificationBlock({
-      transmission_type_code: dteDoc.transmission_type_code,
-      contingency_type_code:  dteDoc.contingency_type_code,
-      contingency_reason:     dteDoc.contingency_reason,
-      motivoContinMinLength:  CCFE03_MOTIVO_CONTIN_MIN_LENGTH,
-    });
-
-    if (!contingencyBlock.ok) {
-      return { ok: false, error: contingencyBlock.error };
-    }
-
-    // ── 16. Construir identificacion ──────────────────────────────
-    const now                          = new Date();
-    const { date: fecEmi, time: horEmi } = svDateTime(now);
-    const condicion = sale.condition_operation_code
-      ? parseInt(sale.condition_operation_code, 10) || 1
-      : 1;
-
-    const identificacion = {
-      version:          3,    // CCFE 03 usa version 3 según especificación MH El Salvador
-      ambiente:         mapAmbiente(issuerConfig.environment),
-      tipoDte:          "03",
-      numeroControl:    dteDoc.control_number,
-      codigoGeneracion: dteDoc.generation_code,
-      tipoModelo:       contingencyBlock.data.tipoModelo,        // CAT-003
-      tipoOperacion:    contingencyBlock.data.tipoOperacion,     // CAT-004
-      tipoContingencia: contingencyBlock.data.tipoContingencia,  // CAT-023
-      motivoContin:     contingencyBlock.data.motivoContin,
-      fecEmi,
-      horEmi,
-      tipoMoneda:       "USD",
-    };
-
-    // ── 17. Construir emisor ──────────────────────────────────────
-    const hasDireccionEmisor =
-      issuerConfig.dept_code || issuerConfig.municipality_code || issuerConfig.address_complement;
-
-    const emisor = {
-      nit:                 normalizeNitForDte(issuerConfig.nit),
-      nrc:                 normalizeNrcForDte(issuerConfig.nrc),
-      nombre:              issuerConfig.name,
-      codActividad:        issuerConfig.activity_code,
-      descActividad:       issuerConfig.activity_name,
-      nombreComercial:     issuerConfig.legal_name ?? null,
-      tipoEstablecimiento: issuerConfig.establishment_type_code ?? "02",
-      direccion:           hasDireccionEmisor
-        ? {
-            departamento: issuerConfig.dept_code          ?? null,
-            municipio:    issuerConfig.municipality_code  ?? null,
-            complemento:  issuerConfig.address_complement ?? null,
-          }
-        : null,
-      telefono:        issuerConfig.phone  ?? null,
-      correo:          issuerConfig.email  ?? null,
-      codEstableMH:    issuerConfig.establishment_code  ?? null,
-      codEstable:      issuerConfig.establishment_code  ?? null,
-      codPuntoVentaMH: issuerConfig.point_of_sale_code  ?? null,
-      codPuntoVenta:   issuerConfig.point_of_sale_code  ?? null,
-    };
-
-    // ── 18. Construir resumen ─────────────────────────────────────
-    const resumen = {
-      totalNoSuj:           totalNoSuj,
-      totalExenta:          totalExenta,
-      totalGravada:         totalGravada,
-      subTotalVentas:       subTotalVentas,
-      descuNoSuj:           0,
-      descuExenta:          descuExenta,
-      descuGravada:         descuGravada,
-      porcentajeDescuento:  0,
-      totalDescu:           totalDescu,
-      tributos:             totalIva > 0
-        ? [{ codigo: "20", descripcion: "Impuesto al Valor Agregado 13%", valor: totalIva }]
-        : null,
-      subTotal:             subTotal,
-      ivaPerci1:            0,
-      ivaRete1:             0,
-      reteRenta:            0,
-      montoTotalOperacion:  montoTotalOperacion,
-      totalNoGravado:       0,
-      totalPagar:           totalPagar,
-      totalLetras:          numeroALetras(totalPagar),
-      saldoFavor:           0,
-      condicionOperacion:   condicion,
-      pagos,
-      numPagoElectronico:   null,
-    };
-
-    // ── 19. Ensamblar json_document completo ──────────────────────
-    const jsonDocument = {
-      identificacion,
-      documentoRelacionado: null,
-      emisor,
-      receptor,
-      otrosDocumentos: null,
-      ventaTercero:    null,
-      cuerpoDocumento,
-      resumen,
-      extension:  null,
-      apendice:   null,
-    };
+    // ── Armado puro del JSON (buildCcfeJsonFromLoadedData) ─────────────────────────
+    // Carga y validaciones de origen arriba; el armado vive en una función
+    // pura reutilizable (también la usan las pruebas MH TEST del onboarding).
+    const now   = new Date();
+    const built = buildCcfeJsonFromLoadedData({ dteDoc, sale, issuerConfig }, now);
+    if (!built.ok) return { ok: false, error: built.error };
+    const jsonDocument = built.json;
 
     // ── 20. Persistir: guardar JSON y cambiar estado ──────────────
     await db.dteOutgoingDocument.update({
@@ -583,4 +357,279 @@ export async function generateCcfeJsonForDte(
     }
     throw error;
   }
+}
+
+// ── Armado puro ───────────────────────────────────────────────────
+//
+// buildCcfeJsonFromLoadedData — construye el json_document a partir de datos ya
+// cargados y validados. No lee ni escribe base de datos. Puede lanzar el
+// error de negocio del módulo, que el caller convierte en { ok: false }.
+
+export function buildCcfeJsonFromLoadedData(
+  input: CcfeBuildInput,
+  now:   Date,
+): CcfeBuildResult {
+  const { dteDoc, sale, issuerConfig } = input;
+  const totalAmount = Number(sale.total_amount);
+  const taxAmount   = Number(sale.tax_amount);
+  const c = sale.customer!;
+
+  // ── 11. Construir cuerpoDocumento ─────────────────────────────
+
+  type LineaTributo = string[];
+
+  // CCFE-03: ivaItem NO existe en el schema oficial MH para cuerpoDocumento.
+  // El IVA va solo en resumen.tributos y resumen.ivaPerci1/ivaRete1.
+  interface CuerpoItem {
+    numItem:         number;
+    tipoItem:        number;
+    numeroDocumento: null;
+    cantidad:        number;
+    codigo:          string;
+    codTributo:      null;
+    uniMedida:       number;
+    descripcion:     string;
+    precioUni:       number;
+    montoDescu:      number;
+    ventaNoSuj:      number;
+    ventaExenta:     number;
+    ventaGravada:    number;
+    tributos:        LineaTributo | null;
+    psv:             number;
+    noGravado:       number;
+  }
+
+  const cuerpoDocumento: CuerpoItem[] = sale.items.map((item) => {
+    const qty              = Number(item.quantity);
+    const taxRate          = Number(item.tax_rate_snapshot ?? 0);
+    const hasIva           = taxRate > 0;
+    const taxFactor        = hasIva ? 1 + taxRate / 100 : 1;
+
+    // CCFE-03: precioUni y montoDescu deben ir SIN IVA (base gravada).
+    // unit_price y discount_amount están CON IVA — se dividen por taxFactor para extraer la base.
+    const unitPriceWithIva = Number(item.unit_price);
+    const descuWithIva     = Number(item.discount_amount);
+    const unitPrice        = hasIva ? r2(unitPriceWithIva / taxFactor) : r2(unitPriceWithIva);
+    const descu            = hasIva ? r2(descuWithIva / taxFactor)     : r2(descuWithIva);
+
+    // line_subtotal es la base gravada persistida (sin IVA) — fuente autorizada para ventaGravada.
+    const subtotal = r2(Number(item.line_subtotal));
+
+    return {
+      numItem:         item.line_number,
+      tipoItem:        mapTipoItem(item.product_type_snapshot),
+      numeroDocumento: null,
+      cantidad:        qty,
+      codigo:          item.product_code_snapshot,
+      codTributo:      null,
+      uniMedida:       59, // CAT-014 "Unidades" — MVP: UnitOfMeasure no tiene código fiscal MH
+      descripcion:     item.product_name_snapshot,
+      precioUni:       unitPrice,
+      montoDescu:      descu,
+      ventaNoSuj:      0,
+      ventaExenta:     hasIva ? 0 : subtotal,
+      ventaGravada:    hasIva ? subtotal : 0,
+      tributos:        hasIva ? ["20"] : null,
+      psv:             0,
+      noGravado:       0,
+    };
+  });
+
+  // ── 12. Calcular totales del resumen ──────────────────────────
+
+  let totalGravada = 0;
+  let totalExenta  = 0;
+  let descuGravada = 0;
+  let descuExenta  = 0;
+
+  for (const item of cuerpoDocumento) {
+    totalGravada += item.ventaGravada;
+    totalExenta  += item.ventaExenta;
+    if (item.ventaGravada > 0) {
+      descuGravada += item.montoDescu;
+    } else {
+      descuExenta += item.montoDescu;
+    }
+  }
+  totalGravada = r2(totalGravada);
+  totalExenta  = r2(totalExenta);
+  descuGravada = r2(descuGravada);
+  descuExenta  = r2(descuExenta);
+  const totalDescu = r2(descuGravada + descuExenta);
+
+  const totalNoSuj          = 0;
+  const subTotalVentas      = r2(totalNoSuj + totalExenta + totalGravada);
+  const subTotal            = subTotalVentas;
+  const totalIva            = r2(taxAmount);
+  const montoTotalOperacion = r2(totalAmount);
+  const totalPagar          = montoTotalOperacion;
+
+  if (Math.abs(subTotalVentas - r2(Number(sale.subtotal))) > TOLERANCE) {
+    return {
+      ok:    false,
+      error: `Inconsistencia en subTotalVentas: calculado=${subTotalVentas}, esperado=${r2(Number(sale.subtotal))}.`,
+    };
+  }
+  if (Math.abs(subTotal + totalIva - montoTotalOperacion) > TOLERANCE) {
+    return {
+      ok:    false,
+      error: `Inconsistencia: subTotal(${subTotal}) + totalIva(${totalIva}) = ${r2(subTotal + totalIva)} ≠ montoTotalOperacion(${montoTotalOperacion}).`,
+    };
+  }
+
+  // ── 13. Construir pagos ───────────────────────────────────────
+
+  interface PagoItem {
+    codigo:     string;
+    montoPago:  number;
+    referencia: string | null;
+    plazo:      string | null;
+    periodo:    number | null;
+  }
+
+  let pagos: PagoItem[];
+
+  const validPayments = sale.payments.filter((p) => p.mh_payment_form_code);
+  if (validPayments.length > 0) {
+    pagos = validPayments.map((p) => ({
+      codigo:     p.mh_payment_form_code!,
+      montoPago:  r2(Number(p.amount)),
+      referencia: p.reference ?? null,
+      plazo:      null,
+      periodo:    null,
+    }));
+  } else {
+    const condicion = sale.condition_operation_code ?? "1";
+    pagos = [{
+      codigo:     sale.payment_method_code || "99", // CAT-017: usa código de venta si existe; fallback "99" (Otros)
+      montoPago:  totalPagar,
+      referencia: null,
+      plazo:      condicion === "2" ? (sale.payment_term_code ?? null) : null,
+      periodo:    condicion === "2" ? (sale.payment_term_value ?? null) : null,
+    }];
+  }
+
+  // ── 14. Construir receptor (CCFE: NIT + NRC obligatorios) ──────
+  // A diferencia de FE 01, CCFE no usa tipoDocumento/numDocumento.
+  // El receptor siempre es un contribuyente registrado con NIT y NRC.
+  const receptor = {
+    nit:             normalizeNitForDte(c.nit)!,
+    nrc:             normalizeNrcForDte(c.nrc)!,
+    nombre:          c.name,
+    codActividad:    c.activity_code!,
+    descActividad:   c.activity_name!,
+    nombreComercial: c.legal_name ?? null,
+    direccion: {
+      departamento: c.dept_code!,
+      municipio:    c.municipality_code!,
+      complemento:  c.address_complement!,
+    },
+    telefono: c.phone ?? null,
+    correo:   c.email ?? null,
+  };
+
+  // ── 15. Derivar bloque de contingencia (CAT-004 / CAT-023) ─────
+
+  const contingencyBlock = buildContingencyIdentificationBlock({
+    transmission_type_code: dteDoc.transmission_type_code,
+    contingency_type_code:  dteDoc.contingency_type_code,
+    contingency_reason:     dteDoc.contingency_reason,
+    motivoContinMinLength:  CCFE03_MOTIVO_CONTIN_MIN_LENGTH,
+  });
+
+  if (!contingencyBlock.ok) {
+    return { ok: false, error: contingencyBlock.error };
+  }
+
+  // ── 16. Construir identificacion ──────────────────────────────
+  const { date: fecEmi, time: horEmi } = svDateTime(now);
+  const condicion = sale.condition_operation_code
+    ? parseInt(sale.condition_operation_code, 10) || 1
+    : 1;
+
+  const identificacion = {
+    version:          3,    // CCFE 03 usa version 3 según especificación MH El Salvador
+    ambiente:         mapAmbiente(issuerConfig.environment),
+    tipoDte:          "03",
+    numeroControl:    dteDoc.control_number,
+    codigoGeneracion: dteDoc.generation_code,
+    tipoModelo:       contingencyBlock.data.tipoModelo,        // CAT-003
+    tipoOperacion:    contingencyBlock.data.tipoOperacion,     // CAT-004
+    tipoContingencia: contingencyBlock.data.tipoContingencia,  // CAT-023
+    motivoContin:     contingencyBlock.data.motivoContin,
+    fecEmi,
+    horEmi,
+    tipoMoneda:       "USD",
+  };
+
+  // ── 17. Construir emisor ──────────────────────────────────────
+  const hasDireccionEmisor =
+    issuerConfig.dept_code || issuerConfig.municipality_code || issuerConfig.address_complement;
+
+  const emisor = {
+    nit:                 normalizeNitForDte(issuerConfig.nit),
+    nrc:                 normalizeNrcForDte(issuerConfig.nrc),
+    nombre:              issuerConfig.name,
+    codActividad:        issuerConfig.activity_code,
+    descActividad:       issuerConfig.activity_name,
+    nombreComercial:     issuerConfig.legal_name ?? null,
+    tipoEstablecimiento: issuerConfig.establishment_type_code ?? "02",
+    direccion:           hasDireccionEmisor
+      ? {
+          departamento: issuerConfig.dept_code          ?? null,
+          municipio:    issuerConfig.municipality_code  ?? null,
+          complemento:  issuerConfig.address_complement ?? null,
+        }
+      : null,
+    telefono:        issuerConfig.phone  ?? null,
+    correo:          issuerConfig.email  ?? null,
+    codEstableMH:    issuerConfig.establishment_code  ?? null,
+    codEstable:      issuerConfig.establishment_code  ?? null,
+    codPuntoVentaMH: issuerConfig.point_of_sale_code  ?? null,
+    codPuntoVenta:   issuerConfig.point_of_sale_code  ?? null,
+  };
+
+  // ── 18. Construir resumen ─────────────────────────────────────
+  const resumen = {
+    totalNoSuj:           totalNoSuj,
+    totalExenta:          totalExenta,
+    totalGravada:         totalGravada,
+    subTotalVentas:       subTotalVentas,
+    descuNoSuj:           0,
+    descuExenta:          descuExenta,
+    descuGravada:         descuGravada,
+    porcentajeDescuento:  0,
+    totalDescu:           totalDescu,
+    tributos:             totalIva > 0
+      ? [{ codigo: "20", descripcion: "Impuesto al Valor Agregado 13%", valor: totalIva }]
+      : null,
+    subTotal:             subTotal,
+    ivaPerci1:            0,
+    ivaRete1:             0,
+    reteRenta:            0,
+    montoTotalOperacion:  montoTotalOperacion,
+    totalNoGravado:       0,
+    totalPagar:           totalPagar,
+    totalLetras:          numeroALetras(totalPagar),
+    saldoFavor:           0,
+    condicionOperacion:   condicion,
+    pagos,
+    numPagoElectronico:   null,
+  };
+
+  // ── 19. Ensamblar json_document completo ──────────────────────
+  const jsonDocument = {
+    identificacion,
+    documentoRelacionado: null,
+    emisor,
+    receptor,
+    otrosDocumentos: null,
+    ventaTercero:    null,
+    cuerpoDocumento,
+    resumen,
+    extension:  null,
+    apendice:   null,
+  };
+
+  return { ok: true, json: jsonDocument };
 }
