@@ -180,6 +180,12 @@ export function EditSupplierDialog({
           {/* ── Sección 1: Identidad ──────────────────────────────── */}
           <Section title="Identidad">
             <div className="grid grid-cols-2 gap-x-4 gap-y-3">
+              <div className="col-span-2">
+                <label htmlFor="es-supplier_code" className={labelCls}>Código <span className="text-red-500">*</span></label>
+                <input id="es-supplier_code" name="supplier_code" type="text" required maxLength={30}
+                  defaultValue={supplier.supplier_code} autoComplete="off" className={inputCls} />
+                <FieldError errors={state?.errors?.supplier_code} />
+              </div>
 
               <div className="col-span-2">
                 <label htmlFor="es-name" className={labelCls}>

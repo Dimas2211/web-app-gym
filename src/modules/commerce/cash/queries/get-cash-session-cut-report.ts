@@ -1,3 +1,4 @@
+import { BUSINESS_TIME_ZONE } from "@/lib/utils/business-date";
 // ─────────────────────────────────────────────────────────────────
 // commerce/cash — get-cash-session-cut-report.ts
 //
@@ -211,10 +212,12 @@ export async function getCashSessionCutReport(
       const ts     = p.paid_at ?? p.created_at;
       const locale = "es-SV";
       const paid_at_label    = ts.toLocaleString(locale, {
+    timeZone: BUSINESS_TIME_ZONE, hourCycle: "h23",
         day: "2-digit", month: "2-digit", year: "numeric",
         hour: "2-digit", minute: "2-digit",
       });
       const paid_time_label  = ts.toLocaleString(locale, {
+    timeZone: BUSINESS_TIME_ZONE, hourCycle: "h23",
         hour: "2-digit", minute: "2-digit",
       });
 

@@ -1,3 +1,4 @@
+import { BUSINESS_TIME_ZONE } from "@/lib/utils/business-date";
 // ─────────────────────────────────────────────────────────────────
 // commerce/cash — export-cash-cut-excel.ts
 //
@@ -32,6 +33,7 @@ function fDate(v: Date | string | null | undefined): string {
   const d = new Date(v);
   if (isNaN(d.getTime())) return "Pendiente";
   return d.toLocaleString("es-SV", {
+    timeZone: BUSINESS_TIME_ZONE, hourCycle: "h23",
     day: "2-digit", month: "2-digit", year: "numeric",
     hour: "2-digit", minute: "2-digit",
   });

@@ -1,3 +1,4 @@
+import { formatCalendarDate, formatBusinessDateTime, parseCalendarDate } from "@/lib/utils/business-date";
 // ─────────────────────────────────────────────────────────────────
 // commerce/sales — list-sales.ts
 // ─────────────────────────────────────────────────────────────────
@@ -14,7 +15,7 @@ export interface SalesPage {
 }
 
 function dateOnly(value: string): Date {
-  return new Date(`${value}T00:00:00`);
+  return parseCalendarDate(value);
 }
 
 export async function listSales(
@@ -106,7 +107,7 @@ export async function listSales(
     customer_name:  r.customer?.name ?? null,
     sale_code:      r.sale_code,
     sale_date:      r.sale_date,
-    sale_date_label: r.sale_date.toLocaleDateString("es-CL"),
+    sale_date_label: formatCalendarDate(r.sale_date),
     status:         r.status as SaleListItem["status"],
     payment_status: r.payment_status as SaleListItem["payment_status"],
     primary_dte_type_code: r.primary_dte_type_code,
@@ -116,7 +117,7 @@ export async function listSales(
     total_amount:   Number(r.total_amount),
     item_count:     r._count.items,
     created_at:     r.created_at,
-    created_at_label: r.created_at.toLocaleDateString("es-CL"),
+    created_at_label: formatBusinessDateTime(r.created_at),
   }));
 
   return { items, total };

@@ -98,7 +98,7 @@ export function extractDteMetadata(dteJson: Record<string, unknown>): DteMetadat
   let issued_at: string | null = null;
   if (fecEmi) {
     const iso     = horEmi ? `${fecEmi}T${horEmi}` : `${fecEmi}T00:00:00`;
-    const parsed  = new Date(iso);
+    const parsed  = new Date(`${iso}-06:00`);
     if (!isNaN(parsed.getTime())) issued_at = parsed.toISOString();
   }
 

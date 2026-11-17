@@ -1,3 +1,4 @@
+import { formatCalendarDate, formatBusinessDateTime } from "@/lib/utils/business-date";
 // ─────────────────────────────────────────────────────────────────
 // commerce/sales — get-sale-detail-by-id.ts
 //
@@ -209,7 +210,7 @@ export async function getSaleDetailById(
     sale_month:     row.sale_month,
     sale_sequence:  row.sale_sequence,
     sale_date:      row.sale_date,
-    sale_date_label: row.sale_date.toLocaleDateString("es-CL"),
+    sale_date_label: formatCalendarDate(row.sale_date),
     status:         row.status as SaleDetail["status"],
     payment_status: row.payment_status as SaleDetail["payment_status"],
     primary_dte_type_code:    row.primary_dte_type_code,
@@ -227,7 +228,7 @@ export async function getSaleDetailById(
 
     confirmed_at: row.confirmed_at,
     confirmed_at_label: row.confirmed_at
-      ? row.confirmed_at.toLocaleString("es-CL")
+      ? formatBusinessDateTime(row.confirmed_at)
       : null,
     confirmed_by:      row.confirmed_by,
     confirmed_by_name: row.confirmed_by_user
@@ -236,7 +237,7 @@ export async function getSaleDetailById(
 
     cancelled_at: row.cancelled_at,
     cancelled_at_label: row.cancelled_at
-      ? row.cancelled_at.toLocaleString("es-CL")
+      ? formatBusinessDateTime(row.cancelled_at)
       : null,
     cancelled_by:      row.cancelled_by,
     cancelled_by_name: row.cancelled_by_user
@@ -244,13 +245,13 @@ export async function getSaleDetailById(
       : null,
 
     created_at:       row.created_at,
-    created_at_label: row.created_at.toLocaleDateString("es-CL"),
+    created_at_label: formatBusinessDateTime(row.created_at),
     created_by:       row.created_by,
     created_by_name:  row.created_by_user
       ? `${row.created_by_user.first_name} ${row.created_by_user.last_name}`
       : null,
     updated_at:       row.updated_at,
-    updated_at_label: row.updated_at.toLocaleString("es-CL"),
+    updated_at_label: formatBusinessDateTime(row.updated_at),
     updated_by:       row.updated_by,
     updated_by_name:  row.updated_by_user
       ? `${row.updated_by_user.first_name} ${row.updated_by_user.last_name}`

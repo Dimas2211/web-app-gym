@@ -1,5 +1,7 @@
 "use client";
 
+import { BUSINESS_TIME_ZONE } from "@/lib/utils/business-date";
+
 // ─────────────────────────────────────────────────────────────────
 // commerce/customers — customer-summary-panel.tsx
 //
@@ -113,7 +115,7 @@ export function CustomerSummaryPanel({
         )}
         <FieldRow
           label="Ingresado"
-          value={detail.created_at ? new Date(detail.created_at).toLocaleDateString("es-SV") : null}
+          value={detail.created_at ? new Date(detail.created_at).toLocaleDateString("es-SV", { timeZone: BUSINESS_TIME_ZONE }) : null}
         />
         {detail.updated_by_name && (
           <FieldRow label="Actualizado" value={detail.updated_by_name} />

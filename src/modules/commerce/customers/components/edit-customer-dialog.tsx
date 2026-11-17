@@ -114,6 +114,7 @@ export function EditCustomerDialog({ customer, onClose, onSuccess, onAuthorizati
       is_foreign: isForeign,
       country_code: isForeign ? strVal(fd, "country_code") : null,
       customer_person_type: isForeign ? strVal(fd, "customer_person_type") as "1" | "2" | null : null,
+      customer_code:      String(fd.get("customer_code") ?? "").trim(),
       name:               strVal(fd, "name") ?? undefined,
       legal_name:         strVal(fd, "legal_name"),
       taxpayer_type:      (strVal(fd, "taxpayer_type") ?? undefined) as UpdateCustomerInput["taxpayer_type"],
@@ -176,6 +177,12 @@ export function EditCustomerDialog({ customer, onClose, onSuccess, onAuthorizati
           {/* ── Sección 1: Identidad ──────────────────────────────── */}
           <Section title="Identidad">
             <div className="grid grid-cols-2 gap-x-4 gap-y-3">
+              <div className="col-span-2">
+                <label htmlFor="ec-customer_code" className={labelCls}>Código <span className="text-red-500">*</span></label>
+                <input id="ec-customer_code" name="customer_code" type="text" required maxLength={30}
+                  defaultValue={customer.customer_code} autoComplete="off" className={inputCls} />
+                <FieldError errors={fieldErrors.customer_code} />
+              </div>
 
               <div className="col-span-2">
                 <label htmlFor="ec-name" className={labelCls}>

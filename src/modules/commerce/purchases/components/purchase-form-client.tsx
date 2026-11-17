@@ -1,5 +1,7 @@
 "use client";
 
+import { businessDateKey } from "@/lib/utils/business-date";
+
 // ─────────────────────────────────────────────────────────────────
 // commerce/purchases — purchase-form-client.tsx
 //
@@ -41,7 +43,7 @@ export function PurchaseFormClient({
   purchaseId:         initialPurchaseId,
   initialDetail,
   initialSupplier     = null,
-  initialDate         = new Date().toISOString().slice(0, 10),
+  initialDate         = businessDateKey(),
   initialCode         = "",
   initialDocType      = "",
   initialDocSeries    = "",

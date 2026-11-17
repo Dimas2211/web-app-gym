@@ -1,3 +1,4 @@
+import { BUSINESS_TIME_ZONE } from "@/lib/utils/business-date";
 // ─────────────────────────────────────────────────────────────────
 // commerce/cash — cash-session-cut-print-view.tsx
 //
@@ -35,6 +36,7 @@ function formatDate(value: Date | string | null | undefined): string {
   const d = new Date(value);
   if (isNaN(d.getTime())) return "—";
   return d.toLocaleString("es-SV", {
+    timeZone: BUSINESS_TIME_ZONE, hourCycle: "h23",
     day: "2-digit", month: "2-digit", year: "numeric",
     hour: "2-digit", minute: "2-digit",
   });
@@ -51,6 +53,7 @@ interface CashSessionCutPrintViewProps {
 export function CashSessionCutPrintView({ report }: CashSessionCutPrintViewProps) {
   const diff     = report.difference_amount;
   const printedAt = new Date().toLocaleString("es-SV", {
+    timeZone: BUSINESS_TIME_ZONE, hourCycle: "h23",
     day: "2-digit", month: "2-digit", year: "numeric",
     hour: "2-digit", minute: "2-digit",
   });

@@ -1,3 +1,4 @@
+import { formatCalendarDate, formatBusinessDateTime, parseCalendarDate } from "@/lib/utils/business-date";
 // ─────────────────────────────────────────────────────────────────
 // commerce/purchases — get-purchases.ts
 //
@@ -17,7 +18,7 @@ export interface PurchasesPage {
 }
 
 function dateOnly(value: string): Date {
-  return new Date(`${value}T00:00:00`);
+  return parseCalendarDate(value);
 }
 
 export async function getPurchases(
@@ -121,7 +122,7 @@ export async function getPurchases(
     supplier_nrc:  r.supplier.nrc,
     purchase_code: r.purchase_code,
     purchase_date: r.purchase_date,
-    purchase_date_label: r.purchase_date.toLocaleDateString("es-CL"),
+    purchase_date_label: formatCalendarDate(r.purchase_date),
     document_series:   r.document_series,
     document_number:   r.document_number,
     payment_condition: r.payment_condition,
@@ -133,7 +134,7 @@ export async function getPurchases(
     total_amount:  Number(r.total_amount),
     item_count:    r._count.items,
     created_at:    r.created_at,
-    created_at_label: r.created_at.toLocaleDateString("es-CL"),
+    created_at_label: formatBusinessDateTime(r.created_at),
   }));
 
   return { items, total };

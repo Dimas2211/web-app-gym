@@ -18,7 +18,7 @@
 // editar solo datos de contacto), crear una action específica.
 // Ese caso requeriría distinguir null (limpiar) de undefined (no tocar).
 //
-// No editable aquí: supplier_code (clave de negocio, excluido del schema).
+// supplier_code editable con validación de unicidad por tenant en el service.
 // ─────────────────────────────────────────────────────────────────
 
 import { revalidatePath } from "next/cache";
@@ -68,7 +68,7 @@ export async function updateSupplierAction(
     taxpayer_type: str(formData.get("taxpayer_type")),
     person_type:   strNullable(formData.get("person_type")),
 
-    // supplier_code excluido — clave de negocio inmutable
+    supplier_code: formData.has("supplier_code") ? String(formData.get("supplier_code")).trim() : undefined,
 
     // Identidad opcional
     account_code: strNullable(formData.get("account_code")),

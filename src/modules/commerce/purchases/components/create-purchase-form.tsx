@@ -1,5 +1,7 @@
 "use client";
 
+import { businessDateKey } from "@/lib/utils/business-date";
+
 // ─────────────────────────────────────────────────────────────────
 // commerce/purchases — create-purchase-form.tsx
 //
@@ -60,7 +62,7 @@ export function CreatePurchaseForm() {
 
   // ── Fecha por defecto: hoy ────────────────────────────────────
   const [purchaseDate,     setPurchaseDate]     = useState(
-    () => new Date().toISOString().slice(0, 10),
+    () => businessDateKey(),
   );
   const [suggestedCode,    setSuggestedCode]    = useState<number | null>(null);
   const [purchaseCode,     setPurchaseCode]     = useState("");

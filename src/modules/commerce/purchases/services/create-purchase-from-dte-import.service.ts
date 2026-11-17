@@ -1,3 +1,4 @@
+import { parseCalendarDate, businessDateKey } from "@/lib/utils/business-date";
 // ─────────────────────────────────────────────────────────────────
 // commerce/purchases — create-purchase-from-dte-import.service.ts
 //
@@ -118,22 +119,15 @@ export async function createPurchaseDraftFromDteImport(
   const { series: dteDocSeries, number: dteDocNumber } =
     parseDteControlNumber(dteImport.control_number);
 
-  // 7. Derivar purchase_date desde fecEmi; si no está disponible, usar fecha actual.
-  let purchaseDateBase: Date;
-  if (metadata.issued_at) {
-    const parsed = new Date(metadata.issued_at);
-    purchaseDateBase = isNaN(parsed.getTime()) ? new Date() : parsed;
-  } else {
-    purchaseDateBase = new Date();
-  }
-  // Normalizar a solo fecha (sin componente horario) para @db.Date
-  const purchaseDate = new Date(
-    purchaseDateBase.getFullYear(),
-    purchaseDateBase.getMonth(),
-    purchaseDateBase.getDate(),
-  );
-  const year  = purchaseDate.getFullYear();
-  const month = purchaseDate.getMonth() + 1;
+  // fecEmi es una fecha de calendario. No derivarla de un instante en UTC
+  // ni de los getters locales del servidor (una emisión nocturna puede cambiar de día).
+  const identification = rawJson.identificacion as Record<string, unknown> | undefined;
+  const issuedDate = identification?.fecEmi;
+  const calendarDate = typeof issuedDate === "string" && /^\d{4}-\d{2}-\d{2}$/.test(issuedDate)
+    ? issuedDate : businessDateKey();
+  const purchaseDate = parseCalendarDate(calendarDate);
+  const year = purchaseDate.getUTCFullYear();
+  const month = purchaseDate.getUTCMonth() + 1;
 
   // 8. Calcular totales de línea y totales del documento desde el payload aprobado.
   //    tax_amount por línea: si viene null/undefined se calcula IVA 13% sobre line_subtotal.

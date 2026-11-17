@@ -1,5 +1,7 @@
 "use client";
 
+import { BUSINESS_TIME_ZONE, formatBusinessDateTime } from "@/lib/utils/business-date";
+
 // ─────────────────────────────────────────────────────────────────
 // commerce/dte/outgoing — dte-outgoing-detail-panel.tsx
 //
@@ -47,16 +49,13 @@ import { DteJsonActions, DTE_JSON_MISSING_HINT } from "./dte-json-actions";
 function fmtDate(d: Date | string | null | undefined): string {
   if (!d) return "—";
   const date = d instanceof Date ? d : new Date(d);
-  return date.toLocaleDateString("es-SV", { day: "2-digit", month: "2-digit", year: "numeric" });
+  return date.toLocaleDateString("es-SV", { timeZone: BUSINESS_TIME_ZONE, day: "2-digit", month: "2-digit", year: "numeric" });
 }
 
 function fmtDateTime(d: Date | string | null | undefined): string {
   if (!d) return "—";
   const date = d instanceof Date ? d : new Date(d);
-  return date.toLocaleString("es-SV", {
-    day: "2-digit", month: "2-digit", year: "2-digit",
-    hour: "2-digit", minute: "2-digit",
-  });
+  return formatBusinessDateTime(date);
 }
 
 function fmtAmount(n: number | null | undefined): string {

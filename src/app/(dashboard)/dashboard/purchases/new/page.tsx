@@ -1,3 +1,4 @@
+import { businessDateKey } from "@/lib/utils/business-date";
 // ─────────────────────────────────────────────────────────────────
 // purchases/new/page.tsx
 //
@@ -15,7 +16,7 @@ export default async function NewPurchasePage() {
 
   return (
     <PurchaseFormClient
-      initialDate={new Date().toISOString().slice(0, 10)}
+      initialDate={businessDateKey()}
     />
   );
 }
