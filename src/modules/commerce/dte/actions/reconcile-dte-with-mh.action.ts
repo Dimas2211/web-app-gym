@@ -39,6 +39,7 @@ import {
   OperationalContextError,
 } from "@/modules/platform/runtime/require-operational-context";
 import { reconcileDteWithMh } from "../services/dte-reconciliation.service";
+import { blockNonOperationalDteForRuntimeAction } from "../utils/dte-document-purpose";
 
 // ── Resultado público — nunca expone secretos, tokens ni rawResponse ──
 
@@ -75,6 +76,10 @@ export async function reconcileDteWithMhAction(
     if (!context.locationId) {
       return { ok: false, error: "La sesión no tiene una location activa." };
     }
+
+    // DTE-MH-TEST-RUNS — documentos de pruebas MH (Control Plane) no se operan desde el runtime.
+    const certificationBlock = await blockNonOperationalDteForRuntimeAction(context.client, context.tenantId, { dteDocumentId: dteDocumentId });
+    if (certificationBlock) return { ok: false, error: certificationBlock };
 
     // reconcileDteWithMh ya valida internamente que dteDocumentId
     // pertenezca exactamente a tenant_id/location_id (findFirst scoped) —

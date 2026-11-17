@@ -90,10 +90,42 @@ describe("transmitContingencyEvent — FASE VI-E6C (runtime db injection)", () =
     expect(db.dteContingencyEvent.findFirst).toHaveBeenCalledWith(
       expect.objectContaining({ where: { id: "evt-1", tenant_id: "tenant-1", location_id: "loc-1" } }),
     );
+    // BUG-2 — emisor acotado a tenant/location del evento.
     expect(db.dteIssuerConfig.findFirst).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { id: "cfg-1" } }),
+      expect.objectContaining({ where: { id: "cfg-1", tenant_id: "tenant-1", location_id: "loc-1" } }),
     );
     expect(db.$transaction).toHaveBeenCalledTimes(1);
+  });
+
+  it("BUG-2 — autentica con el DteCredential del emisor del evento, leído en la MISMA base runtime", async () => {
+    const db = buildFakeRuntimeDb();
+    transmitSpy.mockResolvedValue({ ok: true, mhEstado: "RECIBIDO", mensaje: "OK", selloRecibido: "S", observaciones: null, httpStatus: 200 });
+
+    await transmitContingencyEvent(BASE_PARAMS, db as never);
+
+    // El adapter recibe el emisor (token por emisor+ambiente, no global).
+    expect(transmitSpy).toHaveBeenCalledWith(expect.objectContaining({ issuerConfigId: "cfg-1", environment: "TEST" }));
+    // Y se construye con un MhAuthAdapter cuyo credentialClient es la base runtime.
+    const { MhContingencyTransmissionAdapter } = await import("../adapters/dte-contingency-transmission.adapter");
+    const authArg = vi.mocked(MhContingencyTransmissionAdapter).mock.calls.at(-1)?.[0] as unknown as { credentialClient?: unknown };
+    expect(authArg?.credentialClient).toBe(db);
+  });
+
+  it("BUG-2 — un evento con documentos de emisores distintos no se transmite", async () => {
+    const db = buildFakeRuntimeDb();
+    db.dteContingencyEvent.findFirst.mockResolvedValue({
+      ...EVENT_SIGNED,
+      items: [
+        { dte_document_id: "dte-1", dte_document: { issuer_config_id: "cfg-1" } },
+        { dte_document_id: "dte-2", dte_document: { issuer_config_id: "cfg-2" } },
+      ],
+    });
+
+    const result = await transmitContingencyEvent(BASE_PARAMS, db as never);
+
+    expect(result).toMatchObject({ ok: false });
+    expect(transmitSpy).not.toHaveBeenCalled();
+    expect(db.dteContingencyEvent.update).not.toHaveBeenCalled();
   });
 
   it("MH RECHAZA -> status -> REJECTED, registra log vía db", async () => {

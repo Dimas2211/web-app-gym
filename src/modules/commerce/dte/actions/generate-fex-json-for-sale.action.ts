@@ -50,6 +50,7 @@ import {
   requireOperationalContext,
   OperationalContextError,
 } from "@/modules/platform/runtime/require-operational-context";
+import { blockNonOperationalDteForRuntimeAction } from "../utils/dte-document-purpose";
 
 // ── Tipos públicos ────────────────────────────────────────────────
 
@@ -80,6 +81,10 @@ export async function generateFexJsonForSaleAction(
     if (!context.locationId) {
       return { ok: false, error: "La sesión no tiene una location activa." };
     }
+
+    // DTE-MH-TEST-RUNS — documentos de pruebas MH (Control Plane) no se operan desde el runtime.
+    const certificationBlock = await blockNonOperationalDteForRuntimeAction(context.client, context.tenantId, { dteDocumentId: dte_document_id });
+    if (certificationBlock) return { ok: false, error: certificationBlock };
 
     const result = await generateAndPersistFexJsonForDte(
       {

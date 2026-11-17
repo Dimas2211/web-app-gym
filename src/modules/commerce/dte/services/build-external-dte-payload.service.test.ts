@@ -34,6 +34,7 @@ function baseFse14Doc(overrides: Partial<DteDocumentForExternalPayload> = {}): D
     signed_jws:      "header.payload.signature",
     reception_stamp: "2026407BF0413AB54B138E5CF2F1DB9A85EBF5WP",
     mh_response:     { estado: "PROCESADO", codigoMsg: "001", descripcionMsg: "RECIBIDO" },
+    purpose:         "OPERATIONAL",
     ...overrides,
   };
 }

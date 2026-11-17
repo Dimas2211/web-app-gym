@@ -85,6 +85,7 @@ export async function getDteOutgoingExternalPayload(params: {
       signed_jws:       true,
       reception_stamp:  true,
       mh_response:      true,
+      purpose:          true,
       transmission_logs: {
         where:   { operation_type: "EXTERNAL_DELIVERY" },
         orderBy: { created_at: "desc" },
@@ -116,6 +117,7 @@ export async function getDteOutgoingExternalPayload(params: {
     signed_jws:      row.signed_jws,
     reception_stamp: row.reception_stamp,
     mh_response:     row.mh_response,
+    purpose:         row.purpose,
   };
 
   const built = buildExternalDtePayload(doc);

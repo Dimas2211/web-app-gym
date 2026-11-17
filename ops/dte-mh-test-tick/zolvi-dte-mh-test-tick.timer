@@ -1,0 +1,13 @@
+# DTE-MH-TEST-RUNS — programación del tick (plantilla, NO habilitada).
+# Sin corridas activas el tick responde rápido sin trabajo; con el flag apagado responde 404.
+[Unit]
+Description=Zolvi DTE MH TEST runs tick every minute
+
+[Timer]
+OnBootSec=2min
+OnUnitInactiveSec=60s
+RandomizedDelaySec=5s
+Persistent=false
+
+[Install]
+WantedBy=timers.target

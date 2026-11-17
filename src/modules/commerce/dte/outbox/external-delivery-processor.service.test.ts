@@ -24,7 +24,7 @@ function runtimeFor(tenant: string, docs: Array<{ id: string; accepted_at: Date 
         id: where.id, tenant_id: tenant, location_id: "loc", sale_id: "s", purchase_id: null, dte_type_code: "01",
         control_number: "DTE-01-00000001-000000000000001", generation_code: `G-${where.id}`, environment: "TEST",
         dte_status: "ACCEPTED", accepted_at: new Date(), json_document: { identificacion: { tipoDte: "01" }, emisor: { nrc: "1" } },
-        signed_jws: "jws", reception_stamp: "sello", mh_response: { estado: "PROCESADO", selloRecibido: "sello" }, retry_count: 0,
+        signed_jws: "jws", reception_stamp: "sello", mh_response: { estado: "PROCESADO", selloRecibido: "sello" }, retry_count: 0, purpose: "OPERATIONAL",
       })),
     },
     dteTransmissionLog: { findMany: vi.fn().mockResolvedValue([]), create: vi.fn().mockResolvedValue({}) },

@@ -23,6 +23,7 @@ import {
   requireOperationalContext,
   OperationalContextError,
 } from "@/modules/platform/runtime/require-operational-context";
+import { blockNonOperationalDteForRuntimeAction } from "../utils/dte-document-purpose";
 
 // ── Zod schema ────────────────────────────────────────────────────
 
@@ -60,6 +61,10 @@ export async function signInvalidationEventAction(
     if (!context.locationId) {
       return { ok: false, message: "La sesión no tiene una location activa." };
     }
+
+    // DTE-MH-TEST-RUNS — documentos de pruebas MH (Control Plane) no se operan desde el runtime.
+    const certificationBlock = await blockNonOperationalDteForRuntimeAction(context.client, context.tenantId, { invalidationEventId: invalidationEventId });
+    if (certificationBlock) return { ok: false, message: certificationBlock };
 
     const parsed = signInvalidationEventInputSchema.safeParse({ invalidationEventId });
     if (!parsed.success) {

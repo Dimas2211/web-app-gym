@@ -24,6 +24,7 @@ import {
   requireOperationalContext,
   OperationalContextError,
 } from "@/modules/platform/runtime/require-operational-context";
+import { blockNonOperationalDteForRuntimeAction } from "../utils/dte-document-purpose";
 
 const createCreditNoteInputSchema = z.object({
   sourceDteDocumentId: z.string().uuid("El ID del documento fuente debe ser un UUID válido."),
@@ -70,6 +71,10 @@ export async function createCreditNoteDteAction(
         errors:  parsed.error.flatten().fieldErrors as Record<string, string[]>,
       };
     }
+
+    // DTE-MH-TEST-RUNS — documentos de pruebas MH (Control Plane) no se operan desde el runtime.
+    const certificationBlock = await blockNonOperationalDteForRuntimeAction(context.client, context.tenantId, { dteDocumentId: parsed.data.sourceDteDocumentId });
+    if (certificationBlock) return { ok: false, message: certificationBlock };
 
     const result = await createCreditNoteDteFromAcceptedCcfe(
       {

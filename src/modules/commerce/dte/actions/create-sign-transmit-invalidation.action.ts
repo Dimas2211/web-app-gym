@@ -39,6 +39,7 @@ import {
   requireOperationalContext,
   OperationalContextError,
 } from "@/modules/platform/runtime/require-operational-context";
+import { blockNonOperationalDteForRuntimeAction } from "../utils/dte-document-purpose";
 
 // ── Input ─────────────────────────────────────────────────────────
 
@@ -105,6 +106,10 @@ export async function createSignTransmitInvalidationAction(
     }
 
     const { dteDocumentId, invalidationTypeCode, reason, responsable, solicita } = parsed.data;
+    // DTE-MH-TEST-RUNS — documentos de pruebas MH (Control Plane) no se operan desde el runtime.
+    const certificationBlock = await blockNonOperationalDteForRuntimeAction(context.client, context.tenantId, { dteDocumentId: dteDocumentId });
+    if (certificationBlock) return { ok: false, error: certificationBlock };
+
     const ctx = {
       userId:     context.effectiveUser.id,
       tenantId:   context.tenantId,

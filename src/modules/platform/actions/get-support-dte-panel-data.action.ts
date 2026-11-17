@@ -23,6 +23,7 @@ import {
 import { withTemporaryPrismaClient } from "../lib/client-prisma";
 import { SUPPORT_DTE_ACTIVE_TYPE_CODES } from "../lib/support-session/dte/support-dte.constants";
 import type { SupportDtePanelData, SupportDteTypeCode } from "../types/platform.types";
+import { OPERATIONAL_DTE_WHERE } from "@/modules/commerce/dte/utils/dte-document-purpose";
 
 const DTE_ENVIRONMENT = "TEST" as const;
 
@@ -102,7 +103,8 @@ export async function getSupportDtePanelDataAction(
         }));
 
       const rawDocs = await client.dteOutgoingDocument.findMany({
-        where:   { tenant_id: tenantId },
+        // DTE-MH-TEST-RUNS — solo documentos operativos (las pruebas MH viven en Control Plane).
+        where:   { tenant_id: tenantId, ...OPERATIONAL_DTE_WHERE },
         select: {
           id: true, sale_id: true, dte_type_code: true, dte_status: true, environment: true,
           generation_code: true, control_number: true, json_document: true, signed_jws: true,

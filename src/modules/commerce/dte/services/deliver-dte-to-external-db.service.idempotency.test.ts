@@ -36,6 +36,7 @@ function acceptedDoc(id: string, tenant = "tenant-a") {
     signed_jws: "eyJhbGciOiJSUzUxMiJ9.payload.signature",
     reception_stamp: "SELLO-123",
     mh_response: { estado: "PROCESADO", selloRecibido: "SELLO-123", fhProcesamiento: "30/10/2026 12:00:01", codigoMsg: "001", descripcionMsg: "RECIBIDO", observaciones: [] },
+    purpose: "OPERATIONAL",
     retry_count: 0,
   };
 }

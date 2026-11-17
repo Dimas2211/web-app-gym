@@ -19,6 +19,7 @@ import type { DteInvalidationStatus } from "../../types/dte-invalidation.types";
 import {
   computeExternalDeliveryStatus,
 } from "../utils/dte-delivery-summary.utils";
+import { OPERATIONAL_DTE_WHERE } from "@/modules/commerce/dte/utils/dte-document-purpose";
 
 // ─────────────────────────────────────────────────────────────────
 
@@ -55,6 +56,8 @@ export async function listDteOutgoingGlobal(
   const where: Record<string, any> = {
     tenant_id:   tenantId,
     location_id: locationId,
+    // DTE-MH-TEST-RUNS — solo documentos operativos (las pruebas MH viven en Control Plane).
+    ...OPERATIONAL_DTE_WHERE,
   };
 
   if (dteType && dteType !== "ALL") {

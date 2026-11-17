@@ -39,7 +39,7 @@ const EVENT_ROW = {
 function fakeClient() {
   return {
     dteInvalidationEvent: { findFirst: vi.fn().mockResolvedValue(EVENT_ROW) },
-    dteOutgoingDocument:  { findFirst: vi.fn().mockResolvedValue({ json_document: { emisor: { nrc: "123" } } }) },
+    dteOutgoingDocument:  { findFirst: vi.fn().mockResolvedValue({ json_document: { emisor: { nrc: "123" } }, purpose: "OPERATIONAL" }) },
     dteTransmissionLog:   { create: vi.fn().mockResolvedValue({}), count: vi.fn().mockResolvedValue(0) },
   } as unknown as import("@prisma/client").PrismaClient;
 }

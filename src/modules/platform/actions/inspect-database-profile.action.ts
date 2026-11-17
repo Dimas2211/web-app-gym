@@ -39,6 +39,7 @@ import type {
   DatabaseInspectionDteDocument,
   DatabaseInspectionDteConfig,
 } from "../types/platform.types";
+import { OPERATIONAL_DTE_WHERE } from "@/modules/commerce/dte/utils/dte-document-purpose";
 
 // ── Helpers de serialización segura ──────────────────────────────
 
@@ -290,7 +291,8 @@ export async function inspectDatabaseProfileAction(
 
         // ── Bloque 5: DTE ───────────────────────────────────────────
         try {
-          const dteWhere = { tenant_id: tenantId };
+          // DTE-MH-TEST-RUNS — solo documentos operativos (las pruebas MH viven en Control Plane).
+          const dteWhere = { tenant_id: tenantId, ...OPERATIONAL_DTE_WHERE };
           summary.dteDocuments = await client.dteOutgoingDocument.count({ where: dteWhere });
           const rawDte = await client.dteOutgoingDocument.findMany({
             where:  dteWhere,

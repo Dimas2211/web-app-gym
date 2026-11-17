@@ -13,6 +13,9 @@
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
+// DTE-MH-TEST-RUNS — el guard de propósito tiene su propia prueba; aquí se aísla.
+vi.mock("../utils/dte-document-purpose", () => ({ blockNonOperationalDteForRuntimeAction: vi.fn(async () => null) }));
+
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 
 vi.mock("@/lib/permissions/guards", () => ({

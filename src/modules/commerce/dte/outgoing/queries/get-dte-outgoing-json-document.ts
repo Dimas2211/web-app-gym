@@ -15,6 +15,7 @@
 
 import { prisma } from "@/lib/db/prisma";
 import type { Prisma, PrismaClient } from "@prisma/client";
+import { OPERATIONAL_DTE_WHERE } from "@/modules/commerce/dte/utils/dte-document-purpose";
 
 export interface DteOutgoingJsonDocument {
   id:              string;
@@ -38,7 +39,7 @@ export async function getDteOutgoingJsonDocument(params: {
   const { dteId, tenantId, locationId, client = prisma } = params;
 
   const row = await client.dteOutgoingDocument.findFirst({
-    where: { id: dteId, tenant_id: tenantId, location_id: locationId },
+    where: { id: dteId, tenant_id: tenantId, location_id: locationId, ...OPERATIONAL_DTE_WHERE }, // DTE-MH-TEST-RUNS — solo documentos operativos (las pruebas MH viven en Control Plane).
     select: {
       id:              true,
       sale_id:         true,

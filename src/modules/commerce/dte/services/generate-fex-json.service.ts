@@ -202,6 +202,24 @@ export type GenerateFexJsonResult =
   | { ok: true; json: FexJsonDocument }
   | { ok: false; error: string };
 
+// ── Proyección territorial FEX v3 del emisor ──────────────────────
+// Único punto que aplica projectFexV3Territory (aislamiento CAT-013).
+// Reutilizado por las pruebas MH TEST (DTE-MH-TEST-RUNS) para que el
+// armado de certificación use exactamente la misma proyección.
+// Municipio no resuelto → territory null (el builder lo reporta como
+// faltante); jerarquía inconsistente → error (fail-closed).
+
+export async function resolveFexEmisorTerritory(
+  params: { deptCode: string | null | undefined; municipalityCode: string | null | undefined },
+  db: PrismaClient = prisma,
+): Promise<{ ok: true; territory: FexV3Territory | null } | { ok: false; error: string }> {
+  const territory = await resolveDteMunicipality(params, db);
+  if (!territory) return { ok: true, territory: null };
+  const projected = projectFexV3Territory(territory);
+  if (!projected.ok) return { ok: false, error: projected.error };
+  return { ok: true, territory: projected.territory };
+}
+
 // ── Función principal ─────────────────────────────────────────────
 
 export async function generateFexJsonForSale(
@@ -375,16 +393,12 @@ export async function generateFexJsonForSale(
 
   // Dirección v3: proyección FEX del mismo registro Municipality del
   // emisor. Jerarquía territorial inconsistente → fail-closed.
-  const emisorTerritory = await resolveDteMunicipality({
+  const emisorFex = await resolveFexEmisorTerritory({
     deptCode:         issuerConfig.dept_code,
     municipalityCode: issuerConfig.municipality_code,
   }, db);
-  let emisorFexTerritory: FexV3Territory | null = null;
-  if (emisorTerritory) {
-    const projected = projectFexV3Territory(emisorTerritory);
-    if (!projected.ok) return { ok: false, error: projected.error };
-    emisorFexTerritory = projected.territory;
-  }
+  if (!emisorFex.ok) return { ok: false, error: emisorFex.error };
+  const emisorFexTerritory = emisorFex.territory;
 
   // País del receptor: CAT-020 vigente (modelo Country). Solo se busca
   // por el código tal como está guardado — sin normalización ni mapeo.
