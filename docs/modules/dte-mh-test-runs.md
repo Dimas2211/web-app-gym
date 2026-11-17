@@ -1,6 +1,6 @@
 # DTE — Pruebas de Hacienda TEST desde el onboarding fiscal (DTE-MH-TEST-RUNS)
 
-Estado: **implementado en local** (rama `feat/dte-mh-test-runs`), **no desplegado**, **migración no aplicada a ninguna base real**, flag apagado por defecto.
+Estado (2026-11-16): **en producción con la función apagada** (PR #29, merge `2ac97c5`). Migración aplicada y verificada (PASS 19/19) en runtime `vkoyw…` y Control Plane `nygdq…`. `DTE_MH_TEST_RUNS_ENABLED`, `DTE_MH_TEST_TICK_SECRET` y el timer del VPS **no** están configurados: el tick responde 404 y no se procesa ninguna corrida.
 
 Ruta en la UI: Control Plane → Organización → Onboarding fiscal → ambiente TEST → **Pruebas de Hacienda (TEST)**.
 
