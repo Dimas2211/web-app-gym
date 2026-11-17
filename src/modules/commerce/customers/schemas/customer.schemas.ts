@@ -119,7 +119,6 @@ export type CreateCustomerInput = z.infer<typeof createCustomerSchema>;
 // ── Actualizar cliente ────────────────────────────────────────────
 
 export const updateCustomerSchema = createCustomerSchema
-  .omit({ customer_code: true })
   .partial()
   .extend({
     status: z

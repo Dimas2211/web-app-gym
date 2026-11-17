@@ -6,7 +6,7 @@
 //
 // Operaciones:
 //   createSupplier        — alta completa desde el formulario maestro
-//   updateSupplier        — edición de la ficha (supplier_code inmutable)
+//   updateSupplier        — edición de la ficha (supplier_code editable)
 //   toggleSupplierStatus  — activar / inactivar sin borrado físico
 //   quickCreateSupplier   — alta mínima desde el flujo de compras
 //
@@ -263,7 +263,7 @@ export async function createSupplier(
 
 /**
  * Actualiza la ficha de un proveedor existente.
- * supplier_code es inmutable — excluido del schema de update.
+ * supplier_code es editable; la unicidad se valida dentro del tenant.
  * El input debe haber sido validado previamente con updateSupplierSchema.
  *
  * @param tenantId - Extraído de session.tenantId.
@@ -289,6 +289,14 @@ export async function updateSupplier(
     };
   }
 
+  if (input.supplier_code !== undefined) {
+    const duplicate = await db.supplier.findFirst({
+      where: { tenant_id: tenantId, supplier_code: input.supplier_code, id: { not: input.id } },
+      select: { id: true },
+    });
+    if (duplicate) return { ok: false, code: "DUPLICATE_CODE", field: "supplier_code", error: "Ya existe un proveedor con este código en la empresa." };
+  }
+
   // 2. Validación de catálogos DTE-críticos
   const catalogError = await validateCatalogFields({
     activity_code: input.activity_code,
@@ -299,44 +307,51 @@ export async function updateSupplier(
   // 3. Persistencia — solo campos que vienen en el input
   //    Los campos opcionales usan spread condicional para no sobreescribir
   //    valores existentes con undefined (Prisma ignora undefined en update).
-  await db.supplier.update({
-    where: { id: input.id },
-    data: {
-      name:          input.name,
-      taxpayer_type: input.taxpayer_type,
+  try {
+    await db.supplier.update({
+      where: { id: input.id },
+      data: {
+        ...(input.supplier_code !== undefined && { supplier_code: input.supplier_code }),
+        name:          input.name,
+        taxpayer_type: input.taxpayer_type,
 
-      ...(input.person_type    !== undefined && { person_type:    input.person_type ?? "UNKNOWN" }),
-      ...(input.account_code   !== undefined && { account_code:   input.account_code }),
-      ...(input.legal_name     !== undefined && { legal_name:     input.legal_name }),
+        ...(input.person_type    !== undefined && { person_type:    input.person_type ?? "UNKNOWN" }),
+        ...(input.account_code   !== undefined && { account_code:   input.account_code }),
+        ...(input.legal_name     !== undefined && { legal_name:     input.legal_name }),
 
-      ...(input.id_type_code   !== undefined && { id_type_code:   input.id_type_code }),
-      ...(input.dui            !== undefined && { dui:            input.dui }),
-      ...(input.nit            !== undefined && { nit:            input.nit }),
-      ...(input.nrc            !== undefined && { nrc:            input.nrc }),
-      ...(input.other_document !== undefined && { other_document: input.other_document }),
+        ...(input.id_type_code   !== undefined && { id_type_code:   input.id_type_code }),
+        ...(input.dui            !== undefined && { dui:            input.dui }),
+        ...(input.nit            !== undefined && { nit:            input.nit }),
+        ...(input.nrc            !== undefined && { nrc:            input.nrc }),
+        ...(input.other_document !== undefined && { other_document: input.other_document }),
 
-      ...(input.activity_code  !== undefined && { activity_code:  input.activity_code }),
-      ...(input.activity_name  !== undefined && { activity_name:  input.activity_name }),
+        ...(input.activity_code  !== undefined && { activity_code:  input.activity_code }),
+        ...(input.activity_name  !== undefined && { activity_name:  input.activity_name }),
 
-      ...(input.dept_code          !== undefined && { dept_code:          input.dept_code }),
-      ...(input.dept_name          !== undefined && { dept_name:          input.dept_name }),
-      ...(input.municipality_code  !== undefined && { municipality_code:  input.municipality_code }),
-      ...(input.municipality_name  !== undefined && { municipality_name:  input.municipality_name }),
-      ...(input.country_code       !== undefined && { country_code:       input.country_code }),
-      ...(input.country_name       !== undefined && { country_name:       input.country_name }),
-      ...(input.address_complement !== undefined && { address_complement: input.address_complement }),
+        ...(input.dept_code          !== undefined && { dept_code:          input.dept_code }),
+        ...(input.dept_name          !== undefined && { dept_name:          input.dept_name }),
+        ...(input.municipality_code  !== undefined && { municipality_code:  input.municipality_code }),
+        ...(input.municipality_name  !== undefined && { municipality_name:  input.municipality_name }),
+        ...(input.country_code       !== undefined && { country_code:       input.country_code }),
+        ...(input.country_name       !== undefined && { country_name:       input.country_name }),
+        ...(input.address_complement !== undefined && { address_complement: input.address_complement }),
 
-      ...(input.contact_name !== undefined && { contact_name: input.contact_name }),
-      ...(input.contact_role !== undefined && { contact_role: input.contact_role }),
-      ...(input.phone        !== undefined && { phone:        input.phone }),
-      ...(input.phone_alt    !== undefined && { phone_alt:    input.phone_alt }),
-      ...(input.email        !== undefined && { email:        input.email }),
-      ...(input.whatsapp     !== undefined && { whatsapp:     input.whatsapp }),
+        ...(input.contact_name !== undefined && { contact_name: input.contact_name }),
+        ...(input.contact_role !== undefined && { contact_role: input.contact_role }),
+        ...(input.phone        !== undefined && { phone:        input.phone }),
+        ...(input.phone_alt    !== undefined && { phone_alt:    input.phone_alt }),
+        ...(input.email        !== undefined && { email:        input.email }),
+        ...(input.whatsapp     !== undefined && { whatsapp:     input.whatsapp }),
 
-      updated_by: userId,
-    },
-  });
-
+        updated_by: userId,
+      },
+    });
+  } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+      return { ok: false, code: "DUPLICATE_CODE", field: "supplier_code", error: "Ya existe un proveedor con este código en la empresa." };
+    }
+    throw error;
+  }
   return { ok: true };
 }
 

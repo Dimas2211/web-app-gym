@@ -173,32 +173,47 @@ export async function updateCustomer(
     return { ok: false, error: "El cliente no existe o no pertenece a este tenant." };
   }
 
+  if (input.customer_code !== undefined) {
+    const duplicate = await db.customer.findFirst({
+      where: { tenant_id: tenant_id, customer_code: input.customer_code, id: { not: id } },
+      select: { id: true },
+    });
+    if (duplicate) return { ok: false, field: "customer_code", error: "Ya existe un cliente con este código en la empresa." };
+  }
+
   const foreign = await resolveForeignCustomerData(input, customer as Partial<CreateCustomerInput>, db);
   if (!foreign.ok) return foreign;
 
-  await db.customer.update({
-    where: { id },
-    data: {
-      ...foreign.data,
-      ...(input.name               !== undefined && { name:               input.name }),
-      ...(input.legal_name         !== undefined && { legal_name:         input.legal_name }),
-      ...(input.taxpayer_type      !== undefined && { taxpayer_type:      input.taxpayer_type }),
-      ...(input.id_type_code       !== undefined && { id_type_code:       input.id_type_code }),
-      ...(input.nit                !== undefined && { nit:                input.nit }),
-      ...(input.nrc                !== undefined && { nrc:                input.nrc }),
-      ...(input.dui                !== undefined && { dui:                input.dui }),
-      ...(input.activity_code      !== undefined && { activity_code:      input.activity_code }),
-      ...(input.activity_name      !== undefined && { activity_name:      input.activity_name }),
-      ...(input.dept_code          !== undefined && { dept_code:          input.dept_code }),
-      ...(input.municipality_code  !== undefined && { municipality_code:  input.municipality_code }),
-      ...(input.address_complement !== undefined && { address_complement: input.address_complement }),
-      ...(input.phone              !== undefined && { phone:              input.phone }),
-      ...(input.email              !== undefined && { email:              input.email }),
-      ...(input.status             !== undefined && { status:             input.status }),
-      updated_by: user_id,
-    },
-  });
-
+  try {
+    await db.customer.update({
+      where: { id },
+      data: {
+        ...(input.customer_code !== undefined && { customer_code: input.customer_code }),
+        ...foreign.data,
+        ...(input.name               !== undefined && { name:               input.name }),
+        ...(input.legal_name         !== undefined && { legal_name:         input.legal_name }),
+        ...(input.taxpayer_type      !== undefined && { taxpayer_type:      input.taxpayer_type }),
+        ...(input.id_type_code       !== undefined && { id_type_code:       input.id_type_code }),
+        ...(input.nit                !== undefined && { nit:                input.nit }),
+        ...(input.nrc                !== undefined && { nrc:                input.nrc }),
+        ...(input.dui                !== undefined && { dui:                input.dui }),
+        ...(input.activity_code      !== undefined && { activity_code:      input.activity_code }),
+        ...(input.activity_name      !== undefined && { activity_name:      input.activity_name }),
+        ...(input.dept_code          !== undefined && { dept_code:          input.dept_code }),
+        ...(input.municipality_code  !== undefined && { municipality_code:  input.municipality_code }),
+        ...(input.address_complement !== undefined && { address_complement: input.address_complement }),
+        ...(input.phone              !== undefined && { phone:              input.phone }),
+        ...(input.email              !== undefined && { email:              input.email }),
+        ...(input.status             !== undefined && { status:             input.status }),
+        updated_by: user_id,
+      },
+    });
+  } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+      return { ok: false, field: "customer_code", error: "Ya existe un cliente con este código en la empresa." };
+    }
+    throw error;
+  }
   return { ok: true };
 }
 

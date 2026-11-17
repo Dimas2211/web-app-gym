@@ -1,5 +1,7 @@
 "use client";
 
+import { BUSINESS_TIME_ZONE, formatBusinessDateTime } from "@/lib/utils/business-date";
+
 // ─────────────────────────────────────────────────────────────────
 // commerce/dte/outgoing — dte-outgoing-table.tsx
 //
@@ -74,13 +76,11 @@ const COL_COUNT = COLUMNS.length;
 function formatDate(d: Date | null | string | undefined): string {
   if (!d) return "—";
   const date = d instanceof Date ? d : new Date(d);
-  return date.toLocaleDateString("es-SV", { day: "2-digit", month: "2-digit", year: "2-digit" });
+  return date.toLocaleDateString("es-SV", { timeZone: BUSINESS_TIME_ZONE, day: "2-digit", month: "2-digit", year: "2-digit" });
 }
 
 function formatDateTime(d: Date | null | string | undefined): string {
-  if (!d) return "—";
-  const date = d instanceof Date ? d : new Date(d);
-  return date.toLocaleDateString("es-SV", { day: "2-digit", month: "2-digit", year: "2-digit" });
+  return d ? formatBusinessDateTime(d) : "—";
 }
 
 function truncateCode(code: string | null, len = 12): string {

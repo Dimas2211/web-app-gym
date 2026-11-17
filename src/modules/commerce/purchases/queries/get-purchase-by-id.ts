@@ -1,3 +1,4 @@
+import { formatCalendarDate, formatBusinessDateTime } from "@/lib/utils/business-date";
 // ─────────────────────────────────────────────────────────────────
 // commerce/purchases — get-purchase-by-id.ts
 //
@@ -220,7 +221,7 @@ export async function getPurchaseById(
     supplier_name: row.supplier.name,
     purchase_code: row.purchase_code,
     purchase_date: row.purchase_date,
-    purchase_date_label: row.purchase_date.toLocaleDateString("es-CL"),
+    purchase_date_label: formatCalendarDate(row.purchase_date),
     status:        row.status,
     notes:         row.notes,
     subtotal:      Number(row.subtotal),
@@ -299,7 +300,7 @@ export async function getPurchaseById(
     // Confirmación
     confirmed_at:       row.confirmed_at,
     confirmed_at_label: row.confirmed_at
-      ? row.confirmed_at.toLocaleString("es-CL")
+      ? formatBusinessDateTime(row.confirmed_at)
       : null,
     confirmed_by:      row.confirmed_by,
     confirmed_by_name: row.confirmed_by_user
@@ -309,7 +310,7 @@ export async function getPurchaseById(
     // Cancelación
     cancelled_at:       row.cancelled_at,
     cancelled_at_label: row.cancelled_at
-      ? row.cancelled_at.toLocaleString("es-CL")
+      ? formatBusinessDateTime(row.cancelled_at)
       : null,
     cancelled_by:      row.cancelled_by,
     cancelled_by_name: row.cancelled_by_user
@@ -318,13 +319,13 @@ export async function getPurchaseById(
 
     // Auditoría de creación y modificación
     created_at:       row.created_at,
-    created_at_label: row.created_at.toLocaleString("es-CL"),
+    created_at_label: formatBusinessDateTime(row.created_at),
     created_by:       row.created_by,
     created_by_name:  row.created_by_user
       ? `${row.created_by_user.first_name} ${row.created_by_user.last_name}`
       : null,
     updated_at:       row.updated_at,
-    updated_at_label: row.updated_at.toLocaleString("es-CL"),
+    updated_at_label: formatBusinessDateTime(row.updated_at),
     updated_by:       row.updated_by,
     updated_by_name:  row.updated_by_user
       ? `${row.updated_by_user.first_name} ${row.updated_by_user.last_name}`

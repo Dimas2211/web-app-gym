@@ -1,3 +1,4 @@
+import { parseCalendarDate } from "@/lib/utils/business-date";
 // ─────────────────────────────────────────────────────────────────
 // commerce/sales — sale-correlative.ts
 //
@@ -16,8 +17,8 @@ import { prisma } from "@/lib/db/prisma";
 export function extractSaleDateParts(
   date: Date | string,
 ): { year: number; month: number } {
-  const d = typeof date === "string" ? new Date(date + "T00:00:00") : date;
-  return { year: d.getFullYear(), month: d.getMonth() + 1 };
+  const d = typeof date === "string" ? parseCalendarDate(date) : date;
+  return { year: d.getUTCFullYear(), month: d.getUTCMonth() + 1 };
 }
 
 /**

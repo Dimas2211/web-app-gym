@@ -1,3 +1,4 @@
+import { svStartOfDay, svEndOfDay } from "../../inventory/utils/sv-datetime";
 // ─────────────────────────────────────────────────────────────────
 // commerce/cash — list-cash-sessions.ts
 //
@@ -49,8 +50,8 @@ export async function listCashSessions(
       ...(date_from || date_to
         ? {
             opened_at: {
-              ...(date_from ? { gte: new Date(date_from) } : {}),
-              ...(date_to   ? { lte: new Date(date_to + "T23:59:59.999Z") } : {}),
+              ...(date_from ? { gte: svStartOfDay(date_from) } : {}),
+              ...(date_to   ? { lte: svEndOfDay(date_to) } : {}),
             },
           }
         : {}),

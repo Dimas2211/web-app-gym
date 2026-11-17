@@ -5,7 +5,7 @@
 //
 // Diferencias vs create-supplier.schema:
 //   - id: requerido (identifica el registro a actualizar)
-//   - supplier_code: excluido (clave de negocio, no editable)
+//   - supplier_code: editable con unicidad por tenant
 //   - name: sigue siendo requerido (no se puede borrar el nombre)
 //   - taxpayer_type: sigue siendo requerido (afecta reglas fiscales)
 //   - todos los demás campos: opcionales pero validados si presentes
@@ -43,7 +43,11 @@ export const updateSupplierSchema = z
       .string({ required_error: "El ID del proveedor es requerido." })
       .uuid("El ID del proveedor no es válido."),
 
-    // supplier_code: excluido — clave de negocio, no editable
+    supplier_code: z.string().trim()
+      .min(1, "El código de proveedor es requerido.")
+      .max(30, "El código no puede superar los 30 caracteres.")
+      .regex(/^[a-zA-Z0-9_-]+$/, "El código solo puede contener letras, números, guiones y guiones bajos.")
+      .optional(),
 
     // Nombre — requerido (no se puede vaciar el nombre de un proveedor existente)
     name: z

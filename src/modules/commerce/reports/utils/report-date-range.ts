@@ -1,3 +1,4 @@
+import { parseCalendarDate, businessDateKey } from "@/lib/utils/business-date";
 // ─────────────────────────────────────────────────────────────────
 // commerce/reports — report-date-range.ts
 // ─────────────────────────────────────────────────────────────────
@@ -5,7 +6,7 @@
 export type QuickPeriod = "today" | "week" | "month" | "quarter" | "year";
 
 export function dateOnly(value: string): Date {
-  return new Date(`${value}T00:00:00`);
+  return parseCalendarDate(value);
 }
 
 function pad(n: number): string {
@@ -13,7 +14,7 @@ function pad(n: number): string {
 }
 
 function toIso(d: Date): string {
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`;
 }
 
 export function getDefaultDateRange(): { date_from: string; date_to: string } {
@@ -21,10 +22,10 @@ export function getDefaultDateRange(): { date_from: string; date_to: string } {
 }
 
 export function getQuickPeriodRange(period: QuickPeriod): { date_from: string; date_to: string } {
-  const now = new Date();
-  const y = now.getFullYear();
-  const m = now.getMonth();
-  const d = now.getDate();
+  const now = parseCalendarDate(businessDateKey());
+  const y = now.getUTCFullYear();
+  const m = now.getUTCMonth();
+  const d = now.getUTCDate();
 
   switch (period) {
     case "today": {
@@ -32,13 +33,13 @@ export function getQuickPeriodRange(period: QuickPeriod): { date_from: string; d
       return { date_from: iso, date_to: iso };
     }
     case "week": {
-      const dayOfWeek = now.getDay(); // 0=sun
-      const monday = new Date(y, m, d - ((dayOfWeek + 6) % 7));
-      const sunday = new Date(y, m, monday.getDate() + 6);
+      const dayOfWeek = now.getUTCDay(); // 0=sun
+      const monday = new Date(Date.UTC(y, m, d - ((dayOfWeek + 6) % 7)));
+      const sunday = new Date(monday.getTime() + 6 * 86400000);
       return { date_from: toIso(monday), date_to: toIso(sunday) };
     }
     case "month": {
-      const lastDay = new Date(y, m + 1, 0).getDate();
+      const lastDay = new Date(Date.UTC(y, m + 1, 0)).getUTCDate();
       return {
         date_from: `${y}-${pad(m + 1)}-01`,
         date_to:   `${y}-${pad(m + 1)}-${pad(lastDay)}`,
@@ -47,7 +48,7 @@ export function getQuickPeriodRange(period: QuickPeriod): { date_from: string; d
     case "quarter": {
       const qStart = Math.floor(m / 3) * 3;
       const qEnd   = qStart + 2;
-      const lastDayQ = new Date(y, qEnd + 1, 0).getDate();
+      const lastDayQ = new Date(Date.UTC(y, qEnd + 1, 0)).getUTCDate();
       return {
         date_from: `${y}-${pad(qStart + 1)}-01`,
         date_to:   `${y}-${pad(qEnd + 1)}-${pad(lastDayQ)}`,

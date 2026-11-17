@@ -5,7 +5,7 @@
 //
 // Diferencias vs create-product.schema:
 //   - id: requerido (identifica el registro a actualizar)
-//   - product_code: excluido (clave de negocio, no editable)
+//   - product_code: editable; unicidad por tenant validada en la action
 //   - status: excluido (se gestiona en update-product-status.action)
 // ─────────────────────────────────────────────────────────────────
 
@@ -19,7 +19,9 @@ export const updateProductSchema = z
       .string({ required_error: "ID de producto requerido." })
       .uuid("ID de producto inválido."),
 
-    // Identidad del producto (product_code excluido — readonly)
+    product_code: z.string().trim().min(1, "El código de producto es requerido.").max(50, "El código no puede superar los 50 caracteres.").optional(),
+
+    // Identidad del producto
     name: z
       .string({ required_error: "El nombre del producto es requerido." })
       .min(1, "El nombre del producto es requerido.")
