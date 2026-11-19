@@ -365,3 +365,42 @@ credenciales ya configuradas en Vercel. Exige `--apply` y la variable de aprobac
 exacta; valida las dos bases conocidas, que no haya migraciones ajenas pendientes
 y que los conteos existentes se conserven. No forma parte del build habitual.
 La tabla puente habilita RLS sin políticas públicas: solo acceso Prisma del servidor.
+
+## Flujo inverso: cliente Gym a cliente fiscal
+
+La ficha individual Gym muestra **Crear / vincular cliente fiscal** a administradores
+de la organización. Reconoce automáticamente los vínculos ya creados desde el maestro
+fiscal y ofrece **Ver cliente fiscal**, abriendo el maestro con esa ficha seleccionada.
+
+Si no existe vínculo, muestra coincidencias por documento, correo y nombre con búsqueda
+adicional. Vincular requiere una elección explícita; no sobrescribe datos. Si se crea
+una ficha fiscal nueva, reutiliza NewCustomerDialog con nombre, correo, teléfono y
+dirección precargados. El número de documento se precarga sin asumir CAT-022: se exige
+confirmar su tipo y se mapea a NIT o al documento personal según esa elección.
+Los contribuyentes registrados deben completar NIT, NRC y actividad económica.
+
+La creación fiscal y el vínculo se confirman en una misma transacción, usando el
+mismo lock por tenant del flujo fiscal→Gym. Los reintentos devuelven el vínculo
+existente. La búsqueda de coincidencias y los bloqueos de duplicados incluyen el
+documento y correo originales de Gym, aunque el operador los cambie en el formulario.
+Los administradores de sucursal solo operan fichas Gym de su propia sede. El servidor
+revalida identidad LIVE, permisos, módulo fiscal, vertical Gym, tenant y sucursal.
+Las fichas inactivas deben activarse para crear un vínculo nuevo.
+
+Esta ampliación reutiliza gym_customer_links: no modifica Prisma ni agrega migraciones.
+No sincroniza cambios posteriores entre los maestros. Las reglas del alta fiscal
+ordinaria se conservan; la validación adicional pertenece solo al flujo optativo Gym.
+
+Archivos de la ampliación inversa:
+
+- src/app/(dashboard)/dashboard/clients/[id]/page.tsx
+- src/app/(dashboard)/dashboard/customers/page.tsx
+- src/modules/commerce/customers/components/customers-client.tsx
+- src/modules/commerce/customers/components/new-customer-dialog.tsx
+- src/modules/commerce/customers/components/gym-fiscal-customer-button.tsx
+- src/modules/commerce/customers/components/new-customer-dialog.gym.test.tsx
+- src/modules/commerce/customers/actions/gym-fiscal-customer.action.ts
+- src/modules/commerce/customers/actions/gym-fiscal-customer.action.test.ts
+- src/modules/commerce/customers/services/gym-fiscal-customer.service.ts
+- src/modules/commerce/customers/services/gym-fiscal-customer.service.test.ts
+- docs/modules/customers-summary.md

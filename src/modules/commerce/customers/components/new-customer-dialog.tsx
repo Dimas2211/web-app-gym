@@ -22,6 +22,7 @@ import { useEffect, useTransition, useState, useRef } from "react";
 import { X } from "lucide-react";
 import { CustomerExportFields } from "./customer-export-fields";
 import { createCustomerAction } from "../actions/create-customer.action";
+import { createFiscalCustomerForGymAction } from "../actions/gym-fiscal-customer.action";
 import type { CreateCustomerInput } from "../schemas/customer.schemas";
 import { ActivityPicker }     from "./activity-picker";
 import { MunicipalityPicker } from "./municipality-picker";
@@ -72,21 +73,24 @@ function strVal(fd: FormData, key: string): string | null {
 interface NewCustomerDialogProps {
   onClose:    () => void;
   onSuccess?: (id: string) => void;
+  initialValues?: Partial<CreateCustomerInput>;
+  sourceGymClientId?: string;
+  gymDocument?: string;
 }
 
 // ── Componente ────────────────────────────────────────────────────
 
-export function NewCustomerDialog({ onClose, onSuccess }: NewCustomerDialogProps) {
+export function NewCustomerDialog({ onClose, onSuccess, initialValues, sourceGymClientId, gymDocument }: NewCustomerDialogProps) {
   const formRef    = useRef<HTMLFormElement>(null);
   const [isPending, startTransition] = useTransition();
   const [error,       setError]      = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string[]>>({});
 
-  const [isForeign, setIsForeign] = useState(false);
+  const [isForeign, setIsForeign] = useState(initialValues?.is_foreign ?? false);
 
   // id_type_code — cargado desde API CAT-022
   const [idTypes,       setIdTypes]       = useState(ID_TYPE_FALLBACK);
-  const [selectedIdType, setSelectedIdType] = useState("");
+  const [selectedIdType, setSelectedIdType] = useState(initialValues?.id_type_code ?? "");
 
   useEffect(() => {
     fetch("/api/catalogs/identification-types")
@@ -98,7 +102,7 @@ export function NewCustomerDialog({ onClose, onSuccess }: NewCustomerDialogProps
   }, []);
 
   function handleBackdrop(e: React.MouseEvent<HTMLDivElement>) {
-    if (e.target === e.currentTarget) onClose();
+    if (e.target === e.currentTarget && !isPending) onClose();
   }
 
   function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
@@ -126,11 +130,20 @@ export function NewCustomerDialog({ onClose, onSuccess }: NewCustomerDialogProps
       email:              strVal(fd, "email"),
     };
 
+    // Gym stores an untyped document. Map it only after the operator chooses CAT-022.
+    if (sourceGymClientId) {
+      const document = strVal(fd, "gym_document_number");
+      if (input.id_type_code === "36") input.nit = input.nit || document;
+      else input.dui = document;
+    }
+
     setError(null);
     setFieldErrors({});
 
     startTransition(async () => {
-      const result = await createCustomerAction(input);
+      const result = sourceGymClientId
+        ? await createFiscalCustomerForGymAction(sourceGymClientId, input)
+        : await createCustomerAction(input);
       if (result.ok) {
         onSuccess?.(result.id);
         onClose();
@@ -145,12 +158,13 @@ export function NewCustomerDialog({ onClose, onSuccess }: NewCustomerDialogProps
     <div
       className="fixed inset-0 z-50 flex items-start justify-center bg-black/40 overflow-y-auto py-8 px-4"
       onClick={handleBackdrop}
+      role="dialog" aria-modal="true" aria-labelledby="new-customer-title"
     >
       <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl">
 
         {/* Header */}
         <div className="flex items-center justify-between px-6 pt-5 pb-4 border-b border-zinc-100">
-          <h2 className="text-base font-semibold text-zinc-900">Nuevo cliente</h2>
+          <h2 id="new-customer-title" className="text-base font-semibold text-zinc-900">{sourceGymClientId ? "Crear cliente fiscal desde Gym" : "Nuevo cliente"}</h2>
           <button type="button" onClick={onClose} className="text-zinc-400 hover:text-zinc-600" aria-label="Cerrar">
             <X size={18} />
           </button>
@@ -186,7 +200,7 @@ export function NewCustomerDialog({ onClose, onSuccess }: NewCustomerDialogProps
                 <label htmlFor="nc-taxpayer_type" className={labelCls}>
                   Tipo contribuyente <span className="text-red-500">*</span>
                 </label>
-                <select id="nc-taxpayer_type" name="taxpayer_type" defaultValue="FINAL_CONSUMER" className={inputCls}>
+                <select id="nc-taxpayer_type" name="taxpayer_type" defaultValue={initialValues?.taxpayer_type ?? "FINAL_CONSUMER"} className={inputCls}>
                   {TAXPAYER_OPTIONS.map((o) => (
                     <option key={o.value} value={o.value}>{o.label}</option>
                   ))}
@@ -199,7 +213,7 @@ export function NewCustomerDialog({ onClose, onSuccess }: NewCustomerDialogProps
                   Nombre comercial <span className="text-red-500">*</span>
                 </label>
                 <input
-                  id="nc-name" name="name"
+                  id="nc-name" name="name" defaultValue={initialValues?.name ?? ""}
                   type="text" maxLength={200}
                   autoComplete="off" className={inputCls}
                 />
@@ -209,7 +223,7 @@ export function NewCustomerDialog({ onClose, onSuccess }: NewCustomerDialogProps
               <div className="col-span-2">
                 <label htmlFor="nc-legal_name" className={labelCls}>Razón social</label>
                 <input
-                  id="nc-legal_name" name="legal_name"
+                  id="nc-legal_name" name="legal_name" defaultValue={initialValues?.legal_name ?? ""}
                   type="text" maxLength={200}
                   autoComplete="off" className={inputCls}
                 />
@@ -222,11 +236,12 @@ export function NewCustomerDialog({ onClose, onSuccess }: NewCustomerDialogProps
                 <select
                   id="nc-id_type_code"
                   name="id_type_code"
+                  required={!!sourceGymClientId}
                   value={selectedIdType}
                   onChange={(e) => setSelectedIdType(e.target.value)}
                   className={inputCls}
                 >
-                  <option value="">— Sin tipo —</option>
+                  <option value="">{sourceGymClientId ? "Confirma el tipo de documento" : "— Sin tipo —"}</option>
                   {idTypes.map((t) => (
                     <option key={t.code} value={t.code}>{t.code} — {t.name}</option>
                   ))}
@@ -236,6 +251,16 @@ export function NewCustomerDialog({ onClose, onSuccess }: NewCustomerDialogProps
 
             </div>
           </Section>
+
+          {sourceGymClientId && (
+            <div className="mb-4 rounded-lg border border-blue-100 bg-blue-50 p-4">
+              <label htmlFor="nc-gym-document" className={labelCls}>Número del documento seleccionado</label>
+              <input id="nc-gym-document" name="gym_document_number" defaultValue={gymDocument ?? ""}
+                maxLength={20} required className={inputCls} />
+              <p className="mt-1 text-xs text-zinc-600">El número viene de Gym. Confirma arriba si es DUI, NIT, pasaporte u otro documento.</p>
+              <FieldError errors={selectedIdType === "36" ? fieldErrors.nit : fieldErrors.dui} />
+            </div>
+          )}
 
           <CustomerExportFields
             isForeign={isForeign} onForeignChange={setIsForeign}
@@ -266,7 +291,7 @@ export function NewCustomerDialog({ onClose, onSuccess }: NewCustomerDialogProps
                 <FieldError errors={fieldErrors.nrc} />
               </div>
 
-              <div>
+              {!sourceGymClientId && <div>
                 <label htmlFor="nc-dui" className={labelCls}>{isForeign ? "Documento (DUI, pasaporte u otro)" : "DUI"}</label>
                 <input
                   id="nc-dui" name="dui"
@@ -274,7 +299,7 @@ export function NewCustomerDialog({ onClose, onSuccess }: NewCustomerDialogProps
                   autoComplete="off" className={inputCls}
                 />
                 <FieldError errors={fieldErrors.dui} />
-              </div>
+              </div>}
 
               {/* Actividad económica — selector CAT-019 */}
               <div className="col-span-2">
@@ -315,7 +340,7 @@ export function NewCustomerDialog({ onClose, onSuccess }: NewCustomerDialogProps
                   Dirección / domicilio
                 </label>
                 <textarea
-                  id="nc-address_complement" name="address_complement"
+                  id="nc-address_complement" name="address_complement" defaultValue={initialValues?.address_complement ?? ""}
                   maxLength={500} rows={2}
                   autoComplete="off"
                   className={`${inputCls} resize-none`}
@@ -333,7 +358,7 @@ export function NewCustomerDialog({ onClose, onSuccess }: NewCustomerDialogProps
               <div>
                 <label htmlFor="nc-phone" className={labelCls}>Teléfono</label>
                 <input
-                  id="nc-phone" name="phone"
+                  id="nc-phone" name="phone" defaultValue={initialValues?.phone ?? ""}
                   type="text" maxLength={20}
                   autoComplete="off" className={inputCls}
                 />
@@ -343,7 +368,7 @@ export function NewCustomerDialog({ onClose, onSuccess }: NewCustomerDialogProps
               <div>
                 <label htmlFor="nc-email" className={labelCls}>Correo electrónico</label>
                 <input
-                  id="nc-email" name="email"
+                  id="nc-email" name="email" defaultValue={initialValues?.email ?? ""}
                   type="email" maxLength={100}
                   autoComplete="off" className={inputCls}
                 />
@@ -368,7 +393,7 @@ export function NewCustomerDialog({ onClose, onSuccess }: NewCustomerDialogProps
               className="px-4 py-2 text-sm rounded-full bg-zinc-900 text-white font-medium
                          hover:bg-zinc-800 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
             >
-              {isPending ? "Guardando…" : "Crear cliente"}
+              {isPending ? "Guardando…" : sourceGymClientId ? "Crear y vincular cliente fiscal" : "Crear cliente"}
             </button>
           </div>
 
