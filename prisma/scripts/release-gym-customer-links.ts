@@ -102,7 +102,7 @@ async function main() {
       "This one-off release requires --apply and the exact release approval environment variable."
     );
   }
-  const cpUrl = verifyUrl(process.env.DIRECT_URL || process.env.DATABASE_URL || "", CP_REF);
+  const cpUrl = verifyUrl(process.env.DATABASE_URL || process.env.DIRECT_URL || "", CP_REF);
   const cp = new PrismaClient({ datasources: { db: { url: cpUrl } } });
   let runtime: PrismaClient | undefined;
   try {
