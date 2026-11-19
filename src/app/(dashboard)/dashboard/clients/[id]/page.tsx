@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { GymFiscalCustomerButton } from "@/modules/commerce/customers/components/gym-fiscal-customer-button";
 import { notFound } from "next/navigation";
 import { requireClientManager, canManageClient } from "@/lib/permissions/guards";
 import { getClientById, getClientModalityHistory } from "@/modules/clients/queries";
@@ -192,6 +193,10 @@ export default async function ClientDetailPage({ params }: Props) {
           </div>
         </div>
       </div>
+
+      {canEdit && getCapabilities(context.effectiveRole as UserRole).canManageStaff && (
+        <GymFiscalCustomerButton key={client.id} clientId={client.id} />
+      )}
 
       {/* GYM-BOOKINGS 3A — Modalidad */}
       <div className="bg-white rounded-xl border border-zinc-200 shadow-sm p-5 space-y-4">

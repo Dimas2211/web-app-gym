@@ -46,6 +46,7 @@ import type { CustomerSort, CustomerSortField, SortDirection }                  
 export interface CustomersClientProps {
   initialItems: CustomerListItem[];
   initialTotal: number;
+  initialSelected?: CustomerListItem | null;
   canManage:    boolean;
   canUseGym?: boolean;
 }
@@ -86,6 +87,7 @@ function buildListUrl(search: string, taxpayerType: string, statusFilter: string
 export function CustomersClient({
   initialItems,
   initialTotal,
+  initialSelected = null,
   canManage,
   canUseGym = false,
 }: CustomersClientProps) {
@@ -106,7 +108,7 @@ export function CustomersClient({
   const [sort, setSort] = useState<CustomerSort>({ field: "name", direction: "asc" });
 
   // ── Selección + detalle ───────────────────────────────────────
-  const [selectedCustomer, setSelectedCustomer] = useState<CustomerListItem | null>(null);
+  const [selectedCustomer, setSelectedCustomer] = useState<CustomerListItem | null>(initialSelected);
   const [detail, setDetail]                     = useState<CustomerDetail | null>(null);
   const [isLoadingDetail, setIsLoadingDetail]   = useState(false);
   const [detailRefreshKey, setDetailRefreshKey] = useState(0);
