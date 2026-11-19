@@ -28,6 +28,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Users, Plus } from "lucide-react";
 
+import { CustomerGymButton } from "./customer-gym-button";
 import { CustomersTable }              from "./customers-table";
 import { CustomerSummaryPanel }        from "./customer-summary-panel";
 import { CustomerDetailTabs }          from "./customer-detail-tabs";
@@ -46,6 +47,7 @@ export interface CustomersClientProps {
   initialItems: CustomerListItem[];
   initialTotal: number;
   canManage:    boolean;
+  canUseGym?: boolean;
 }
 
 // ── Constantes ────────────────────────────────────────────────────
@@ -85,6 +87,7 @@ export function CustomersClient({
   initialItems,
   initialTotal,
   canManage,
+  canUseGym = false,
 }: CustomersClientProps) {
   // ── Estado de lista ───────────────────────────────────────────
   const [items, setItems]                 = useState<CustomerListItem[]>(initialItems);
@@ -196,7 +199,19 @@ export function CustomersClient({
     setStatusFilter("");
   }
 
-  function handleNewSuccess()          { fetchList(); }
+  async function handleNewSuccess(id: string) {
+    fetchList();
+    // Show the newly saved customer immediately, including its Gym action,
+    // even when current filters exclude it from the visible list.
+    try {
+      const res = await fetch(`/api/customers/${id}`);
+      if (!res.ok) return;
+      const data = await res.json() as { ok: boolean; data: CustomerDetail };
+      if (data.ok) setSelectedCustomer(data.data);
+    } catch {
+      // The fiscal customer was saved; it remains available in the refreshed list.
+    }
+  }
   function handleEditSuccess()         { fetchList(); setDetailRefreshKey((k) => k + 1); }
   function handleStatusChangeSuccess() { fetchList(); setDetailRefreshKey((k) => k + 1); }
 
@@ -340,6 +355,9 @@ export function CustomersClient({
             onRequestEdit={() => requestEdit(() => setShowEditDialog(true))}
           />
         </div>
+        {canManage && canUseGym && detail && !isLoadingDetail && detail.id === customerId && (
+          <CustomerGymButton key={`${detail.id}:${detail.updated_at}`} customerId={detail.id} />
+        )}
         <CustomerDetailTabs
           detail={detail}
           canManage={canManage}

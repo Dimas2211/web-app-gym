@@ -71,7 +71,7 @@ function strVal(fd: FormData, key: string): string | null {
 
 interface NewCustomerDialogProps {
   onClose:    () => void;
-  onSuccess?: () => void;
+  onSuccess?: (id: string) => void;
 }
 
 // ── Componente ────────────────────────────────────────────────────
@@ -132,7 +132,7 @@ export function NewCustomerDialog({ onClose, onSuccess }: NewCustomerDialogProps
     startTransition(async () => {
       const result = await createCustomerAction(input);
       if (result.ok) {
-        onSuccess?.();
+        onSuccess?.(result.id);
         onClose();
       } else {
         setError(result.error);

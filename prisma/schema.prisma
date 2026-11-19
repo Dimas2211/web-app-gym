@@ -280,6 +280,7 @@ model MembershipPlan {
 }
 
 model Client {
+  fiscal_customer_link GymCustomerLink?
   id                      String             @id @default(uuid())
   gym_id                  String
   tenant_id               String?
@@ -2129,6 +2130,7 @@ enum CashMovementDirection {
 // ═════════════════════════════════════════════════════════════════
 
 model Customer {
+  gym_client_link GymCustomerLink?
   id            String  @id @default(uuid())
   tenant_id     String
   customer_code String
@@ -2177,6 +2179,7 @@ model Customer {
   updated_by_user User?  @relation("CustomerUpdatedBy", fields: [updated_by], references: [id])
   sales           Sale[]
 
+  @@unique([id, tenant_id])
   @@unique([tenant_id, customer_code])
   @@index([tenant_id])
   @@index([tenant_id, nit])
@@ -4188,4 +4191,19 @@ model PlatformDteMhTestRunItem {
   @@unique([run_id, seq])
   @@index([run_id, step])
   @@map("platform_dte_mh_test_run_items")
+}
+
+// Optional GYM-only bridge. Both composite FKs enforce tenant ownership.
+model GymCustomerLink {
+  id          String   @id @default(uuid())
+  tenant_id   String
+  customer_id String
+  client_id   String
+  created_by  String
+  created_at  DateTime @default(now())
+  customer Customer @relation(fields: [customer_id, tenant_id], references: [id, tenant_id], onDelete: Restrict, onUpdate: Restrict)
+  client   Client   @relation(fields: [client_id, tenant_id], references: [id, tenant_id], onDelete: Cascade, onUpdate: Restrict)
+  @@unique([customer_id, tenant_id])
+  @@unique([client_id, tenant_id])
+  @@map("gym_customer_links")
 }

@@ -14,6 +14,10 @@
 // a false en modo runtime (sesión siempre solo lectura).
 // ─────────────────────────────────────────────────────────────────
 
+import { resolveCommercialEnforcementContext } from "@/modules/platform/runtime/commercial-enforcement";
+import { resolveEffectiveVerticalCode, hasEffectiveVertical } from "@/modules/platform/runtime/effective-vertical";
+import { resolveOptionalGymForTenant } from "@/modules/platform/lib/provisioning/resolve-optional-gym-for-tenant";
+import { prisma } from "@/lib/db/prisma";
 import { requireAdmin } from "@/lib/permissions/guards";
 import { resolveEffectiveTenantContext } from "@/modules/platform/runtime/effective-tenant-context";
 import { requireOrganizationModule } from "@/modules/platform/runtime/commercial-enforcement";
@@ -40,8 +44,15 @@ export default async function CustomersPage() {
       page_size:      150,
     }, context.client);
 
+    const commercial = await resolveCommercialEnforcementContext(context.tenantId);
+    const [vertical, gymId] = await Promise.all([
+      resolveEffectiveVerticalCode(commercial),
+      resolveOptionalGymForTenant(context.client ?? prisma, context.tenantId),
+    ]);
+
     return (
       <CustomersClient
+        canUseGym={!!gymId && hasEffectiveVertical(commercial, vertical, "GYM")}
         initialItems={result.items}
         initialTotal={result.total}
         // FASE VI-D2: `readOnly` cubre Support Session (siempre readOnly);
