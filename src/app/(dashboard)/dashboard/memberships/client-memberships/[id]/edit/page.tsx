@@ -66,6 +66,11 @@ export default async function EditClientMembershipPage({ params }: Props) {
             {" — "}
             {membership.membership_plan.name}
           </p>
+          {membership.status === "expired" && (
+            <p className="text-sm text-amber-700 mb-4">
+              Esta membresía está vencida. Activarla no amplía su fecha de vencimiento.
+            </p>
+          )}
           <ClientMembershipForm
             action={updateClientMembershipAction}
             defaultValues={{
@@ -78,7 +83,7 @@ export default async function EditClientMembershipPage({ params }: Props) {
               discount_amount: membership.discount_amount.toString(),
               final_amount: membership.final_amount.toString(),
               payment_status: membership.payment_status,
-              status: membership.status,
+              status: membership.stored_status,
               notes: membership.notes,
               assigned_trainer_id: membership.assigned_trainer_id,
               modality: membership.modality,

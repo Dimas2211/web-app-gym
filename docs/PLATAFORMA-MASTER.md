@@ -601,6 +601,13 @@ Alta de cliente
 | `SUSPENDED` | Suspendida temporalmente |
 | `CANCELLED` | Cancelada definitivamente |
 
+La caducidad visible y sus filtros se calculan automáticamente por fecha local
+para toda la vertical GYM, aunque el estado administrativo guardado aún sea
+`active`. El último día es inclusivo; canceladas y suspendidas conservan su estado.
+La renovación se evalúa por separado y no se desactiva al vencer la membresía
+anterior. Ver [Vencimiento automático GYM](modules/gym-membership-expiration.md).
+
+
 ### Rutas UI
 
 | Ruta | Función |

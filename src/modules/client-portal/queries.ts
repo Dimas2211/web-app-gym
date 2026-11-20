@@ -1,3 +1,5 @@
+import { parseCalendarDate } from "@/lib/utils/business-date";
+import { effectiveMembershipStatus, membershipToday, withMembershipValidity } from "@/modules/memberships/membership-validity";
 import { prisma } from "@/lib/db/prisma";
 import type {
   AttendanceStatus,
@@ -83,14 +85,22 @@ export async function getClientByUserId(
   });
 }
 
+async function portalMembershipToday(clientId: string, client: PrismaClient, todayIso?: string): Promise<Date> {
+  if (todayIso) return parseCalendarDate(todayIso);
+  const settings = await client.gymSettings.findFirst({
+    where: { gym: { clients: { some: { id: clientId } } } },
+    select: { timezone: true },
+  });
+  return parseCalendarDate(membershipToday(settings?.timezone));
+}
+
 // ============================================================
 // MEMBRESÍAS
 // ============================================================
 
 /** Retorna la membresía activa y vigente del cliente (la más reciente si hay varias). */
-export async function getMyActiveMembership(clientId: string, client: PrismaClient = prisma) {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
+export async function getMyActiveMembership(clientId: string, client: PrismaClient = prisma, todayIso?: string) {
+  const today = await portalMembershipToday(clientId, client, todayIso);
   return client.clientMembership.findFirst({
     where: {
       client_id: clientId,
@@ -113,7 +123,7 @@ export async function getMyActiveMembership(clientId: string, client: PrismaClie
  * Se usa para mostrar el aviso de membresía caducada y calcular días hábiles desde el vencimiento.
  */
 export async function getLastExpiredMembership(clientId: string, client: PrismaClient = prisma, todayIso?: string) {
-  const today = portalToday(todayIso);
+  const today = await portalMembershipToday(clientId, client, todayIso);
   return client.clientMembership.findFirst({
     where: {
       client_id: clientId,
@@ -127,8 +137,9 @@ export async function getLastExpiredMembership(clientId: string, client: PrismaC
 }
 
 /** Historial completo de membresías del cliente. */
-export async function getMyMemberships(clientId: string, client: PrismaClient = prisma) {
-  return client.clientMembership.findMany({
+export async function getMyMemberships(clientId: string, client: PrismaClient = prisma, todayIso?: string) {
+  const today = dateOnly(await portalMembershipToday(clientId, client, todayIso));
+  const rows = await client.clientMembership.findMany({
     where: { client_id: clientId },
     include: {
       membership_plan: {
@@ -137,6 +148,7 @@ export async function getMyMemberships(clientId: string, client: PrismaClient = 
     },
     orderBy: { start_date: "desc" },
   });
+  return rows.map(row => withMembershipValidity(row, today));
 }
 
 // ============================================================
@@ -205,7 +217,7 @@ export async function getMyPlans(clientId: string, client: PrismaClient = prisma
 
 /** Devuelve true si el cliente tiene membresía activa y vigente hoy. */
 export async function hasActiveMembership(clientId: string, client: PrismaClient = prisma, todayIso?: string): Promise<boolean> {
-  const today = portalToday(todayIso);
+  const today = await portalMembershipToday(clientId, client, todayIso);
   const found = await client.clientMembership.findFirst({
     where: {
       client_id: clientId,
@@ -698,7 +710,7 @@ export async function loadPortalMembershipSummary(input: {
       orderBy: [{ start_date: "desc" }, { id: "asc" }],
     }),
   ]);
-  const today = localDate(now, policy.timezone);
+  const today = membershipToday(policy.timezone, now);
 
   const history: PortalMembershipView[] = rows.map((m) => ({
     id: m.id,
@@ -706,7 +718,7 @@ export async function loadPortalMembershipSummary(input: {
     planDescription: m.membership_plan.description,
     accessType: m.membership_plan.access_type,
     modality: m.modality,
-    status: m.status,
+    status: effectiveMembershipStatus(m, today),
     paymentStatus: m.payment_status,
     startDate: dateOnly(m.start_date),
     endDate: dateOnly(m.end_date),

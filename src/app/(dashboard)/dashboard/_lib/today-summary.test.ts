@@ -65,7 +65,8 @@ function fakeDb(data: Partial<Data>) {
     },
     cashSession: { count: count(d.cashSessions) },
     scheduledClass: { count: count(d.classes) },
-    clientMembership: { count: count(d.memberships) },
+    gymSettings: { findFirst: vi.fn(async () => ({ timezone: "America/El_Salvador" })) },
+    clientMembership: { count: count(d.memberships?.map(row => ({ start_date: new Date("2026-01-01T00:00:00Z"), ...row }))) },
   };
 }
 

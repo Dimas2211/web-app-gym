@@ -1,3 +1,4 @@
+import { BUSINESS_TIME_ZONE } from "@/lib/utils/business-date";
 // ─────────────────────────────────────────────────────────────────
 // GYM-BOOKINGS 2B — reglas puras de elegibilidad, fechas y ventanas.
 //
@@ -10,7 +11,7 @@
 //    guardadas como DATE (Prisma las entrega a medianoche UTC): se comparan
 //    como "YYYY-MM-DD".
 //  - "hoy" es la fecha local en GymSettings.timezone; sin timezone válida,
-//    la fecha local del servidor (comportamiento heredado).
+//    la zona por defecto del producto (America/El_Salvador), nunca la del servidor.
 //  - starts_at / ends_at (timestamptz) mandan cuando existen; si no, se
 //    derivan de class_date + HH:mm con la timezone. Sin timezone no hay
 //    instante (PERSONALIZED/GROUP ya fallan cerrados por R18).
@@ -40,15 +41,9 @@ export function dateOnly(value: Date): string {
   return value.toISOString().slice(0, 10);
 }
 
-/** Fecha local "YYYY-MM-DD" de `now` en `timeZone` (o del servidor si es null). */
+/** Fecha local "YYYY-MM-DD" en la zona GYM o en el default explícito del producto. */
 export function localDate(now: Date, timeZone: string | null): string {
-  if (!timeZone) {
-    const y = now.getFullYear();
-    const m = String(now.getMonth() + 1).padStart(2, "0");
-    const d = String(now.getDate()).padStart(2, "0");
-    return `${y}-${m}-${d}`;
-  }
-  const parts = zonedParts(now.getTime(), timeZone);
+  const parts = zonedParts(now.getTime(), timeZone ?? BUSINESS_TIME_ZONE);
   return `${parts.year}-${String(parts.month).padStart(2, "0")}-${String(parts.day).padStart(2, "0")}`;
 }
 

@@ -65,6 +65,7 @@ describe("fechas e instantes", () => {
     // 2026-10-21 03:00Z = 2026-10-20 21:00 en El Salvador (UTC−6)
     expect(localDate(new Date("2026-10-21T03:00:00Z"), "America/El_Salvador")).toBe("2026-10-20");
     expect(localDate(new Date("2026-10-21T03:00:00Z"), "UTC")).toBe("2026-10-21");
+    expect(localDate(new Date("2026-10-21T03:00:00Z"), null)).toBe("2026-10-20");
   });
 
   it("zonedInstant: hora local → instante UTC (incluye zonas con DST)", () => {
