@@ -1,5 +1,8 @@
+import { parseCalendarDate } from "@/lib/utils/business-date";
+import { getMembershipToday } from "./membership-calendar";
+import { membershipStatusWhere, withMembershipValidity } from "./membership-validity";
 import { prisma } from "@/lib/db/prisma";
-import type { PrismaClient } from "@prisma/client";
+import type { Prisma, PrismaClient } from "@prisma/client";
 import type { SessionUser } from "@/lib/permissions/guards";
 import type { Status, PaymentStatus, MembershipStatus } from "@prisma/client";
 
@@ -133,11 +136,12 @@ export async function getClientMemberships(
   user: SessionUser,
   filters: MembershipFilters = {},
   client: PrismaClient = prisma,
+  todayIso?: string,
 ) {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const in7Days = new Date(today);
-  in7Days.setDate(in7Days.getDate() + 7);
+  const today = todayIso ?? await getMembershipToday(client, user.tenant_id!);
+  const todayDate = parseCalendarDate(today);
+  const in7Days = new Date(todayDate.getTime() + 7 * 86400000);
+  const conditions: Prisma.ClientMembershipWhereInput[] = [];
 
   const where: Record<string, unknown> = { ...gymScope(user), ...branchScope(user) };
 
@@ -146,22 +150,21 @@ export async function getClientMemberships(
   }
 
   if (filters.status) {
-    where.status = filters.status;
+    conditions.push(membershipStatusWhere(filters.status, today));
   }
 
   if (filters.payment_status) {
     where.payment_status = filters.payment_status;
   }
 
-  if (filters.view === "expiring") {
-    where.status = "active";
-    where.end_date = { gte: today, lte: in7Days };
-  } else if (filters.view === "expired") {
-    where.OR = [{ status: "expired" }, { end_date: { lt: today } }];
-  } else if (filters.view === "active") {
-    where.status = "active";
-    where.end_date = { gte: today };
+  if (filters.view === "expired") {
+    conditions.push(membershipStatusWhere("expired", today));
+  } else if (filters.view === "active" || filters.view === "expiring") {
+    conditions.push(membershipStatusWhere("active", today));
+    conditions.push({ start_date: { lte: todayDate } });
+    if (filters.view === "expiring") conditions.push({ end_date: { lte: in7Days } });
   }
+  if (conditions.length) where.AND = conditions;
 
   if (filters.search) {
     where.client = {
@@ -174,7 +177,7 @@ export async function getClientMemberships(
     };
   }
 
-  return client.clientMembership.findMany({
+  const rows = await client.clientMembership.findMany({
     where,
     include: {
       client: { select: { id: true, first_name: true, last_name: true, email: true } },
@@ -184,6 +187,7 @@ export async function getClientMemberships(
     },
     orderBy: { end_date: "asc" },
   });
+  return rows.map(row => withMembershipValidity(row, today));
 }
 
 export async function getClientMembershipById(
@@ -191,7 +195,7 @@ export async function getClientMembershipById(
   user: SessionUser,
   client: PrismaClient = prisma,
 ) {
-  return client.clientMembership.findFirst({
+  const row = await client.clientMembership.findFirst({
     where: { id, ...gymScope(user), ...branchScope(user) },
     include: {
       client: { select: { id: true, first_name: true, last_name: true, email: true } },
@@ -202,6 +206,8 @@ export async function getClientMembershipById(
       sold_by: { select: { id: true, first_name: true, last_name: true } },
     },
   });
+  if (!row) return null;
+  return withMembershipValidity(row, await getMembershipToday(client, user.tenant_id!));
 }
 
 /** Membresías de un cliente específico (para ficha de cliente) */
@@ -209,8 +215,10 @@ export async function getClientMembershipsByClientId(
   clientId: string,
   user: SessionUser,
   client: PrismaClient = prisma,
+  todayIso?: string,
 ) {
-  return client.clientMembership.findMany({
+  const today = todayIso ?? await getMembershipToday(client, user.tenant_id!);
+  const rows = await client.clientMembership.findMany({
     where: { client_id: clientId, ...gymScope(user), ...branchScope(user) },
     include: {
       membership_plan: { select: { id: true, name: true, access_type: true } },
@@ -218,6 +226,7 @@ export async function getClientMembershipsByClientId(
     orderBy: { start_date: "desc" },
     take: 10,
   });
+  return rows.map(row => withMembershipValidity(row, today));
 }
 
 /** Clientes activos para selector (scope por sucursal) */

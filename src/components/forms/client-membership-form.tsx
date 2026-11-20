@@ -102,12 +102,13 @@ function Field({
 
 function addDays(dateStr: string, days: number): string {
   const d = new Date(dateStr);
-  d.setDate(d.getDate() + days);
+  d.setUTCDate(d.getUTCDate() + days);
   return d.toISOString().split("T")[0];
 }
 
 function formatDate(dateStr: string): string {
   return new Date(dateStr).toLocaleDateString("es-SV", {
+    timeZone: "UTC",
     year: "numeric",
     month: "long",
     day: "numeric",

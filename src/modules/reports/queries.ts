@@ -1,3 +1,5 @@
+import { parseCalendarDate } from "@/lib/utils/business-date";
+import { getMembershipToday } from "@/modules/memberships/membership-calendar";
 import { Prisma } from "@prisma/client";
 import type { PrismaClient } from "@prisma/client";
 import { prisma } from "@/lib/db/prisma";
@@ -164,18 +166,14 @@ export async function getExpiringMemberships(
     return { summary: { total: 0, expiringThisWeek: 0, revenueAtRisk: 0 }, items: [] };
   }
 
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const future = new Date(today);
-  future.setDate(future.getDate() + daysAhead);
-
-  const oneWeekAhead = new Date(today);
-  oneWeekAhead.setDate(oneWeekAhead.getDate() + 7);
+  const today = parseCalendarDate(await getMembershipToday(client, tenantId));
+  const future = new Date(today.getTime() + daysAhead * 86400000);
 
   const records = await client.clientMembership.findMany({
     where: {
       gym_id: gymId,
       status: "active",
+      start_date: { lte: today },
       end_date: { gte: today, lte: future },
       ...(branchId && { branch_id: branchId }),
     },
@@ -227,11 +225,15 @@ export async function getActiveMembershipsByBranch(
     return { summary: { totalActive: 0, branchesWithActive: 0, totalValue: 0 }, items: [] };
   }
 
+  const today = parseCalendarDate(await getMembershipToday(client, tenantId));
+
   const grouped = await client.clientMembership.groupBy({
     by: ["branch_id", "membership_plan_id"],
     where: {
       gym_id: gymId,
       status: "active",
+      start_date: { lte: today },
+      end_date: { gte: today },
       ...(branchId && { branch_id: branchId }),
     },
     _count: { id: true },
