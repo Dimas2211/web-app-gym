@@ -19,8 +19,19 @@ export interface MhTestRunPlanBlock {
   scenarios:     Array<{ scenarioCode: MhTestScenarioCode; count: number }>;
 }
 
+/** MH20 (Fase 8): segmento de una cadena de corridas (límite de 200 ítems). */
+export interface MhTestRunChainRef {
+  chainId: string;
+  index:   number;
+  total:   number;
+}
+
 export interface MhTestRunPlan {
-  version:       1;
+  /** 1 = histórico (implica MH_1_2). 2 = perfil normativo explícito y cadena opcional. */
+  version:       1 | 2;
+  /** Perfil normativo de la corrida; estable aunque el emisor cambie después. Ausente → MH_1_2. */
+  specProfile?:  "MH_1_2" | "MH_2_0";
+  chain?:        MhTestRunChainRef | null;
   blocks:        MhTestRunPlanBlock[];
   invalidations: Array<{ targetScenarioCode: MhTestScenarioCode; count: number }>;
   receptors:     MhTestReceptors;

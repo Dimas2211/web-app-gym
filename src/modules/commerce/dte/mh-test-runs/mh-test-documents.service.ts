@@ -23,10 +23,17 @@ import { randomUUID } from "crypto";
 import { Prisma, type PrismaClient } from "@prisma/client";
 import { reserveDteControlNumberBlock } from "../services/dte-correlative.service";
 import { generateNcJsonForDte } from "../services/generate-nc-json.service";
+import type { MhTestRunSpecProfileOverride } from "../spec/mh-test-run-profile-override";
 import { DTE_PURPOSE_MH_TEST_CERTIFICATION } from "../utils/dte-document-purpose";
+import type { DteSpecProfile } from "../spec/dte-spec-profile";
+import { checkDteDocumentSpecCoherence } from "../spec/dte-spec-guard";
+import { checkDteFiscalYearForGeneration } from "../utils/dte-fiscal-year";
 import {
+  MH20_BLOCKED_SCENARIOS,
   MH_TEST_ISSUER_SELECT,
+  MH_TEST_SCENARIOS,
   buildMhTestScenarioJson,
+  mhTestBuildOptionsForProfile,
   resolveMhTestBuildContext,
   type MhTestContingencySettings,
   type MhTestDteTypeCode,
@@ -155,6 +162,7 @@ export async function materializeMhTestDocuments(
               environment:            "TEST",
               generation_code,
               control_number,
+              fiscal_year:            reserved.fiscal_year,
               transmission_type_code: it.contingency ? "2" : "1",
               contingency_type_code:  it.contingency ? scope.contingency?.contingencyTypeCode ?? null : null,
               contingency_reason:     it.contingency ? scope.contingency?.reason ?? null : null,
@@ -235,33 +243,58 @@ export type MhTestStepResult = { ok: true; skipped?: boolean } | { ok: false; er
 export async function generateMhTestDocumentJson(
   db: PrismaClient,
   scope: MhTestRuntimeScope & { userId: string | null },
-  input: { key: string; scenario: MhTestScenarioCode; index: number; receptors: MhTestReceptors; now?: Date },
+  input: {
+    key: string; scenario: MhTestScenarioCode; index: number; receptors: MhTestReceptors; now?: Date;
+    /** MH20 (Fase 9.0): perfil persistido de la corrida. Ausente → MH_1_2 (salida histórica). */
+    profile?: DteSpecProfile;
+  },
 ): Promise<MhTestStepResult> {
+  const profile: DteSpecProfile = input.profile ?? "MH_1_2";
+  if (profile === "MH_2_0" && MH20_BLOCKED_SCENARIOS.includes(input.scenario)) {
+    return { ok: false, error: `Escenario ${input.scenario} bloqueado con MH 2.0 (INC-005 / R20-PEND-01).`, code: "SCENARIO_BLOCKED" };
+  }
   const doc = await db.dteOutgoingDocument.findFirst({
     where:  { tenant_id: scope.tenantId, location_id: scope.locationId, ...CERT_WHERE, certification_item_key: input.key },
-    select: { id: true, dte_status: true, control_number: true, generation_code: true, transmission_type_code: true, contingency_type_code: true, contingency_reason: true },
+    select: { id: true, dte_status: true, control_number: true, generation_code: true, transmission_type_code: true, contingency_type_code: true, contingency_reason: true, fiscal_year: true, created_at: true },
   });
   if (!doc) return { ok: false, error: "Documento de prueba no encontrado por clave.", code: "DOC_NOT_FOUND" };
   if (doc.dte_status !== "PENDING_GENERATION") return { ok: true, skipped: true };
 
   const issuer = await loadMhTestIssuer(db, scope);
   if (!issuer) return { ok: false, error: "Emisor TEST no encontrado.", code: "ISSUER_NOT_FOUND" };
-  const resolved = await resolveMhTestBuildContext(db, issuer, new Set([input.scenario]), input.receptors);
+  const resolved = await resolveMhTestBuildContext(db, issuer, new Set([input.scenario]), input.receptors, profile);
   if (!resolved.ok) return { ok: false, error: resolved.errors.join(" · "), code: "CONTEXT_INVALID" };
+  // Mismas opciones de builder que el dry-run (proyección territorial canónica).
+  const opts = mhTestBuildOptionsForProfile(resolved.context, input.scenario, profile);
+  if (!opts.ok) return { ok: false, error: opts.error, code: "CONTEXT_INVALID" };
 
   const now = input.now ?? new Date();
+  // COR-01 — el número se reservó en la secuencia de un ejercicio; no se emite en otro.
+  const fiscalYearCheck = checkDteFiscalYearForGeneration(doc, now);
+  if (!fiscalYearCheck.ok) return { ok: false, error: fiscalYearCheck.error, code: fiscalYearCheck.code };
   const built = buildMhTestScenarioJson(resolved.context, input.scenario, {
     control_number:         doc.control_number!,
     generation_code:        doc.generation_code!,
     transmission_type_code: doc.transmission_type_code,
     contingency_type_code:  doc.contingency_type_code,
     contingency_reason:     doc.contingency_reason,
-  }, input.index, now);
+  }, input.index, now, opts.options);
   if (!built.ok) return { ok: false, error: built.error, code: "BUILD_FAILED" };
+
+  // MH20 (Fase 9.0): la versión del JSON debe corresponder al perfil de la corrida.
+  const coherence = checkDteDocumentSpecCoherence({
+    kind: MH_TEST_SCENARIOS[input.scenario].dteTypeCode, jsonDocument: built.json, persistedProfile: profile,
+  });
+  if (!coherence.ok) return { ok: false, error: coherence.error, code: "PROFILE_VERSION_MISMATCH" };
 
   await db.dteOutgoingDocument.updateMany({
     where: { id: doc.id, dte_status: "PENDING_GENERATION", ...CERT_WHERE },
-    data:  { json_document: built.json as Prisma.InputJsonValue, dte_status: "GENERATED", generated_at: now, updated_by: scope.userId },
+    data:  {
+      json_document: built.json as Prisma.InputJsonValue, dte_status: "GENERATED", generated_at: now, updated_by: scope.userId,
+      // Perfil persistido solo con MH_2_0 (el preflight de la corrida exige M1);
+      // MH_1_2 conserva la escritura histórica (sin columna M1).
+      ...(profile === "MH_2_0" ? { mh_spec_profile: "MH_2_0" } : {}),
+    },
   });
   return { ok: true };
 }
@@ -273,7 +306,7 @@ export const MH_TEST_NC_REASON = "Prueba de certificación MH (ambiente TEST) �
 export async function prepareMhTestCreditNote(
   db: PrismaClient,
   scope: MhTestRuntimeScope & { userId: string | null },
-  input: { ncKey: string; ccfeKey: string },
+  input: { ncKey: string; ccfeKey: string; specProfileOverride?: MhTestRunSpecProfileOverride | null },
 ): Promise<MhTestStepResult> {
   const [nc, ccfe] = await Promise.all([
     db.dteOutgoingDocument.findFirst({
@@ -313,7 +346,10 @@ export async function prepareMhTestCreditNote(
     });
   }
   // userId solo se escribe en updated_by (FK nullable): null = sin actor runtime (Control Plane).
-  const gen = await generateNcJsonForDte({ dteDocumentId: nc.id, userId: scope.userId as string, tenantId: scope.tenantId, locationId: scope.locationId }, db);
+  const gen = await generateNcJsonForDte({
+    dteDocumentId: nc.id, userId: scope.userId as string, tenantId: scope.tenantId, locationId: scope.locationId,
+    specProfileOverride: input.specProfileOverride ?? null,
+  }, db);
   return gen.ok ? { ok: true } : { ok: false, error: gen.message, code: "NC_GENERATION_FAILED" };
 }
 

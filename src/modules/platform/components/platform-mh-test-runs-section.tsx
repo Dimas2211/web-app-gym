@@ -23,7 +23,9 @@ import {
   setMhTestRunStatusAction,
   type MhTestRunPanelData,
 } from "../actions/mh-test-run.action";
-import { MH_TEST_RUN_CONFIRM_TEXT } from "../dte-onboarding/mh-test-runs/mh-test-run.flags";
+import { MH20_TEST_RUN_CONFIRM_TEXT, MH_TEST_RUN_CONFIRM_TEXT } from "../dte-onboarding/mh-test-runs/mh-test-run.flags";
+import { PlatformMhTestProfilePanel, type MhTestProfile } from "./platform-mh-test-profile-panel";
+import type { MhTestChainSegment } from "../dte-onboarding/mh-test-runs/mh-test-minimums";
 
 const INPUT = "w-full h-8 px-2 text-xs border border-zinc-200 rounded-md focus:outline-none focus:ring-2 focus:ring-primary/40";
 const LABEL = "block text-[11px] font-semibold text-zinc-600 mb-0.5";
@@ -84,6 +86,24 @@ export function PlatformMhTestRunsSection({ organizationId }: { organizationId: 
   const [errors, setErrors] = useState<string[]>([]);
   const [confirm, setConfirm] = useState("");
   const [notes, setNotes] = useState<Record<string, string>>({});
+  // MH20 (Fase 8): perfil de la corrida y segmento de cadena cargado desde el preset.
+  const [profile, setProfile] = useState<MhTestProfile>("MH_1_2");
+  const [chain, setChain] = useState<{ chainId: string; index: number; total: number } | null>(null);
+
+  function applySegment(s: MhTestChainSegment, chainId: string) {
+    const nextCounts: Record<string, number> = {};
+    const nextFirsts: Partial<Record<TypeCode, string>> = {};
+    for (const b of s.blocks) {
+      nextFirsts[b.dteTypeCode] = String(b.firstSequence);
+      for (const sc of b.scenarios) nextCounts[sc.scenarioCode] = sc.count;
+    }
+    setCounts(nextCounts);
+    setFirsts((prev) => ({ ...prev, ...nextFirsts }));
+    setInvFe(s.invalidations.find((i) => i.targetScenarioCode === "FE01_IDENTIFICADO")?.count ?? 0);
+    setInvCcfe(s.invalidations.find((i) => i.targetScenarioCode === "CCFE03_ESTANDAR")?.count ?? 0);
+    setChain(s.total > 1 ? { chainId, index: s.index, total: s.total } : null);
+    setPreview(null);
+  }
 
   const load = useCallback(() => {
     start(async () => {
@@ -117,8 +137,11 @@ export function PlatformMhTestRunsSection({ organizationId }: { organizationId: 
       firstSequence: Number(firsts[t.code] ?? 0),
       scenarios: (scenariosByType.get(t.code) ?? []).map((s) => ({ scenarioCode: s.code, count: counts[s.code] ?? 0 })).filter((s) => s.count > 0),
     })).filter((b) => b.scenarios.length > 0);
+    // v1 = histórico (MH_1_2, sin cadena). v2 = perfil explícito y/o cadena (requiere M4).
+    const v2 = profile === "MH_2_0" || chain !== null;
     return {
-      version: 1,
+      version: v2 ? 2 : 1,
+      ...(v2 ? { specProfile: profile, chain } : {}),
       blocks,
       invalidations: [
         ...(invFe > 0 ? [{ targetScenarioCode: "FE01_IDENTIFICADO", count: invFe }] : []),
@@ -173,6 +196,9 @@ export function PlatformMhTestRunsSection({ organizationId }: { organizationId: 
 
       {!active && data.enabled && data.issuer && (
         <div className="space-y-3">
+          <PlatformMhTestProfilePanel data={data} profile={profile} onProfileChange={(p) => { setProfile(p); setPreview(null); }}
+            firsts={firsts} onApplySegment={applySegment} />
+          {chain && <p className="text-[11px] text-zinc-600">Plan cargado: corrida {chain.index}/{chain.total} de la cadena {chain.chainId}.</p>}
           <div className="overflow-x-auto">
             <table className="zv-table w-full text-[11px]">
               <thead><tr><th>Tipo</th><th>Primer correlativo</th><th>Escenarios (cantidad)</th><th>Siguiente disponible</th></tr></thead>
@@ -228,11 +254,14 @@ export function PlatformMhTestRunsSection({ organizationId }: { organizationId: 
               </p>
               <p className="text-xs text-amber-700">
                 Al iniciar se reservan estos correlativos TEST y se firman y transmiten documentos reales a Hacienda TEST.
-                Escriba “{MH_TEST_RUN_CONFIRM_TEXT}”.
+                Escriba “{profile === "MH_2_0" ? MH20_TEST_RUN_CONFIRM_TEXT : MH_TEST_RUN_CONFIRM_TEXT}”.
               </p>
+              {profile === "MH_2_0" && data.mh20Gate.length > 0 && (
+                <p className="text-xs text-zinc-600">Ejecución MH 2.0 no habilitada: {data.mh20Gate.join(" · ")}</p>
+              )}
               <div className="flex gap-2 max-w-md">
                 <input className={INPUT} value={confirm} onChange={(e) => setConfirm(e.target.value)} autoComplete="off" />
-                <button type="button" disabled={pending || confirm !== MH_TEST_RUN_CONFIRM_TEXT} className={buttonClasses("accent", "sm")}
+                <button type="button" disabled={pending || (profile === "MH_2_0" ? (data.mh20Gate.length > 0 || confirm !== MH20_TEST_RUN_CONFIRM_TEXT) : confirm !== MH_TEST_RUN_CONFIRM_TEXT)} className={buttonClasses("accent", "sm")}
                   onClick={() => { act(() => createMhTestRunAction(organizationId, buildPlan(), confirm)); setConfirm(""); setPreview(null); }}>
                   Iniciar pruebas
                 </button>

@@ -24,6 +24,11 @@ import type {
 } from "@/modules/commerce/dte/mh-test-runs/mh-test-documents.service";
 import type { TransmitDteDocumentResult } from "@/modules/commerce/dte/services/transmit-dte-document.service";
 import type { ReconcileDteWithMhResult } from "@/modules/commerce/dte/services/dte-reconciliation.service";
+import type { DteSpecProfile } from "@/modules/commerce/dte/spec/dte-spec-profile";
+import {
+  createMhTestRunSpecProfileOverride,
+  type MhTestRunSpecProfileOverride,
+} from "@/modules/commerce/dte/spec/mh-test-run-profile-override";
 
 export type PortResult = { ok: true } | { ok: false; error: string };
 export type EventRef = { id: string; status: string; mh_sello_recibido: string | null };
@@ -71,6 +76,60 @@ export interface MhTestRuntimeScopeInput {
    * NO se exige que exista en la base runtime: ver resolveMhTestRuntimeActor.
    */
   userId:         string;
+  /**
+   * MH20 (Fase 9.0): perfil PERSISTIDO de la corrida (fila M4) y snapshot del
+   * emisor tomado al crearla. Ausente → MH_1_2 (comportamiento histórico).
+   */
+  runId?:          string;
+  profile?:        DteSpecProfile;
+  issuerSnapshot?: MhTestIssuerSnapshot | null;
+}
+
+export type MhTestIssuerSnapshot = Record<"cod_estable_mh" | "cod_punto_venta_mh" | "dept_code" | "municipality_code", string | null>;
+
+/** Override del perfil 2.0 para los servicios runtime; null con MH_1_2. */
+export function mhTestRunOverrideFor(scope: MhTestRuntimeScopeInput): MhTestRunSpecProfileOverride | null {
+  if ((scope.profile ?? "MH_1_2") !== "MH_2_0") return null;
+  if (!scope.runId) throw new Error("MH20_RUN_SCOPE_INVALID: falta runId para el perfil MH 2.0.");
+  return createMhTestRunSpecProfileOverride({ runId: scope.runId, issuerConfigId: scope.issuerConfigId, profile: scope.profile });
+}
+
+const SNAPSHOT_KEYS = ["cod_estable_mh", "cod_punto_venta_mh", "dept_code", "municipality_code"] as const;
+
+/**
+ * Preflight adicional de una corrida MH_2_0 (sin red, solo lectura):
+ * M1/M1b/M2 en la base runtime, schemas 2.0, catálogos 2.0 sembrados,
+ * códigos AT del emisor y emisor sin cambios respecto del snapshot.
+ */
+export async function runMh20RuntimePreflight(db: PrismaClient, scope: MhTestRuntimeScopeInput): Promise<string[]> {
+  const errors: string[] = [];
+  if (!scope.runId) errors.push("Corrida MH 2.0 sin identificador.");
+  if (!scope.issuerSnapshot) errors.push("Corrida MH 2.0 sin snapshot del emisor (fila M4).");
+  const admin = await import("@/modules/commerce/dte/services/dte-spec-profile-admin.service");
+  const persistence = await admin.checkSpecProfilePersistence(db);
+  if (!persistence.ok) errors.push(`Base runtime sin migraciones MH 2.0: ${persistence.missing.join(", ")}.`);
+  const m2 = await db.$queryRaw<Array<{ table_name: string }>>`
+    SELECT table_name FROM information_schema.tables
+    WHERE table_schema = current_schema() AND table_name = 'dte_return_events'`;
+  if (m2.length === 0) errors.push("Base runtime sin M2 (dte_return_events): la invalidación 2.0 la consulta.");
+  errors.push(...admin.checkMh20SchemasAvailable().map((p) => `Schemas 2.0: ${p}.`));
+  if (persistence.ok) errors.push(...(await admin.checkMh20CatalogsSeeded(db)).map((p) => `Catálogos 2.0: ${p}.`));
+
+  const issuer = await db.dteIssuerConfig.findFirst({
+    where:  { id: scope.issuerConfigId, tenant_id: scope.tenantId, location_id: scope.locationId },
+    select: { environment: true, cod_estable_mh: true, cod_punto_venta_mh: true, dept_code: true, municipality_code: true },
+  });
+  if (issuer) {
+    const { MH20_COD_ESTABLE_RE, MH20_COD_PUNTO_VENTA_RE } = await import("@/modules/commerce/dte/services/build-invalidation-event-json.v3");
+    if (!MH20_COD_ESTABLE_RE.test(issuer.cod_estable_mh ?? "") || !MH20_COD_PUNTO_VENTA_RE.test(issuer.cod_punto_venta_mh ?? "")) {
+      errors.push("El emisor no tiene códigos AT válidos para MH 2.0 (M|S|B|P + 3 dígitos / P + 3 dígitos).");
+    }
+    if (scope.issuerSnapshot) {
+      const changed = SNAPSHOT_KEYS.filter((k) => (issuer[k] ?? null) !== (scope.issuerSnapshot![k] ?? null));
+      if (changed.length > 0) errors.push(`El emisor cambió desde la creación de la corrida (${changed.join(", ")}). Cree una corrida nueva.`);
+    }
+  }
+  return errors;
 }
 
 /**
@@ -127,6 +186,9 @@ export async function runMhTestPreflight(db: PrismaClient, scope: MhTestRuntimeS
   const signer = await resolveDteSignerConfigForIssuer({ issuerConfigId: scope.issuerConfigId, environment: "TEST", client: db });
   if (!signer.ok || signer.source !== "ISSUER_CREDENTIAL") errors.push("El firmador no se resuelve desde la credencial del emisor (ISSUER_CREDENTIAL).");
 
+  // MH20 (Fase 9.0): guardias adicionales del perfil 2.0.
+  if ((scope.profile ?? "MH_1_2") === "MH_2_0") errors.push(...(await runMh20RuntimePreflight(db, scope)));
+
   // El usuario de plataforma no necesita existir en el runtime (ver resolveMhTestRuntimeActor).
   return { ok: errors.length === 0, errors };
 }
@@ -149,6 +211,9 @@ export function createRuntimeMhTestPort(scope: MhTestRuntimeScopeInput): MhTestR
     });
   }
   const docs = () => import("@/modules/commerce/dte/mh-test-runs/mh-test-documents.service");
+  // MH20 (Fase 9.0): perfil persistido de la corrida → override explícito por servicio.
+  const override = mhTestRunOverrideFor(scope);
+  const profile: DteSpecProfile = scope.profile ?? "MH_1_2";
 
   return {
     preflight: () => rt((db) => runMhTestPreflight(db, scope)),
@@ -163,7 +228,7 @@ export function createRuntimeMhTestPort(scope: MhTestRuntimeScopeInput): MhTestR
     },
     generate: async (input) => {
       const m = await docs();
-      return rt((db, { ctx }) => m.generateMhTestDocumentJson(db, ctx, input));
+      return rt((db, { ctx }) => m.generateMhTestDocumentJson(db, ctx, { ...input, profile }));
     },
     validate: async (id) => {
       const { validateDteJsonSchema } = await import("@/modules/commerce/dte/services/validate-dte-json-schema.service");
@@ -174,7 +239,7 @@ export function createRuntimeMhTestPort(scope: MhTestRuntimeScopeInput): MhTestR
     },
     sign: async (id) => {
       const { signDteDocument } = await import("@/modules/commerce/dte/services/sign-dte-document.service");
-      const r = await rt((db, { svcParams }) => signDteDocument({ dteDocumentId: id, ...svcParams }, db));
+      const r = await rt((db, { svcParams }) => signDteDocument({ dteDocumentId: id, ...svcParams, specProfileOverride: override }, db));
       return r.ok ? { ok: true } : { ok: false, error: r.error };
     },
     transmit: async (id) => {
@@ -191,7 +256,7 @@ export function createRuntimeMhTestPort(scope: MhTestRuntimeScopeInput): MhTestR
     },
     prepareCreditNote: async (ncKey, ccfeKey) => {
       const m = await docs();
-      return rt((db, { ctx }) => m.prepareMhTestCreditNote(db, ctx, { ncKey, ccfeKey }));
+      return rt((db, { ctx }) => m.prepareMhTestCreditNote(db, ctx, { ncKey, ccfeKey, specProfileOverride: override }));
     },
     cancelUnsigned: async (key) => {
       const m = await docs();
@@ -205,7 +270,7 @@ export function createRuntimeMhTestPort(scope: MhTestRuntimeScopeInput): MhTestR
       const { createInvalidationEvent } = await import("@/modules/commerce/dte/services/create-invalidation-event.service");
       const r = await rt((db, { svcParams }) => createInvalidationEvent({
         dteDocumentId: docId, invalidationTypeCode: "2", reason: MH_TEST_INVALIDATION_REASON, replacementGenerationCode: null,
-        responsable: persona(responsible), solicita: persona(responsible), ...svcParams,
+        responsable: persona(responsible), solicita: persona(responsible), ...svcParams, specProfileOverride: override,
       }, db));
       return r.ok ? { ok: true, eventId: r.invalidationEventId } : { ok: false, error: r.message };
     },
@@ -230,6 +295,7 @@ export function createRuntimeMhTestPort(scope: MhTestRuntimeScopeInput): MhTestR
       return rt((db, { ctx }) => m.readMhTestEmissionWindow(db, ctx, keys));
     },
     createContingency: async (ids, window, settings, responsible) => {
+      if (profile === "MH_2_0") return { ok: false, error: "Contingencia v4 bloqueada con MH 2.0 (INC-005 / R20-PEND-01)." };
       const { createContingencyEvent } = await import("@/modules/commerce/dte/services/create-contingency-event.service");
       const [fDate, fTime] = window.first.split(" ");
       const [lDate, lTime] = window.last.split(" ");
@@ -259,4 +325,26 @@ export function createRuntimeMhTestPort(scope: MhTestRuntimeScopeInput): MhTestR
         : { ok: false, error: r.error };
     },
   };
+}
+
+/**
+ * MH20 (Fase 9.0) — puerto de una corrida concreta. El perfil sale de la
+ * fila M4 PERSISTIDA (no del plan ni del emisor actual); sin fila → MH_1_2.
+ * Único constructor usado por el tick y por el avance manual.
+ */
+export function createRuntimeMhTestPortForRun(
+  run: { id: string; organization_id: string; tenant_id: string; location_id: string; issuer_config_id: string; authorized_by: string | null },
+  runProfile?: { mh_spec_profile: "MH_1_2" | "MH_2_0"; issuer_snapshot: Record<string, string | null> } | null,
+): MhTestRuntimePort {
+  const profile: DteSpecProfile = runProfile?.mh_spec_profile ?? "MH_1_2";
+  const snap = runProfile?.issuer_snapshot ?? null;
+  return createRuntimeMhTestPort({
+    organizationId: run.organization_id, tenantId: run.tenant_id, locationId: run.location_id,
+    issuerConfigId: run.issuer_config_id, userId: run.authorized_by ?? "",
+    runId: run.id, profile,
+    issuerSnapshot: snap ? {
+      cod_estable_mh: snap.cod_estable_mh ?? null, cod_punto_venta_mh: snap.cod_punto_venta_mh ?? null,
+      dept_code: snap.dept_code ?? null, municipality_code: snap.municipality_code ?? null,
+    } : null,
+  });
 }

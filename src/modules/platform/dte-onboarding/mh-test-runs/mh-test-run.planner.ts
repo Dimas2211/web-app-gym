@@ -8,6 +8,7 @@
 
 import { z } from "zod";
 import {
+  MH20_BLOCKED_SCENARIOS,
   MH_TEST_DTE_TYPE_CODES,
   MH_TEST_INVALIDATION_TARGETS,
   MH_TEST_SCENARIOS,
@@ -27,7 +28,14 @@ const opt = z.string().trim().max(200).nullable().optional();
 const idType = z.enum(["36", "13", "02", "03", "37"]);
 
 const planSchema = z.object({
-  version: z.literal(1),
+  version: z.union([z.literal(1), z.literal(2)]),
+  // MH20 (Fase 8): perfil normativo por corrida y segmento de cadena.
+  specProfile: z.enum(["MH_1_2", "MH_2_0"]).optional(),
+  chain: z.object({
+    chainId: z.string().trim().min(8).max(64),
+    index:   z.number().int().min(1).max(50),
+    total:   z.number().int().min(1).max(50),
+  }).nullable().optional(),
   blocks: z.array(z.object({
     dteTypeCode:   z.enum(["01", "03", "05", "11", "14"]),
     firstSequence: z.number().int().min(1).max(MAX_CONTROL_SEQUENCE),
@@ -61,7 +69,7 @@ const planSchema = z.object({
 });
 
 export type MhTestPlanResult =
-  | { ok: true; plan: MhTestRunPlan; items: PlannedMhTestItem[]; ranges: PlannedMhTestRange[]; scenarios: Set<MhTestScenarioCode> }
+  | { ok: true; plan: MhTestRunPlan; items: PlannedMhTestItem[]; ranges: PlannedMhTestRange[]; scenarios: Set<MhTestScenarioCode>; profile: "MH_1_2" | "MH_2_0" }
   | { ok: false; errors: string[] };
 
 export function planMhTestRun(input: unknown): MhTestPlanResult {
@@ -71,6 +79,13 @@ export function planMhTestRun(input: unknown): MhTestPlanResult {
   }
   const plan = parsed.data as MhTestRunPlan;
   const errors: string[] = [];
+
+  // ── Perfil y cadena (MH20, Fase 8) ─────────────────────────────
+  if (plan.version === 1 && (plan.specProfile ?? "MH_1_2") !== "MH_1_2") errors.push("Plan v1: solo admite el perfil MH_1_2.");
+  if (plan.version === 1 && plan.chain) errors.push("Plan v1: no admite cadena de corridas.");
+  if (plan.version === 2 && !plan.specProfile) errors.push("Plan v2: el perfil normativo (specProfile) es obligatorio.");
+  if (plan.chain && plan.chain.index > plan.chain.total) errors.push("Cadena: el índice excede el total de corridas.");
+  const profile = plan.specProfile ?? "MH_1_2";
 
   // ── Bloques por tipo ───────────────────────────────────────────
   const seenTypes = new Set<MhTestDteTypeCode>();
@@ -89,6 +104,9 @@ export function planMhTestRun(input: unknown): MhTestPlanResult {
         continue;
       }
       if (counts.has(s.scenarioCode)) errors.push(`Escenario ${s.scenarioCode} repetido.`);
+      if (profile === "MH_2_0" && s.count > 0 && MH20_BLOCKED_SCENARIOS.includes(s.scenarioCode)) {
+        errors.push(`Escenario ${s.scenarioCode}: BLOCKED con MH 2.0 (contingencia: INC-005 / R20-PEND-01).`);
+      }
       counts.set(s.scenarioCode, s.count);
       total += s.count;
     }
@@ -173,5 +191,5 @@ export function planMhTestRun(input: unknown): MhTestPlanResult {
     items.push({ seq: seq++, kind: "INVALIDATION", dteTypeCode: null, scenarioCode: `INVALIDATION_${targetItem.scenarioCode}`, plannedSequence: null, dependsOnSeq: target });
   }
 
-  return { ok: true, plan, items, ranges, scenarios };
+  return { ok: true, plan, items, ranges, scenarios, profile };
 }

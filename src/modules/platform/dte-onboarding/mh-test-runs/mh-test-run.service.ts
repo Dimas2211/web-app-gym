@@ -7,13 +7,13 @@
 
 import { randomUUID } from "crypto";
 import { advanceMhTestRun, MH_TEST_DEFAULT_BUDGET_MS, MH_TEST_MIN_STEP_MS, type AdvanceOutcome } from "./mh-test-run.engine";
-import type { MhTestRunRepository, MhTestItemPatch } from "./mh-test-run.repository";
+import type { MhTestRunRepository, MhTestItemPatch, MhTestRunProfileRecord } from "./mh-test-run.repository";
 import type { MhTestRuntimePort } from "./mh-test-run.runtime-port";
 import type { MhTestOperatorDecision, MhTestRunItemRecord, MhTestRunItemStep, MhTestRunRecord } from "./mh-test-run.types";
 
 export interface ProcessDueDeps {
   repo:      MhTestRunRepository;
-  runtime:   (run: MhTestRunRecord) => MhTestRuntimePort;
+  runtime:   (run: MhTestRunRecord, runProfile?: MhTestRunProfileRecord | null) => MhTestRuntimePort;
   budgetMs?: number;
   now?:      () => Date;
   owner?:    string;
