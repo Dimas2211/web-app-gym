@@ -1,0 +1,1031 @@
+{
+  "fase": "5.1 — Cierre de pendientes del motor fiscal base MH 2.0",
+  "fecha": "2026-11-24",
+  "rama": "feat/mh-normativa-2.0",
+  "head_inicial": "b682b70abc0ef6e8f2b52dcf073c8b2c7f6f0b6f",
+  "commit": "ninguno (sin autorización de commit)",
+  "interruptor_global": "DTE_MH20_PROFILE_ENABLED OFF (sin cambios)",
+  "estado_global": "FASE_5_PASS",
+  "bloques": {
+    "5.1A": "PASS",
+    "5.1B": "PASS",
+    "5.1C": "PASS",
+    "5.1D": "PASS",
+    "5.1E": "PASS",
+    "5.1F": "PASS",
+    "5.1G": "PASS",
+    "5.1H": "PASS"
+  },
+  "conteo": {
+    "IMPLEMENTED": 14,
+    "PARTIAL": 9,
+    "DEFERRED": 9,
+    "NOT_STARTED": 7
+  },
+  "conteo_fase_5": {
+    "IMPLEMENTED": 10,
+    "PARTIAL": 12,
+    "BLOCKED": 0,
+    "DEFERRED": 9,
+    "NOT_STARTED": 8
+  },
+  "bloqueos_externos": [
+    "MH20-092/093",
+    "MH20-094",
+    "INC-003",
+    "INC-004/INC-006",
+    "INC-005",
+    "MH20-090",
+    "COR-01 (decisión interna)",
+    "COR-03/MH20-004",
+    "MARIADB-CONTRACT",
+    "CAT-028 equivalencias",
+    "CAT-INC-001 Cabañas",
+    "CAT-INC-004 CAT-033"
+  ],
+  "tareas": [
+    {
+      "id": "IMP20-001",
+      "prioridad": "P0",
+      "objetivo": "Registro central de perfiles normativos (MH_1_2, MH_2_0) y copia literal de los schemas 2.0 en carpeta propia, sin tocar los históricos.",
+      "estado": "IMPLEMENTED",
+      "bloque_5_1": null,
+      "archivos": [
+        "src/modules/commerce/dte/spec/dte-spec-profile.ts",
+        "src/modules/commerce/dte/spec/dte-spec-registry.ts",
+        "src/modules/commerce/dte/schemas/mh/v2_0/*.json",
+        "src/modules/commerce/dte/schemas/mh/v2_0/SHA256SUMS.md"
+      ],
+      "tests": [
+        "spec/mh20-spec.test.ts (SHA-256 vs original, registro)"
+      ],
+      "refs": [
+        "04-diseno-tecnico §2"
+      ],
+      "limitaciones": "FEX v3 no se duplica: SHA idéntico al schema vigente.",
+      "historial": [
+        {
+          "fase": "5",
+          "estado": "IMPLEMENTED",
+          "limitaciones": "FEX v3 no se duplica: SHA idéntico al schema vigente."
+        }
+      ]
+    },
+    {
+      "id": "IMP20-002",
+      "prioridad": "P0",
+      "objetivo": "Validador AJV versionado: el schema se elige por (tipo, identificacion.version) del propio documento, con compiladores en caché; los eventos dejan de importar s",
+      "estado": "IMPLEMENTED",
+      "bloque_5_1": null,
+      "archivos": [
+        "src/modules/commerce/dte/services/validate-dte-json-schema.service.ts",
+        "src/modules/commerce/dte/spec/dte-json-version.ts"
+      ],
+      "tests": [
+        "spec/mh20-spec.test.ts (versión desconocida, caché)",
+        "validate-dte-json-schema.service*.test.ts existentes"
+      ],
+      "refs": [
+        "D3"
+      ],
+      "limitaciones": "",
+      "historial": [
+        {
+          "fase": "5",
+          "estado": "IMPLEMENTED",
+          "limitaciones": ""
+        }
+      ]
+    },
+    {
+      "id": "IMP20-003",
+      "prioridad": "P0",
+      "objetivo": "Transmisión, firma y guardias usan la versión del documento: se eliminan dteTypeCodeToVersion y el literal 2 de la invalidación, y la guardia FEX se generaliza ",
+      "estado": "IMPLEMENTED",
+      "bloque_5_1": null,
+      "archivos": [
+        "services/transmit-dte-document.service.ts",
+        "services/transmit-invalidation-event.service.ts",
+        "services/sign-dte-document.service.ts",
+        "spec/dte-spec-guard.ts"
+      ],
+      "tests": [
+        "spec/mh20-spec.test.ts (coherencia)",
+        "transmit/sign/invalidation tests existentes"
+      ],
+      "refs": [
+        "D3",
+        "D9"
+      ],
+      "limitaciones": "Histórico sin versión ni perfil → LEGACY_FALLBACK MH_1_2 (comportamiento previo exacto).",
+      "historial": [
+        {
+          "fase": "5",
+          "estado": "IMPLEMENTED",
+          "limitaciones": "Histórico sin versión ni perfil → LEGACY_FALLBACK MH_1_2 (comportamiento previo exacto)."
+        }
+      ]
+    },
+    {
+      "id": "IMP20-004",
+      "prioridad": "P0",
+      "objetivo": "Activación controlada por emisor y ambiente: DteIssuerConfig.mh_spec_profile más el interruptor de despliegue DTE_MH20_PROFILE_ENABLED, una acción administrativ",
+      "estado": "IMPLEMENTED",
+      "bloque_5_1": "5.1E",
+      "archivos": [
+        "config/dte-mh20.flags.ts",
+        "spec/resolve-active-dte-spec-profile.ts",
+        "spec/resolve-issuer-spec-profile.ts",
+        "prisma/schema.prisma",
+        "actions/set-dte-spec-profile.action.ts",
+        "services/dte-spec-profile-admin.service.ts",
+        "spec/mh20-activation-blockers.ts",
+        "prisma/schema.prisma (DteSpecProfileAuditLog)",
+        "prisma/migrations/20261124010000_mh20_spec_profile_audit"
+      ],
+      "tests": [
+        "spec/mh20-spec.test.ts (interruptor)",
+        "actions/set-dte-spec-profile.action.test.ts (7)",
+        "services/dte-spec-profile-admin.service.test.ts (6)",
+        "services/dte-spec-profile-admin.integration.test.ts (11, base desechable)"
+      ],
+      "refs": [
+        "D1",
+        "D2"
+      ],
+      "limitaciones": "Sin UI (solo server action). Con interruptor OFF solo se admite volver a MH_1_2. PRODUCTION rechazado mientras existan bloqueos P0 (MH20_PRODUCTION_ACTIVATION_BLOCKERS). No se activó 2.0 en ningún emisor.",
+      "historial": [
+        {
+          "fase": "5",
+          "estado": "PARTIAL",
+          "limitaciones": "Sin acción/UI administrativa para cambiar mh_spec_profile (no se activa 2.0 en esta fase)."
+        },
+        {
+          "fase": "5.1",
+          "estado": "IMPLEMENTED",
+          "cambio": "PARTIAL → IMPLEMENTED"
+        }
+      ]
+    },
+    {
+      "id": "IMP20-005",
+      "prioridad": "P1",
+      "objetivo": "Persistir el perfil normativo aplicado en documentos y eventos (mh_spec_profile) al generar y crear el evento.",
+      "estado": "PARTIAL",
+      "bloque_5_1": null,
+      "archivos": [
+        "generate-fe/ccfe/nc/fse/fex + pipelines"
+      ],
+      "tests": [
+        "mh12-golden (no escribe con interruptor OFF)",
+        "mh20-fixtures NC (escribe MH_2_0 con ON)"
+      ],
+      "refs": [
+        "D4"
+      ],
+      "limitaciones": "Eventos de invalidación/contingencia no escriben el perfil (2.0 bloqueado para eventos; NULL = MH_1_2).",
+      "historial": [
+        {
+          "fase": "5",
+          "estado": "PARTIAL",
+          "limitaciones": "Eventos de invalidación/contingencia no escriben el perfil (2.0 bloqueado para eventos; NULL = MH_1_2)."
+        }
+      ]
+    },
+    {
+      "id": "IMP20-006",
+      "prioridad": "P0",
+      "objetivo": "Política de transición para documentos pendientes (GENERATED, SCHEMA_VALIDATED, SIGNED, contingencia) al cambiar de perfil: regeneración con el mismo numeroCont",
+      "estado": "PARTIAL",
+      "bloque_5_1": null,
+      "archivos": [
+        "spec/dte-transition-policy.ts",
+        "services/sign-dte-document.service.ts"
+      ],
+      "tests": [
+        "spec/mh20-spec.test.ts (política)"
+      ],
+      "refs": [
+        "D9"
+      ],
+      "limitaciones": "Firma exige regenerar si el perfil no coincide; transmisión usa TRANSMIT_AS_IS (versión del propio documento). REGENERATE_REQUIRED no cableado en transmisión.",
+      "historial": [
+        {
+          "fase": "5",
+          "estado": "PARTIAL",
+          "limitaciones": "Firma exige regenerar si el perfil no coincide; transmisión usa TRANSMIT_AS_IS (versión del propio documento). REGENERATE_REQUIRED no cableado en transmisión."
+        }
+      ]
+    },
+    {
+      "id": "IMP20-007",
+      "prioridad": "P0",
+      "objetivo": "Servicio canónico de proyección territorial MH (departamento, municipio CAT-013, distrito CAT-008) que generaliza projectFexV3Territory, con fuente CAT-013 vers",
+      "estado": "IMPLEMENTED",
+      "bloque_5_1": null,
+      "archivos": [
+        "utils/dte-territory-projection.ts",
+        "utils/cat013-municipalities.ts",
+        "utils/fex11-v3-territory.ts"
+      ],
+      "tests": [
+        "spec/mh20-spec.test.ts (262 filas, Cabañas, Delgado)",
+        "fex11-v3-territory tests existentes"
+      ],
+      "refs": [
+        "CAT20-297",
+        "CAT20-307/308",
+        "CAT-INC-001"
+      ],
+      "limitaciones": "Delgado se marca REVIEW_LABEL sin bloquear; el aviso no se propaga aún a la UI.",
+      "historial": [
+        {
+          "fase": "5",
+          "estado": "IMPLEMENTED",
+          "limitaciones": "Delgado se marca REVIEW_LABEL sin bloquear; el aviso no se propaga aún a la UI."
+        }
+      ]
+    },
+    {
+      "id": "IMP20-008",
+      "prioridad": "P0",
+      "objetivo": "Dry-run territorial de solo lectura sobre Customer, Supplier, DteIssuerConfig (runtime) y receptores de planes MH TEST (Control Plane), con clasificación por re",
+      "estado": "PARTIAL",
+      "bloque_5_1": "5.1B",
+      "archivos": [
+        "prisma/scripts/mh20-territory-dry-run.ts"
+      ],
+      "tests": [
+        "prisma/scripts/mh20-territory-dry-run.test.ts (fixtures)",
+        "prisma/scripts/mh20-territory-dry-run.test.ts (AMBIGUOUS, CAT-028)"
+      ],
+      "refs": [],
+      "limitaciones": "Clasifica COMPATIBLE/REVIEW/AMBIGUOUS/INCOMPATIBLE/NO_ADDRESS y reporta SaleExportDetails.regime_code (CAT-028). No ejecutado contra bases reales (prohibido; queda en el runbook). Receptores de planes MH TEST del Control Plane siguen sin incluirse.",
+      "historial": [
+        {
+          "fase": "5",
+          "estado": "PARTIAL",
+          "limitaciones": "No ejecutado contra ninguna base. Receptores de planes MH TEST (Control Plane) no incluidos."
+        },
+        {
+          "fase": "5.1",
+          "estado": "PARTIAL",
+          "cambio": "sin cambio de estado; limitaciones actualizadas"
+        }
+      ]
+    },
+    {
+      "id": "IMP20-009",
+      "prioridad": "P1",
+      "objetivo": "Catálogos aditivos 2.0 con una fuente única de datos: CAT-002 (+11, 14, 17, 18 y faltantes), CAT-017 completo, etiqueta del código 2 de CAT-024, CAT-028 v2.0 y ",
+      "estado": "IMPLEMENTED",
+      "bloque_5_1": "5.1A",
+      "archivos": [
+        "prisma/seeds/data/dte-catalog-items-mh20.data.ts",
+        "prisma/seeds/seed.dte-catalog-items.ts",
+        "src/modules/platform/lib/seed-runners/dte-catalog-items-runner.ts",
+        "spec/dte-catalog-version.ts",
+        "queries/list-dte-catalog-items.ts",
+        "app/api/dte/catalogs/route.ts",
+        "platform/actions/get-support-sale-form-data.action.ts",
+        "platform/lib/database-preflight.ts",
+        "prisma/seeds/seed.dte-catalog-items-mh20.ts",
+        "platform/lib/seed-runners/dte-catalog-items-runner.ts"
+      ],
+      "tests": [
+        "prisma/seeds/data/dte-catalog-items-mh20.data.test.ts",
+        "spec/dte-catalog-version.test.ts (8)",
+        "spec/dte-catalog-version.integration.test.ts (9, base desechable)"
+      ],
+      "refs": [
+        "CAT20-004..019",
+        "CAT20-388..395",
+        "CAT20-420",
+        "CAT20-430+",
+        "CAT20-727"
+      ],
+      "limitaciones": "Sin migración (unique ya incluía version). Seed 2.0 separado con confirmación explícita; no aplicado en bases persistentes. Equivalencias CAT-028 no activadas.",
+      "historial": [
+        {
+          "fase": "5",
+          "estado": "PARTIAL",
+          "limitaciones": "Filas 2.0 no se siembran: las consultas no filtran por version y las expondrían en flujos 1.2. Solo se corrigió la etiqueta CAT-024 código 2 (V1.2 oficial)."
+        },
+        {
+          "fase": "5.1",
+          "estado": "IMPLEMENTED",
+          "cambio": "PARTIAL → IMPLEMENTED"
+        }
+      ]
+    },
+    {
+      "id": "IMP20-010",
+      "prioridad": "P3",
+      "objetivo": "Corregir las referencias documentales 'CAT-023' → CAT-005 (tipo de contingencia) en comentarios, mensajes y el comentario Prisma, sin cambiar valores.",
+      "estado": "IMPLEMENTED",
+      "bloque_5_1": null,
+      "archivos": [
+        "prisma/schema.prisma",
+        "generate-fe-json.service.ts",
+        "generate-ccfe-json.service.ts"
+      ],
+      "tests": [
+        "n/a (comentarios)"
+      ],
+      "refs": [
+        "CAT20-404"
+      ],
+      "limitaciones": "Las referencias CAT-023 en dte-transmission-validation.utils.ts son correctas (tipos en contingencia) y se mantienen.",
+      "historial": [
+        {
+          "fase": "5",
+          "estado": "IMPLEMENTED",
+          "limitaciones": "Las referencias CAT-023 en dte-transmission-validation.utils.ts son correctas (tipos en contingencia) y se mantienen."
+        }
+      ]
+    },
+    {
+      "id": "IMP20-011",
+      "prioridad": "P0",
+      "objetivo": "Codificación de establecimiento y punto de venta asignada por la AT: validación ^[MSBP][0-9]{3}$ / ^P[0-9]{3}$ sobre cod_estable_mh/cod_punto_venta_mh (dura con",
+      "estado": "PARTIAL",
+      "bloque_5_1": null,
+      "archivos": [
+        "utils/mh20-builder-helpers.ts",
+        "services/dte-production-preflight.service.ts",
+        "rules/mh-semantic-rules.ts"
+      ],
+      "tests": [
+        "dte-production-preflight.mh20.test.ts",
+        "mh20-fixtures (numeroControl no AT)"
+      ],
+      "refs": [
+        "MH20-003",
+        "MH20-077"
+      ],
+      "limitaciones": "Sin validación en el formulario/schema Zod del emisor. Advertencia con 1.2, bloqueo con 2.0.",
+      "historial": [
+        {
+          "fase": "5",
+          "estado": "PARTIAL",
+          "limitaciones": "Sin validación en el formulario/schema Zod del emisor. Advertencia con 1.2, bloqueo con 2.0."
+        }
+      ]
+    },
+    {
+      "id": "IMP20-012",
+      "prioridad": "P0",
+      "objetivo": "Migración runtime M1 aditiva: mh_spec_profile y numbering_modality (nullable) en DteIssuerConfig; mh_spec_profile en DteOutgoingDocument, DteInvalidationEvent y",
+      "estado": "IMPLEMENTED",
+      "bloque_5_1": null,
+      "archivos": [
+        "prisma/migrations/20261124000000_mh20_spec_profile/migration.sql",
+        "prisma/schema.prisma"
+      ],
+      "tests": [
+        "base desechable local: migrate deploy 66/66, CHECK, drift = sin diferencias"
+      ],
+      "refs": [
+        "04-plan-migraciones M1"
+      ],
+      "limitaciones": "M1b (20261124010000_mh20_spec_profile_audit) añadida en 5.1E. Base desechable: migrate deploy 67/67, drift = sin diferencias. No aplicada en bases persistentes.",
+      "historial": [
+        {
+          "fase": "5",
+          "estado": "IMPLEMENTED",
+          "limitaciones": "Preparada; NO aplicada en ninguna base persistente."
+        },
+        {
+          "fase": "5.1",
+          "estado": "IMPLEMENTED",
+          "cambio": "sin cambio de estado; limitaciones actualizadas"
+        }
+      ]
+    },
+    {
+      "id": "IMP20-013",
+      "prioridad": "P0",
+      "objetivo": "FE v2 en generate-fe-json.service.ts con el perfil como parámetro: quitar codEstableMH, codPuntoVentaMH, tipoEstablecimiento, extension y reteRenta; ivaRete1→iv",
+      "estado": "IMPLEMENTED",
+      "bloque_5_1": null,
+      "archivos": [
+        "services/generate-fe-json.service.ts"
+      ],
+      "tests": [
+        "mh20-fixtures (3 escenarios vs fe-f-v2 oficial)",
+        "mh12-golden FE v1"
+      ],
+      "refs": [
+        "SCH20-002..011"
+      ],
+      "limitaciones": "observaciones: solo texto fiscal explícito (resolveMh20FiscalObservations), null por defecto; nunca notas internas (5.1D).",
+      "historial": [
+        {
+          "fase": "5",
+          "estado": "IMPLEMENTED",
+          "limitaciones": "observaciones = null (decisión interna #4)."
+        },
+        {
+          "fase": "5.1",
+          "estado": "IMPLEMENTED",
+          "cambio": "sin cambio de estado; limitaciones actualizadas"
+        }
+      ]
+    },
+    {
+      "id": "IMP20-014",
+      "prioridad": "P0",
+      "objetivo": "CCF v4 en generate-ccfe-json.service.ts: los mismos cambios que FE, además de ivaPerci1→ivaPerci; las retenciones y percepciones mantienen el cálculo actual (0)",
+      "estado": "IMPLEMENTED",
+      "bloque_5_1": null,
+      "archivos": [
+        "services/generate-ccfe-json.service.ts"
+      ],
+      "tests": [
+        "mh20-fixtures (2 escenarios vs fe-ccf-v4)",
+        "mh12-golden CCF v3"
+      ],
+      "refs": [
+        "SCH20 CCF"
+      ],
+      "limitaciones": "observaciones: solo texto fiscal explícito, null por defecto (5.1D).",
+      "historial": [
+        {
+          "fase": "5",
+          "estado": "IMPLEMENTED",
+          "limitaciones": "observaciones = null."
+        },
+        {
+          "fase": "5.1",
+          "estado": "IMPLEMENTED",
+          "cambio": "sin cambio de estado; limitaciones actualizadas"
+        }
+      ]
+    },
+    {
+      "id": "IMP20-015",
+      "prioridad": "P0",
+      "objetivo": "NC v4: receptor tipoDocumento/numDocumento (sin nit), totales por ítem (ivaPerci, ivaRete, totalIva, noGravado), resumen sin descu*/subTotal y con totalIva, tot",
+      "estado": "IMPLEMENTED",
+      "bloque_5_1": null,
+      "archivos": [
+        "services/generate-nc-json.service.ts",
+        "utils/nc-v4-formulas.ts"
+      ],
+      "tests": [
+        "mh20-fixtures NC v4 sobre CCF v4 y v3",
+        "mh12-golden NC v3"
+      ],
+      "refs": [
+        "Normativa 2.0 campos 98–101, 143–153"
+      ],
+      "limitaciones": "observaciones = null en NC v4 (5.1D).",
+      "historial": [
+        {
+          "fase": "5",
+          "estado": "IMPLEMENTED",
+          "limitaciones": ""
+        },
+        {
+          "fase": "5.1",
+          "estado": "IMPLEMENTED",
+          "cambio": "sin cambio de estado; limitaciones actualizadas"
+        }
+      ]
+    },
+    {
+      "id": "IMP20-016",
+      "prioridad": "P0",
+      "objetivo": "FSE v2: sujetoExcluido→receptor, sin ivaRete1, codEstableMH ni codPuntoVentaMH; totalDescu no nulo; distrito en emisor y receptor; totalPagar = totalCompra − re",
+      "estado": "IMPLEMENTED",
+      "bloque_5_1": null,
+      "archivos": [
+        "services/generate-fse-json.service.ts",
+        "services/generate-fse-json-pipeline.service.ts",
+        "types/fse-json.types.ts"
+      ],
+      "tests": [
+        "mh20-fixtures FSE v2 + bloqueo ivaRete1",
+        "mh12-golden FSE v1"
+      ],
+      "refs": [
+        "R20-DEL-03",
+        "153.6"
+      ],
+      "limitaciones": "FSE v2 ya no usa purchase.notes; observaciones explícitas o null (5.1D). FSE v1 conserva comportamiento histórico.",
+      "historial": [
+        {
+          "fase": "5",
+          "estado": "IMPLEMENTED",
+          "limitaciones": "observaciones conserva purchase.notes como en v1."
+        },
+        {
+          "fase": "5.1",
+          "estado": "IMPLEMENTED",
+          "cambio": "sin cambio de estado; limitaciones actualizadas"
+        }
+      ]
+    },
+    {
+      "id": "IMP20-017",
+      "prioridad": "P2",
+      "objetivo": "FEX v3 con la 2.0: tipoRegimen desde CAT-033 y CAT-028 en formato 2.0 para bienes (los servicios siguen con null); corregir la versión del script dev obsoleto.",
+      "estado": "PARTIAL",
+      "bloque_5_1": "5.1F",
+      "archivos": [
+        "services/generate-fex-json.service.ts",
+        "services/generate-fex-json-pipeline.service.ts",
+        "dev/verify-fex11-transmit-local.ts",
+        "utils/fex11-v3-rules.ts"
+      ],
+      "tests": [
+        "mh20-fixtures FEX igual en ambos perfiles",
+        "fex tests existentes",
+        "services/__golden__/mh20-fex-v3.test.ts (8)"
+      ],
+      "refs": [
+        "CAT20-INC-003"
+      ],
+      "limitaciones": "Schema 2.0 = schema v3 vigente (SHA-256 idéntico). Servicios 2.0 validados contra el original; sin notas internas; Cabañas con error explícito. Bienes bloqueados con causa 2.0 (CAT-028/CAT-033, CAT-INC-004): bloqueo EXTERNO. INC-003 sin resolver (PRODUCTION fail-closed).",
+      "historial": [
+        {
+          "fase": "5",
+          "estado": "PARTIAL",
+          "limitaciones": "tipoRegimen/CAT-028 2.0 para bienes no implementado (equivalencia EX-n no confirmada)."
+        },
+        {
+          "fase": "5.1",
+          "estado": "PARTIAL",
+          "cambio": "sin cambio de estado; limitaciones actualizadas"
+        }
+      ]
+    },
+    {
+      "id": "IMP20-018",
+      "prioridad": "P0",
+      "objetivo": "Invalidación v3: fecEmi/horEmi, sin montoIva, tipoEstablecimiento ni nomEstablecimiento, codEstableMH/codPuntoVentaMH obligatorios desde cod_*_mh, documento.cor",
+      "estado": "DEFERRED",
+      "bloque_5_1": null,
+      "archivos": [],
+      "tests": [],
+      "refs": [
+        "prompt Fase 5: sin actualización integral de invalidación"
+      ],
+      "limitaciones": "Registrado y bloqueado en el registro de perfiles.",
+      "historial": [
+        {
+          "fase": "5",
+          "estado": "DEFERRED",
+          "limitaciones": "Registrado y bloqueado en el registro de perfiles."
+        }
+      ]
+    },
+    {
+      "id": "IMP20-019",
+      "prioridad": "P0",
+      "objetivo": "Contingencia v4: codPuntoVenta→codPuntoVentaMH (desde cod_punto_venta_mh), codEstableMH requerido, detalleDTE que admite tipo 18; versión marcada pendingConfirm",
+      "estado": "DEFERRED",
+      "bloque_5_1": null,
+      "archivos": [],
+      "tests": [],
+      "refs": [
+        "prompt Fase 5: sin contingencia integral"
+      ],
+      "limitaciones": "Registrado y bloqueado.",
+      "historial": [
+        {
+          "fase": "5",
+          "estado": "DEFERRED",
+          "limitaciones": "Registrado y bloqueado."
+        }
+      ]
+    },
+    {
+      "id": "IMP20-020",
+      "prioridad": "P1",
+      "objetivo": "Reglas semánticas fuera de AJV para los 130 condicionales retirados de los schemas 2.0, agrupadas por familia y trazadas a SCH20, con estado KEEP hasta confirma",
+      "estado": "IMPLEMENTED",
+      "bloque_5_1": "5.1C",
+      "archivos": [
+        "rules/mh-semantic-rules.catalog.ts",
+        "rules/mh-semantic-rules.ts"
+      ],
+      "tests": [
+        "mh20-fixtures (negativas)",
+        "spec/mh20-spec.test.ts (catálogo)",
+        "rules/mh-semantic-rules.pending.test.ts",
+        "services/__golden__/mh20-fixtures.test.ts (contingencia → R20-PEND-01)"
+      ],
+      "refs": [
+        "SCH20 condicionales"
+      ],
+      "limitaciones": "PEND-01/07/08 = BLOCK_EMISSION; PEND-02..06 = WARNING; ninguna BLOCK_ACTIVATION. Las WARNING dependen de confirmación normativa externa.",
+      "historial": [
+        {
+          "fase": "5",
+          "estado": "PARTIAL",
+          "limitaciones": "R20-PEND-01..08 solo advierten; no se infieren obligaciones."
+        },
+        {
+          "fase": "5.1",
+          "estado": "IMPLEMENTED",
+          "cambio": "PARTIAL → IMPLEMENTED"
+        }
+      ]
+    },
+    {
+      "id": "IMP20-021",
+      "prioridad": "P0",
+      "objetivo": "Archivo DTE entregable: JSON con firmaElectronica y selloRecibido, nombrado <codigoGeneracion>.json, para documentos y eventos; advertencia 'sin valor legal' en",
+      "estado": "DEFERRED",
+      "bloque_5_1": null,
+      "archivos": [],
+      "tests": [],
+      "refs": [],
+      "limitaciones": "Fuera del motor base.",
+      "historial": [
+        {
+          "fase": "5",
+          "estado": "DEFERRED",
+          "limitaciones": "Fuera del motor base."
+        }
+      ]
+    },
+    {
+      "id": "IMP20-022",
+      "prioridad": "P1",
+      "objetivo": "Evento de Retorno (tipo 18): modelos, estados, builder, validación fe-eret-v1, firma, adaptador de transmisión, relación con el DTE original, límites acumulados",
+      "estado": "DEFERRED",
+      "bloque_5_1": null,
+      "archivos": [],
+      "tests": [],
+      "refs": [
+        "prompt: sin Retorno"
+      ],
+      "limitaciones": "",
+      "historial": [
+        {
+          "fase": "5",
+          "estado": "DEFERRED",
+          "limitaciones": ""
+        }
+      ]
+    },
+    {
+      "id": "IMP20-023",
+      "prioridad": "P2",
+      "objetivo": "Evento de Operaciones Especiales (tipo 17) condicionado a la autorización del emisor (FVS/CCI): modelo de autorización, evento, builder fe-eop-v1 (docDel/docAl ",
+      "estado": "DEFERRED",
+      "bloque_5_1": null,
+      "archivos": [],
+      "tests": [],
+      "refs": [
+        "prompt: sin OE"
+      ],
+      "limitaciones": "",
+      "historial": [
+        {
+          "fase": "5",
+          "estado": "DEFERRED",
+          "limitaciones": ""
+        }
+      ]
+    },
+    {
+      "id": "IMP20-024",
+      "prioridad": "P1",
+      "objetivo": "Invalidación de eventos de Retorno y OE: DteInvalidationEvent con return_event_id/special_ops_event_id y dte_document_id nullable más CHECK de exactamente un de",
+      "estado": "DEFERRED",
+      "bloque_5_1": null,
+      "archivos": [],
+      "tests": [],
+      "refs": [
+        "depende de 022/023"
+      ],
+      "limitaciones": "",
+      "historial": [
+        {
+          "fase": "5",
+          "estado": "DEFERRED",
+          "limitaciones": ""
+        }
+      ]
+    },
+    {
+      "id": "IMP20-025",
+      "prioridad": "P1",
+      "objetivo": "Adaptadores MH: verificar la política de reintentos (8 s, consulta de estado antes de reenviar, máximo 2), el TTL del token (48 h TEST / 24 h PROD) y el body ve",
+      "estado": "NOT_STARTED",
+      "bloque_5_1": null,
+      "archivos": [],
+      "tests": [],
+      "refs": [],
+      "limitaciones": "Reintentos/token sin cambios (sin red real).",
+      "historial": [
+        {
+          "fase": "5",
+          "estado": "NOT_STARTED",
+          "limitaciones": "Reintentos/token sin cambios (sin red real)."
+        }
+      ]
+    },
+    {
+      "id": "IMP20-026",
+      "prioridad": "P0",
+      "objetivo": "Contrato de entrega MariaDB para documentos 2.0: sin renombrar campos; capacidad accepts_mh20 por destino; DELIVERY_BLOCKED_CONTRACT en cola sin pérdida; entreg",
+      "estado": "DEFERRED",
+      "bloque_5_1": null,
+      "archivos": [],
+      "tests": [],
+      "refs": [
+        "prompt: sin cambio de contrato MariaDB"
+      ],
+      "limitaciones": "",
+      "historial": [
+        {
+          "fase": "5",
+          "estado": "DEFERRED",
+          "limitaciones": ""
+        }
+      ]
+    },
+    {
+      "id": "IMP20-027",
+      "prioridad": "P1",
+      "objetivo": "Tolerancia de la importación de DTE de compras a FE v2, CCF v4 y NC v4 recibidos (sin subTotal en NC, ivaRete, distrito).",
+      "estado": "NOT_STARTED",
+      "bloque_5_1": null,
+      "archivos": [],
+      "tests": [],
+      "refs": [],
+      "limitaciones": "",
+      "historial": [
+        {
+          "fase": "5",
+          "estado": "NOT_STARTED",
+          "limitaciones": ""
+        }
+      ]
+    },
+    {
+      "id": "IMP20-028",
+      "prioridad": "P1",
+      "objetivo": "Datos maestros: vista previa del distrito y municipio 2.0 proyectados en los formularios de emisor, cliente y proveedor (sin columnas nuevas), con advertencia n",
+      "estado": "NOT_STARTED",
+      "bloque_5_1": null,
+      "archivos": [],
+      "tests": [],
+      "refs": [],
+      "limitaciones": "UI.",
+      "historial": [
+        {
+          "fase": "5",
+          "estado": "NOT_STARTED",
+          "limitaciones": "UI."
+        }
+      ]
+    },
+    {
+      "id": "IMP20-029",
+      "prioridad": "P1",
+      "objetivo": "Compras con FSE bajo la 2.0: impedir que una compra a sujeto excluido aplique la retención IVA del 1 % cuando el emisor tiene MH_2_0, con mensaje claro y sin re",
+      "estado": "PARTIAL",
+      "bloque_5_1": null,
+      "archivos": [
+        "services/generate-fse-json.service.ts"
+      ],
+      "tests": [
+        "mh20-fixtures (bloqueo ivaRete1)"
+      ],
+      "refs": [
+        "R20-DEL-03"
+      ],
+      "limitaciones": "Bloqueo en el builder; la confirmación de compra no lo impide aún.",
+      "historial": [
+        {
+          "fase": "5",
+          "estado": "PARTIAL",
+          "limitaciones": "Bloqueo en el builder; la confirmación de compra no lo impide aún."
+        }
+      ]
+    },
+    {
+      "id": "IMP20-030",
+      "prioridad": "P2",
+      "objetivo": "Impacto comercial del Retorno: vínculo con Sale/Purchase, reportes de ventas, IVA y compras que restan retornos, reembolso de caja como movimiento manual vincul",
+      "estado": "DEFERRED",
+      "bloque_5_1": null,
+      "archivos": [],
+      "tests": [],
+      "refs": [
+        "depende de Retorno"
+      ],
+      "limitaciones": "",
+      "historial": [
+        {
+          "fase": "5",
+          "estado": "DEFERRED",
+          "limitaciones": ""
+        }
+      ]
+    },
+    {
+      "id": "IMP20-031",
+      "prioridad": "P0",
+      "objetivo": "Onboarding MH TEST 2.0 sin duplicar builders: plan.specProfile, emisor con cod_estable_mh/cod_punto_venta_mh, receptores con distrito proyectado, dry-run con el",
+      "estado": "PARTIAL",
+      "bloque_5_1": null,
+      "archivos": [
+        "mh-test-runs/mh-test-scenarios.ts"
+      ],
+      "tests": [
+        "mh20-fixtures (usa buildMhTestScenarioJson con perfil)"
+      ],
+      "refs": [],
+      "limitaciones": "Solo pass-through de opciones; sin plan.specProfile (fase 6).",
+      "historial": [
+        {
+          "fase": "5",
+          "estado": "PARTIAL",
+          "limitaciones": "Solo pass-through de opciones; sin plan.specProfile (fase 6)."
+        }
+      ]
+    },
+    {
+      "id": "IMP20-032",
+      "prioridad": "P1",
+      "objetivo": "Plan de cantidades mínimas configurable (preset MF 2.0 p. 79: FE 90, CCF 75, NC 50, FEX 90, FSE 25; Invalidación 5, Contingencia 5, Retorno 5, OE 5 con autoriza",
+      "estado": "NOT_STARTED",
+      "bloque_5_1": null,
+      "archivos": [],
+      "tests": [],
+      "refs": [],
+      "limitaciones": "Fase 6.",
+      "historial": [
+        {
+          "fase": "5",
+          "estado": "NOT_STARTED",
+          "limitaciones": "Fase 6."
+        }
+      ]
+    },
+    {
+      "id": "IMP20-033",
+      "prioridad": "P1",
+      "objetivo": "Escenarios de onboarding de Retorno y OE con orden lógico (FE → Retorno → invalidación del Retorno → invalidación de la FE); nuevos kinds en PlatformDteMhTestRu",
+      "estado": "NOT_STARTED",
+      "bloque_5_1": null,
+      "archivos": [],
+      "tests": [],
+      "refs": [],
+      "limitaciones": "Depende de Retorno/OE.",
+      "historial": [
+        {
+          "fase": "5",
+          "estado": "NOT_STARTED",
+          "limitaciones": "Depende de Retorno/OE."
+        }
+      ]
+    },
+    {
+      "id": "IMP20-034",
+      "prioridad": "P0",
+      "objetivo": "Blindaje de invariantes del onboarding para la 2.0: TEST-only, cero MariaDB, actor de sistema, correlativos TEST explícitos y aislamiento organización/tenant/lo",
+      "estado": "NOT_STARTED",
+      "bloque_5_1": null,
+      "archivos": [],
+      "tests": [],
+      "refs": [],
+      "limitaciones": "Invariantes actuales sin cambios (tests de onboarding pasan).",
+      "historial": [
+        {
+          "fase": "5",
+          "estado": "NOT_STARTED",
+          "limitaciones": "Invariantes actuales sin cambios (tests de onboarding pasan)."
+        }
+      ]
+    },
+    {
+      "id": "IMP20-035",
+      "prioridad": "P0",
+      "objetivo": "Harness de certificación 2.0: golden fixtures v1/v3 y v2/v4, validación por versión en fake-fiscal-network y matriz de regresión 1.2.",
+      "estado": "PARTIAL",
+      "bloque_5_1": null,
+      "archivos": [
+        "services/__golden__/*"
+      ],
+      "tests": [
+        "mh12-golden (8)",
+        "mh20-fixtures (17)"
+      ],
+      "refs": [],
+      "limitaciones": "Golden 1.2 (8) intactos; fixtures 2.0 añadidas (observaciones, FEX v3). fake-fiscal-network sigue sin actualizar para 2.0.",
+      "historial": [
+        {
+          "fase": "5",
+          "estado": "PARTIAL",
+          "limitaciones": "fake-fiscal-network no actualizado para 2.0."
+        },
+        {
+          "fase": "5.1",
+          "estado": "PARTIAL",
+          "cambio": "sin cambio de estado; limitaciones actualizadas"
+        }
+      ]
+    },
+    {
+      "id": "IMP20-036",
+      "prioridad": "P0",
+      "objetivo": "Certificación real en MH TEST con perfil 2.0 (lote mínimo por tipo y eventos), con autorización del operador y evidencia en el Control Plane.",
+      "estado": "DEFERRED",
+      "bloque_5_1": null,
+      "archivos": [],
+      "tests": [],
+      "refs": [
+        "prohibido transmitir"
+      ],
+      "limitaciones": "",
+      "historial": [
+        {
+          "fase": "5",
+          "estado": "DEFERRED",
+          "limitaciones": ""
+        }
+      ]
+    },
+    {
+      "id": "IMP20-037",
+      "prioridad": "P0",
+      "objetivo": "Runbook de activación y rollback: orden de migraciones CP/runtime por base, flag OFF por defecto, activación TEST → MH TEST → PRODUCTION por emisor y verificaci",
+      "estado": "IMPLEMENTED",
+      "bloque_5_1": "5.1",
+      "archivos": [
+        "docs/fiscal/mh-normativa-2.0/auditoria/05-1-activation-runbook.md"
+      ],
+      "tests": [],
+      "refs": [],
+      "limitaciones": "Documento; NO ejecutado.",
+      "historial": [
+        {
+          "fase": "5",
+          "estado": "NOT_STARTED",
+          "limitaciones": "Runbook en fase de activación."
+        },
+        {
+          "fase": "5.1",
+          "estado": "IMPLEMENTED",
+          "cambio": "NOT_STARTED → IMPLEMENTED"
+        }
+      ]
+    },
+    {
+      "id": "IMP20-038",
+      "prioridad": "P2",
+      "objetivo": "Documentación activa: docs/modules/dte-mh20-summary.md y actualización de docs/context/current-state.md al cerrar la implementación.",
+      "estado": "NOT_STARTED",
+      "bloque_5_1": null,
+      "archivos": [],
+      "tests": [],
+      "refs": [],
+      "limitaciones": "Al cerrar implementación.",
+      "historial": [
+        {
+          "fase": "5",
+          "estado": "NOT_STARTED",
+          "limitaciones": "Al cerrar implementación."
+        }
+      ]
+    },
+    {
+      "id": "IMP20-039",
+      "prioridad": "P1",
+      "objetivo": "Correlativos: registro declarativo de la modalidad de numeración (numbering_modality, sin efecto) y expediente de decisión de COR-01 (reinicio anual no efectivo",
+      "estado": "PARTIAL",
+      "bloque_5_1": "5.1H",
+      "archivos": [
+        "prisma/schema.prisma (numbering_modality declarativo)",
+        "migration M1",
+        "docs/fiscal/mh-normativa-2.0/auditoria/05-1-correlatives-assessment.md"
+      ],
+      "tests": [
+        "base desechable (CHECK)"
+      ],
+      "refs": [
+        "COR-01 fuera de alcance"
+      ],
+      "limitaciones": "Expediente COR-01/COR-03 completo; sin cambios en secuencias. Decisión interna COR-01 y resolución AT/MH COR-03 pendientes (externo). COR-03 = P0 de activación PRODUCTION.",
+      "historial": [
+        {
+          "fase": "5",
+          "estado": "PARTIAL",
+          "limitaciones": "Sin expediente COR-01; sin efecto en correlativos."
+        },
+        {
+          "fase": "5.1",
+          "estado": "PARTIAL",
+          "cambio": "sin cambio de estado; limitaciones actualizadas"
+        }
+      ]
+    }
+  ]
+}

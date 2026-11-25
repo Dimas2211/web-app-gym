@@ -1,0 +1,122 @@
+{
+  "phase": "9.0",
+  "title": "Final preparation for MH TEST certification: technical closing run",
+  "date": "2026-11-25",
+  "branch": "feat/mh-normativa-2.0",
+  "head": "b682b70",
+  "committed": false,
+  "verdict": "FASE_9_0_PASS",
+  "restrictions": {
+    "transmittedToMh": false,
+    "flagsEnabled": false,
+    "persistentDbModified": "TrustmeDB local only: the 9 authorized migrations, after a verified backup",
+    "supabaseTouched": false,
+    "remoteControlPlaneTouched": false,
+    "remoteRuntimesTouched": false,
+    "remoteMigrations": false,
+    "seeds20OnTrustmeDb": false,
+    "mariadbWrites": false,
+    "credentialsOrSignerChanged": false,
+    "productionCorrelativesChanged": false,
+    "gitWrites": false,
+    "deploy": false
+  },
+  "tasks": {
+    "A_trustmeDbSync": {
+      "status": "DONE",
+      "backup": {
+        "path": "C:\\Users\\rodri\\Documents\\zolvi-backups\\trustmedb-pre-fase9-0-20261125\\TrustmeDB-20261125-pre-fase9-0.dump",
+        "bytes": 840843,
+        "sha256": "aa26ae5c55cde743bcf72fadb907b8c2f69bc2528578c5baf9b1dca94c6b2850",
+        "tocEntries": 858,
+        "restoreTest": "PASS (0 errors, 90/90 tables with identical row counts, equivalent schema)"
+      },
+      "rehearsalOnRestoredCopy": "PASS (9/9, empty diff)",
+      "migrationsApplied": [
+        "20261020000000_gym_bookings_capacity_check",
+        "20261021000000_gym_training_executions",
+        "20261110000000_dte_fiscal_onboarding_automation",
+        "20261112030000_cancel_pending_sale_dte",
+        "20261116000000_dte_mh_test_runs",
+        "20261124000000_mh20_spec_profile",
+        "20261124010000_mh20_spec_profile_audit",
+        "20261124020000_mh20_return_events",
+        "20261124030000_mh20_mh_test_run_profiles"
+      ],
+      "migrateStatus": "69/69 up to date",
+      "drift": "none",
+      "dataIntegrity": "90 existing tables with identical row counts; 12 new tables empty; no backfill"
+    },
+    "B_pgTests": {
+      "status": "DONE",
+      "previouslySkipped26": "26/26 PASS (69 migrations) and 26/26 PASS (70 migrations)",
+      "suites": { "dte-catalog-version.integration": "9/9", "dte-spec-profile-admin.integration": "11/11", "mh-test-runs.pg": "6/6" },
+      "gaps": ["M4 chain constraints are created by the migration but not exercised by a PG test"]
+    },
+    "C_cor01": {
+      "status": "DONE_LOCAL_NOT_APPLIED",
+      "option": "B",
+      "migration": "20261125000000_cor01_fiscal_year",
+      "appliedTo": ["scratch databases only"],
+      "trustmeDbCopy": { "assigned": 72, "ambiguous": 0, "drift": "none", "documentFingerprint": "identical" },
+      "tests": { "unit": "19/19", "pg": "9/9", "sqlBackfillCases": "8/8" },
+      "cor03Modified": false
+    },
+    "D_consolidatedVerification": "DONE",
+    "scenarios": {
+      "FE_v2": "READY",
+      "CCF_v4": "READY",
+      "NC_v4": "READY",
+      "FSE_v2": "READY",
+      "FEX_v3_services": "READY",
+      "INV_v3": "READY",
+      "CONT_v4": "BLOCKED_INC-005",
+      "RETURN": "BLOCKED",
+      "SPECIAL_OPERATIONS": "BLOCKED",
+      "FEX_goods": "BLOCKED_CAT-028 (does not block FEX services)"
+    }
+  },
+  "tests": {
+    "fiscalScope": { "total": 1507, "passed": 1472, "failed": 0, "skippedPgByDesign": 35, "pgRunSeparately": "35/35 PASS" },
+    "wideScope": { "files": 250, "total": 2626, "passed": 2575, "failed": 0, "skipped": 51, "failedSuites": ["cat-022-identification-types (pre-existing, untouched)"] },
+    "golden12": "8/8",
+    "golden20": "102/102",
+    "internalCertification": "77/77",
+    "mariadbExclusion": "8/8",
+    "onboarding20": "90/90",
+    "cor01": "19 unit + 9 PG + 8 SQL cases",
+    "tsc": "PASS (0 errors)",
+    "eslint": "0 errors / 22 warnings (no-explicit-any in tests)",
+    "build": "PASS"
+  },
+  "migrations": {
+    "repo": 70,
+    "trustmeDb": "69/69 (M-COR-01 #70 pending by instruction)",
+    "remoteFromNotes": "CP and runtime vkoyw at 65/65 (2026-11-16, not verified): missing #66-#70"
+  },
+  "warnings": [
+    "The generated Prisma client includes fiscal_year; the local app against TrustmeDB fails (P2022) until M-COR-01 is applied",
+    "M-COR-01 and the code must be deployed to every database before 2026-12-31 18:00 SV",
+    "Run the COR-01 ambiguous-row query on each database before applying M-COR-01"
+  ],
+  "pendingAuthorization": [
+    "M-COR-01 on TrustmeDB (new backup first)",
+    "M1-M4 + M-COR-01 on the CP and TEST runtime",
+    "2.0 seeds on persistent databases"
+  ],
+  "openBlockers": [
+    "INC-003 (resolved in the documents, pending certification)",
+    "normative-transition",
+    "issuer-recertification",
+    "INC-004",
+    "INC-005",
+    "MT-GAP-001",
+    "INC-013",
+    "COR-03",
+    "special-operations-authorization",
+    "mariadb-2.0-compatibility",
+    "CAT-028 (FEX goods only)"
+  ],
+  "closedInThisRun": ["5 unidentified migrations", "M1-M4 local", "26 PG tests", "COR-01 implementation", "R-COR-3"],
+  "next": "Stop before Phase 9.1"
+}

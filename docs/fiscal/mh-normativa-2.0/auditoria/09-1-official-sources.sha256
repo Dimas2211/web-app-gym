@@ -1,0 +1,45 @@
+# MH 2.0 / 1.2 official sources kept LOCAL (not committed; no Git LFS policy yet). Phase 9.1, 2026-11-25.
+# Verify from the repo root: grep -v '^#' docs/fiscal/mh-normativa-2.0/auditoria/09-1-official-sources.sha256 | sha256sum -c
+# Duplicates: docs/dte-actualizacion-dic26/DOC_CAMBIOS_DIC2026/** == docs/fiscal/mh-normativa-2.0/originales/** (same hashes).
+# The 2.0 JSON schemas used by code are committed in src/modules/commerce/dte/schemas/mh/v2_0/ (identical hashes where present).
+e86d7edc503d876564cd2bf9b251fb100f838199330c0c513048f4075669b2c6  docs/dte-actualizacion-dic26/DOC_CAMBIOS_DIC2026/Catálogos - Facturación Electrónica.xlsx
+aeb51e3983bb5ab9c6729c0944b5d88410018ee9b0e0af9f7d1b48ad3e013064  docs/dte-actualizacion-dic26/DOC_CAMBIOS_DIC2026/Catálogos- Facturación Electrónica.pdf
+265d33141cbe2a746b3f385f9cc3e9821535e6b5f78a9a56f2585e7a5e0d4126  docs/dte-actualizacion-dic26/DOC_CAMBIOS_DIC2026/MANUAL FUNCIONAL DEL SISTEMA DE TRANSMISIÓN.pdf
+fb98db437c6867db00149ce52ce0147a9e1c7a8f80ecd05325cf2ebc7cf7cbbb  docs/dte-actualizacion-dic26/DOC_CAMBIOS_DIC2026/Manual Técnico para la Integración Tecnológica del Sistema de Transmisión v2.pdf
+89b275140f8090d9641925ad3c66951e91318d357cda6d42a7451529ab840abf  docs/dte-actualizacion-dic26/DOC_CAMBIOS_DIC2026/Normativa de Cumplimiento de los Documentos Tributarios Electrónicos_Versión 2.0.pdf
+16c494520e5c75d6d51b86cc081db758913414570134129995e4213e64c859c6  docs/dte-actualizacion-dic26/DOC_CAMBIOS_DIC2026/svfe-json-schemas/v1/fe-eop-v1.json
+b845e98ca8acaa4e5829acdc36cb046d97ec87e71c823252895bdf907fdafb35  docs/dte-actualizacion-dic26/DOC_CAMBIOS_DIC2026/svfe-json-schemas/v1/fe-eret-v1.json
+736e9c7dc45bbee017a86aa33348b6f65bad85a36b477540dbf95b1229aa2da5  docs/dte-actualizacion-dic26/DOC_CAMBIOS_DIC2026/svfe-json-schemas/v2/fe-cd-v2.json
+e8af85e2fc5e6f7401c16ca5bc23627d770c5313fcb996af842d9a748dddc067  docs/dte-actualizacion-dic26/DOC_CAMBIOS_DIC2026/svfe-json-schemas/v2/fe-cl-v2.json
+9c2faf7a40a0e9d71e54e157402f61689c265910ff27ccbf08a6e3868542231a  docs/dte-actualizacion-dic26/DOC_CAMBIOS_DIC2026/svfe-json-schemas/v2/fe-cr-v2.json
+a1b86f95446d0b0e374da0d9d888d79a4c2eef28f8a1105674e87013b94d7407  docs/dte-actualizacion-dic26/DOC_CAMBIOS_DIC2026/svfe-json-schemas/v2/fe-dcl-v2.json
+2887ff3ccf5594eb1f49dcec1ce8bba134a86462f900069de1365d18ff997aff  docs/dte-actualizacion-dic26/DOC_CAMBIOS_DIC2026/svfe-json-schemas/v2/fe-f-v2.json
+21b20ae93f85795db3731ee853504edca9998f7f340defd0b6745659840bc75d  docs/dte-actualizacion-dic26/DOC_CAMBIOS_DIC2026/svfe-json-schemas/v2/fe-fse-v2.json
+9539e63b4aa80272a835e1e5e28435b466f17ef1ff8c768f81be156844d57977  docs/dte-actualizacion-dic26/DOC_CAMBIOS_DIC2026/svfe-json-schemas/v3/fe-fex-v3.json
+1ce117cb01b59da309dcbb237cc011e0c4539b3effe9cdd3c2b7794ea631693a  docs/dte-actualizacion-dic26/DOC_CAMBIOS_DIC2026/svfe-json-schemas/v3/invalidacion-schema-v3.json
+03fc357397dc7aaa4a8b44f887497dd1ead3a04eb71ec043bb2c0cda485bb149  docs/dte-actualizacion-dic26/DOC_CAMBIOS_DIC2026/svfe-json-schemas/v4/contingencia-schema-v4.json
+2c2db8b3f6144bdd0d128ec2babecd38f277f8493458a06cf1b2be7b816fba32  docs/dte-actualizacion-dic26/DOC_CAMBIOS_DIC2026/svfe-json-schemas/v4/fe-ccf-v4.json
+f663902030a9ef28ddb8cef7d1e93fa286c1852465175e25d524e3fedb5419d2  docs/dte-actualizacion-dic26/DOC_CAMBIOS_DIC2026/svfe-json-schemas/v4/fe-nc-v4.json
+3b4ffdd4dded315217c365325135d3aede0a67b84bd051c932698c5e5e0c3ca4  docs/dte-actualizacion-dic26/DOC_CAMBIOS_DIC2026/svfe-json-schemas/v4/fe-nd-v4.json
+4620688814a8e764caacfc460df73cb450fb9fa6912dd74e7a0017bc6936d80e  docs/dte-actualizacion-dic26/DOC_CAMBIOS_DIC2026/svfe-json-schemas/v4/fe-nr-v4.json
+7b892cc9655965c87165763fa984bc0744e31e965ae0dae62ff37c6b1715c9a2  docs/fiscal/mh-normativa-1.2/Normativa de Cumplimiento de los Documentos Tributarios Electrónicos_Versión 1.2 17.11.2025.pdf
+e86d7edc503d876564cd2bf9b251fb100f838199330c0c513048f4075669b2c6  docs/fiscal/mh-normativa-2.0/originales/Catálogos - Facturación Electrónica.xlsx
+aeb51e3983bb5ab9c6729c0944b5d88410018ee9b0e0af9f7d1b48ad3e013064  docs/fiscal/mh-normativa-2.0/originales/Catálogos- Facturación Electrónica.pdf
+265d33141cbe2a746b3f385f9cc3e9821535e6b5f78a9a56f2585e7a5e0d4126  docs/fiscal/mh-normativa-2.0/originales/MANUAL FUNCIONAL DEL SISTEMA DE TRANSMISIÓN.pdf
+fb98db437c6867db00149ce52ce0147a9e1c7a8f80ecd05325cf2ebc7cf7cbbb  docs/fiscal/mh-normativa-2.0/originales/Manual Técnico para la Integración Tecnológica del Sistema de Transmisión v2.pdf
+89b275140f8090d9641925ad3c66951e91318d357cda6d42a7451529ab840abf  docs/fiscal/mh-normativa-2.0/originales/Normativa de Cumplimiento de los Documentos Tributarios Electrónicos_Versión 2.0.pdf
+16c494520e5c75d6d51b86cc081db758913414570134129995e4213e64c859c6  docs/fiscal/mh-normativa-2.0/originales/svfe-json-schemas/v1/fe-eop-v1.json
+b845e98ca8acaa4e5829acdc36cb046d97ec87e71c823252895bdf907fdafb35  docs/fiscal/mh-normativa-2.0/originales/svfe-json-schemas/v1/fe-eret-v1.json
+736e9c7dc45bbee017a86aa33348b6f65bad85a36b477540dbf95b1229aa2da5  docs/fiscal/mh-normativa-2.0/originales/svfe-json-schemas/v2/fe-cd-v2.json
+e8af85e2fc5e6f7401c16ca5bc23627d770c5313fcb996af842d9a748dddc067  docs/fiscal/mh-normativa-2.0/originales/svfe-json-schemas/v2/fe-cl-v2.json
+9c2faf7a40a0e9d71e54e157402f61689c265910ff27ccbf08a6e3868542231a  docs/fiscal/mh-normativa-2.0/originales/svfe-json-schemas/v2/fe-cr-v2.json
+a1b86f95446d0b0e374da0d9d888d79a4c2eef28f8a1105674e87013b94d7407  docs/fiscal/mh-normativa-2.0/originales/svfe-json-schemas/v2/fe-dcl-v2.json
+2887ff3ccf5594eb1f49dcec1ce8bba134a86462f900069de1365d18ff997aff  docs/fiscal/mh-normativa-2.0/originales/svfe-json-schemas/v2/fe-f-v2.json
+21b20ae93f85795db3731ee853504edca9998f7f340defd0b6745659840bc75d  docs/fiscal/mh-normativa-2.0/originales/svfe-json-schemas/v2/fe-fse-v2.json
+9539e63b4aa80272a835e1e5e28435b466f17ef1ff8c768f81be156844d57977  docs/fiscal/mh-normativa-2.0/originales/svfe-json-schemas/v3/fe-fex-v3.json
+1ce117cb01b59da309dcbb237cc011e0c4539b3effe9cdd3c2b7794ea631693a  docs/fiscal/mh-normativa-2.0/originales/svfe-json-schemas/v3/invalidacion-schema-v3.json
+03fc357397dc7aaa4a8b44f887497dd1ead3a04eb71ec043bb2c0cda485bb149  docs/fiscal/mh-normativa-2.0/originales/svfe-json-schemas/v4/contingencia-schema-v4.json
+2c2db8b3f6144bdd0d128ec2babecd38f277f8493458a06cf1b2be7b816fba32  docs/fiscal/mh-normativa-2.0/originales/svfe-json-schemas/v4/fe-ccf-v4.json
+f663902030a9ef28ddb8cef7d1e93fa286c1852465175e25d524e3fedb5419d2  docs/fiscal/mh-normativa-2.0/originales/svfe-json-schemas/v4/fe-nc-v4.json
+3b4ffdd4dded315217c365325135d3aede0a67b84bd051c932698c5e5e0c3ca4  docs/fiscal/mh-normativa-2.0/originales/svfe-json-schemas/v4/fe-nd-v4.json
+4620688814a8e764caacfc460df73cb450fb9fa6912dd74e7a0017bc6936d80e  docs/fiscal/mh-normativa-2.0/originales/svfe-json-schemas/v4/fe-nr-v4.json
