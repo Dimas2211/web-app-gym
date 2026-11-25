@@ -29,6 +29,8 @@ import { Prisma }  from "@prisma/client";
 import { normalizeNitForDte } from "../utils/fiscal-id.utils";
 import { MhContingencyTransmissionAdapter } from "../adapters/dte-contingency-transmission.adapter";
 import { MhAuthAdapter } from "../adapters/dte-auth.adapter";
+import { readDteJsonVersion } from "../spec/dte-json-version";
+import { dteSpecTransmissionBlockedError } from "../spec/dte-spec-registry";
 
 // ── Tipos públicos ────────────────────────────────────────────────
 
@@ -86,6 +88,7 @@ export async function transmitContingencyEvent(
         id:         true,
         status:     true,
         signed_jws: true,
+        event_json: true,
         items: {
           orderBy: { no_item: "asc" },
           select: {
@@ -108,6 +111,13 @@ export async function transmitContingencyEvent(
     }
     if (!event.signed_jws) {
       throw new TransmitContingencyBusinessError("El evento no tiene JWS firmado.");
+    }
+    // MH20 (Fase 6, IMP20-019): un evento v4 (MH 2.0) no se transmite en
+    // ningún ambiente mientras INC-005 siga abierta. v3 y eventos sin
+    // versión legible (históricos) siguen exactamente igual.
+    if (readDteJsonVersion(event.event_json) === 4) {
+      const blocked = dteSpecTransmissionBlockedError("MH_2_0", "CONT");
+      if (blocked) throw new TransmitContingencyBusinessError(blocked);
     }
     const refItem = event.items[0];
     if (!refItem?.dte_document.issuer_config_id) {

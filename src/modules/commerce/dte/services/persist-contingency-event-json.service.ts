@@ -23,6 +23,7 @@ import { type Prisma, type PrismaClient } from "@prisma/client";
 import { prisma }                     from "@/lib/db/prisma";
 import { buildContingencyEventJson }  from "./build-contingency-event-json.service";
 import type { ContingencyResponsable } from "../types/dte-contingency-event-json.types";
+import { resolveIssuerSpecProfileForGeneration } from "../spec/resolve-issuer-spec-profile";
 
 // ── Tipos públicos ────────────────────────────────────────────────
 
@@ -134,6 +135,14 @@ export async function buildAndPersistContingencyEventJson(
         "No se encontró la configuración del emisor DTE asociada a los documentos del Evento.",
       );
     }
+
+    // ── 2b. MH20 (Fase 6) — perfil normativo. Interruptor OFF → MH_1_2
+    //       sin consultar M1 (v3 histórica). MH_2_0 → bloqueado por el
+    //       registro (INC-005 + R20-PEND-01): no se construye v4 persistida.
+    const profile = await resolveIssuerSpecProfileForGeneration(
+      db, issuerConfigId, tenantId, locationId, issuerConfig.environment, "CONT",
+    );
+    if (!profile.ok) throw new PersistContingencyJsonBusinessError(profile.error);
 
     // ── 3. Construir y validar el JSON ────────────────────────────────
     const buildResult = buildContingencyEventJson({

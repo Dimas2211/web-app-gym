@@ -33,6 +33,11 @@ import { ExternalDteMariaDbAdapter }   from "../adapters/external-dte-mariadb.ad
 import { isOperationalDtePurpose, DTE_CERTIFICATION_EXCLUDED_MESSAGE } from "../utils/dte-document-purpose";
 import { resolveExternalDteMariaDbDestination } from "../config/resolve-external-dte-destination";
 import {
+  DELIVERY_BLOCKED_CONTRACT,
+  destinationAcceptsMh20,
+  externalDeliveryCompatForInvalidation,
+} from "../utils/external-delivery-mh20-compat";
+import {
   buildExternalInvalidationPayload,
   type DteInvalidationEventForExternalPayload,
 } from "./build-external-invalidation-payload.service";
@@ -177,6 +182,15 @@ export async function deliverInvalidationToExternalDb(
     if (!buildResult.ok) {
       throw new DeliverInvalidationBusinessError(buildResult.error);
     }
+
+    // MH20 (IMP20-026) — Invalidación v3 solo hacia destinos que declararon
+    // compatibilidad 2.0. Sin INSERT ni log; reintentable manualmente
+    // (esta entrega no tiene ledger: no se crea una cola paralela).
+    const compat = externalDeliveryCompatForInvalidation({
+      eventJson:   event.event_json,
+      acceptsMh20: destinationAcceptsMh20(destination),
+    });
+    if (!compat.ok) return { ok: false, error: compat.error, errorCode: DELIVERY_BLOCKED_CONTRACT };
 
     // 3. Insertar en MariaDB externa — tabla de invalidaciones
     const adapter = deps.adapter ?? new ExternalDteMariaDbAdapter();

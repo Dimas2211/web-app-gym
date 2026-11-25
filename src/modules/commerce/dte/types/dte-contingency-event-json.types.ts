@@ -4,6 +4,8 @@
 // Son interfaces mínimas: el caller puede pasar objetos más ricos siempre
 // que contengan los campos requeridos.
 
+import type { DteSpecProfile } from "../spec/dte-spec-profile";
+
 // ── Subset de DteIssuerConfig ─────────────────────────────────────
 
 export interface DteIssuerConfigForContingency {
@@ -53,6 +55,11 @@ export interface ContingencyEventJsonParams {
   periodEndTime:         string;
   items:                 DteDocumentForContingencyItem[];
   now?:                  Date;
+  /**
+   * MH20 (Fase 6) — ausente o MH_1_2 → Contingencia v3 histórica.
+   * MH_2_0 → Contingencia v4 (solo validación local; INC-005 abierta).
+   */
+  profile?:              DteSpecProfile;
 }
 
 // ── Output del builder ────────────────────────────────────────────

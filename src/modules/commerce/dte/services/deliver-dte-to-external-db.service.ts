@@ -55,6 +55,12 @@ import type {
   ExternalDteMariaDbConfig,
 } from "../types/external-dte-delivery.types";
 import { getExternalDeliveryLedger } from "../outbox/external-delivery-ledger";
+import { mh20ProfileSelect } from "../config/dte-mh20.flags";
+import {
+  DELIVERY_BLOCKED_CONTRACT,
+  destinationAcceptsMh20,
+  externalDeliveryCompatForDocument,
+} from "../utils/external-delivery-mh20-compat";
 import {
   computeNextAttemptAt,
   type ExternalDeliveryJob,
@@ -225,6 +231,7 @@ export async function deliverDteToExternalDb(
         dte_status: true, accepted_at: true, json_document: true, signed_jws: true,
         reception_stamp: true, mh_response: true, retry_count: true,
         purpose: true,
+        ...mh20ProfileSelect(),
       },
     });
 
@@ -254,6 +261,15 @@ export async function deliverDteToExternalDb(
     if (!buildResult.ok) {
       throw new DeliverDteBusinessError(buildResult.error);
     }
+
+    // MH20 (IMP20-026) — compatibilidad del destino con documentos 2.0.
+    // Sin declaración: no hay INSERT; ledger FAILED_RETRYABLE visible.
+    const compat = externalDeliveryCompatForDocument({
+      kind:             dteDoc.dte_type_code,
+      jsonDocument:     dteDoc.json_document,
+      persistedProfile: (dteDoc as { mh_spec_profile?: string | null }).mh_spec_profile ?? null,
+      acceptsMh20:      destinationAcceptsMh20(destination),
+    });
 
     const legacy = await readLegacyDeliveryEvidence(client, dteDocumentId);
 
@@ -295,6 +311,14 @@ export async function deliverDteToExternalDb(
       }
 
       const claimed = await ledger.claim(job.id, { owner, leaseMs: deps.leaseMs ?? DEFAULT_LEASE_MS, now: now(), manual: trigger === "MANUAL" });
+      if (claimed && !compat.ok) {
+        const at = now();
+        await ledger.markFailedRetryable(claimed.id, owner, {
+          code: DELIVERY_BLOCKED_CONTRACT, message: compat.error,
+          nextAttemptAt: computeNextAttemptAt(at, claimed.attempts), now: at,
+        });
+        return { ok: false, error: compat.error, targetTable: config.table || null, errorCode: DELIVERY_BLOCKED_CONTRACT, jobId: claimed.id };
+      }
       if (!claimed) {
         const current = (await ledger.get(job.id)) ?? job;
         const blockedNow = blockedResultForJob(current, config.table || null);
@@ -312,6 +336,9 @@ export async function deliverDteToExternalDb(
       }
       job = claimed;
     } else {
+      if (!compat.ok) {
+        return { ok: false, error: compat.error, targetTable: config.table || null, errorCode: DELIVERY_BLOCKED_CONTRACT };
+      }
       // Flujo legado sin organización: misma defensa contra duplicados
       // basada en la evidencia del runtime (no hay ledger sin organización).
       if (legacy.delivered) {

@@ -23,6 +23,7 @@ import { randomUUID }        from "crypto";
 import { Prisma, type PrismaClient } from "@prisma/client";
 import { prisma }            from "@/lib/db/prisma";
 import { reserveDteControlNumber } from "./dte-correlative.service";
+import { ensureMh20ReadyBeforeReservation } from "./mh20-pre-reservation-guard";
 
 export interface CreateCreditNoteDteInput {
   sourceDteDocumentId: string;
@@ -185,11 +186,20 @@ export async function createCreditNoteDteFromAcceptedCcfe(
         );
       }
 
+      // ── 4b. MH20 (Fase 7, §11) — perfil y códigos AT validados ANTES
+      //     de reservar correlativo. Interruptor OFF → MH_1_2 sin consulta.
+      const mh20Ready = await ensureMh20ReadyBeforeReservation(tx as unknown as PrismaClient, {
+        issuerConfigId: issuerConfig.id, tenantId, locationId,
+        environment: original.environment, kind: "05",
+        cod_estable_mh: issuerConfig.cod_estable_mh, cod_punto_venta_mh: issuerConfig.cod_punto_venta_mh,
+      });
+      if (!mh20Ready.ok) throw new CreditNoteBusinessError(mh20Ready.error);
+
       // ── 5. Reservar correlativo tipo "05" de forma atómica ───────
       // F3-C24: reserva genérica — considera correlativo interno, máximo
       // ya usado en DteOutgoingDocument y baseline externo. Ver
       // dte-correlative.service.ts.
-      const { control_number } = await reserveDteControlNumber(tx, {
+      const { control_number, fiscal_year } = await reserveDteControlNumber(tx, {
         tenant_id:          tenantId,
         location_id:        locationId,
         issuer_config_id:   issuerConfig.id,
@@ -228,6 +238,7 @@ export async function createCreditNoteDteFromAcceptedCcfe(
           environment:      original.environment,
           generation_code,
           control_number,
+          fiscal_year,
           dte_status:       "PENDING_GENERATION",
           retry_count:      0,
           created_by:       userId,

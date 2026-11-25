@@ -34,6 +34,7 @@ import type {
   ContingencyEventJsonParams,
   BuildContingencyEventJsonResult,
 }                          from "../types/dte-contingency-event-json.types";
+import { buildContingencyEventJsonV4 } from "./build-contingency-event-json.v4";
 
 // ── Helpers ───────────────────────────────────────────────────────
 
@@ -63,6 +64,10 @@ const UUID_RE = /^[A-F0-9]{8}-[A-F0-9]{4}-[A-F0-9]{4}-[A-F0-9]{4}-[A-F0-9]{12}$/
 export function buildContingencyEventJson(
   params: ContingencyEventJsonParams,
 ): BuildContingencyEventJsonResult {
+  // MH20 (Fase 6, IMP20-019): MH_2_0 → v4 (validación local; INC-005).
+  // Sin perfil o MH_1_2 → el camino v3 de abajo, sin cambios.
+  if (params.profile === "MH_2_0") return buildContingencyEventJsonV4(params);
+
   const {
     issuerConfig,
     responsable,

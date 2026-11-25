@@ -13,10 +13,16 @@
 //     + token. Es la principal cuando el DTE ya fue entregado.
 //   - fiscal:   json_document original persistido.
 // Nunca se reconstruye nada en cliente. No modifica nada.
+//
+// MH20 (Fase 6.1, IMP20-021): descargas para entrega al receptor —
+//   - "PDF": representación gráfica (GET /api/dte/outgoing/:id/representation);
+//   - "Archivo DTE": JSON + firmaElectronica + selloRecibido (variant=archive,
+//     solo DTE MH 2.0 sellados; MH 1.2 conserva su entrega histórica).
+// Descargar no equivale a entregar: no se envía nada al receptor.
 // ─────────────────────────────────────────────────────────────────
 
 import { useEffect, useState } from "react";
-import { Loader2, X, Copy, Download, Braces } from "lucide-react";
+import { Loader2, X, Copy, Download, Braces, FileText, FileArchive } from "lucide-react";
 import {
   dteStatusLabel, dteStatusCls, envLabel, envCls, dteTypeLabelFull,
 } from "../utils/dte-status.utils";
@@ -166,6 +172,39 @@ export function DteJsonActions({
     void load(v);
   }
 
+  // MH20 (Fase 6.1): descarga de archivos para el receptor (PDF / Archivo DTE).
+  const [receptorBusy, setReceptorBusy] = useState<"pdf" | "archive" | null>(null);
+  async function downloadReceptorFile(kind: "pdf" | "archive") {
+    const url = kind === "pdf"
+      ? `/api/dte/outgoing/${encodeURIComponent(dteId)}/representation`
+      : `/api/dte/outgoing/${encodeURIComponent(dteId)}/json?variant=archive&download=1`;
+    setReceptorBusy(kind);
+    setErr(variant, null);
+    try {
+      const res = await fetch(url, { cache: "no-store", credentials: "same-origin" });
+      if (!res.ok) {
+        setErr(variant, await readError(res));
+        setOpen(true);
+        return;
+      }
+      const blob = await res.blob();
+      const name = fileNameFromDisposition(res.headers.get("Content-Disposition")) ?? `DTE_${dteId}.${kind === "pdf" ? "pdf" : "json"}`;
+      const href = URL.createObjectURL(blob);
+      const a    = document.createElement("a");
+      a.href = href;
+      a.download = name;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(href), 0);
+    } catch {
+      setErr(variant, "No se pudo descargar el archivo.");
+      setOpen(true);
+    } finally {
+      setReceptorBusy(null);
+    }
+  }
+
   async function download(v: Variant) {
     setDownloading(true);
     setErr(v, null);
@@ -234,6 +273,26 @@ export function DteJsonActions({
         >
           {downloading ? <Loader2 className="h-3 w-3 animate-spin" /> : <Download className="h-3 w-3" />}
           {prefix}{downloadLabel}
+        </button>
+        <button
+          type="button"
+          onClick={() => downloadReceptorFile("pdf")}
+          disabled={!hasJson || receptorBusy !== null}
+          title={disabledTitle ?? `${prefix}Descargar representación gráfica (PDF) para el receptor`}
+          className={triggerBtn}
+        >
+          {receptorBusy === "pdf" ? <Loader2 className="h-3 w-3 animate-spin" /> : <FileText className="h-3 w-3" />}
+          {prefix}PDF
+        </button>
+        <button
+          type="button"
+          onClick={() => downloadReceptorFile("archive")}
+          disabled={!hasJson || receptorBusy !== null}
+          title={disabledTitle ?? `${prefix}Descargar Archivo DTE 2.0 (JSON firmado + sello) para el receptor`}
+          className={triggerBtn}
+        >
+          {receptorBusy === "archive" ? <Loader2 className="h-3 w-3 animate-spin" /> : <FileArchive className="h-3 w-3" />}
+          {prefix}Archivo DTE
         </button>
       </span>
 

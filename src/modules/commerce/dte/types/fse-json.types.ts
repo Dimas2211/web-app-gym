@@ -95,3 +95,45 @@ export interface FseJsonDocument {
   resumen:         FseResumen;
   apendice:        null;
 }
+
+// ── MH20 (IMP20-016) — FSE v2 (fe-fse-v2.json) ─────────────────────
+// sujetoExcluido → receptor; direcciones con distrito (emisor y receptor
+// requeridas); emisor sin codEstableMH/codPuntoVentaMH; resumen sin
+// ivaRete1 (R20-DEL-03) y totalDescu numérico.
+
+export interface FseV2Direccion {
+  departamento: string;
+  municipio:    string;
+  distrito:     string;
+  complemento:  string;
+}
+
+export interface FseV2Emisor {
+  nit:           string;
+  nrc:           string | null;
+  nombre:        string;
+  codActividad:  string;
+  descActividad: string;
+  direccion:     FseV2Direccion;
+  telefono:      string;
+  codEstable:    string | null;
+  codPuntoVenta: string | null;
+  correo:        string;
+}
+
+export interface FseV2Receptor extends Omit<FseSujetoExcluido, "direccion"> {
+  direccion: FseV2Direccion;
+}
+
+export interface FseV2Resumen extends Omit<FseResumen, "ivaRete1" | "totalDescu"> {
+  totalDescu: number;
+}
+
+export interface FseV2JsonDocument {
+  identificacion:  Omit<FseIdentificacion, "version"> & { version: 2 };
+  emisor:          FseV2Emisor;
+  receptor:        FseV2Receptor;
+  cuerpoDocumento: FseCuerpoItem[];
+  resumen:         FseV2Resumen;
+  apendice:        null;
+}

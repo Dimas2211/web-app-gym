@@ -24,6 +24,7 @@
 import { Prisma, type PrismaClient } from "@prisma/client";
 import { prisma }                 from "@/lib/db/prisma";
 import { generateFseJsonForPurchase } from "./generate-fse-json.service";
+import { mh20ProfileWriteData } from "../config/dte-mh20.flags";
 import {
   validateDteJsonSchema,
   type DteValidationError,
@@ -110,6 +111,7 @@ export async function generateAndPersistFseJsonForDte(
       dte_status:    "GENERATED",
       generated_at:  new Date(),
       updated_by:    user_id,
+      ...mh20ProfileWriteData(built.profile ?? "MH_1_2"),
     },
   });
 

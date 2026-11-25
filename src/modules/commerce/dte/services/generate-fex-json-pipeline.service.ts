@@ -30,11 +30,13 @@
 import { Prisma, type PrismaClient } from "@prisma/client";
 import { prisma }                 from "@/lib/db/prisma";
 import { generateFexJsonForSale } from "./generate-fex-json.service";
+import { mh20ProfileWriteData } from "../config/dte-mh20.flags";
 import {
   validateDteJsonSchema,
   type DteValidationError,
 } from "./validate-dte-json-schema.service";
 import { canUseFex11InServerFlow, FEX11_INVALID_ENVIRONMENT_ERROR } from "../utils/fex11-environment";
+import { checkFexV3TransportModes } from "../utils/fex11-v3-rules";
 
 // ── Tipos públicos ────────────────────────────────────────────────
 
@@ -125,6 +127,12 @@ export async function generateAndPersistFexJsonForDte(
     return { ok: false, error: built.error };
   }
 
+  // MH20 (Fase 6.1, consultas §16.a): modoTransp solo con códigos CAT-030.
+  const transportErrors = checkFexV3TransportModes(built.json as { otrosDocumentos?: unknown });
+  if (transportErrors.length > 0) {
+    return { ok: false, error: transportErrors.join(" ") };
+  }
+
   // ── 3. Persistir json_document y avanzar a GENERATED ──────────────
   await db.dteOutgoingDocument.update({
     where: { id: dte_document_id, dte_status: { in: ["PENDING_GENERATION", "GENERATED", "SCHEMA_VALIDATED"] } },
@@ -133,6 +141,7 @@ export async function generateAndPersistFexJsonForDte(
       dte_status:    "GENERATED",
       generated_at:  new Date(),
       updated_by:    user_id,
+      ...mh20ProfileWriteData(built.profile ?? "MH_1_2"),
     },
   });
 

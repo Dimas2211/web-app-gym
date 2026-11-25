@@ -15,6 +15,12 @@ export interface ExternalDteMariaDbConfig {
   invalidationTable:  string;
   enabled:            boolean;
   timeoutMs:          number;
+  /**
+   * MH20 (IMP20-026) — el destino declara que acepta documentos/eventos MH
+   * 2.0 dentro del contrato vigente. Ausente/false → los 2.0 no se insertan
+   * (DELIVERY_BLOCKED_CONTRACT). Los MH 1.2 no dependen de este campo.
+   */
+  acceptsMh20?:       boolean;
 }
 
 // ── Payload externo ───────────────────────────────────────────────
@@ -142,4 +148,6 @@ export type DeliverInvalidationToExternalDbResult =
   | {
       ok:    false;
       error: string;
+      /** MH20 (IMP20-026): DELIVERY_BLOCKED_CONTRACT cuando el destino no declaró 2.0. */
+      errorCode?: string;
     };

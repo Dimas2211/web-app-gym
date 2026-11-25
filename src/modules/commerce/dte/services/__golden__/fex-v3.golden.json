@@ -1,0 +1,110 @@
+{
+  "identificacion": {
+    "version": 3,
+    "ambiente": "00",
+    "tipoDte": "11",
+    "numeroControl": "DTE-11-M001P001-000000000000009",
+    "codigoGeneracion": "A1B2C3D4-E5F6-4234-8678-9ABCDEF01234",
+    "tipoModelo": 1,
+    "tipoOperacion": 1,
+    "tipoContingencia": null,
+    "motivoContin": null,
+    "fecEmi": "2026-11-16",
+    "horEmi": "09:00:00",
+    "tipoMoneda": "USD"
+  },
+  "documentoRelacionado": null,
+  "emisor": {
+    "nit": "06141234567890",
+    "nrc": "1234567",
+    "nombre": "EMISOR DE PRUEBA SA DE CV",
+    "codActividad": "93110",
+    "descActividad": "Gestión de instalaciones deportivas",
+    "nombreComercial": null,
+    "direccion": {
+      "departamento": "05",
+      "municipio": "28",
+      "distrito": "11",
+      "complemento": "Calle de prueba 123"
+    },
+    "telefono": "22223333",
+    "correo": "facturacion@emisor.test",
+    "codEstable": "M001",
+    "codPuntoVenta": "P001",
+    "tipoItemExpor": 2,
+    "recintoFiscal": null,
+    "tipoRegimen": null,
+    "regimen": null
+  },
+  "receptor": {
+    "nombre": "FOREIGN FIXTURE LLC",
+    "tipoDocumento": "03",
+    "numDocumento": "AB1234567",
+    "nombreComercial": null,
+    "codPais": "US",
+    "nombrePais": "Estados Unidos",
+    "complemento": "1 MAIN ST",
+    "tipoPersona": 2,
+    "descActividad": "SERVICES",
+    "telefono": null,
+    "correo": "f@fixture.test"
+  },
+  "otrosDocumentos": null,
+  "ventaTercero": null,
+  "compraTercero": null,
+  "cuerpoDocumento": [
+    {
+      "numItem": 1,
+      "tipoItem": 2,
+      "numeroDocumento": null,
+      "cantidad": 1,
+      "codigo": "MHTEST-SRV",
+      "codTributo": null,
+      "uniMedida": 59,
+      "descripcion": "SERVICIO DE PRUEBA DE CERTIFICACION MH",
+      "precioUni": 130,
+      "montoDescu": 0,
+      "ventaGravada": 130,
+      "tributos": [
+        "C3"
+      ],
+      "noGravado": 0
+    }
+  ],
+  "resumen": {
+    "totalGravada": 130,
+    "descuGravada": 0,
+    "porcentajeDescuento": 0,
+    "totalDescu": 0,
+    "seguro": 0,
+    "flete": 0,
+    "tributos": [
+      {
+        "codigo": "C3",
+        "descripcion": "Impuesto al Valor Agregado (exportaciones) 0%",
+        "valor": 0
+      }
+    ],
+    "montoTotalOperacion": 130,
+    "totalNoGravado": 0,
+    "totalNoOnerosas": 0,
+    "totalPagar": 130,
+    "totalLetras": "CIENTO TREINTA 00/100 DOLARES",
+    "saldoFavor": 0,
+    "condicionOperacion": 1,
+    "pagos": [
+      {
+        "codigo": "01",
+        "montoPago": 130,
+        "referencia": null,
+        "plazo": null,
+        "periodo": null
+      }
+    ],
+    "codIncoterms": null,
+    "descIncoterms": null,
+    "numPagoElectronico": null,
+    "observaciones": null
+  },
+  "apendice": null
+}

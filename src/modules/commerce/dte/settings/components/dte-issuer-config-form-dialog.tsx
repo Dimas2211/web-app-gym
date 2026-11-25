@@ -18,6 +18,8 @@ import {
   updateDteIssuerConfigForClientAction,
 } from "../../actions/upsert-dte-issuer-config-for-client.action";
 import type { DteIssuerConfigDetail, DteEnvironment } from "../../types/dte.types";
+import { MhTerritoryPreview } from "../../components/mh-territory-preview";
+import { mhIssuerCodesWarnings } from "../../utils/mh-issuer-codes";
 
 interface Props {
   environment: DteEnvironment;
@@ -131,6 +133,10 @@ export function DteIssuerConfigFormDialog({ environment, existing, prefillFrom, 
           <div className="grid grid-cols-2 gap-3">
             <Field label="cod_estable_mh (asignado por Hacienda)" name="cod_estable_mh" defaultValue={source?.cod_estable_mh} placeholder="Ej. M001" maxLength={4} />
             <Field label="cod_punto_venta_mh (asignado por Hacienda)" name="cod_punto_venta_mh" defaultValue={source?.cod_punto_venta_mh} placeholder="Ej. P001" maxLength={4} />
+            {/* MH20 (Fase 7, IMP20-011): advertencia no bloqueante sobre los valores guardados. */}
+            {source && mhIssuerCodesWarnings({ cod_estable_mh: source.cod_estable_mh, cod_punto_venta_mh: source.cod_punto_venta_mh }).map((w) => (
+              <p key={w} className="col-span-2 text-[11px] text-amber-600">{w}</p>
+            ))}
           </div>
 
           <div className="pt-2 border-t border-zinc-100">
@@ -141,6 +147,7 @@ export function DteIssuerConfigFormDialog({ environment, existing, prefillFrom, 
             <Field label="Departamento (código)" name="dept_code" defaultValue={source?.dept_code} maxLength={5} />
             <Field label="Municipio (código)" name="municipality_code" defaultValue={source?.municipality_code} maxLength={5} />
           </div>
+          {source && <MhTerritoryPreview deptCode={source.dept_code} municipalityCode={source.municipality_code} />}
           <Field label="Complemento de dirección" name="address_complement" defaultValue={source?.address_complement} maxLength={500} />
 
           <div className="grid grid-cols-2 gap-3">

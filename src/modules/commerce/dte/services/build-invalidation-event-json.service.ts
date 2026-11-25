@@ -27,6 +27,7 @@ import type {
   InvalidationEventJsonParams,
   BuildInvalidationEventJsonResult,
 } from "../types/dte-invalidation-event-json.types";
+import { buildInvalidationEventJsonV3 } from "./build-invalidation-event-json.v3";
 
 // ── Helpers ───────────────────────────────────────────────────────
 
@@ -63,6 +64,10 @@ const UUID_RE = /^[A-F0-9]{8}-[A-F0-9]{4}-[A-F0-9]{4}-[A-F0-9]{4}-[A-F0-9]{12}$/
 export function buildInvalidationEventJson(
   params: InvalidationEventJsonParams,
 ): BuildInvalidationEventJsonResult {
+  // MH20 (Fase 6, IMP20-018): perfil MH_2_0 → Invalidación v3. Sin perfil o
+  // MH_1_2 → el camino v2 de abajo, sin ningún cambio.
+  if (params.profile === "MH_2_0") return buildInvalidationEventJsonMh20(params);
+
   const {
     issuerConfig,
     dteDocument,
@@ -279,4 +284,40 @@ export function buildInvalidationEventJson(
   }
 
   return { ok: true, eventJson };
+}
+
+// ── MH20 (Fase 6) — adaptación del documento DTE al builder v3 ─────
+
+function buildInvalidationEventJsonMh20(params: InvalidationEventJsonParams): BuildInvalidationEventJsonResult {
+  const { dteDocument, originalJsonDocument } = params;
+  if (dteDocument.dte_status !== "ACCEPTED") {
+    return {
+      ok:    false,
+      error: `El documento DTE debe estar en estado ACCEPTED para invalidar. Estado actual: "${dteDocument.dte_status}".`,
+    };
+  }
+  if (!originalJsonDocument?.identificacion?.fecEmi) {
+    return { ok: false, error: "El JSON del DTE original no tiene identificacion.fecEmi." };
+  }
+  return buildInvalidationEventJsonV3({
+    issuerConfig:              params.issuerConfig,
+    target: {
+      tipoDte:        dteDocument.dte_type_code,
+      generationCode: dteDocument.generation_code,
+      receptionStamp: dteDocument.reception_stamp,
+      controlNumber:  dteDocument.control_number,
+      fecEmi:         originalJsonDocument.identificacion.fecEmi,
+      // Fase 6.1: en FSE 14 la contraparte es sujetoExcluido.
+      receptor:       dteDocument.dte_type_code === "14"
+        ? (originalJsonDocument.sujetoExcluido ?? null)
+        : (originalJsonDocument.receptor ?? null),
+    },
+    eventGenerationCode:       params.eventGenerationCode,
+    invalidationTypeCode:      params.invalidationTypeCode,
+    reason:                    params.reason,
+    replacementGenerationCode: params.replacementGenerationCode,
+    responsable:               params.responsable,
+    solicita:                  params.solicita,
+    now:                       params.now,
+  });
 }

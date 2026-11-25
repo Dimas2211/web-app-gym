@@ -37,7 +37,10 @@ import { resolveDteMhUrls }           from "../config/dte-mh.config";
 import { MhDteTransmissionAdapter }  from "../adapters/dte-transmission.adapter";
 import { MhAuthAdapter }             from "../adapters/dte-auth.adapter";
 import { canUseFex11InServerFlow, FEX11_INVALID_ENVIRONMENT_ERROR } from "../utils/fex11-environment";
-import { FEX11_SCHEMA_VERSION, fex11LegacyVersionError } from "../utils/fex11-schema-version";
+import { fex11LegacyVersionError } from "../utils/fex11-schema-version";
+import { decideRetransmissionForDocument } from "./mh-retransmission-guard";
+import { checkDteDocumentSpecCoherence } from "../spec/dte-spec-guard";
+import { mh20ProfileSelect } from "../config/dte-mh20.flags";
 import { isMhProcessedObserved }     from "../utils/dte-mh-observations.utils";
 import { assertDteContingencyTransmissionAllowed } from "./assert-dte-contingency-transmission-allowed.service";
 import { resolveCommercialEnforcementContext } from "@/modules/platform/runtime/commercial-enforcement/resolve-commercial-context";
@@ -86,14 +89,11 @@ class TransmitDteBusinessError extends Error {
 // mismo ambiente — FEX11-FINAL-CLOSURE, sin feature flags.
 const SUPPORTED_TYPE_CODES = new Set(["01", "03", "05", "14"]);
 
-function dteTypeCodeToVersion(code: string): number {
-  if (code === "03" || code === "05") return 3;
-  // FEX 11 identificacion.version = 3 (FEX-PROD-0B, fex11-schema-version.ts).
-  if (code === "11") return FEX11_SCHEMA_VERSION;
-  // FSE 14 identificacion.version es fijo en 1 (ver fse-json.types.ts / fse-14.schema.json).
-  if (code === "14") return 1;
-  return 1;
-}
+// MH20 (IMP20-003, D3): la versión enviada a MH es SIEMPRE la del propio
+// json_document firmado (identificacion.version), verificada contra el
+// registro central y el perfil persistido — ya no una tabla por tipo
+// (antes dteTypeCodeToVersion: 01→1, 03/05→3, 11→3, 14→1; los documentos
+// MH_1_2 conservan exactamente esas versiones).
 
 /**
  * Determina el estado Prisma final a partir de la respuesta normalizada del adapter.
@@ -160,6 +160,7 @@ export async function transmitDteDocument(
         transmission_type_code: true,
         contingency_type_code:  true,
         json_document:   true,
+        ...mh20ProfileSelect(),
       },
     });
 
@@ -248,7 +249,23 @@ export async function transmitDteDocument(
     // compartido DteTypeCode del adapter no incluye "11" por diseño (F3-C11B);
     // se castea localmente aquí, igual que en el script dev-only equivalente.
     const dteTypeCode   = dteDoc.dte_type_code as "01" | "03" | "05" | "14";
-    const version       = dteTypeCodeToVersion(dteDoc.dte_type_code);
+    // MH20 (BLOQUE 5C): coherencia versión persistida ↔ perfil ↔ schema ↔
+    // versión enviada. Un documento firmado se transmite con SU versión;
+    // nunca se regenera aquí. Reintentos: mismo payload, códigos y versión.
+    const specCheck = checkDteDocumentSpecCoherence({
+      kind:             dteDoc.dte_type_code,
+      jsonDocument:     dteDoc.json_document,
+      persistedProfile: dteDoc.mh_spec_profile,
+    });
+    if (!specCheck.ok) throw new TransmitDteBusinessError(specCheck.error);
+    const version       = specCheck.version;
+    // MH20 (Fase 6, IMP20-025): documentos MH_2_0 — tras un envío incierto
+    // se exige consultar/conciliar (consultadte) antes de reenviar; máximo
+    // 2 reintentos (MT v2 §3.3). MH_1_2 sin cambios de comportamiento.
+    if (specCheck.profile === "MH_2_0") {
+      const decision = await decideRetransmissionForDocument(db, dteDocumentId);
+      if (decision.action !== "TRANSMIT") throw new TransmitDteBusinessError(decision.reason);
+    }
     const receptionUrl  = buildReceptionUrl(environment);
     const attemptNumber = dteDoc.retry_count + 1;
 

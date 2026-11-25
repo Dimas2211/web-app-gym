@@ -24,9 +24,22 @@
 
 import { Prisma, type PrismaClient }                from "@prisma/client";
 import { prisma }                                   from "@/lib/db/prisma";
+import { checkDteFiscalYearForGeneration } from "../utils/dte-fiscal-year";
 import { numeroALetras }                            from "../utils/numero-a-letras";
 import { normalizeNitForDte, normalizeNrcForDte }   from "../utils/fiscal-id.utils";
 import { validateDteAddressCodes }                  from "../utils/dte-territory.resolver";
+import { getDteSpecVersion }                        from "../spec/dte-spec-registry";
+import { readDteJsonVersion }                       from "../spec/dte-json-version";
+import { mh20ProfileWriteDataWithOverride }         from "../config/dte-mh20.flags";
+import type { MhTestRunSpecProfileOverride }        from "../spec/mh-test-run-profile-override";
+import { resolveIssuerSpecProfileForGeneration }    from "../spec/resolve-issuer-spec-profile";
+import { resolveMhTerritory20 }                     from "../utils/dte-territory-projection";
+import {
+  buildMh20Direccion,
+  mh20ControlNumberSectionError,
+  remapKeys,
+} from "../utils/mh20-builder-helpers";
+import { computeNcV4Totals, ncV4ItemAdjustmentsForCcf } from "../utils/nc-v4-formulas";
 
 class NcJsonBusinessError extends Error {
   constructor(message: string) {
@@ -93,10 +106,12 @@ export async function generateNcJsonForDte(
     userId:        string;
     tenantId:      string;
     locationId:    string;
+    /** MH20 (Fase 9.0): perfil de una corrida MH TEST (solo TEST). */
+    specProfileOverride?: MhTestRunSpecProfileOverride | null;
   },
   db: PrismaClient = prisma,
 ): Promise<GenerateNcJsonResult> {
-  const { dteDocumentId, userId, tenantId, locationId } = params;
+  const { dteDocumentId, userId, tenantId, locationId, specProfileOverride } = params;
 
   try {
     // ── 1. Cargar DteOutgoingDocument NC 05 ───────────────────────
@@ -108,6 +123,8 @@ export async function generateNcJsonForDte(
         dte_status:       true,
         generation_code:  true,
         control_number:   true,
+        fiscal_year:      true, // COR-01
+        created_at:       true, // COR-01 (heredados sin fiscal_year)
         environment:      true,
         issuer_config_id: true,
         json_document:    true,
@@ -273,12 +290,22 @@ export async function generateNcJsonForDte(
     }, db);
     if (!emisorAddrCheck.ok) return { ok: false, message: emisorAddrCheck.error };
 
+    // ── 9c. MH20: perfil normativo activo (interruptor OFF → MH_1_2) ──
+    const profileCheck = await resolveIssuerSpecProfileForGeneration(
+      db, ncDoc.issuer_config_id, tenantId, locationId, issuerConfig.environment, "05", specProfileOverride,
+    );
+    if (!profileCheck.ok) return { ok: false, message: profileCheck.error };
+    const profile = profileCheck.profile;
+
     // ── 10. Construir identificacion ──────────────────────────────
     const now                            = new Date();
+    // COR-01 — el número se reservó en la secuencia de un ejercicio; no se emite en otro.
+    const fiscalYearCheck = checkDteFiscalYearForGeneration(ncDoc, now);
+    if (!fiscalYearCheck.ok) return { ok: false, message: fiscalYearCheck.error };
     const { date: fecEmi, time: horEmi } = svDateTime(now);
 
     const identificacion = {
-      version:          3,
+      version:          getDteSpecVersion(profile, "05"), // MH_1_2 → 3, MH_2_0 → 4 (registro central)
       ambiente:         mapAmbiente(issuerConfig.environment),
       tipoDte:          "05",
       numeroControl:    ncDoc.control_number,
@@ -446,7 +473,7 @@ export async function generateNcJsonForDte(
     };
 
     // ── 17. Ensamblar json_document completo ──────────────────────
-    const jsonDocument = {
+    let jsonDocument: Record<string, unknown> = {
       identificacion,
       documentoRelacionado,
       emisor,
@@ -458,6 +485,23 @@ export async function generateNcJsonForDte(
       apendice:     null,
     };
 
+    // ── 17b. MH20: NC v4 (fe-nc-v4.json) ──────────────────────────
+    // SCH20-223..251, MH20-007/026/037/075. Bloqueo de ACTIVACIÓN (no de
+    // desarrollo): NC v4 sobre un CCF v3 histórico depende de MH20-094.
+    if (profile === "MH_2_0") {
+      const v4 = await buildNcV4FromV3Parts({
+        identificacion, documentoRelacionado,
+        emisor:          emisor as unknown as Record<string, unknown>,
+        cuerpoDocumento: cuerpoDocumento as unknown as Parameters<typeof buildNcV4FromV3Parts>[0]["cuerpoDocumento"],
+        controlNumber:   ncDoc.control_number,
+        issuer:          issuerConfig,
+        receptorV3:      receptor as unknown as Record<string, unknown>,
+        ccfeJson,
+      }, db);
+      if (!v4.ok) return { ok: false, message: v4.error };
+      jsonDocument = v4.json;
+    }
+
     // ── 18. Persistir: guardar JSON y cambiar estado ──────────────
     await db.dteOutgoingDocument.update({
       where: { id: dteDocumentId, dte_status: "PENDING_GENERATION" },
@@ -466,6 +510,8 @@ export async function generateNcJsonForDte(
         dte_status:    "GENERATED",
         generated_at:  now,
         updated_by:    userId,
+        // MH20 (IMP20-005): perfil aplicado, solo con el interruptor ON.
+        ...mh20ProfileWriteDataWithOverride(profile, specProfileOverride),
       },
     });
 
@@ -483,4 +529,119 @@ export async function generateNcJsonForDte(
     }
     throw error;
   }
+}
+
+// ── MH20: NC v4 (fe-nc-v4.json) ───────────────────────────────────
+//
+// Se construye a partir de las piezas v3 ya calculadas (mismo receptor,
+// mismos ítems y montos base) aplicando SOLO los cambios confirmados:
+//   - identificacion.version 4 (registro) + fusion = null (MH20-007: null
+//     salvo emisor fusionado; Zolvi no registra fusiones).
+//   - emisor sin tipoEstablecimiento; direccion 2.0 con distrito (requerida).
+//   - receptor: sin nit; tipoDocumento "36" + numDocumento = NIT del CCF.
+//     direccion: CCF v4 de origen → se copia (ya trae distrito); CCF v3
+//     histórico → se proyecta desde (departamento, municipio antiguo = distrito).
+//   - ítems + noGravado / ivaPerci / totalIva / ivaRete (nc-v4-formulas.ts).
+//   - resumen sin descu* / subTotal / *1 / reteRenta; con ivaPerci,
+//     totalIva, ivaRete, totalNoGravado, totalPagar, observaciones,
+//     codigoRetencionMH (null); sin extension.
+
+async function buildNcV4FromV3Parts(
+  parts: {
+    identificacion:       Record<string, unknown>;
+    documentoRelacionado: unknown[];
+    emisor:               Record<string, unknown>;
+    cuerpoDocumento:      Array<Record<string, unknown> & {
+      ventaNoSuj: number; ventaExenta: number; ventaGravada: number; montoDescu: number;
+    }>;
+    controlNumber:        string | null;
+    issuer:               { dept_code: string | null; municipality_code: string | null; address_complement: string | null };
+    receptorV3:           Record<string, unknown>;
+    ccfeJson:             Record<string, unknown>;
+  },
+  db: PrismaClient,
+): Promise<{ ok: true; json: Record<string, unknown> } | { ok: false; error: string }> {
+  const sectionError = mh20ControlNumberSectionError(parts.controlNumber);
+  if (sectionError) return { ok: false, error: sectionError };
+
+  // Emisor
+  const emisorTerr = await resolveMhTerritory20(
+    { role: "emisor", deptCode: parts.issuer.dept_code, municipalityCode: parts.issuer.municipality_code }, db,
+  );
+  if (!emisorTerr.ok) return { ok: false, error: emisorTerr.error };
+  const emisorDir = buildMh20Direccion({
+    role: "emisor", territory: emisorTerr.territory, complemento: parts.issuer.address_complement, required: true,
+  });
+  if (!emisorDir.ok) return { ok: false, error: emisorDir.error };
+  const emisor = remapKeys(parts.emisor, {}, ["tipoEstablecimiento"]);
+  emisor.direccion = emisorDir.direccion;
+
+  // Receptor
+  const rcpDir = parts.receptorV3.direccion as Record<string, unknown> | null | undefined;
+  let receptorDireccion: Record<string, unknown> | null;
+  if (readDteJsonVersion(parts.ccfeJson) === 4) {
+    if (!rcpDir || typeof rcpDir.distrito !== "string") {
+      return { ok: false, error: "El CCF v4 de origen no tiene dirección del receptor con distrito." };
+    }
+    receptorDireccion = rcpDir;
+  } else {
+    const rcpTerr = await resolveMhTerritory20({
+      role:             "receptor",
+      deptCode:         typeof rcpDir?.departamento === "string" ? rcpDir.departamento : null,
+      municipalityCode: typeof rcpDir?.municipio === "string" ? rcpDir.municipio : null,
+    }, db);
+    if (!rcpTerr.ok) return { ok: false, error: rcpTerr.error };
+    const built = buildMh20Direccion({
+      role: "receptor", territory: rcpTerr.territory,
+      complemento: typeof rcpDir?.complemento === "string" ? rcpDir.complemento : null, required: true,
+    });
+    if (!built.ok) return { ok: false, error: built.error };
+    receptorDireccion = built.direccion as unknown as Record<string, unknown>;
+  }
+  const { nit, ...rcpRest } = parts.receptorV3;
+  const receptor = {
+    tipoDocumento:   "36",
+    numDocumento:    nit,
+    ...rcpRest,
+    direccion:       receptorDireccion,
+  };
+
+  // Ítems + resumen
+  const adj = ncV4ItemAdjustmentsForCcf();
+  const cuerpoDocumento = parts.cuerpoDocumento.map((item) => ({ ...item, ...adj }));
+  const t = computeNcV4Totals(cuerpoDocumento);
+  const resumen = {
+    totalNoSuj:          t.totalNoSuj,
+    totalExenta:         t.totalExenta,
+    totalGravada:        t.totalGravada,
+    subTotalVentas:      t.subTotalVentas,
+    totalDescu:          t.totalDescu,
+    tributos:            t.ivaTributo > 0
+      ? [{ codigo: "20", descripcion: "Impuesto al Valor Agregado 13%", valor: t.ivaTributo }]
+      : null,
+    montoTotalOperacion: t.montoTotalOperacion,
+    ivaPerci:            t.ivaPerci,
+    totalIva:            t.totalIva,
+    ivaRete:             t.ivaRete,
+    totalNoGravado:      t.totalNoGravado,
+    totalPagar:          t.totalPagar,
+    totalLetras:         numeroALetras(t.totalPagar),
+    condicionOperacion:  1,
+    observaciones:       null, // 5.1D: sin fuente fiscal explícita; notas internas nunca salen a MH
+    codigoRetencionMH:   null, // 144.2: documento a ajustar 03-CCFE → null
+  };
+
+  return {
+    ok: true,
+    json: {
+      identificacion:       { ...parts.identificacion, fusion: null },
+      documentoRelacionado: parts.documentoRelacionado,
+      emisor,
+      receptor,
+      ventaTercero:         null,
+      cuerpoDocumento,
+      resumen,
+      apendice:             null,
+    },
+  };
 }

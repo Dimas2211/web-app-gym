@@ -16,15 +16,19 @@
 //   - NO firma. NO transmite. NO toca json_document.
 // ─────────────────────────────────────────────────────────────────
 
-import Ajv         from "ajv";
+import Ajv, { type ValidateFunction } from "ajv";
 import addFormats  from "ajv-formats";
 import type { PrismaClient } from "@prisma/client";
 import { prisma }  from "@/lib/db/prisma";
-import feSchema    from "../schemas/mh/fe-01.schema.json";
-import ccfeSchema  from "../schemas/mh/ccfe-03.schema.json";
-import ncSchema    from "../schemas/mh/fe-nc-v3.json";
-import fexSchema   from "../schemas/mh/fex-11-v3.schema.json";
-import fseSchema   from "../schemas/mh/fse-14.schema.json";
+import { readDteJsonVersion } from "../spec/dte-json-version";
+import {
+  getDteSchemaByVersion,
+  inferProfileFromDocument,
+  listKnownDteVersions,
+  type DteSchemaId,
+  type DteSpecKind,
+} from "../spec/dte-spec-registry";
+import { runMhSemanticRules } from "../rules/mh-semantic-rules";
 
 // ── Tipos públicos ────────────────────────────────────────────────
 
@@ -46,21 +50,39 @@ class DteValidationBusinessError extends Error {
   }
 }
 
-// ── Mapa de schemas por dte_type_code ─────────────────────────────
-// "01" = Factura Electrónica             → fe-01.schema.json   (fe-fc-v1.json del ZIP MH)
-// "03" = Comprobante de Crédito Fiscal   → ccfe-03.schema.json (fe-ccf-v3.json del ZIP MH)
-// "05" = Nota de Crédito Electrónica     → fe-nc-v3.json       (fe-nc-v3.json del ZIP MH)
-// "11" = Factura de Exportación          → fex-11-v3.schema.json (fe-fex-v3.json, factura.gob.sv
-//        2026-08-11 — FEX-PROD-0B). El schema v1 queda solo como legacy
-//        (fex-11-v1.legacy.schema.json) y no se usa para validar.
+// ── Selección de schema por (tipo, identificacion.version) ────────
+// MH20 (IMP20-002, D3): el schema se elige por la versión que el PROPIO
+// documento declara, vía el registro central (spec/dte-spec-registry.ts):
+//   01 FE  v1 → fe-01.schema.json          v2 → v2_0/fe-f-v2.json
+//   03 CCF v3 → ccfe-03.schema.json        v4 → v2_0/fe-ccf-v4.json
+//   05 NC  v3 → fe-nc-v3.json              v4 → v2_0/fe-nc-v4.json
+//   11 FEX v3 → fex-11-v3.schema.json (común a MH 1.2 y 2.0)
+//   14 FSE v1 → fse-14.schema.json         v2 → v2_0/fe-fse-v2.json
+// El schema FEX v1 sigue solo como legacy y no se usa para validar.
+// Una versión desconocida produce un error explícito; nunca se cae a un
+// schema por defecto. Los compiladores AJV se cachean por schema.
 
-const SCHEMA_MAP: Record<string, object> = {
-  "01": feSchema   as object,
-  "03": ccfeSchema as object,
-  "05": ncSchema   as object,
-  "11": fexSchema  as object,
-  "14": fseSchema  as object,
-};
+const DOCUMENT_TYPE_CODES = new Set<DteSpecKind>(["01", "03", "05", "11", "14"]);
+
+const compiledValidators = new Map<DteSchemaId, ValidateFunction>();
+
+function getCompiledValidator(schemaId: DteSchemaId, schema: object): ValidateFunction {
+  const cached = compiledValidators.get(schemaId);
+  if (cached) return cached;
+  //    strict: false           → no lanza error por keywords desconocidas ni formats sin registrar.
+  //    allErrors: true         → recopila todos los errores en lugar de detenerse en el primero.
+  //    multipleOfPrecision: 2  → evita falsos positivos de multipleOf 0.01 por precisión flotante JS.
+  const ajv = new Ajv({ strict: false, allErrors: true, multipleOfPrecision: 2 });
+  addFormats(ajv);
+  const validate = ajv.compile(schema);
+  compiledValidators.set(schemaId, validate);
+  return validate;
+}
+
+/** Solo para tests: número de schemas compilados en caché. */
+export function __compiledDteValidatorCountForTests(): number {
+  return compiledValidators.size;
+}
 
 // ── Validación pura (sin base de datos) ───────────────────────────
 //
@@ -73,27 +95,40 @@ export type DteJsonSchemaCheckResult =
   | { ok: false; error: string; validation_errors?: DteValidationError[] };
 
 export function hasOfficialDteJsonSchema(dteTypeCode: string): boolean {
-  return Boolean(SCHEMA_MAP[dteTypeCode]);
+  return DOCUMENT_TYPE_CODES.has(dteTypeCode as DteSpecKind);
 }
 
 export function validateDteJsonAgainstOfficialSchema(
   dteTypeCode:  string,
   documentData: unknown,
 ): DteJsonSchemaCheckResult {
-  const schema = SCHEMA_MAP[dteTypeCode];
-  if (!schema) {
+  if (!hasOfficialDteJsonSchema(dteTypeCode)) {
     return {
       ok:    false,
       error: `No existe schema oficial MH para el tipo DTE "${dteTypeCode}". Solo se admiten "01" (FE), "03" (CCFE), "05" (NC), "11" (FEX) y "14" (FSE).`,
     };
   }
+  const kind    = dteTypeCode as DteSpecKind;
+  const version = readDteJsonVersion(documentData);
+  if (version === null) {
+    return {
+      ok:    false,
+      error: "El documento no declara identificacion.version; no se puede seleccionar el schema oficial MH.",
+      validation_errors: [{ path: "/identificacion/version", message: "versión ausente o no entera" }],
+    };
+  }
+  const selected = getDteSchemaByVersion(kind, version);
+  if (!selected) {
+    return {
+      ok:    false,
+      error:
+        `No existe schema oficial MH para el tipo DTE "${dteTypeCode}" versión ${version} ` +
+        `(versiones conocidas: ${listKnownDteVersions(kind).join(", ")}).`,
+      validation_errors: [{ path: "/identificacion/version", message: `versión ${version} desconocida` }],
+    };
+  }
 
-  //    strict: false           → no lanza error por keywords desconocidas ni formats sin registrar.
-  //    allErrors: true         → recopila todos los errores en lugar de detenerse en el primero.
-  //    multipleOfPrecision: 2  → evita falsos positivos de multipleOf 0.01 por precisión flotante JS.
-  const ajv      = new Ajv({ strict: false, allErrors: true, multipleOfPrecision: 2 });
-  addFormats(ajv);
-  const validate = ajv.compile(schema);
+  const validate = getCompiledValidator(selected.schemaId, selected.schema);
   const valid    = validate(documentData);
 
   if (!valid && validate.errors && validate.errors.length > 0) {
@@ -120,6 +155,20 @@ export function validateDteJsonAgainstOfficialSchema(
       error:            "El documento no cumple el schema oficial MH.",
       validation_errors: validationErrors,
     };
+  }
+
+  // MH20 (IMP20-020, D8): reglas semánticas Zolvi para restricciones que el
+  // schema 2.0 ya no expresa. Solo para versiones exclusivas de MH_2_0; los
+  // documentos MH_1_2 conservan exactamente su validación histórica (AJV).
+  if (inferProfileFromDocument(kind, version) === "MH_2_0") {
+    const semantic = runMhSemanticRules(kind, documentData);
+    if (semantic.errors.length > 0) {
+      return {
+        ok:    false,
+        error: "El documento no cumple las reglas de negocio MH 2.0 confirmadas.",
+        validation_errors: semantic.errors.map((e) => ({ path: e.path, message: `[${e.ruleId}] ${e.message}` })),
+      };
+    }
   }
   return { ok: true };
 }

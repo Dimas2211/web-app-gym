@@ -1,0 +1,116 @@
+{
+  "identificacion": {
+    "version": 3,
+    "ambiente": "00",
+    "tipoDte": "03",
+    "numeroControl": "DTE-03-M001P001-000000000000009",
+    "codigoGeneracion": "A1B2C3D4-E5F6-4234-8678-9ABCDEF01234",
+    "tipoModelo": 1,
+    "tipoOperacion": 1,
+    "tipoContingencia": null,
+    "motivoContin": null,
+    "fecEmi": "2026-11-16",
+    "horEmi": "09:00:00",
+    "tipoMoneda": "USD"
+  },
+  "documentoRelacionado": null,
+  "emisor": {
+    "nit": "06141234567890",
+    "nrc": "1234567",
+    "nombre": "EMISOR DE PRUEBA SA DE CV",
+    "codActividad": "93110",
+    "descActividad": "Gestión de instalaciones deportivas",
+    "nombreComercial": null,
+    "tipoEstablecimiento": "02",
+    "direccion": {
+      "departamento": "05",
+      "municipio": "11",
+      "complemento": "Calle de prueba 123"
+    },
+    "telefono": "22223333",
+    "correo": "facturacion@emisor.test",
+    "codEstableMH": "M001",
+    "codEstable": "M001",
+    "codPuntoVentaMH": "P001",
+    "codPuntoVenta": "P001"
+  },
+  "receptor": {
+    "nit": "06140000000000",
+    "nrc": "1234",
+    "nombre": "CONTRIBUYENTE FIXTURE SA DE CV",
+    "codActividad": "46900",
+    "descActividad": "Venta al por mayor",
+    "nombreComercial": null,
+    "direccion": {
+      "departamento": "06",
+      "municipio": "14",
+      "complemento": "Col. Fixture"
+    },
+    "telefono": "22220000",
+    "correo": "c@fixture.test"
+  },
+  "otrosDocumentos": null,
+  "ventaTercero": null,
+  "cuerpoDocumento": [
+    {
+      "numItem": 1,
+      "tipoItem": 2,
+      "numeroDocumento": null,
+      "cantidad": 1,
+      "codigo": "MHTEST-SRV",
+      "codTributo": null,
+      "uniMedida": 59,
+      "descripcion": "SERVICIO DE PRUEBA DE CERTIFICACION MH",
+      "precioUni": 13,
+      "montoDescu": 0,
+      "ventaNoSuj": 0,
+      "ventaExenta": 0,
+      "ventaGravada": 13,
+      "tributos": [
+        "20"
+      ],
+      "psv": 0,
+      "noGravado": 0
+    }
+  ],
+  "resumen": {
+    "totalNoSuj": 0,
+    "totalExenta": 0,
+    "totalGravada": 13,
+    "subTotalVentas": 13,
+    "descuNoSuj": 0,
+    "descuExenta": 0,
+    "descuGravada": 0,
+    "porcentajeDescuento": 0,
+    "totalDescu": 0,
+    "tributos": [
+      {
+        "codigo": "20",
+        "descripcion": "Impuesto al Valor Agregado 13%",
+        "valor": 1.69
+      }
+    ],
+    "subTotal": 13,
+    "ivaPerci1": 0,
+    "ivaRete1": 0,
+    "reteRenta": 0,
+    "montoTotalOperacion": 14.69,
+    "totalNoGravado": 0,
+    "totalPagar": 14.69,
+    "totalLetras": "CATORCE 69/100 DOLARES",
+    "saldoFavor": 0,
+    "condicionOperacion": 1,
+    "pagos": [
+      {
+        "codigo": "01",
+        "montoPago": 14.69,
+        "referencia": null,
+        "plazo": null,
+        "periodo": null
+      }
+    ],
+    "numPagoElectronico": null
+  },
+  "extension": null,
+  "apendice": null
+}

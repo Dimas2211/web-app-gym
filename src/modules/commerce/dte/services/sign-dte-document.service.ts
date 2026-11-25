@@ -33,6 +33,11 @@ import { resolveDteSignerConfigForIssuer } from "./dte-credential.service";
 import { MhHttpDteSignerAdapter } from "../adapters/dte-signer.adapter";
 import type { DteMhEnvironment }  from "../types/dte-mh-auth.types";
 import { fex11LegacyVersionError } from "../utils/fex11-schema-version";
+import { checkDteDocumentSpecCoherence, unsignedDocumentProfileMismatchError } from "../spec/dte-spec-guard";
+import { isDteSpecKind } from "../spec/dte-spec-registry";
+import { resolveActiveDteSpecProfile } from "../spec/resolve-active-dte-spec-profile";
+import { applyMhTestRunSpecProfileOverride, type MhTestRunSpecProfileOverride } from "../spec/mh-test-run-profile-override";
+import { mh20ProfileSelect } from "../config/dte-mh20.flags";
 
 // ── Tipos públicos ────────────────────────────────────────────────
 
@@ -41,6 +46,8 @@ export interface SignDteDocumentParams {
   userId:        string;
   tenantId:      string;
   locationId:    string;
+  /** MH20 (Fase 9.0): perfil de una corrida MH TEST (solo TEST, emisor de la corrida). */
+  specProfileOverride?: MhTestRunSpecProfileOverride | null;
 }
 
 export type SignDteDocumentResult =
@@ -89,6 +96,7 @@ export async function signDteDocument(
         environment:      true,
         issuer_config_id: true,
         dte_type_code:    true,
+        ...mh20ProfileSelect(),
       },
     });
 
@@ -124,6 +132,20 @@ export async function signDteDocument(
       if (legacyError) throw new SignDteBusinessError(legacyError);
     }
 
+    // 3a-bis. MH20 (IMP20-003): coherencia versión del JSON ↔ perfil
+    //         persistido ↔ schema registrado, para todos los tipos.
+    const specCheck = isDteSpecKind(dteDoc.dte_type_code)
+      ? checkDteDocumentSpecCoherence({
+          kind:             dteDoc.dte_type_code,
+          jsonDocument:     dteDoc.json_document,
+          persistedProfile: dteDoc.mh_spec_profile,
+        })
+      : null;
+    if (specCheck && !specCheck.ok) throw new SignDteBusinessError(specCheck.error);
+    if (params.specProfileOverride && !dteDoc.issuer_config_id) {
+      throw new SignDteBusinessError("Documento de corrida MH TEST sin emisor: firma bloqueada.");
+    }
+
     // 3b. Consistencia de ambiente documento <-> emisor (VI-E5A / J).
     //     issuer_config_id ya pertenece a un único ambiente por diseño
     //     (@@unique([tenant_id, location_id, environment]) en
@@ -134,7 +156,7 @@ export async function signDteDocument(
     if (dteDoc.issuer_config_id) {
       const issuerConfig = await db.dteIssuerConfig.findFirst({
         where:  { id: dteDoc.issuer_config_id, tenant_id: tenantId, location_id: locationId },
-        select: { environment: true },
+        select: { environment: true, ...mh20ProfileSelect() },
       });
       if (!issuerConfig) {
         throw new SignDteBusinessError(
@@ -145,6 +167,22 @@ export async function signDteDocument(
         throw new SignDteBusinessError(
           "El ambiente del emisor no coincide con el ambiente del documento DTE. Firma bloqueada.",
         );
+      }
+      // 3c. MH20 (IMP20-006, §2.3): un documento aún sin firmar generado con
+      //     un perfil distinto del activo del emisor debe regenerarse
+      //     (mismo numeroControl/codigoGeneracion). Con el interruptor
+      //     apagado el perfil activo es siempre MH_1_2.
+      if (specCheck?.ok) {
+        const active = params.specProfileOverride
+          ? applyMhTestRunSpecProfileOverride(params.specProfileOverride, { issuerConfigId: dteDoc.issuer_config_id, environment: dteDoc.environment })
+          : resolveActiveDteSpecProfile(issuerConfig);
+        if (!active.ok) throw new SignDteBusinessError(active.error);
+        const mismatch = unsignedDocumentProfileMismatchError({
+          kind:          specCheck.kind,
+          version:       specCheck.version,
+          activeProfile: active.profile,
+        });
+        if (mismatch) throw new SignDteBusinessError(mismatch);
       }
     }
 

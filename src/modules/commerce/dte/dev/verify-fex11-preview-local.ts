@@ -487,7 +487,7 @@ async function ensureDteDocument(
   }
 
   const created = await prisma.$transaction(async (tx) => {
-    const { control_number } = await reserveDteControlNumber(tx, {
+    const { control_number, fiscal_year } = await reserveDteControlNumber(tx, {
       tenant_id, location_id, issuer_config_id, environment: "TEST", dte_type_code: "11",
       cod_estable_mh, cod_punto_venta_mh,
     });
@@ -504,6 +504,7 @@ async function ensureDteDocument(
         environment: "TEST",
         generation_code,
         control_number,
+        fiscal_year,
         dte_status: "PENDING_GENERATION",
         retry_count: 0,
       },

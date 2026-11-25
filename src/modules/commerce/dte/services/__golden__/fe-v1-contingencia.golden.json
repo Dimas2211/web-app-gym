@@ -1,0 +1,105 @@
+{
+  "identificacion": {
+    "version": 1,
+    "ambiente": "00",
+    "tipoDte": "01",
+    "numeroControl": "DTE-01-M001P001-000000000000009",
+    "codigoGeneracion": "A1B2C3D4-E5F6-4234-8678-9ABCDEF01234",
+    "tipoModelo": 2,
+    "tipoOperacion": 2,
+    "tipoContingencia": 1,
+    "motivoContin": null,
+    "fecEmi": "2026-11-16",
+    "horEmi": "09:00:00",
+    "tipoMoneda": "USD"
+  },
+  "documentoRelacionado": null,
+  "emisor": {
+    "nit": "06141234567890",
+    "nrc": "1234567",
+    "nombre": "EMISOR DE PRUEBA SA DE CV",
+    "codActividad": "93110",
+    "descActividad": "Gestión de instalaciones deportivas",
+    "nombreComercial": null,
+    "tipoEstablecimiento": "02",
+    "direccion": {
+      "departamento": "05",
+      "municipio": "11",
+      "complemento": "Calle de prueba 123"
+    },
+    "telefono": "22223333",
+    "correo": "facturacion@emisor.test",
+    "codEstableMH": "M001",
+    "codEstable": "M001",
+    "codPuntoVentaMH": "P001",
+    "codPuntoVenta": "P001"
+  },
+  "receptor": {
+    "tipoDocumento": null,
+    "numDocumento": null,
+    "nrc": null,
+    "nombre": "CONSUMIDOR FINAL",
+    "codActividad": null,
+    "descActividad": null,
+    "direccion": null,
+    "telefono": null,
+    "correo": null
+  },
+  "otrosDocumentos": null,
+  "ventaTercero": null,
+  "cuerpoDocumento": [
+    {
+      "numItem": 1,
+      "tipoItem": 2,
+      "numeroDocumento": null,
+      "cantidad": 1,
+      "codigo": "MHTEST-SRV",
+      "codTributo": null,
+      "uniMedida": 59,
+      "descripcion": "SERVICIO DE PRUEBA DE CERTIFICACION MH",
+      "precioUni": 14.69,
+      "montoDescu": 0,
+      "ventaNoSuj": 0,
+      "ventaExenta": 0,
+      "ventaGravada": 14.69,
+      "tributos": null,
+      "psv": 0,
+      "noGravado": 0,
+      "ivaItem": 1.69
+    }
+  ],
+  "resumen": {
+    "totalNoSuj": 0,
+    "totalExenta": 0,
+    "totalGravada": 14.69,
+    "subTotalVentas": 14.69,
+    "descuNoSuj": 0,
+    "descuExenta": 0,
+    "descuGravada": 0,
+    "porcentajeDescuento": 0,
+    "totalDescu": 0,
+    "tributos": null,
+    "subTotal": 14.69,
+    "ivaRete1": 0,
+    "reteRenta": 0,
+    "montoTotalOperacion": 14.69,
+    "totalNoGravado": 0,
+    "totalPagar": 14.69,
+    "totalLetras": "CATORCE 69/100 DOLARES",
+    "totalIva": 1.69,
+    "saldoFavor": 0,
+    "condicionOperacion": 1,
+    "pagos": [
+      {
+        "codigo": "01",
+        "montoPago": 14.69,
+        "referencia": null,
+        "plazo": null,
+        "periodo": null
+      }
+    ],
+    "numPagoElectronico": null
+  },
+  "extension": null,
+  "apendice": null
+}

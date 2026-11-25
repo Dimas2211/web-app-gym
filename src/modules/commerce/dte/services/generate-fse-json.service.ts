@@ -30,12 +30,23 @@
 
 import type { PrismaClient } from "@prisma/client";
 import { prisma } from "@/lib/db/prisma";
+import { checkDteFiscalYearForGeneration } from "../utils/dte-fiscal-year";
 import { numeroALetras } from "../utils/numero-a-letras";
 import { normalizeNitForDte, normalizeNrcForDte } from "../utils/fiscal-id.utils";
 import { mapSupplierToSujetoExcluido } from "../utils/supplier-to-sujeto-excluido.mapper";
 import { mapCancellationTypeToCat017 } from "../utils/purchase-payment-method.mapper";
 import { validateDteAddressCodes } from "../utils/dte-territory.resolver";
-import type { FseJsonDocument, FseCuerpoItem } from "../types/fse-json.types";
+import type { FseJsonDocument, FseCuerpoItem, FseV2JsonDocument } from "../types/fse-json.types";
+import type { DteSpecProfile } from "../spec/dte-spec-profile";
+import { getDteSpecVersion } from "../spec/dte-spec-registry";
+import { resolveIssuerSpecProfileForGeneration } from "../spec/resolve-issuer-spec-profile";
+import {
+  buildMh20Direccion,
+  mh20ControlNumberSectionError,
+  resolveMh20FiscalObservations,
+  resolveMh20PartyTerritories,
+  type DteBuildProfileOptions,
+} from "../utils/mh20-builder-helpers";
 
 const TOLERANCE = 0.01;
 
@@ -132,7 +143,12 @@ export interface FseLoadedData {
 }
 
 export type GenerateFseJsonResult =
-  | { ok: true; json: FseJsonDocument }
+  | { ok: true; json: FseJsonDocument; profile?: DteSpecProfile }
+  | { ok: false; error: string };
+
+/** MH20: resultado con perfil elegible (MH_1_2 → v1, MH_2_0 → v2). */
+export type GenerateFseJsonProfileResult =
+  | { ok: true; json: FseJsonDocument | FseV2JsonDocument; profile?: DteSpecProfile }
   | { ok: false; error: string };
 
 // ── Función principal ─────────────────────────────────────────────
@@ -144,7 +160,7 @@ export async function generateFseJsonForPurchase(
     dte_document_id: string;
   },
   db: PrismaClient = prisma,
-): Promise<GenerateFseJsonResult> {
+): Promise<GenerateFseJsonProfileResult> {
   const { tenant_id, location_id, dte_document_id } = params;
 
   const dteDoc = await db.dteOutgoingDocument.findFirst({
@@ -154,6 +170,8 @@ export async function generateFseJsonForPurchase(
       dte_type_code:    true,
       generation_code:  true,
       control_number:   true,
+      fiscal_year:      true, // COR-01
+      created_at:       true, // COR-01 (heredados sin fiscal_year)
       environment:      true,
       purchase_id:      true,
       issuer_config_id: true,
@@ -277,22 +295,53 @@ export async function generateFseJsonForPurchase(
   }, db);
   if (!sujetoExcluidoAddrCheck.ok) return { ok: false, error: sujetoExcluidoAddrCheck.error };
 
-  return buildFseJsonFromLoadedData({
+  // ── MH20: perfil activo del emisor (interruptor global apagado → MH_1_2) ──
+  const spec = await resolveIssuerSpecProfileForGeneration(
+    db, dteDoc.issuer_config_id, tenant_id, location_id, issuerConfig.environment, "14",
+  );
+  if (!spec.ok) return { ok: false, error: spec.error };
+  const profile = spec.profile;
+
+  const terr = await resolveMh20PartyTerritories(
+    profile,
+    { deptCode: issuerConfig.dept_code, municipalityCode: issuerConfig.municipality_code },
+    { role: "sujeto excluido", deptCode: purchase.supplier.dept_code, municipalityCode: purchase.supplier.municipality_code },
+    db,
+  );
+  if (!terr.ok) return { ok: false, error: terr.error };
+
+  const built = buildFseJsonFromLoadedData({
     dteDoc: {
       control_number:  dteDoc.control_number,
       generation_code: dteDoc.generation_code,
     },
     purchase:     purchase as unknown as FseLoadedPurchase,
     issuerConfig: issuerConfig as unknown as FseLoadedIssuerConfig,
-  });
+  }, { profile, territories: terr.territories });
+  return built.ok ? { ...built, profile } : built;
 }
 
 // ── Función pura ───────────────────────────────────────────────────
 // Construye el json_document FSE 14 a partir de datos ya cargados.
 // No accede a Prisma — permite pruebas aisladas con un fixture in-memory.
 
-export function buildFseJsonFromLoadedData(loaded: FseLoadedData): GenerateFseJsonResult {
+export function buildFseJsonFromLoadedData(loaded: FseLoadedData): GenerateFseJsonResult;
+export function buildFseJsonFromLoadedData(loaded: FseLoadedData, options: DteBuildProfileOptions): GenerateFseJsonProfileResult;
+export function buildFseJsonFromLoadedData(
+  loaded:  FseLoadedData,
+  options: DteBuildProfileOptions = {},
+): GenerateFseJsonProfileResult {
   const { dteDoc, purchase, issuerConfig } = loaded;
+  const profile: DteSpecProfile = options.profile ?? "MH_1_2";
+
+  // MH20 (IMP20-016/029, R20-DEL-03): FSE v2 elimina ivaRete1. No se
+  // habilitan retenciones nuevas ni se descarta en silencio una existente.
+  if (profile === "MH_2_0" && purchase.retention_1pct_applies && Number(purchase.retention_1pct_amount) > 0) {
+    return {
+      ok:    false,
+      error: "MH 2.0: la FSE v2 no admite retención IVA 1% (ivaRete1 eliminado del esquema). Quite la retención de la compra o emita con el perfil MH 1.2.",
+    };
+  }
 
   // ── Precondiciones de la compra ───────────────────────────────────
   if (purchase.status !== "CONFIRMED") {
@@ -417,10 +466,13 @@ export function buildFseJsonFromLoadedData(loaded: FseLoadedData): GenerateFseJs
   // ── Identificación ───────────────────────────────────────────────
 
   const now = new Date();
+  // COR-01 — el número se reservó en la secuencia de un ejercicio; no se emite en otro.
+  const fiscalYearCheck = checkDteFiscalYearForGeneration(dteDoc, now);
+  if (!fiscalYearCheck.ok) return { ok: false, error: fiscalYearCheck.error };
   const { date: fecEmi, time: horEmi } = svDateTime(now);
 
   const identificacion = {
-    version:          1 as const,
+    version:          getDteSpecVersion(profile, "14") as 1,
     ambiente:         mapAmbiente(issuerConfig.environment),
     tipoDte:          "14" as const,
     numeroControl:    dteDoc.control_number,
@@ -471,6 +523,12 @@ export function buildFseJsonFromLoadedData(loaded: FseLoadedData): GenerateFseJs
     observaciones:       purchase.notes ?? null,
   };
 
+  if (profile === "MH_2_0") {
+    return buildFseV2FromV1Parts({
+      identificacion, emisor, sujetoExcluido: sujetoExcluidoResult.sujetoExcluido, cuerpoDocumento, resumen,
+    }, loaded, options);
+  }
+
   // ── Ensamblar json_document (sin persistir) ───────────────────────
 
   const jsonDocument: FseJsonDocument = {
@@ -483,4 +541,72 @@ export function buildFseJsonFromLoadedData(loaded: FseLoadedData): GenerateFseJs
   };
 
   return { ok: true, json: jsonDocument };
+}
+
+// ── MH20: FSE v2 (fe-fse-v2.json) ─────────────────────────────────
+//
+// Diferencias confirmadas (IMP20-016, SCH20 FSE, R20-DEL-03):
+//   - sujetoExcluido → receptor (mismos datos del proveedor).
+//   - emisor sin codEstableMH/codPuntoVentaMH; direccion con distrito (requerida).
+//   - receptor.direccion con distrito (requerida).
+//   - resumen sin ivaRete1; totalDescu numérico; totalPagar = subTotal − reteRenta (153.6).
+// Ítems, pagos e identificación (salvo version) idénticos a v1.
+
+function buildFseV2FromV1Parts(
+  parts: {
+    identificacion:  FseJsonDocument["identificacion"];
+    emisor:          FseJsonDocument["emisor"];
+    sujetoExcluido:  FseJsonDocument["sujetoExcluido"];
+    cuerpoDocumento: FseCuerpoItem[];
+    resumen:         FseJsonDocument["resumen"];
+  },
+  loaded:  FseLoadedData,
+  options: DteBuildProfileOptions,
+): GenerateFseJsonProfileResult {
+  const { dteDoc, purchase, issuerConfig } = loaded;
+  const sectionError = mh20ControlNumberSectionError(dteDoc.control_number);
+  if (sectionError) return { ok: false, error: sectionError };
+  const territories = options.territories;
+  if (!territories) {
+    return { ok: false, error: "Perfil MH 2.0: falta la proyección territorial de emisor/receptor (resolveMh20PartyTerritories)." };
+  }
+
+  const emisorDir = buildMh20Direccion({
+    role: "emisor", territory: territories.emisor, complemento: issuerConfig.address_complement, required: true,
+  });
+  if (!emisorDir.ok) return { ok: false, error: emisorDir.error };
+  const receptorDir = buildMh20Direccion({
+    role: "sujeto excluido", territory: territories.receptor, complemento: purchase.supplier.address_complement, required: true,
+  });
+  if (!receptorDir.ok) return { ok: false, error: receptorDir.error };
+
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { codEstableMH: _ce, codPuntoVentaMH: _cp, ...emisorRest } = parts.emisor;
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { ivaRete1: _iva, ...resumenRest } = parts.resumen;
+
+  const totalPagar = Math.round((resumenRest.subTotal - resumenRest.reteRenta) * 100) / 100;
+  if (totalPagar < 0) {
+    return { ok: false, error: `El total a pagar resultó negativo (${totalPagar}). Revise la retención de renta de la compra.` };
+  }
+  const pagos = resumenRest.pagos?.map((pg) => ({ ...pg, montoPago: totalPagar })) ?? null;
+  const obs = resolveMh20FiscalObservations(options.observaciones);
+  if (!obs.ok) return { ok: false, error: obs.error };
+
+  const json: FseV2JsonDocument = {
+    identificacion:  { ...parts.identificacion, version: 2 },
+    emisor:          { ...emisorRest, direccion: emisorDir.direccion! },
+    receptor:        { ...parts.sujetoExcluido, direccion: receptorDir.direccion! },
+    cuerpoDocumento: parts.cuerpoDocumento,
+    resumen: {
+      ...resumenRest,
+      totalDescu:    resumenRest.totalDescu ?? 0,
+      totalPagar,
+      totalLetras:   numeroALetras(totalPagar),
+      pagos,
+      observaciones: obs.value, // 5.1D: purchase.notes (nota interna) ya no sale a MH en v2
+    },
+    apendice: null,
+  };
+  return { ok: true, json };
 }
