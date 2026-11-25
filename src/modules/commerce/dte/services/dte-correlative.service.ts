@@ -27,7 +27,15 @@
 //
 // La combinación de partición es SIEMPRE:
 //   tenant_id + location_id + issuer_config_id + environment +
-//   dte_type_code (+ cod_estable_mh/cod_punto_venta_mh del emisor).
+//   dte_type_code + año fiscal (+ cod_estable_mh/cod_punto_venta_mh).
+//
+// COR-01 (reinicio anual) — el numeroControl reinicia en 1 en cada
+// ejercicio fiscal. El año es SIEMPRE el de El Salvador
+// (fiscalYearInElSalvador), no el de la zona del proceso (COR-02). El piso
+// solo considera documentos del mismo `fiscal_year` y, por seguridad, los
+// documentos heredados con `fiscal_year` NULL (ambiguos en el backfill de
+// M-COR-01): nunca se reutiliza un número cuya asignación anual no consta.
+// TEST y PRODUCTION siguen separados por `environment`.
 //
 // No firma, no transmite, no toca documentos ya existentes — solo decide
 // qué número reservar para uno nuevo.
@@ -36,6 +44,12 @@
 import { Prisma, type PrismaClient } from "@prisma/client";
 import { prisma }   from "@/lib/db/prisma";
 import { buildControlNumber, buildControlNumberPrefix } from "../utils/dte-control-number";
+import { fiscalYearInElSalvador } from "../utils/dte-fiscal-year";
+
+/** Año fiscal vigente para reservar correlativos (hora de El Salvador). */
+export function currentDteFiscalYear(now: Date = new Date()): number {
+  return fiscalYearInElSalvador(now);
+}
 
 export interface DteCorrelativeIssuerContext {
   tenant_id:          string;
@@ -56,6 +70,7 @@ export interface DteCorrelativeIssuerContext {
 async function readMaxSequenceUsedInOutgoing(
   client: Pick<Prisma.TransactionClient, "dteOutgoingDocument">,
   ctx: Pick<DteCorrelativeIssuerContext, "tenant_id" | "location_id" | "environment" | "dte_type_code" | "cod_estable_mh" | "cod_punto_venta_mh">,
+  fiscal_year: number,
 ): Promise<number> {
   const prefix = buildControlNumberPrefix({
     dte_type_code:      ctx.dte_type_code,
@@ -70,6 +85,8 @@ async function readMaxSequenceUsedInOutgoing(
       environment:    ctx.environment,
       dte_type_code:  ctx.dte_type_code,
       control_number: { startsWith: prefix },
+      // COR-01: solo el ejercicio pedido + heredados sin año (fail-safe).
+      OR: [{ fiscal_year }, { fiscal_year: null }],
     },
     select: { control_number: true },
   });
@@ -88,10 +105,11 @@ async function readMaxSequenceUsedInOutgoing(
 // createPendingExportDte, etc.) para que la reserva y la creación del
 // DteOutgoingDocument sean atómicas y hagan rollback juntas.
 export async function reserveDteControlNumber(
-  tx:  Prisma.TransactionClient,
-  ctx: DteCorrelativeIssuerContext,
-): Promise<{ sequence: number; control_number: string }> {
-  const year = new Date().getFullYear();
+  tx:   Prisma.TransactionClient,
+  ctx:  DteCorrelativeIssuerContext,
+  opts: { now?: Date } = {},
+): Promise<{ sequence: number; control_number: string; fiscal_year: number }> {
+  const year = currentDteFiscalYear(opts.now);
   const key = {
     tenant_id_location_id_issuer_config_id_environment_dte_type_code_year: {
       tenant_id:        ctx.tenant_id,
@@ -103,11 +121,12 @@ export async function reserveDteControlNumber(
     },
   };
 
-  // Asegura que la fila exista. El UPDATE siguiente toma el row lock que
-  // serializa reservas concurrentes sobre la misma combinación.
-  await tx.dteCorrelative.upsert({
-    where:  key,
-    create: {
+  // Alta atómica de la fila (INSERT … ON CONFLICT DO NOTHING). R-COR-3: el
+  // upsert anterior (SELECT + INSERT) fallaba con P2002 cuando dos reservas
+  // concurrentes creaban por primera vez el mismo tipo/año (p. ej. el primer
+  // DTE del 1 de enero).
+  await tx.dteCorrelative.createMany({
+    data: [{
       tenant_id:          ctx.tenant_id,
       location_id:        ctx.location_id,
       issuer_config_id:   ctx.issuer_config_id,
@@ -117,17 +136,20 @@ export async function reserveDteControlNumber(
       cod_punto_venta_mh: ctx.cod_punto_venta_mh,
       year,
       last_sequence:      0,
-    },
-    update: {},
+    }],
+    skipDuplicates: true,
   });
 
-  const correlative = await tx.dteCorrelative.findUniqueOrThrow({
+  // Row lock ANTES de leer el piso: serializa reservas concurrentes sobre la
+  // misma combinación (incluida la reserva en bloque de MH TEST).
+  const correlative = await tx.dteCorrelative.update({
     where:  key,
+    data:   { updated_at: new Date() },
     select: { last_sequence: true, external_baseline_last_used_sequence: true },
   });
 
-  // Mayor secuencia ya usada (ver readMaxSequenceUsedInOutgoing).
-  const maxUsedInOutgoing = await readMaxSequenceUsedInOutgoing(tx, ctx);
+  // Mayor secuencia ya usada en el mismo ejercicio (ver readMaxSequenceUsedInOutgoing).
+  const maxUsedInOutgoing = await readMaxSequenceUsedInOutgoing(tx, ctx, year);
 
   const floor = Math.max(
     correlative.last_sequence,
@@ -156,7 +178,7 @@ export async function reserveDteControlNumber(
     sequence,
   });
 
-  return { sequence, control_number };
+  return { sequence, control_number, fiscal_year: year };
 }
 
 // ── 1b. Reserva atómica de un BLOQUE contiguo (pruebas MH TEST) ─────
@@ -179,7 +201,7 @@ export async function reserveDteControlNumber(
 // Debe llamarse dentro de la transacción que crea los documentos.
 
 export type ReserveDteControlNumberBlockResult =
-  | { ok: true; floor: number; reserved: Array<{ sequence: number; control_number: string }> }
+  | { ok: true; floor: number; fiscal_year: number; reserved: Array<{ sequence: number; control_number: string }> }
   | { ok: false; code: "INVALID_INPUT" | "FIRST_SEQUENCE_ALREADY_USED"; error: string; next_available: number | null };
 
 export const MAX_DTE_CONTROL_NUMBER_BLOCK = 500;
@@ -188,7 +210,7 @@ const MAX_CONTROL_SEQUENCE = 999_999_999_999_999;
 export async function reserveDteControlNumberBlock(
   tx:   Prisma.TransactionClient,
   ctx:  DteCorrelativeIssuerContext,
-  opts: { firstSequence: number; count: number },
+  opts: { firstSequence: number; count: number; now?: Date },
 ): Promise<ReserveDteControlNumberBlockResult> {
   const { firstSequence, count } = opts;
   if (!Number.isSafeInteger(firstSequence) || firstSequence < 1 || firstSequence > MAX_CONTROL_SEQUENCE) {
@@ -201,7 +223,7 @@ export async function reserveDteControlNumberBlock(
     return { ok: false, code: "INVALID_INPUT", error: "El rango excede el máximo de 15 dígitos.", next_available: null };
   }
 
-  const year = new Date().getFullYear();
+  const year = currentDteFiscalYear(opts.now);
   const key = {
     tenant_id_location_id_issuer_config_id_environment_dte_type_code_year: {
       tenant_id:        ctx.tenant_id,
@@ -238,7 +260,7 @@ export async function reserveDteControlNumberBlock(
     select: { last_sequence: true, external_baseline_last_used_sequence: true },
   });
 
-  const maxUsedInOutgoing = await readMaxSequenceUsedInOutgoing(tx, ctx);
+  const maxUsedInOutgoing = await readMaxSequenceUsedInOutgoing(tx, ctx, year);
   const floor = Math.max(locked.last_sequence, maxUsedInOutgoing, locked.external_baseline_last_used_sequence ?? 0);
 
   if (firstSequence <= floor) {
@@ -266,12 +288,13 @@ export async function reserveDteControlNumberBlock(
     };
   });
 
-  return { ok: true, floor, reserved };
+  return { ok: true, floor, fiscal_year: year, reserved };
 }
 
 // ── 2. Estado de un correlativo (lectura, para UI administrativa) ──
 
 export interface DteCorrelativeStatus {
+  fiscal_year:               number;
   exists:                    boolean;
   local_last_sequence:       number;
   max_used_in_outgoing:      number;
@@ -293,10 +316,12 @@ export async function getDteCorrelativeStatus(
     dte_type_code:      string;
     cod_estable_mh:     string;
     cod_punto_venta_mh: string;
+    /** COR-01: ejercicio a consultar. Por defecto, el vigente en hora SV. */
+    fiscal_year?:       number;
   },
   db: PrismaClient = prisma,
 ): Promise<DteCorrelativeStatus> {
-  const year = new Date().getFullYear();
+  const year = params.fiscal_year ?? currentDteFiscalYear();
 
   const correlative = await db.dteCorrelative.findUnique({
     where: {
@@ -320,7 +345,7 @@ export async function getDteCorrelativeStatus(
     },
   });
 
-  const maxUsedInOutgoing = await readMaxSequenceUsedInOutgoing(db, params);
+  const maxUsedInOutgoing = await readMaxSequenceUsedInOutgoing(db, params, year);
 
   const localLastSequence = correlative?.last_sequence ?? 0;
   const baselineLastUsed  = correlative?.external_baseline_last_used_sequence ?? null;
@@ -328,6 +353,7 @@ export async function getDteCorrelativeStatus(
   const floor = Math.max(localLastSequence, maxUsedInOutgoing, baselineLastUsed ?? 0);
 
   return {
+    fiscal_year:            year,
     exists:                 correlative != null,
     local_last_sequence:    localLastSequence,
     max_used_in_outgoing:   maxUsedInOutgoing,
@@ -369,6 +395,8 @@ export async function alignDteCorrelativeBaseline(input: {
   notes:                   string;
   evidence_ref?:           string | null;
   user_id:                 string;
+  /** COR-01: el baseline es por ejercicio. Por defecto, el vigente en hora SV. */
+  fiscal_year?:            number;
 }, db: PrismaClient = prisma): Promise<AlignDteCorrelativeResult> {
   if (!Number.isInteger(input.last_used_sequence) || input.last_used_sequence < 0) {
     return { ok: false, error: "El último número usado externo debe ser un entero mayor o igual a 0." };
@@ -377,7 +405,10 @@ export async function alignDteCorrelativeBaseline(input: {
     return { ok: false, error: "La nota/justificación es obligatoria para registrar un baseline externo." };
   }
 
-  const year = new Date().getFullYear();
+  const year = input.fiscal_year ?? currentDteFiscalYear();
+  if (!Number.isInteger(year) || year < 2000 || year > 9999) {
+    return { ok: false, error: "El ejercicio fiscal de la alineación no es válido." };
+  }
   const key = {
     tenant_id_location_id_issuer_config_id_environment_dte_type_code_year: {
       tenant_id:        input.tenant_id,
@@ -389,7 +420,7 @@ export async function alignDteCorrelativeBaseline(input: {
     },
   };
 
-  const status = await getDteCorrelativeStatus(input, db);
+  const status = await getDteCorrelativeStatus({ ...input, fiscal_year: year }, db);
   const localFloor = Math.max(status.local_last_sequence, status.max_used_in_outgoing);
 
   if (input.last_used_sequence < localFloor) {

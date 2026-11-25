@@ -2717,12 +2717,27 @@ model DteOutgoingDocument {
   //
   // NULLs (documentos sin numeroControl aún reservado) no colisionan entre
   // sí en Postgres.
+  //
+  // COR-01 (M-COR-01, 20261125000000_cor01_fiscal_year) — el numeroControl
+  // reinicia en cada ejercicio fiscal, así que el unique incluye
+  // fiscal_year: dos años distintos pueden repetir secuencia; dentro del
+  // mismo año no. Los documentos heredados cuyo año quedó NULL (ambiguos en
+  // el backfill) siguen protegidos por el índice parcial
+  // dte_outgoing_documents_legacy_control_number_key (SQL manual, no
+  // modelado por Prisma): unique (tenant_id, environment, control_number)
+  // WHERE fiscal_year IS NULL.
   // MH20 (M1) — perfil normativo con el que se GENERÓ el json_document.
   // NULL = histórico (se infiere por identificacion.version, sin backfill).
   // Se fija en la generación y no cambia al aceptarse el documento.
   mh_spec_profile String?
 
-  @@unique([tenant_id, environment, control_number])
+  // COR-01 — ejercicio fiscal (hora de El Salvador) de la secuencia de la que
+  // se reservó control_number. Se fija en la reserva y no cambia. Backfill
+  // de solo lectura desde identificacion.fecEmi (ver migración). NULL =
+  // documento sin numeroControl o heredado ambiguo.
+  fiscal_year Int?
+
+  @@unique([tenant_id, environment, fiscal_year, control_number])
   @@index([tenant_id, location_id, dte_status])
   @@index([sale_id])
   @@index([purchase_id])

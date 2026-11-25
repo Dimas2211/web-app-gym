@@ -4,3 +4,4 @@ prisma/migrations/20261124000000_mh20_spec_profile/migration.sql text eol=lf
 prisma/migrations/20261124010000_mh20_spec_profile_audit/migration.sql text eol=lf
 prisma/migrations/20261124020000_mh20_return_events/migration.sql text eol=lf
 prisma/migrations/20261124030000_mh20_mh_test_run_profiles/migration.sql text eol=lf
+prisma/migrations/20261125000000_cor01_fiscal_year/migration.sql text eol=lf
