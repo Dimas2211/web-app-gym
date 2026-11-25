@@ -4369,8 +4369,13 @@ model PlatformDteMhTestRun {
   organization PlatformOrganization       @relation(fields: [organization_id], references: [id])
   items        PlatformDteMhTestRunItem[]
   // MH20 (Fase 8, M4): perfil normativo y cadena en tabla 1:1 aditiva.
-  run_profile  PlatformDteMhTestRunProfile?
+  run_profile  PlatformDteMhTestRunProfile? @relation("MhTestRunProfile")
+  // MH20 (Fase 9.2A, M5): destino de la FK compuesta que ata la
+  // organización del perfil a la de su corrida. Nunca más de una fila
+  // (run_id es PK del perfil); se expone como lista por exigencia de Prisma.
+  run_profile_org_guard PlatformDteMhTestRunProfile[] @relation("MhTestRunProfileOrganization")
 
+  @@unique([id, organization_id])
   @@index([organization_id, created_at])
   @@index([status])
   @@map("platform_dte_mh_test_runs")
@@ -4393,7 +4398,9 @@ model PlatformDteMhTestRunProfile {
   created_by      String?
   created_at      DateTime @default(now())
 
-  run PlatformDteMhTestRun @relation(fields: [run_id], references: [id], onDelete: Restrict)
+  run PlatformDteMhTestRun @relation("MhTestRunProfile", fields: [run_id], references: [id], onDelete: Restrict)
+  // M5: un perfil de la organización A no puede apuntar a una corrida de B.
+  run_org_guard PlatformDteMhTestRun @relation("MhTestRunProfileOrganization", fields: [run_id, organization_id], references: [id, organization_id], onDelete: Restrict, onUpdate: Restrict)
 
   @@unique([organization_id, chain_id, chain_index])
   @@index([organization_id, mh_spec_profile])

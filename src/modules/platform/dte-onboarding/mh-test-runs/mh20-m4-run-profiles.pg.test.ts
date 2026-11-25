@@ -2,11 +2,13 @@
 //
 // Cubre: cadena incompleta, segmento duplicado, perfil inválido, CHECK, UNIQUE,
 // integridad referencial y aislamiento entre organizaciones, más el mapeo del
-// repositorio (CHAIN_SEGMENT_EXISTS).
+// repositorio (CHAIN_SEGMENT_EXISTS). Fase 9.2A: M5 (FK compuesta que ata
+// profile.organization_id a la organización de la corrida).
 //
 // Se omite salvo que MH20_SCRATCH_DATABASE_URL apunte a localhost y a una base
 // cuyo nombre contenga "_scratch_" (guarda contra bases persistentes). La base
-// debe tener todas las migraciones aplicadas (incluida M4 20261124030000).
+// debe tener todas las migraciones aplicadas (incluidas M4 20261124030000 y
+// M5 20261125010000).
 //
 //   MH20_SCRATCH_DATABASE_URL=postgresql://…@localhost:5432/zolvi_scratch_m4 \
 //   DATABASE_URL=$MH20_SCRATCH_DATABASE_URL npx vitest run mh20-m4-run-profiles.pg
@@ -167,9 +169,8 @@ describe.skipIf(!RUN)("M4 run profiles — PostgreSQL desechable", () => {
       expect(rb).toBeTruthy();
       await db.platformDteMhTestRun.updateMany({ where: { organization_id: { in: [ORG_A, ORG_B] }, status: { in: ["QUEUED", "RUNNING"] } }, data: { status: "CANCELLED" } });
     });
-    // Residual documentado (09-1-test-results.md): la BD no exige que
-    // profile.organization_id coincida con run.organization_id; lo garantiza
-    // createRun, que escribe el mismo organization_id en ambas filas.
+    // Residual de 9.1 cerrado en 9.2A por M5 (FK compuesta, ver bloque M5);
+    // createRun sigue escribiendo el mismo organization_id en ambas filas.
     it("createRun escribe el mismo organization_id en corrida y perfil", async () => {
       const repo = createPrismaMhTestRunRepository(db);
       const res = await repo.createRun({
@@ -182,6 +183,85 @@ describe.skipIf(!RUN)("M4 run profiles — PostgreSQL desechable", () => {
       const run = await db.platformDteMhTestRun.findUniqueOrThrow({ where: { id: runId }, include: { run_profile: true } });
       expect(run.run_profile?.organization_id).toBe(run.organization_id);
       await db.platformDteMhTestRun.update({ where: { id: runId }, data: { status: "CANCELLED" } });
+    });
+  });
+
+  // MH20 (Fase 9.2A) — M5 20261125010000_mh20_mh_test_run_profile_org_fk.
+  describe("M5: organización del perfil = organización de la corrida", () => {
+    const ORG_FK = /platform_dte_mh_test_run_profiles_run_id_organization_id_fkey|23503|foreign key/i;
+
+    it("SQL: un perfil de B no puede apuntar a una corrida de A", async () => {
+      const runA = await mkRun(ORG_A);
+      await expect(insertProfileRaw(runA, ORG_B, "MH_2_0", null, null, null)).rejects.toThrow(ORG_FK);
+      expect(await db.platformDteMhTestRunProfile.count({ where: { run_id: runA } })).toBe(0);
+    });
+    it("Prisma (create no comprobado): el cruce también se rechaza", async () => {
+      const runA = await mkRun(ORG_A);
+      await expect(db.platformDteMhTestRunProfile.create({
+        data: { run_id: runA, organization_id: ORG_B, mh_spec_profile: "MH_2_0", issuer_snapshot: SNAPSHOT },
+      })).rejects.toThrow();
+      expect(await db.platformDteMhTestRunProfile.count({ where: { run_id: runA } })).toBe(0);
+    });
+    it("no se puede mover el perfil a otra organización", async () => {
+      const runA = await mkRun(ORG_A);
+      await insertProfileRaw(runA, ORG_A, "MH_2_0", null, null, null);
+      await expect(db.$executeRawUnsafe(
+        `UPDATE platform_dte_mh_test_run_profiles SET organization_id = $1 WHERE run_id = $2`, ORG_B, runA)).rejects.toThrow(ORG_FK);
+    });
+    it("no se puede mover a otra organización una corrida con perfil (ON UPDATE RESTRICT)", async () => {
+      const runA = await mkRun(ORG_A);
+      await insertProfileRaw(runA, ORG_A, "MH_2_0", null, null, null);
+      await expect(db.$executeRawUnsafe(
+        `UPDATE platform_dte_mh_test_runs SET organization_id = $1 WHERE id = $2`, ORG_B, runA)).rejects.toThrow(ORG_FK);
+      const run = await db.platformDteMhTestRun.findUniqueOrThrow({ where: { id: runA }, include: { run_profile: true } });
+      expect(run.organization_id).toBe(ORG_A);
+      expect(run.run_profile?.organization_id).toBe(ORG_A);
+    });
+    it("compatibilidad: una corrida histórica sin perfil no queda afectada", async () => {
+      const run = await mkRun(ORG_A);
+      expect(await db.$executeRawUnsafe(`UPDATE platform_dte_mh_test_runs SET last_error = 'x' WHERE id = $1`, run)).toBe(1);
+      expect(await db.platformDteMhTestRunProfile.count({ where: { run_id: run } })).toBe(0);
+    });
+    it("catálogo: FK compuesta y UNIQUE nuevos; FK simple, UNIQUE de segmento y CHECK de M4 conservados", async () => {
+      const cons = await db.$queryRaw<Array<{ conname: string; contype: string; def: string }>>`
+        SELECT conname, contype::text AS contype, pg_get_constraintdef(oid) AS def FROM pg_constraint
+        WHERE conrelid = 'platform_dte_mh_test_run_profiles'::regclass ORDER BY conname`;
+      const by = Object.fromEntries(cons.map((c) => [c.conname, c]));
+      expect(by.platform_dte_mh_test_run_profiles_run_id_organization_id_fkey?.def)
+        .toMatch(/FOREIGN KEY \(run_id, organization_id\) REFERENCES platform_dte_mh_test_runs\(id, organization_id\) ON UPDATE RESTRICT ON DELETE RESTRICT/);
+      expect(by.platform_dte_mh_test_run_profiles_run_id_fkey?.def).toMatch(/FOREIGN KEY \(run_id\) REFERENCES platform_dte_mh_test_runs\(id\)/);
+      expect(by.platform_dte_mh_test_run_profiles_profile_chk?.contype).toBe("c");
+      expect(by.platform_dte_mh_test_run_profiles_chain_chk?.contype).toBe("c");
+      const idx = await db.$queryRaw<Array<{ indexname: string }>>`
+        SELECT indexname FROM pg_indexes WHERE indexname IN (
+          'platform_dte_mh_test_runs_id_organization_id_key',
+          'platform_dte_mh_test_run_profiles_organization_id_chain_id__key')`;
+      expect(idx.map((r) => r.indexname).sort()).toEqual([
+        "platform_dte_mh_test_run_profiles_organization_id_chain_id__key",
+        "platform_dte_mh_test_runs_id_organization_id_key",
+      ]);
+    });
+    it("la FK valida filas existentes: con un perfil incoherente previo, M5 no se aplica", async () => {
+      const runA = await mkRun(ORG_A);
+      const sentinel = new Error("rollback");
+      let addError: unknown = null;
+      await expect(db.$transaction(async (tx) => {
+        await tx.$executeRawUnsafe(`ALTER TABLE platform_dte_mh_test_run_profiles DROP CONSTRAINT platform_dte_mh_test_run_profiles_run_id_organization_id_fkey`);
+        await tx.$executeRawUnsafe(
+          `INSERT INTO platform_dte_mh_test_run_profiles (run_id, organization_id, mh_spec_profile, issuer_snapshot) VALUES ($1, $2, 'MH_2_0', '{}'::jsonb)`, runA, ORG_B);
+        await tx.$executeRawUnsafe(`SAVEPOINT m5`);
+        try {
+          await tx.$executeRawUnsafe(`ALTER TABLE platform_dte_mh_test_run_profiles ADD CONSTRAINT platform_dte_mh_test_run_profiles_run_id_organization_id_fkey FOREIGN KEY (run_id, organization_id) REFERENCES platform_dte_mh_test_runs(id, organization_id) ON DELETE RESTRICT ON UPDATE RESTRICT`);
+        } catch (e) {
+          addError = e;
+          await tx.$executeRawUnsafe(`ROLLBACK TO SAVEPOINT m5`);
+        }
+        throw sentinel; // revierte el DROP y la fila incoherente
+      })).rejects.toBe(sentinel);
+      expect(String(addError)).toMatch(ORG_FK);
+      expect(await db.platformDteMhTestRunProfile.count({ where: { run_id: runA } })).toBe(0);
+      const still = await db.$queryRaw<Array<{ n: bigint }>>`SELECT count(*)::bigint AS n FROM pg_constraint WHERE conname = 'platform_dte_mh_test_run_profiles_run_id_organization_id_fkey'`;
+      expect(Number(still[0].n)).toBe(1);
     });
   });
 
