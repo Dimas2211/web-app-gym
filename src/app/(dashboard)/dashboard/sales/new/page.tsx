@@ -1,3 +1,4 @@
+import { businessDateKey } from "@/lib/utils/business-date";
 import { redirect } from "next/navigation";
 import { requireCommerceOperator } from "@/lib/permissions/guards";
 import { assertCommerceOperatorLive } from "@/modules/commerce/shared/require-commerce-operator-context";
@@ -83,7 +84,7 @@ export default async function NewSalePage({
 
     return (
       <SaleNewClient
-        initialDate={new Date().toISOString().slice(0, 10)}
+        initialDate={businessDateKey()}
         catalogCAT016={cat016}
         catalogCAT017={cat017}
         catalogCAT018={cat018}

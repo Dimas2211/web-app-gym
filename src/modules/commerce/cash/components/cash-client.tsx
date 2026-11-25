@@ -1,5 +1,7 @@
 "use client";
 
+import { BUSINESS_TIME_ZONE } from "@/lib/utils/business-date";
+
 // ─────────────────────────────────────────────────────────────────
 // commerce/cash — cash-client.tsx
 //
@@ -47,6 +49,7 @@ function formatDate(value: Date | string | null | undefined): string {
   const d = new Date(value);
   if (isNaN(d.getTime())) return "—";
   return d.toLocaleString("es-SV", {
+    timeZone: BUSINESS_TIME_ZONE, hourCycle: "h23",
     day:    "2-digit",
     month:  "2-digit",
     year:   "numeric",

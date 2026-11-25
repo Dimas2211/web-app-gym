@@ -1,5 +1,7 @@
 "use client";
 
+import { formatBusinessDateTime } from "@/lib/utils/business-date";
+
 // ─────────────────────────────────────────────────────────────────
 // commerce/sales — sale-dte-fiscal-panel.tsx
 //
@@ -49,7 +51,7 @@ const stub     = "block text-xs text-zinc-700";
 function fmt(d: Date | null | undefined): string {
   if (!d) return "—";
   const date = d instanceof Date ? d : new Date(d);
-  return date.toLocaleString("es-CL");
+  return formatBusinessDateTime(date);
 }
 
 function dteStatusLabel(s: string): string {

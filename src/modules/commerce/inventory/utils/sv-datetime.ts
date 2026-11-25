@@ -1,32 +1,20 @@
+import { formatBusinessDateTime } from "@/lib/utils/business-date";
 // ─────────────────────────────────────────────────────────────────
 // commerce/inventory — sv-datetime.ts
 //
 // Fechas de la consulta de movimientos en hora de El Salvador
 // (America/El_Salvador = UTC-6, sin horario de verano).
 //
-// Por qué aritmética fija y no la zona del servidor:
-//   formatDateLabel() usa la zona local del proceso Node. En
-//   producción el servidor corre en UTC, por lo que un movimiento
-//   registrado a las 17:30 en San Salvador se mostraba como 23:30.
-//   Aquí se fija el desfase para que pantalla, Excel y PDF muestren
-//   la misma hora operativa, y para que el filtro Desde/Hasta cubra
-//   el día local completo.
+// Comparte el formateador explícito de commerce y auditoría; no depende
+// de la zona del servidor ni del navegador. Los límites de filtros cubren
+// el día local completo. Las fechas SQL DATE usan un helper distinto.
 // ─────────────────────────────────────────────────────────────────
 
-const SV_OFFSET_MS = -6 * 60 * 60 * 1000;
 const DATE_PARAM_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
-
-function pad(n: number): string {
-  return String(n).padStart(2, "0");
-}
 
 /** dd/mm/aaaa HH:mm en hora de El Salvador. */
 export function formatSvDateTime(date: Date): string {
-  const d = new Date(new Date(date).getTime() + SV_OFFSET_MS);
-  return (
-    `${pad(d.getUTCDate())}/${pad(d.getUTCMonth() + 1)}/${d.getUTCFullYear()} ` +
-    `${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}`
-  );
+  return formatBusinessDateTime(date);
 }
 
 /** "aaaa-mm-dd" → "dd/mm/aaaa" (sin conversión de zona: es una fecha de calendario). */

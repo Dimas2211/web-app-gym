@@ -38,7 +38,7 @@ beforeEach(() => {
 describe("getClientMemberships — runtime-aware", () => {
   it("con `client` runtime inyectado, consulta ESE client — nunca el prisma singleton", async () => {
     const runtimeFindManySpy = vi.fn(async () => []);
-    const runtimeClient = { clientMembership: { findMany: runtimeFindManySpy } } as never;
+    const runtimeClient = { gymSettings: { findFirst: vi.fn(async () => ({ timezone: "America/El_Salvador" })) }, clientMembership: { findMany: runtimeFindManySpy } } as never;
 
     await getClientMemberships(SUPER_ADMIN, {}, runtimeClient);
 
@@ -51,7 +51,7 @@ describe("getClientMemberships — runtime-aware", () => {
       void args;
       return [];
     });
-    const runtimeClient = { clientMembership: { findMany: runtimeFindManySpy } } as never;
+    const runtimeClient = { gymSettings: { findFirst: vi.fn(async () => ({ timezone: "America/El_Salvador" })) }, clientMembership: { findMany: runtimeFindManySpy } } as never;
 
     await getClientMemberships(SUPER_ADMIN, {}, runtimeClient);
 

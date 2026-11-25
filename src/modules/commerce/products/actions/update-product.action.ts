@@ -7,7 +7,6 @@
 // Solo modifica atributos descriptivos y operativos.
 //
 // No editable aquí:
-//   - product_code  → clave de negocio, readonly en el formulario
 //   - status        → se gestiona en update-product-status.action
 //   - tenant_id     → nunca cambia
 //
@@ -15,6 +14,7 @@
 // del producto (Clave de Supervisor, ver verify-edit-key.action).
 // ─────────────────────────────────────────────────────────────────
 
+import { Prisma } from "@prisma/client";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/db/prisma";
 import { requireAdmin } from "@/lib/permissions/guards";
@@ -103,6 +103,7 @@ export async function updateProductAction(
   // 2. Parseo y validación Zod
   const raw = {
     id:             str(formData.get("id")),
+    product_code:   formData.has("product_code") ? String(formData.get("product_code")).trim() : undefined,
     name:           str(formData.get("name")),
     description:    strNullable(formData.get("description")),
     product_type:   str(formData.get("product_type")),
@@ -145,6 +146,14 @@ export async function updateProductAction(
   });
   if (!existing) {
     return { error: "El producto no existe o no pertenece a este tenant." };
+  }
+
+  if (data.product_code !== undefined) {
+    const duplicate = await db.product.findFirst({
+      where: { tenant_id: tenantId, product_code: data.product_code, id: { not: data.id } },
+      select: { id: true },
+    });
+    if (duplicate) return { errors: { product_code: ["Ya existe un producto con este código en el catálogo."] } };
   }
 
   // 4. Verificación de entidades relacionadas
@@ -261,6 +270,7 @@ export async function updateProductAction(
   await db.product.update({
     where: { id: data.id },
     data: {
+      ...(data.product_code !== undefined && { product_code: data.product_code }),
       name:           data.name,
       description:    data.description ?? null,
       product_type:   data.product_type,
@@ -284,6 +294,11 @@ export async function updateProductAction(
 
   revalidatePath("/dashboard/products");
   // undefined = éxito — el dialog cierra al recibir este valor
+  } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+      return { errors: { product_code: ["Ya existe un producto con este código en el catálogo."] } };
+    }
+    throw error;
   } finally {
     await dispose();
   }

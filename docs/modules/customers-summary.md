@@ -297,3 +297,110 @@ Validación automatizada: edición de nacional a extranjero sobre el mismo ID,
 consulta FEX antes/después, conservación de NIT/NRC, país oficial runtime, rechazo
 de SV/códigos legados/inexistentes, datos incompletos, aislamiento por tenant,
 edición parcial y regreso a nacional.
+
+## Crear o vincular cliente de gimnasio desde el maestro fiscal
+
+En organizaciones con vertical efectiva `GYM` y extensión Gym configurada,
+la ficha fiscal muestra **Crear / vincular cliente de gimnasio** para los
+administradores. Después de guardar un cliente fiscal nuevo se selecciona
+su ficha para que esta acción quede disponible inmediatamente. También
+funciona con registros anteriores.
+
+El diálogo precarga documento, correo, teléfono y dirección; muestra el
+nombre fiscal para separar y confirmar nombres y apellidos de la persona.
+El administrador confirma sucursal. Las coincidencias de documento/correo
+normalizados y nombre se muestran como sugerencias, con búsqueda adicional.
+Vincular una ficha existente exige elección explícita y no sobrescribe sus
+datos. El vínculo guardado cambia la acción a **Ver cliente de gimnasio**.
+La ficha nueva usa modalidad NORMAL y recibe código operativo y QR; no crea
+usuario, contraseña, membresía, pago ni movimiento fiscal. No hay sincronización
+automática posterior de los dos maestros.
+
+### Integridad y permisos
+
+- Server Actions con identidad LIVE, módulo `core.customers`, contexto de escritura
+  y vertical efectiva Gym; soporte de solo lectura y roles sin administración
+  no pueden operar esta función.
+- Los administradores de sucursal solo crean o vinculan fichas de su sede.
+  Sucursal activa y pertenencia a organización y gimnasio se verifican en servidor.
+- `gym_customer_links` guarda una relación 1:1 opcional, actor y fecha.
+  Dos claves foráneas compuestas impiden vínculos entre organizaciones.
+- Crear y vincular se confirman en una transacción. Un lock por tenant serializa
+  las altas de este flujo y las claves únicas hacen los reintentos idempotentes.
+- Se bloquea el alta nueva si hay documento o correo coincidente en el gimnasio,
+  aunque se borren esos datos del formulario. Hay que vincular la ficha existente.
+  Coincidir solo en nombre nunca vincula personas automáticamente.
+- Un cliente fiscal inactivo debe activarse antes de crear/vincular su ficha.
+- Las modificaciones posteriores de nombres/contactos son independientes.
+
+### Despliegue
+
+Aplicar `20261119000000_gym_customer_links` con `prisma migrate deploy` en las
+bases objetivo antes de habilitar el código nuevo. La migración agrega una tabla
+y un índice, sin fusionar ni alterar clientes existentes. Debe incorporarse al
+provisionamiento/migración habitual de las bases runtime (incluida la de REC).
+
+Validación: pruebas de acciones y servicio cubren permisos LIVE, vertical,
+aislamiento, idempotencia, duplicados y sucursales. También se aplicó la migración
+sobre el esquema previo completo en un PostgreSQL embebido (PGlite) y se comprobaron
+las dos restricciones de tenant, las claves únicas y el rollback de un alta fallida.
+
+Archivos de esta mejora:
+
+- `prisma/schema.prisma`
+- `prisma/migrations/20261119000000_gym_customer_links/migration.sql`
+- `src/app/(dashboard)/dashboard/customers/page.tsx`
+- `src/modules/commerce/customers/components/customers-client.tsx`
+- `src/modules/commerce/customers/components/new-customer-dialog.tsx`
+- `src/modules/commerce/customers/components/customer-gym-button.tsx`
+- `src/modules/commerce/customers/actions/customer-gym.action.ts`
+- `src/modules/commerce/customers/actions/customer-gym.action.test.ts`
+- `src/modules/commerce/customers/services/customer-gym.service.ts`
+- `src/modules/commerce/customers/services/customer-gym.service.test.ts`
+- `docs/modules/customers-summary.md`
+
+Release autorizado: el script manual `prisma/scripts/release-gym-customer-links.ts`
+puede ejecutar `prisma migrate deploy` dentro de un build de producción con
+credenciales ya configuradas en Vercel. Exige `--apply` y la variable de aprobación
+exacta; valida las dos bases conocidas, que no haya migraciones ajenas pendientes
+y que los conteos existentes se conserven. No forma parte del build habitual.
+La tabla puente habilita RLS sin políticas públicas: solo acceso Prisma del servidor.
+
+## Flujo inverso: cliente Gym a cliente fiscal
+
+La ficha individual Gym muestra **Crear / vincular cliente fiscal** a administradores
+de la organización. Reconoce automáticamente los vínculos ya creados desde el maestro
+fiscal y ofrece **Ver cliente fiscal**, abriendo el maestro con esa ficha seleccionada.
+
+Si no existe vínculo, muestra coincidencias por documento, correo y nombre con búsqueda
+adicional. Vincular requiere una elección explícita; no sobrescribe datos. Si se crea
+una ficha fiscal nueva, reutiliza NewCustomerDialog con nombre, correo, teléfono y
+dirección precargados. El número de documento se precarga sin asumir CAT-022: se exige
+confirmar su tipo y se mapea a NIT o al documento personal según esa elección.
+Los contribuyentes registrados deben completar NIT, NRC y actividad económica.
+
+La creación fiscal y el vínculo se confirman en una misma transacción, usando el
+mismo lock por tenant del flujo fiscal→Gym. Los reintentos devuelven el vínculo
+existente. La búsqueda de coincidencias y los bloqueos de duplicados incluyen el
+documento y correo originales de Gym, aunque el operador los cambie en el formulario.
+Los administradores de sucursal solo operan fichas Gym de su propia sede. El servidor
+revalida identidad LIVE, permisos, módulo fiscal, vertical Gym, tenant y sucursal.
+Las fichas inactivas deben activarse para crear un vínculo nuevo.
+
+Esta ampliación reutiliza gym_customer_links: no modifica Prisma ni agrega migraciones.
+No sincroniza cambios posteriores entre los maestros. Las reglas del alta fiscal
+ordinaria se conservan; la validación adicional pertenece solo al flujo optativo Gym.
+
+Archivos de la ampliación inversa:
+
+- src/app/(dashboard)/dashboard/clients/[id]/page.tsx
+- src/app/(dashboard)/dashboard/customers/page.tsx
+- src/modules/commerce/customers/components/customers-client.tsx
+- src/modules/commerce/customers/components/new-customer-dialog.tsx
+- src/modules/commerce/customers/components/gym-fiscal-customer-button.tsx
+- src/modules/commerce/customers/components/new-customer-dialog.gym.test.tsx
+- src/modules/commerce/customers/actions/gym-fiscal-customer.action.ts
+- src/modules/commerce/customers/actions/gym-fiscal-customer.action.test.ts
+- src/modules/commerce/customers/services/gym-fiscal-customer.service.ts
+- src/modules/commerce/customers/services/gym-fiscal-customer.service.test.ts
+- docs/modules/customers-summary.md

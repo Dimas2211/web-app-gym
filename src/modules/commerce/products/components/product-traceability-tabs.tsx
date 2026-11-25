@@ -1,5 +1,7 @@
 "use client";
 
+import { formatCalendarDate } from "@/lib/utils/business-date";
+
 // ─────────────────────────────────────────────────────────────────
 // commerce/products — product-traceability-tabs.tsx
 //
@@ -31,7 +33,7 @@ interface ProductTraceabilityTabsProps {
 // ── Helpers ───────────────────────────────────────────────────────
 
 function fmtDate(d: string | Date): string {
-  return new Date(d).toLocaleDateString("es-CL");
+  return formatCalendarDate(d);
 }
 
 function fmtAmount(n: number): string {

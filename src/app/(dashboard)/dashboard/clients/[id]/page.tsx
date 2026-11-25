@@ -1,4 +1,7 @@
+import { calendarDateKey, parseCalendarDate } from "@/lib/utils/business-date";
+import { getMembershipToday } from "@/modules/memberships/membership-calendar";
 import Link from "next/link";
+import { GymFiscalCustomerButton } from "@/modules/commerce/customers/components/gym-fiscal-customer-button";
 import { notFound } from "next/navigation";
 import { requireClientManager, canManageClient } from "@/lib/permissions/guards";
 import { getClientById, getClientModalityHistory } from "@/modules/clients/queries";
@@ -53,6 +56,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 
 function formatDate(date: Date) {
   return new Date(date).toLocaleDateString("es-SV", {
+    timeZone: "UTC",
     day: "2-digit",
     month: "short",
     year: "numeric",
@@ -76,9 +80,10 @@ export default async function ClientDetailPage({ params }: Props) {
     // PASO 6F: "Clientes" es superficie GYM sin module code propio.
     await requireEffectiveVertical(context.tenantId, "GYM");
 
+    const todayIso = await getMembershipToday(context.client, context.tenantId);
     const [client, memberships, weeklyPlans, modalityHistory] = await Promise.all([
       getClientById(id, effectiveUser, context.client),
-      getClientMembershipsByClientId(id, effectiveUser, context.client),
+      getClientMembershipsByClientId(id, effectiveUser, context.client, todayIso),
       getClientWeeklyPlansByClientId(id, effectiveUser, context.client),
       getClientModalityHistory(id, context.tenantId, context.client),
     ]);
@@ -101,10 +106,9 @@ export default async function ClientDetailPage({ params }: Props) {
       canEdit && getCapabilities(context.effectiveRole as UserRole).canManageStaff;
 
     // Membresía activa actual (primera activa vigente)
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    const today = parseCalendarDate(todayIso);
     const activeMembership = memberships.find(
-      (m) => m.status === "active" && new Date(m.end_date) >= today
+      (m) => m.status === "active" && calendarDateKey(m.start_date) <= todayIso && calendarDateKey(m.end_date) >= todayIso
     );
 
     // Plan semanal activo actual
@@ -192,6 +196,10 @@ export default async function ClientDetailPage({ params }: Props) {
           </div>
         </div>
       </div>
+
+      {canEdit && getCapabilities(context.effectiveRole as UserRole).canManageStaff && (
+        <GymFiscalCustomerButton key={client.id} clientId={client.id} />
+      )}
 
       {/* GYM-BOOKINGS 3A — Modalidad */}
       <div className="bg-white rounded-xl border border-zinc-200 shadow-sm p-5 space-y-4">

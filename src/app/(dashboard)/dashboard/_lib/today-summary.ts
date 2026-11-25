@@ -1,3 +1,4 @@
+import { getMembershipToday } from "@/modules/memberships/membership-calendar";
 // ─────────────────────────────────────────────────────────────────
 // Inicio — "Resumen de hoy" (solo lectura).
 //
@@ -126,7 +127,6 @@ export async function getTodaySummary(
     if (!branch) return null;
 
     const today = localDateString(options.timeZone, options.now);
-    const inSevenDays = addDaysIso(today, 7);
     const stats: TodayStat[] = [];
 
     if (wants.sales) {
@@ -176,13 +176,16 @@ export async function getTodaySummary(
     }
 
     if (wants.expiring) {
-      // Misma ventana que la vista "Por vencer" de membresías: hoy … hoy + 7.
+      // Misma fecha local del GYM que el listado y los reportes de membresías.
+      const membershipDay = await getMembershipToday(db, tenant_id, options.now);
+      const inSevenDays = addDaysIso(membershipDay, 7);
       const expiring = await db.clientMembership.count({
         where: {
           tenant_id,
           branch_id: location_id,
           status: "active",
-          end_date: { gte: asDate(today), lte: asDate(inSevenDays) },
+          start_date: { lte: asDate(membershipDay) },
+          end_date: { gte: asDate(membershipDay), lte: asDate(inSevenDays) },
         },
       });
       stats.push({

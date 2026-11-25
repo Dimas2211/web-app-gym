@@ -11,7 +11,7 @@ import { normalizeProductAvailabilityFormData } from "../utils/product-availabil
 //
 // Diferencias vs NewProductDialog:
 //   - Todos los inputs con defaultValue / value desde `summary`
-//   - product_code: readOnly (clave de negocio, no editable)
+//   - product_code: editable con validación de unicidad por tenant
 //   - status: ausente (gestionado por ProductStatusDialog)
 //   - Cascada categoría → línea → sublínea inicializada desde summary
 //   - Hidden input `id` que incluye el action en formData
@@ -19,7 +19,7 @@ import { normalizeProductAvailabilityFormData } from "../utils/product-availabil
 // ─────────────────────────────────────────────────────────────────
 
 import { useActionState, useState } from "react";
-import { X, ChevronDown, Lock } from "lucide-react";
+import { X, ChevronDown } from "lucide-react";
 import { updateProductAction } from "../actions/update-product.action";
 import type { ProductUpdateActionState } from "../actions/update-product.action";
 import type { ProductSummary } from "../types/product-summary.types";
@@ -49,9 +49,6 @@ const labelCls = "block text-xs font-medium text-zinc-700 mb-1";
 const inputCls =
   "w-full border border-zinc-300 rounded-lg px-3 py-2 text-sm " +
   "focus:outline-none focus:ring-2 focus:ring-zinc-900 focus:border-transparent text-zinc-800";
-const inputReadonlyCls =
-  "w-full border border-zinc-200 rounded-lg px-3 py-2 text-sm " +
-  "bg-zinc-50 text-zinc-400 cursor-not-allowed select-none";
 const errorCls = "text-xs text-red-600 mt-1";
 
 function FieldError({ errors }: { errors?: string[] }) {
@@ -240,22 +237,12 @@ export function EditProductDialog({
           {/* ── Identidad ───────────────────────────────────────── */}
           <Section title="Identidad">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {/* Código — readonly */}
               <div>
-                <label className={labelCls}>
-                  Código
-                  <span className="ml-1.5 inline-flex items-center gap-0.5 text-zinc-400 font-normal">
-                    <Lock size={9} />
-                    <span className="text-xs">no editable</span>
-                  </span>
-                </label>
-                <input
-                  type="text"
-                  value={summary.product_code}
-                  readOnly
-                  className={inputReadonlyCls}
-                  tabIndex={-1}
-                />
+                <label htmlFor="ep-product-code" className={labelCls}>Código <span className="text-red-500">*</span></label>
+                <input id="ep-product-code" type="text" name="product_code"
+                  defaultValue={summary.product_code} required maxLength={50}
+                  autoComplete="off" className={inputCls} />
+                <FieldError errors={state?.errors?.product_code} />
               </div>
 
               {/* Tipo */}

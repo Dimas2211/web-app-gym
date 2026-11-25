@@ -1,3 +1,4 @@
+import { parseCalendarDate } from "@/lib/utils/business-date";
 // ─────────────────────────────────────────────────────────────────
 // commerce/purchases — purchase.service.ts
 //
@@ -57,8 +58,8 @@ export type CreatePurchaseResult =
 
 /** Extrae { year, month } de un string YYYY-MM-DD o de un Date. */
 function extractYearMonth(date: Date | string): { year: number; month: number } {
-  const d = typeof date === "string" ? new Date(date + "T00:00:00") : date;
-  return { year: d.getFullYear(), month: d.getMonth() + 1 };
+  const d = typeof date === "string" ? parseCalendarDate(date) : date;
+  return { year: d.getUTCFullYear(), month: d.getUTCMonth() + 1 };
 }
 
 async function evalRetention1pct(
@@ -220,7 +221,7 @@ export async function createPurchase(
         purchase_code,
         purchase_year:  year,
         purchase_month: month,
-        purchase_date:  new Date(input.purchase_date + "T00:00:00"),
+        purchase_date:  parseCalendarDate(input.purchase_date),
         status:         "DRAFT",
         document_type:     input.document_type     ?? null,
         document_series:   input.document_series   ?? null,
@@ -753,7 +754,7 @@ export async function updatePurchaseHeader(
   }
 
   const newDate = input.purchase_date
-    ? new Date(input.purchase_date + "T00:00:00")
+    ? parseCalendarDate(input.purchase_date)
     : purchase.purchase_date;
   const { year, month } = extractYearMonth(newDate);
 

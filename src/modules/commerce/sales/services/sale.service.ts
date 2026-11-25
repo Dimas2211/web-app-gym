@@ -1,3 +1,4 @@
+import { parseCalendarDate } from "@/lib/utils/business-date";
 // ─────────────────────────────────────────────────────────────────
 // commerce/sales — sale.service.ts
 //
@@ -126,7 +127,7 @@ export async function createSaleDraft(
           sale_year:              year,
           sale_month:             month,
           sale_sequence:          sequence,
-          sale_date:              new Date(input.sale_date + "T00:00:00"),
+          sale_date:              parseCalendarDate(input.sale_date),
           status:                 "DRAFT",
           payment_status:         "UNPAID",
           primary_dte_type_code:    input.primary_dte_type_code      ?? "01",
@@ -203,7 +204,7 @@ export async function updateSaleDraft(
 
   const dateData = input.sale_date
     ? {
-        sale_date:  new Date(input.sale_date + "T00:00:00"),
+        sale_date:  parseCalendarDate(input.sale_date),
         sale_year:  extractSaleDateParts(input.sale_date).year,
         sale_month: extractSaleDateParts(input.sale_date).month,
       }

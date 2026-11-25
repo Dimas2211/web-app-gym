@@ -1,3 +1,6 @@
+import { calendarDateKey } from "@/lib/utils/business-date";
+import { getMembershipToday } from "@/modules/memberships/membership-calendar";
+import { membershipExpiringSoon } from "@/modules/memberships/membership-validity";
 import Link from "next/link";
 import { Suspense } from "react";
 import { requireMembershipManager } from "@/lib/permissions/guards";
@@ -29,19 +32,11 @@ type SearchParams = Promise<{
 
 function formatDate(date: Date) {
   return new Date(date).toLocaleDateString("es-SV", {
+    timeZone: "UTC",
     day: "2-digit",
     month: "short",
     year: "numeric",
   });
-}
-
-function isExpiringSoon(end_date: Date) {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const in7Days = new Date(today);
-  in7Days.setDate(in7Days.getDate() + 7);
-  const d = new Date(end_date);
-  return d >= today && d <= in7Days;
 }
 
 export default async function ClientMembershipsPage({
@@ -63,6 +58,7 @@ export default async function ClientMembershipsPage({
   try {
     await requireOrganizationModule(context.tenantId, "gym.memberships");
 
+    const today = await getMembershipToday(context.client, context.tenantId);
     const [memberships, branches] = await Promise.all([
       getClientMemberships(effectiveUser, {
         search: params.search,
@@ -70,7 +66,7 @@ export default async function ClientMembershipsPage({
         payment_status: params.payment_status as PaymentStatus | undefined,
         branch_id: params.branch_id,
         view: params.view as "expiring" | "expired" | "active" | undefined,
-      }, context.client),
+      }, context.client, today),
       getBranchOptions(effectiveUser, context.client),
     ]);
 
@@ -153,7 +149,7 @@ export default async function ClientMembershipsPage({
               <tbody className="divide-y divide-zinc-100">
                 {memberships.map((m) => {
                   const expiringSoon =
-                    m.status === "active" && isExpiringSoon(m.end_date);
+                    m.status === "active" && membershipExpiringSoon(m.end_date, today);
                   return (
                     <tr
                       key={m.id}
@@ -220,7 +216,7 @@ export default async function ClientMembershipsPage({
                               >
                                 Editar
                               </Link>
-                              <form action={toggleClientMembershipStatusAction}>
+                              {calendarDateKey(m.end_date) >= today && <form action={toggleClientMembershipStatusAction}>
                                 <input type="hidden" name="id" value={m.id} />
                                 <button
                                   type="submit"
@@ -232,7 +228,7 @@ export default async function ClientMembershipsPage({
                                 >
                                   {m.status === "active" ? "Cancelar" : "Activar"}
                                 </button>
-                              </form>
+                              </form>}
                               <DeleteAuthorizationDialog
                                 entityLabel={`la membresía de ${m.client.first_name} ${m.client.last_name}`}
                                 userRole={sessionUser.role}

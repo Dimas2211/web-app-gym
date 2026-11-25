@@ -14,9 +14,14 @@
 // a false en modo runtime (sesión siempre solo lectura).
 // ─────────────────────────────────────────────────────────────────
 
+import { resolveCommercialEnforcementContext } from "@/modules/platform/runtime/commercial-enforcement";
+import { resolveEffectiveVerticalCode, hasEffectiveVertical } from "@/modules/platform/runtime/effective-vertical";
+import { resolveOptionalGymForTenant } from "@/modules/platform/lib/provisioning/resolve-optional-gym-for-tenant";
+import { prisma } from "@/lib/db/prisma";
 import { requireAdmin } from "@/lib/permissions/guards";
 import { resolveEffectiveTenantContext } from "@/modules/platform/runtime/effective-tenant-context";
 import { requireOrganizationModule } from "@/modules/platform/runtime/commercial-enforcement";
+import { getCustomerById } from "@/modules/commerce/customers/queries/get-customer-by-id";
 import { listCustomers } from "@/modules/commerce/customers/queries/list-customers";
 import { CustomersClient } from "@/modules/commerce/customers/components/customers-client";
 
@@ -24,7 +29,9 @@ export const metadata = {
   title: "Maestro de clientes",
 };
 
-export default async function CustomersPage() {
+export default async function CustomersPage({ searchParams }: {
+  searchParams: Promise<{ customer_id?: string | string[] }>;
+}) {
   const user = await requireAdmin();
 
   const { context, dispose } = await resolveEffectiveTenantContext(user);
@@ -40,8 +47,24 @@ export default async function CustomersPage() {
       page_size:      150,
     }, context.client);
 
+    const commercial = await resolveCommercialEnforcementContext(context.tenantId);
+    const [vertical, gymId] = await Promise.all([
+      resolveEffectiveVerticalCode(commercial),
+      resolveOptionalGymForTenant(context.client ?? prisma, context.tenantId),
+    ]);
+
+    const query = await searchParams;
+    const selectedId = typeof query.customer_id === "string" &&
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(query.customer_id)
+      ? query.customer_id : null;
+    const initialSelected = selectedId
+      ? await getCustomerById(selectedId, context.tenantId, context.client ?? prisma)
+      : null;
+
     return (
       <CustomersClient
+        initialSelected={initialSelected}
+        canUseGym={!!gymId && hasEffectiveVertical(commercial, vertical, "GYM")}
         initialItems={result.items}
         initialTotal={result.total}
         // FASE VI-D2: `readOnly` cubre Support Session (siempre readOnly);
