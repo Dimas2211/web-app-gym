@@ -39,6 +39,7 @@ import type { UpdateCustomerContactState } from "../actions/update-customer-cont
 
 import type { CustomerDetail, CustomerTaxpayerType } from "../types/customer.types";
 import { CAT022_ID_TYPE_OPTIONS } from "@/modules/commerce/shared/cat-022-identification-types";
+import { MhTerritoryPreview } from "@/modules/commerce/dte/components/mh-territory-preview";
 
 // ── Catálogos locales ─────────────────────────────────────────────
 
@@ -778,6 +779,8 @@ function DireccionTab({
                 : null}
             />
             <FieldRow label="Dirección" value={detail.address_complement} />
+            {/* MH20 (Fase 7, IMP20-028): vista previa informativa, no bloqueante. */}
+            <MhTerritoryPreview deptCode={detail.dept_code} municipalityCode={detail.municipality_code} className="mt-1" />
           </div>
         ) : (
           <div className="flex flex-col items-center justify-center py-6 text-zinc-300 text-sm text-center mb-3">
@@ -879,6 +882,7 @@ function DireccionTab({
                 <span className="text-zinc-400 ml-2">· {selectedMuni.dept_name}</span>
               )}
               <span className="font-mono text-zinc-300 ml-2">{selectedMuni.dept_code}/{selectedMuni.code}</span>
+              <MhTerritoryPreview deptCode={selectedMuni.dept_code} municipalityCode={selectedMuni.code} className="mt-1" />
             </span>
             <button
               type="button"

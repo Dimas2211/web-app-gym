@@ -23,6 +23,7 @@ import {
 }                                    from "../lib/database-profile-url";
 import { withTemporaryPrismaClient } from "../lib/client-prisma";
 import type { SupportSaleFormData } from "../types/platform.types";
+import { dteCatalogWhere }           from "@/modules/commerce/dte/spec/dte-catalog-version";
 
 function maskTaxId(value: string | null | undefined): string | null {
   if (!value) return null;
@@ -104,7 +105,8 @@ export async function getSupportSaleFormDataAction(
           take:    500,
         }),
         client.dteCatalogItem.findMany({
-          where:   { catalog_code: "CAT-017", is_active: true },
+          // MH20 5.1A: solo filas V1.2 (version "1"); el soporte opera en MH_1_2.
+          where:   { ...dteCatalogWhere("CAT-017"), is_active: true },
           select:  { item_code: true, item_label: true },
           orderBy: { sort_order: "asc" },
         }),

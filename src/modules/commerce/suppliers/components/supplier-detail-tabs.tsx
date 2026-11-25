@@ -24,6 +24,7 @@ import type { UpdateSupplierAddressState } from "../actions/update-supplier-addr
 import type { SupplierDetail } from "../types/supplier.types";
 import type { CountryItem, EconomicActivityItem, MunicipalityItem } from "../types/supplier-catalogs.types";
 import { CAT022_ID_TYPE_OPTIONS } from "@/modules/commerce/shared/cat-022-identification-types";
+import { MhTerritoryPreview } from "@/modules/commerce/dte/components/mh-territory-preview";
 
 // CAT-022 — mismo map que supplier-summary-panel para consistencia entre vistas
 const ID_TYPE_LABELS: Record<string, string> = Object.fromEntries(
@@ -525,6 +526,8 @@ function DireccionTab({
             <FieldRow label="Municipio"    value={detail.municipality_name ?? detail.municipality_code} />
             <FieldRow label="País"         value={detail.country_name      ?? detail.country_code} />
             <FieldRow label="Dirección"    value={detail.address_complement} />
+            {/* MH20 (Fase 7, IMP20-028): vista previa informativa, no bloqueante. */}
+            <MhTerritoryPreview deptCode={detail.dept_code} municipalityCode={detail.municipality_code} className="mt-1" />
           </div>
         ) : (
           <div className="flex flex-col items-center justify-center py-6 text-zinc-300 text-sm text-center mb-3">
@@ -635,6 +638,7 @@ function DireccionTab({
               <span className="font-mono text-zinc-300 ml-2">
                 {selectedMunicipality.dept_code}/{selectedMunicipality.code}
               </span>
+              <MhTerritoryPreview deptCode={selectedMunicipality.dept_code} municipalityCode={selectedMunicipality.code} className="mt-1" />
             </span>
             <button
               type="button"

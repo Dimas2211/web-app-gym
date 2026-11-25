@@ -25,6 +25,7 @@ import { Prisma, type PrismaClient } from "@prisma/client";
 import { prisma } from "@/lib/db/prisma";
 import { createSaleDraft, addSaleItemToDraft, confirmSale } from "../../services/sale.service";
 import { reserveDteControlNumber } from "../../../dte/services/dte-correlative.service";
+import { ensureMh20ReadyBeforeReservation } from "../../../dte/services/mh20-pre-reservation-guard";
 import { isFex11Environment, type Fex11Environment } from "../../../dte/utils/fex11-environment";
 import { listDteCatalogItems } from "../../../dte/queries/list-dte-catalog-items";
 import { DTE_CATALOG_CODES } from "../../../dte/types/dte-catalog.types";
@@ -275,6 +276,15 @@ export async function loadActiveIssuerConfigOrError(
     return { ok: false, error: `La configuración del emisor (${environment}) está incompleta para FEX 11. Campos faltantes: ${missing.join(", ")}.` };
   }
 
+  // MH20 (Fase 7, §11) — perfil y códigos AT validados ANTES de crear la
+  // venta y de reservar correlativo: un rechazo 2.0 no deja una venta
+  // confirmada sin DTE. Interruptor OFF → MH_1_2 sin consulta adicional.
+  const mh20Ready = await ensureMh20ReadyBeforeReservation(db, {
+    issuerConfigId: issuer.id, tenantId: tenant_id, locationId: location_id, environment, kind: "11",
+    cod_estable_mh: issuer.cod_estable_mh, cod_punto_venta_mh: issuer.cod_punto_venta_mh,
+  });
+  if (!mh20Ready.ok) return { ok: false, error: mh20Ready.error };
+
   return {
     ok: true,
     issuer: {
@@ -350,7 +360,7 @@ async function createPendingExportDte(
   // Correlativo aislado por tenant/location/issuer/environment — el
   // ambiente sale del emisor ya resuelto, nunca de un literal.
   const created = await db.$transaction(async (tx) => {
-    const { control_number } = await reserveDteControlNumber(tx, {
+    const { control_number, fiscal_year } = await reserveDteControlNumber(tx, {
       tenant_id,
       location_id,
       issuer_config_id:   issuer.id,
@@ -372,6 +382,7 @@ async function createPendingExportDte(
         environment:      issuer.environment,
         generation_code,
         control_number,
+        fiscal_year,
         dte_status:  "PENDING_GENERATION",
         retry_count: 0,
       },
