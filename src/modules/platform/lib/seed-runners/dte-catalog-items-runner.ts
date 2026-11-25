@@ -102,7 +102,7 @@ const CATALOG_ITEMS: CatalogRow[] = [
 
   // ── CAT-024: Tipo de Invalidación ────────────────────────────
   { catalog_code: "CAT-024", item_code: "1", item_label: "Error en los datos",          description: "Error en datos del documento",        sort_order: 1 },
-  { catalog_code: "CAT-024", item_code: "2", item_label: "Rechazado por el receptor",   description: "Documento rechazado por el receptor", sort_order: 2 },
+  { catalog_code: "CAT-024", item_code: "2", item_label: "Rescindir de la operación realizada",   description: "MH20 CAT20-420: etiqueta oficial (código sin cambio)", sort_order: 2 },
   { catalog_code: "CAT-024", item_code: "3", item_label: "Otro",                        description: "Otro motivo de invalidación",          sort_order: 3 },
 
   // ── FEX 11 — Factura de Exportación (Microfase F3-C23 / F3-C23B) ──
@@ -129,7 +129,7 @@ export async function runDteCatalogItemsSeedDryRun(
   const counts = await Promise.all(
     REQUIRED_DTE_CATALOG_CODES.map((cat) =>
       prismaClient.dteCatalogItem
-        .count({ where: { catalog_code: cat, is_active: true } })
+        .count({ where: { catalog_code: cat, version: "1", is_active: true } })
         .then((count) => ({ cat, count })),
     ),
   );
@@ -217,12 +217,13 @@ export async function runDteCatalogItemsSeed(
   }
   for (const [catalog_code, validCodes] of fex11CodesByCatalog) {
     await prismaClient.dteCatalogItem.deleteMany({
-      where: { catalog_code, item_code: { notIn: [...validCodes] } },
+      // MH20 5.1A: limitado a version "1" — nunca elimina filas 2.0.
+      where: { catalog_code, version: "1", item_code: { notIn: [...validCodes] } },
     });
   }
 
   const totalAfter = await prismaClient.dteCatalogItem.count({
-    where: { is_active: true },
+    where: { is_active: true, version: "1" },
   });
 
   return {
