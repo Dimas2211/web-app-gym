@@ -32,7 +32,7 @@
 | Acceso de clientes vía `*.vercel.app` | El resolver por hostname falla cerrado; ningún `*.vercel.app` es plataforma salvo que se liste en `PLATFORM_HOSTS` | Sin login de runtime |
 | Transmisiones MH | Solo por acción de un usuario autenticado o por el tick, que llama al host de Production con secreto | Ninguna automática |
 | Crons | Sin `vercel.json` (y Vercel solo ejecuta crons en Production) | Ninguno |
-| Variables y bases del scope Preview | **No verificables sin login** (`09-2b-vercel-flags-inventory.md` §1) | Riesgo residual: un Preview con bases productivas fallaría con P2022 en lecturas MH 2.0, sin escribir |
+| Variables y bases del scope Preview | Tras el login: solo `AUTH_TRUST_HOST`, sin `DATABASE_URL`/`DIRECT_URL` ni flags (`09-2b-pull-request-report.md` §1) | **Sin acceso a ninguna base** |
 
 ## 4. Expediente Compaws para el smoke (solo lectura; nada activado)
 
@@ -65,7 +65,7 @@ No se transmitió nada a MH, no se activaron perfiles y no se tocaron credencial
 
 ## 6. Prerrequisitos restantes, cada uno con autorización propia
 
-1. `vercel login` del propietario e inventario vivo de flags y variables de Preview.
+1. ~~`vercel login` e inventario vivo de flags~~: hecho; flags MH 2.0 OFF.
 2. Migraciones remotas (`09-2b-remote-migration-runbook.md`), runtime → CP.
 3. Merge y deploy el mismo día, antes del 2026-12-31 18:00 SV, con flags MH 2.0 OFF; luego el backfill COR-01.
 4. Seed de catálogos 2.0 (aclarar la fila v1 de diferencia), autorización MH TEST, VERIFY, flags con allowlist = id de §4 y perfil `MH_2_0` solo en el emisor TEST de Compaws.

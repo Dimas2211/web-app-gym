@@ -2,6 +2,8 @@
 
 - **Fecha:** 2026-11-25. Sin modificar variables, deployments ni configuración. No se leyó ni se usó ningún token.
 
+> **Actualización (mismo día):** el propietario hizo `vercel login`. Las secciones 1–3 de abajo reflejan el estado previo al login. **Estado vivo verificado:** todos los flags MH 2.0 están ausentes (OFF) en Production y Preview, y el scope Preview solo tiene `AUTH_TRUST_HOST`. Detalle en `09-2b-pull-request-report.md` §1–3.
+
 ## 1. Acceso a Vercel: BLOQUEADO (sesión caducada)
 
 | Intento | Resultado |
