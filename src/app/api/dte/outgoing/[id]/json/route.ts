@@ -5,6 +5,10 @@
 // GET /api/dte/outgoing/:id/json?download=1               → JSON fiscal original (.json)
 // GET /api/dte/outgoing/:id/json?variant=external         → payload completo entrega externa (vista)
 // GET /api/dte/outgoing/:id/json?variant=external&download=1 → payload completo (.json)
+// GET /api/dte/outgoing/:id/json?variant=archive[&download=1] → Archivo DTE 2.0 del receptor
+//   (MH20 Fase 6, IMP20-021): json_document + firmaElectronica + selloRecibido,
+//   nombre <codigoGeneracion>.json. Solo documentos MH 2.0 sellados (409 si
+//   MH 1.2 / sin sello); 403 en Support Session de solo lectura (incluye JWS).
 //
 // variant=fiscal (default): dte_outgoing_documents.json_document tal cual.
 // variant=external: buildExternalDtePayload() — mismo builder que usa la
@@ -37,6 +41,7 @@ import {
   serializeDteJsonDocument,
   serializeExternalDtePayloadForInsert,
 } from "@/modules/commerce/dte/outgoing/utils/dte-json-file.utils";
+import { getDteOutgoingArchiveFile } from "@/modules/commerce/dte/outgoing/queries/get-dte-outgoing-archive-file";
 import { getDteApiContext } from "../../../dte-api-context";
 
 const NO_STORE = "private, no-store, max-age=0";
@@ -68,7 +73,7 @@ export async function GET(
   const search   = req.nextUrl?.searchParams;
   const download = search?.get("download") === "1";
   const rawVariant = search?.get("variant") ?? "fiscal";
-  if (rawVariant !== "fiscal" && rawVariant !== "external") {
+  if (rawVariant !== "fiscal" && rawVariant !== "external" && rawVariant !== "archive") {
     return jsonError(400, "Variante de JSON no válida.");
   }
   const variant = rawVariant;
@@ -77,6 +82,34 @@ export async function GET(
   if (!ctx.ok) return jsonError(ctx.status, ctx.error);
 
   try {
+    // ── Variante: Archivo DTE 2.0 del receptor (MH20) ────────────
+    if (variant === "archive") {
+      if (ctx.readOnly) {
+        return jsonError(403, "El Archivo DTE (incluye firma JWS) no está disponible en sesión de soporte de solo lectura.");
+      }
+      const found = await getDteOutgoingArchiveFile({
+        dteId: id, tenantId: ctx.tenant_id, locationId: ctx.location_id, client: ctx.client,
+      });
+      if (found.status === "NOT_FOUND") return jsonError(404, "El documento DTE no fue encontrado.");
+      if (!found.result.ok) return jsonError(409, `No es posible construir el Archivo DTE: ${found.result.error}`);
+      console.info(
+        `[dte-json] ${download ? "download" : "view"} variant=archive dte=${found.id} ` +
+        `type=${found.dte_type_code} env=${found.environment} user=${ctx.user_id}`,
+      );
+      if (download) return attachment(found.result.content, found.result.fileName);
+      return NextResponse.json(
+        {
+          ok: true,
+          data: {
+            variant: "archive", id: found.id, dte_type_code: found.dte_type_code,
+            environment: found.environment, file_name: found.result.fileName,
+            warnings: found.result.warnings, json_document: found.result.archive,
+          },
+        },
+        { headers: { "Cache-Control": NO_STORE } },
+      );
+    }
+
     // ── Variante: payload completo de entrega externa ────────────
     if (variant === "external") {
       if (ctx.readOnly) {

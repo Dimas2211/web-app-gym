@@ -30,6 +30,7 @@
 import "dotenv/config";
 import { prisma }     from "@/lib/db/prisma";
 import { Prisma }     from "@prisma/client";
+import { FEX11_SCHEMA_VERSION } from "../utils/fex11-schema-version";
 import { MhAuthAdapter }             from "../adapters/dte-auth.adapter";
 import { MhDteTransmissionAdapter }  from "../adapters/dte-transmission.adapter";
 import type {
@@ -44,8 +45,9 @@ const TEST_CASE: "DEFAULT" | "CATALOG_OK" =
   process.env.FEX11_TEST_CASE === "CATALOG_OK" ? "CATALOG_OK" : "DEFAULT";
 const SALE_MARKER = TEST_CASE === "CATALOG_OK" ? "FEX11_TEST_CATALOG_OK_SALE" : "FEX11_TEST_SALE";
 
-// FEX 11 identificacion.version es fijo en 1 (ver fex-json.types.ts).
-const FEX11_VERSION = 1;
+// FEX 11 identificacion.version = versión vigente del registro de perfiles
+// (v3 en MH_1_2 y MH_2_0). MH20 IMP20-017: antes estaba fijo en 1 (obsoleto).
+const FEX11_VERSION = FEX11_SCHEMA_VERSION;
 
 class AbortError extends Error {}
 

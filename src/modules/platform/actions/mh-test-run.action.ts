@@ -20,12 +20,20 @@ import { revalidatePath } from "next/cache";
 import { requireSuperAdmin } from "@/lib/permissions/guards";
 import { controlPlanePrisma } from "@/modules/platform/runtime/control-plane-prisma";
 import { isRuntimeReadOnlyActive, RUNTIME_READONLY_MESSAGE } from "@/modules/platform/runtime/runtime-session";
-import { isMhTestRunsEnabled, MH_TEST_RUN_CONFIRM_TEXT, MH_TEST_RUNS_DISABLED_MESSAGE } from "@/modules/platform/dte-onboarding/mh-test-runs/mh-test-run.flags";
+import {
+  isMhTestRunsEnabled, isMhTestRunsM4Applied, MH20_TEST_RUNS_BLOCKED_MESSAGE, MH_TEST_RUN_CONFIRM_TEXT,
+  MH20_TEST_RUN_CONFIRM_TEXT, evaluateMh20RunGate,
+  MH_TEST_RUNS_DISABLED_MESSAGE, MH_TEST_RUNS_M4_REQUIRED_MESSAGE,
+} from "@/modules/platform/dte-onboarding/mh-test-runs/mh-test-run.flags";
+import {
+  buildMhTestQuantityPlan, chainMhTestPlan, listMhTestScenarioReadiness, validateMhTestRunProfileReadiness,
+  type MhTestChainSegment, type MhTestDocKind, type MhTestQuantityPlan, type MhTestScenarioReadiness,
+} from "@/modules/platform/dte-onboarding/mh-test-runs/mh-test-minimums";
 import { planMhTestRun } from "@/modules/platform/dte-onboarding/mh-test-runs/mh-test-run.planner";
-import { createPrismaMhTestRunRepository } from "@/modules/platform/dte-onboarding/mh-test-runs/mh-test-run.repository";
+import { createPrismaMhTestRunRepository, type MhTestRunProfileRecord } from "@/modules/platform/dte-onboarding/mh-test-runs/mh-test-run.repository";
 import { planOperatorDecision } from "@/modules/platform/dte-onboarding/mh-test-runs/mh-test-run.service";
 import { advanceMhTestRun } from "@/modules/platform/dte-onboarding/mh-test-runs/mh-test-run.engine";
-import { createRuntimeMhTestPort, runMhTestPreflight } from "@/modules/platform/dte-onboarding/mh-test-runs/mh-test-run.runtime-port";
+import { createRuntimeMhTestPortForRun, runMh20RuntimePreflight, runMhTestPreflight } from "@/modules/platform/dte-onboarding/mh-test-runs/mh-test-run.runtime-port";
 import type { MhTestOperatorDecision, MhTestRunRecord, MhTestRunStatus, PlannedMhTestRange } from "@/modules/platform/dte-onboarding/mh-test-runs/mh-test-run.types";
 import { MH_TEST_DTE_TYPE_CODES, MH_TEST_SCENARIOS, type MhTestDteTypeCode } from "@/modules/commerce/dte/mh-test-runs/mh-test-scenarios";
 
@@ -60,6 +68,11 @@ async function resolveTestIssuer(client: import("@prisma/client").PrismaClient, 
 
 export interface MhTestRunPanelData {
   enabled:     boolean;
+  /** MH20 (Fase 8): readiness por perfil (derivada del registro normativo). */
+  readiness:   Record<"MH_1_2" | "MH_2_0", MhTestScenarioReadiness[]>;
+  m4Applied:   boolean;
+  /** MH20 (Fase 9.0): motivos por los que la ejecución 2.0 está cerrada (vacío = abierta). */
+  mh20Gate:    string[];
   issuer:      { id: string; location_id: string } | null;
   nextByType:  Partial<Record<MhTestDteTypeCode, number>>;
   scenarios:   Array<{ code: string; dteTypeCode: string; label: string }>;
@@ -76,7 +89,9 @@ export async function getMhTestRunPanelAction(organizationId: string): Promise<M
   await requireSuperAdmin();
   const enabled = isMhTestRunsEnabled();
   const scenarios = Object.entries(MH_TEST_SCENARIOS).map(([code, s]) => ({ code, dteTypeCode: s.dteTypeCode, label: s.label }));
-  const empty: MhTestRunPanelData = { enabled, issuer: null, nextByType: {}, scenarios, runs: [] };
+  const readiness = { MH_1_2: listMhTestScenarioReadiness("MH_1_2"), MH_2_0: listMhTestScenarioReadiness("MH_2_0") };
+  const empty: MhTestRunPanelData = { enabled, readiness, m4Applied: isMhTestRunsM4Applied(),
+    mh20Gate: evaluateMh20RunGate({ organizationId, environment: "TEST", planProfile: "MH_2_0", requireRunProfile: false }), issuer: null, nextByType: {}, scenarios, runs: [] };
   const tenantId = await orgTenant(organizationId);
   if (!tenantId) return { ...empty, error: "Organización sin tenant." };
 
@@ -141,9 +156,26 @@ async function validatePlanAgainstRuntime(organizationId: string, tenantId: stri
     const pre = await runMhTestPreflight(client, scope);
     const issuer = await loadMhTestIssuer(client, scope);
     if (!issuer) return { ok: false as const, errors: ["Emisor TEST no encontrado."] };
-    const resolved = await resolveMhTestBuildContext(client, issuer, planned.scenarios, planned.plan.receptors);
-    const errors = [...pre.errors, ...(resolved.ok ? [] : resolved.errors)];
-    if (resolved.ok) errors.push(...dryRunMhTestScenarios(resolved.context, planned.scenarios, planned.plan.contingency, new Date()));
+    // MH20 (Fase 8): perfil de la corrida (v1 → MH_1_2). Con MH_2_0 se valida
+    // AT + territorio 2.0 de emisor/receptores y el dry-run usa los builders 2.0.
+    const profile = planned.profile;
+    const issuerSnapshot = {
+      cod_estable_mh: issuer.cod_estable_mh ?? null, cod_punto_venta_mh: issuer.cod_punto_venta_mh ?? null,
+      dept_code: issuer.dept_code ?? null, municipality_code: issuer.municipality_code ?? null,
+    };
+    const resolved = await resolveMhTestBuildContext(client, issuer, planned.scenarios, planned.plan.receptors, profile);
+    // MH20 (Fase 9.0): mismas guardias runtime 2.0 que el motor (M1/M1b/M2,
+    // schemas, catálogos, códigos AT). El snapshot es el emisor actual.
+    const mh20Errors = profile === "MH_2_0"
+      ? await runMh20RuntimePreflight(client, { ...scope, runId: "creacion", profile, issuerSnapshot })
+      : [];
+    const errors = [
+      ...pre.errors,
+      ...mh20Errors,
+      ...validateMhTestRunProfileReadiness({ profile, issuer: issuerSnapshot, receptors: planned.plan.receptors }),
+      ...(resolved.ok ? [] : resolved.errors),
+    ];
+    if (resolved.ok) errors.push(...dryRunMhTestScenarios(resolved.context, planned.scenarios, planned.plan.contingency, new Date(), profile));
 
     // Rango visible vs. siguiente correlativo disponible (la reserva en bloque
     // vuelve a verificarlo bajo lock: esto es solo un aviso temprano).
@@ -155,7 +187,7 @@ async function validatePlanAgainstRuntime(organizationId: string, tenantId: stri
       if (r.first < st.next_sequence) errors.push(`Tipo ${r.dteTypeCode}: el primer correlativo ${r.first} ya fue usado; siguiente disponible ${st.next_sequence}.`);
     }
     if (errors.length > 0) return { ok: false as const, errors };
-    return { ok: true as const, planned, scope };
+    return { ok: true as const, planned, scope, issuerSnapshot };
   });
 }
 
@@ -177,7 +209,9 @@ export async function createMhTestRunAction(organizationId: string, planInput: u
   const user = await requireSuperAdmin();
   const guard = await writeGuard();
   if (guard) return { ok: false, error: guard };
-  if (confirm !== MH_TEST_RUN_CONFIRM_TEXT) return { ok: false, error: `Confirmación exacta requerida: "${MH_TEST_RUN_CONFIRM_TEXT}".` };
+  if (confirm !== MH_TEST_RUN_CONFIRM_TEXT && confirm !== MH20_TEST_RUN_CONFIRM_TEXT) {
+    return { ok: false, error: `Confirmación exacta requerida: "${MH_TEST_RUN_CONFIRM_TEXT}".` };
+  }
   const tenantId = await orgTenant(organizationId);
   if (!tenantId) return { ok: false, error: "Organización no encontrada o sin tenant." };
 
@@ -189,14 +223,73 @@ export async function createMhTestRunAction(organizationId: string, planInput: u
   }
   if (!v.ok) return { ok: false, error: v.errors.join(" · ") };
 
+  // MH20 (Fase 8): MH_2_0 solo dry-run en esta fase; v2 exige M4; un
+  // segmento de cadena > 1 exige el anterior terminado con el mismo perfil.
+  const plan = v.planned.plan;
+  // MH20 (Fase 9.0): MH_2_0 solo con la puerta del CP abierta (flags +
+  // organización autorizada) y la confirmación 2.0 exacta. 1.2 sin cambios.
+  if (v.planned.profile === "MH_2_0") {
+    const gate = evaluateMh20RunGate({ organizationId, environment: "TEST", planProfile: "MH_2_0", requireRunProfile: false });
+    if (gate.length > 0) return { ok: false, error: `${MH20_TEST_RUNS_BLOCKED_MESSAGE} (${gate.join(" · ")})` };
+    if (confirm !== MH20_TEST_RUN_CONFIRM_TEXT) return { ok: false, error: `Confirmación exacta requerida para MH 2.0: "${MH20_TEST_RUN_CONFIRM_TEXT}".` };
+  } else if (confirm !== MH_TEST_RUN_CONFIRM_TEXT) {
+    return { ok: false, error: `Confirmación exacta requerida: "${MH_TEST_RUN_CONFIRM_TEXT}".` };
+  }
+  if (plan.version === 2 && !isMhTestRunsM4Applied()) return { ok: false, error: MH_TEST_RUNS_M4_REQUIRED_MESSAGE };
+  if (plan.chain && plan.chain.index > 1) {
+    const prev = await controlPlanePrisma.platformDteMhTestRunProfile.findFirst({
+      where:  { organization_id: organizationId, chain_id: plan.chain.chainId, chain_index: plan.chain.index - 1 },
+      select: { mh_spec_profile: true, chain_total: true, run: { select: { status: true } } },
+    });
+    if (!prev) return { ok: false, error: `Cadena: falta la corrida ${plan.chain.index - 1} de ${plan.chain.total}.` };
+    if (prev.mh_spec_profile !== v.planned.profile || prev.chain_total !== plan.chain.total) {
+      return { ok: false, error: "Cadena: el perfil o el total no coinciden con la corrida anterior." };
+    }
+    if (!["COMPLETED", "COMPLETED_WITH_FAILURES"].includes(prev.run.status)) {
+      return { ok: false, error: `Cadena: la corrida ${plan.chain.index - 1} aún no terminó (${prev.run.status}).` };
+    }
+  }
+
   const repo = createPrismaMhTestRunRepository(controlPlanePrisma);
   const created = await repo.createRun({
     organization_id: organizationId, tenant_id: tenantId, location_id: v.scope.locationId, issuer_config_id: v.scope.issuerConfigId,
-    plan: v.planned.plan, items: v.planned.items, created_by: user.id, authorized_by: user.id,
+    plan, items: v.planned.items, created_by: user.id, authorized_by: user.id,
+    runProfile: plan.version === 2 ? {
+      mh_spec_profile: v.planned.profile,
+      chain_id: plan.chain?.chainId ?? null, chain_index: plan.chain?.index ?? null, chain_total: plan.chain?.total ?? null,
+      issuer_snapshot: v.issuerSnapshot,
+    } : null,
   }, new Date());
   revalidateOrg(organizationId);
-  if (!created.ok) return { ok: false, error: "Ya existe una corrida de pruebas activa para esta organización." };
+  if (!created.ok) {
+    return { ok: false, error: created.code === "CHAIN_SEGMENT_EXISTS" ? "Ese segmento de la cadena ya fue creado." : "Ya existe una corrida de pruebas activa para esta organización." };
+  }
   return { ok: true, runId: created.runId, message: `Corrida creada con ${v.planned.items.length} ítems. La procesará el tick programado.` };
+}
+
+// ── Preset MH 2.0 y cadena (puro, sin escrituras) ─────────────────
+
+export interface MhTestPresetInput {
+  profile:             "MH_1_2" | "MH_2_0";
+  applicableDocs:      MhTestDocKind[];
+  quantities?:         Partial<Record<MhTestDocKind, number>>;
+  eventsPerApplicable?: number;
+  firstSequenceByType: Partial<Record<MhTestDteTypeCode, number>>;
+}
+
+export type MhTestPresetResult =
+  | { ok: true; quantities: MhTestQuantityPlan; segments: MhTestChainSegment[] }
+  | { ok: false; errors: string[]; quantities?: MhTestQuantityPlan };
+
+export async function previewMhTestPresetAction(input: MhTestPresetInput): Promise<MhTestPresetResult> {
+  await requireSuperAdmin();
+  const profile = input?.profile === "MH_2_0" ? "MH_2_0" : "MH_1_2";
+  const q = buildMhTestQuantityPlan({
+    profile, applicableDocs: Array.isArray(input?.applicableDocs) ? input.applicableDocs : [],
+    quantities: input?.quantities, eventsPerApplicable: input?.eventsPerApplicable,
+  });
+  const chain = chainMhTestPlan(q, input?.firstSequenceByType ?? {});
+  return chain.ok ? { ok: true, quantities: q, segments: chain.segments } : { ok: false, errors: chain.errors, quantities: q };
 }
 
 // ── Avance manual (mismo motor y lease que el tick) ───────────────
@@ -217,11 +310,9 @@ export async function advanceMhTestRunNowAction(organizationId: string, runId: s
   return { ok: true, message: `Resultado: ${outcome.status}${"actions" in outcome ? ` (${outcome.actions} acciones)` : ""}.` };
 }
 
-function runtimeFor(run: MhTestRunRecord) {
-  return createRuntimeMhTestPort({
-    organizationId: run.organization_id, tenantId: run.tenant_id, locationId: run.location_id,
-    issuerConfigId: run.issuer_config_id, userId: run.authorized_by ?? "",
-  });
+function runtimeFor(run: MhTestRunRecord, runProfile?: MhTestRunProfileRecord | null) {
+  // MH20 (Fase 9.0): mismo constructor que el tick (perfil de la fila M4).
+  return createRuntimeMhTestPortForRun(run, runProfile);
 }
 
 // ── Decisiones del operador ───────────────────────────────────────

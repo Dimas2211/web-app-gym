@@ -6,7 +6,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 const h = vi.hoisted(() => ({ processDue: vi.fn() }));
 vi.mock("@/modules/platform/runtime/control-plane-prisma", () => ({ controlPlanePrisma: {} }));
 vi.mock("@/modules/platform/dte-onboarding/mh-test-runs/mh-test-run.repository", () => ({ createPrismaMhTestRunRepository: vi.fn(() => ({})) }));
-vi.mock("@/modules/platform/dte-onboarding/mh-test-runs/mh-test-run.runtime-port", () => ({ createRuntimeMhTestPort: vi.fn() }));
+// MH20 (Fase 9.0): la ruta usa el constructor por corrida (perfil de la fila M4).
+vi.mock("@/modules/platform/dte-onboarding/mh-test-runs/mh-test-run.runtime-port", () => ({ createRuntimeMhTestPortForRun: vi.fn() }));
 vi.mock("@/modules/platform/dte-onboarding/mh-test-runs/mh-test-run.service", () => ({ processDueMhTestRuns: h.processDue }));
 
 import { POST, maxDuration } from "./route";

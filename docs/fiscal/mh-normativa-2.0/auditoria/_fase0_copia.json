@@ -1,0 +1,122 @@
+[
+ {
+  "file": "Catálogos - Facturación Electrónica.xlsx",
+  "sha256": "e86d7edc503d876564cd2bf9b251fb100f838199330c0c513048f4075669b2c6",
+  "size": 92223,
+  "action": "copied"
+ },
+ {
+  "file": "Catálogos- Facturación Electrónica.pdf",
+  "sha256": "aeb51e3983bb5ab9c6729c0944b5d88410018ee9b0e0af9f7d1b48ad3e013064",
+  "size": 9279707,
+  "action": "copied"
+ },
+ {
+  "file": "MANUAL FUNCIONAL DEL SISTEMA DE TRANSMISIÓN.pdf",
+  "sha256": "265d33141cbe2a746b3f385f9cc3e9821535e6b5f78a9a56f2585e7a5e0d4126",
+  "size": 1544929,
+  "action": "copied"
+ },
+ {
+  "file": "Manual Técnico para la Integración Tecnológica del Sistema de Transmisión v2.pdf",
+  "sha256": "fb98db437c6867db00149ce52ce0147a9e1c7a8f80ecd05325cf2ebc7cf7cbbb",
+  "size": 4897731,
+  "action": "copied"
+ },
+ {
+  "file": "Normativa de Cumplimiento de los Documentos Tributarios Electrónicos_Versión 2.0.pdf",
+  "sha256": "89b275140f8090d9641925ad3c66951e91318d357cda6d42a7451529ab840abf",
+  "size": 6229219,
+  "action": "copied"
+ },
+ {
+  "file": "svfe-json-schemas/v1/fe-eop-v1.json",
+  "sha256": "16c494520e5c75d6d51b86cc081db758913414570134129995e4213e64c859c6",
+  "size": 13105,
+  "action": "copied"
+ },
+ {
+  "file": "svfe-json-schemas/v1/fe-eret-v1.json",
+  "sha256": "b845e98ca8acaa4e5829acdc36cb046d97ec87e71c823252895bdf907fdafb35",
+  "size": 31963,
+  "action": "copied"
+ },
+ {
+  "file": "svfe-json-schemas/v2/fe-cd-v2.json",
+  "sha256": "736e9c7dc45bbee017a86aa33348b6f65bad85a36b477540dbf95b1229aa2da5",
+  "size": 20696,
+  "action": "copied"
+ },
+ {
+  "file": "svfe-json-schemas/v2/fe-cl-v2.json",
+  "sha256": "e8af85e2fc5e6f7401c16ca5bc23627d770c5313fcb996af842d9a748dddc067",
+  "size": 17089,
+  "action": "copied"
+ },
+ {
+  "file": "svfe-json-schemas/v2/fe-cr-v2.json",
+  "sha256": "9c2faf7a40a0e9d71e54e157402f61689c265910ff27ccbf08a6e3868542231a",
+  "size": 18988,
+  "action": "copied"
+ },
+ {
+  "file": "svfe-json-schemas/v2/fe-dcl-v2.json",
+  "sha256": "a1b86f95446d0b0e374da0d9d888d79a4c2eef28f8a1105674e87013b94d7407",
+  "size": 19496,
+  "action": "copied"
+ },
+ {
+  "file": "svfe-json-schemas/v2/fe-f-v2.json",
+  "sha256": "2887ff3ccf5594eb1f49dcec1ce8bba134a86462f900069de1365d18ff997aff",
+  "size": 36992,
+  "action": "copied"
+ },
+ {
+  "file": "svfe-json-schemas/v2/fe-fse-v2.json",
+  "sha256": "21b20ae93f85795db3731ee853504edca9998f7f340defd0b6745659840bc75d",
+  "size": 21210,
+  "action": "copied"
+ },
+ {
+  "file": "svfe-json-schemas/v3/fe-fex-v3.json",
+  "sha256": "9539e63b4aa80272a835e1e5e28435b466f17ef1ff8c768f81be156844d57977",
+  "size": 26302,
+  "action": "copied"
+ },
+ {
+  "file": "svfe-json-schemas/v3/invalidacion-schema-v3.json",
+  "sha256": "1ce117cb01b59da309dcbb237cc011e0c4539b3effe9cdd3c2b7794ea631693a",
+  "size": 10451,
+  "action": "copied"
+ },
+ {
+  "file": "svfe-json-schemas/v4/contingencia-schema-v4.json",
+  "sha256": "03fc357397dc7aaa4a8b44f887497dd1ead3a04eb71ec043bb2c0cda485bb149",
+  "size": 7486,
+  "action": "copied"
+ },
+ {
+  "file": "svfe-json-schemas/v4/fe-ccf-v4.json",
+  "sha256": "2c2db8b3f6144bdd0d128ec2babecd38f277f8493458a06cf1b2be7b816fba32",
+  "size": 36106,
+  "action": "copied"
+ },
+ {
+  "file": "svfe-json-schemas/v4/fe-nc-v4.json",
+  "sha256": "f663902030a9ef28ddb8cef7d1e93fa286c1852465175e25d524e3fedb5419d2",
+  "size": 28882,
+  "action": "copied"
+ },
+ {
+  "file": "svfe-json-schemas/v4/fe-nd-v4.json",
+  "sha256": "3b4ffdd4dded315217c365325135d3aede0a67b84bd051c932698c5e5e0c3ca4",
+  "size": 29148,
+  "action": "copied"
+ },
+ {
+  "file": "svfe-json-schemas/v4/fe-nr-v4.json",
+  "sha256": "4620688814a8e764caacfc460df73cb450fb9fa6912dd74e7a0017bc6936d80e",
+  "size": 20316,
+  "action": "copied"
+ }
+]

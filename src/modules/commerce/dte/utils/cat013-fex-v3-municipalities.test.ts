@@ -100,9 +100,14 @@ describe("CAT-013 FEX v3 — aislamiento", () => {
     return found.sort();
   }
 
-  it("solo fex11-v3-territory.ts importa la constante CAT-013", () => {
+  it("solo fex11-v3-territory.ts y la fuente CAT-013 versionada (MH20 IMP20-007) importan la constante CAT-013", () => {
+    // MH20 (D7): cat013-municipalities.ts expone V1_2 = este mismo artefacto
+    // (sin copiarlo) y V2_0 derivado. Ningún builder lo importa directamente.
     expect(productionImporters("cat013-fex-v3-municipalities", "cat013-fex-v3-municipalities.ts"))
-      .toEqual(["modules/commerce/dte/utils/fex11-v3-territory.ts"]);
+      .toEqual([
+        "modules/commerce/dte/utils/cat013-municipalities.ts",
+        "modules/commerce/dte/utils/fex11-v3-territory.ts",
+      ]);
   });
 
   it("solo el builder FEX 11 v3 importa projectFexV3Territory (fex11-v3-territory)", () => {

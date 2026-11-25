@@ -29,6 +29,12 @@ import { prisma }                       from "@/lib/db/prisma";
 import { buildInvalidationEventJson }   from "./build-invalidation-event-json.service";
 import type { InvalidationPersona }     from "../types/dte-invalidation-event-json.types";
 import type { OriginalDteJsonDocument } from "../types/dte-invalidation-event-json.types";
+import { mh20ProfileWriteDataWithOverride } from "../config/dte-mh20.flags";
+import type { MhTestRunSpecProfileOverride } from "../spec/mh-test-run-profile-override";
+import { resolveIssuerSpecProfileForGeneration } from "../spec/resolve-issuer-spec-profile";
+import { evaluateInvalidationDeadline, isInvalidableDteType } from "../spec/dte-invalidation-deadlines";
+import { checkDteDocumentSpecCoherence } from "../spec/dte-spec-guard";
+import { findActiveReturnsForDocument } from "./dte-return-event.guards";
 
 // ── Tipos públicos ────────────────────────────────────────────────
 
@@ -42,6 +48,8 @@ export interface CreateInvalidationEventParams {
   userId:                    string;
   tenantId:                  string;
   locationId:                string;
+  /** MH20 (Fase 9.0): perfil de una corrida MH TEST (solo TEST). */
+  specProfileOverride?:      MhTestRunSpecProfileOverride | null;
 }
 
 export type CreateInvalidationEventResult =
@@ -51,6 +59,8 @@ export type CreateInvalidationEventResult =
       dteDocumentId:        string;
       status:               "DRAFT";
       eventGenerationCode:  string;
+      /** MH20 (Fase 6): advertencias PROVISIONALES (solo perfil MH_2_0 en TEST). */
+      warnings?:            string[];
     }
   | { ok: false; message: string };
 
@@ -67,6 +77,8 @@ const ACTIVE_INVALIDATION_STATUSES = new Set([
 // ── Tipos DTE que pueden invalidarse ─────────────────────────────
 
 const INVALIDABLE_DTE_TYPES = new Set(["01", "03", "05", "11"]);
+/** MH20 (Fase 6.1): tipos invalidables SOLO con el perfil MH_2_0 (FSEE 14). */
+const MH20_ONLY_INVALIDABLE_DTE_TYPES = new Set(["14"]);
 
 // ── Error de negocio interno ──────────────────────────────────────
 
@@ -111,6 +123,7 @@ export async function createInvalidationEvent(
         json_document:    true,
         issuer_config_id: true,
         environment:      true,
+        accepted_at:      true,
       },
     });
 
@@ -128,7 +141,7 @@ export async function createInvalidationEvent(
     }
 
     // ── 3. Validar tipo DTE permitido ─────────────────────────────
-    if (!INVALIDABLE_DTE_TYPES.has(dteDoc.dte_type_code)) {
+    if (!INVALIDABLE_DTE_TYPES.has(dteDoc.dte_type_code) && !MH20_ONLY_INVALIDABLE_DTE_TYPES.has(dteDoc.dte_type_code)) {
       throw new InvalidationBusinessError(
         `El tipo de DTE "${dteDoc.dte_type_code}" no está habilitado para invalidación.`,
       );
@@ -205,6 +218,57 @@ export async function createInvalidationEvent(
       );
     }
 
+    // ── 6c. MH20 (Fase 6) — perfil normativo del evento. Interruptor
+    //       OFF → MH_1_2 sin consultar columnas M1 (comportamiento
+    //       histórico). MH_2_0 → v3: PRODUCTION fail-closed (INC-004/006).
+    const profileResult = await resolveIssuerSpecProfileForGeneration(
+      db, dteDoc.issuer_config_id, tenantId, locationId, dteDoc.environment, "INV", params.specProfileOverride,
+    );
+    if (!profileResult.ok) throw new InvalidationBusinessError(profileResult.error);
+    const profile  = profileResult.profile;
+    const warnings: string[] = profileResult.warning ? [profileResult.warning] : [];
+
+    // Fase 6.1: FSE 14 solo es invalidable con MH_2_0 (mismo mensaje histórico con 1.2).
+    if (profile === "MH_1_2" && !INVALIDABLE_DTE_TYPES.has(dteDoc.dte_type_code)) {
+      throw new InvalidationBusinessError(
+        `El tipo de DTE "${dteDoc.dte_type_code}" no está habilitado para invalidación.`,
+      );
+    }
+
+    if (profile === "MH_2_0") {
+      if (!isInvalidableDteType(profile, dteDoc.dte_type_code)) {
+        throw new InvalidationBusinessError(
+          `El tipo de DTE "${dteDoc.dte_type_code}" no está habilitado para invalidación con el perfil MH 2.0.`,
+        );
+      }
+      const deadline = evaluateInvalidationDeadline({
+        profile,
+        environment:  dteDoc.environment,
+        targetType:   dteDoc.dte_type_code,
+        stampedAt:    dteDoc.accepted_at,
+        targetFecEmi: (dteDoc.json_document as { identificacion?: { fecEmi?: string } } | null)?.identificacion?.fecEmi ?? null,
+        now:          new Date(),
+      });
+      if (!deadline.ok) throw new InvalidationBusinessError(deadline.error);
+      warnings.push(...deadline.warnings);
+
+      // MH20-094 (abierto): evento 2.0 sobre un DTE emitido con 1.2.
+      const docSpec = checkDteDocumentSpecCoherence({ kind: dteDoc.dte_type_code, jsonDocument: dteDoc.json_document });
+      if (docSpec.ok && docSpec.profile === "MH_1_2") {
+        warnings.push("PROVISIONAL (MH20-094): invalidación v3 sobre un DTE emitido con MH 1.2; criterio de coexistencia sin confirmar.");
+      }
+
+      // MH20-049: una FE/FEXE/FSEE con Retorno aplicado debe invalidar
+      // primero el Retorno. Requiere M2 (prerrequisito del perfil MH_2_0).
+      const activeReturns = await findActiveReturnsForDocument(db, { tenantId, dteDocumentId });
+      if (activeReturns.length > 0) {
+        throw new InvalidationBusinessError(
+          `El documento tiene ${activeReturns.length} Evento(s) de Retorno vigente(s). ` +
+          "Invalide primero el Retorno (MH20-049) antes de invalidar el documento.",
+        );
+      }
+    }
+
     // ── 7. Validar campos del emisor ──────────────────────────────
     if (!issuerConfig.nit) {
       throw new InvalidationBusinessError("El emisor DTE no tiene NIT configurado.");
@@ -212,7 +276,8 @@ export async function createInvalidationEvent(
     if (!issuerConfig.name) {
       throw new InvalidationBusinessError("El emisor DTE no tiene nombre configurado.");
     }
-    if (!issuerConfig.establishment_type_code) {
+    // tipoEstablecimiento solo existe en la Invalidación v2 (MH_1_2).
+    if (profile === "MH_1_2" && !issuerConfig.establishment_type_code) {
       throw new InvalidationBusinessError(
         "El emisor DTE no tiene tipoEstablecimiento configurado.",
       );
@@ -261,6 +326,7 @@ export async function createInvalidationEvent(
       responsable,
       solicita,
       now,
+      profile,
     });
 
     if (!buildResult.ok) {
@@ -279,6 +345,7 @@ export async function createInvalidationEvent(
         status:                 "DRAFT",
         requested_by:           userId,
         requested_at:           now,
+        ...mh20ProfileWriteDataWithOverride(profile, params.specProfileOverride),
       },
       select: { id: true },
     });
@@ -291,6 +358,7 @@ export async function createInvalidationEvent(
       dteDocumentId,
       status:              "DRAFT",
       eventGenerationCode,
+      ...(warnings.length > 0 ? { warnings } : {}),
     };
 
   } catch (err) {

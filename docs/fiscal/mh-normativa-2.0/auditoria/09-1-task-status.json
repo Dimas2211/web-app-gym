@@ -1,0 +1,102 @@
+{
+  "phase": "9.1",
+  "title": "Final synchronization, version control and MH TEST preparation",
+  "date": "2026-11-25",
+  "branch": "feat/mh-normativa-2.0",
+  "baseHead": "b682b70",
+  "committed": true,
+  "verdict": "FASE_9_1_PARTIAL",
+  "partialReason": "Live Vercel environment values (MH TEST / MH 2.0 flags) could not be read: Vercel CLI not installed and its session expired. Not bypassed. MH 2.0 cannot be active remotely regardless (M1 columns and M4 table absent).",
+  "restrictions": {
+    "transmittedToMh": false,
+    "flagsEnabled": false,
+    "persistentDbModified": "TrustmeDB local only: M-COR-01 (20261125000000_cor01_fiscal_year), after a verified backup and rehearsal",
+    "remoteMigrations": false,
+    "remoteSeeds": false,
+    "remoteReadsOnly": "READ ONLY transactions on Control Plane nygdq… and shared runtime vkoyw…",
+    "seeds20OnTrustmeDb": false,
+    "mariadbWrites": false,
+    "credentialsOrSignerChanged": false,
+    "productionCorrelativesChanged": false,
+    "historicalDocumentsRegenerated": false,
+    "push": false,
+    "merge": false,
+    "deploy": false,
+    "gitLfs": false
+  },
+  "tasks": {
+    "COR01_lifecycleDistinction": {
+      "status": "DONE",
+      "files": ["src/modules/commerce/dte/utils/dte-fiscal-year-lifecycle.ts", "src/modules/commerce/dte/utils/dte-fiscal-year-lifecycle.test.ts"],
+      "tests": "34/34",
+      "behaviourChange": "none in services (policy formalized and tested); COR-03 unchanged"
+    },
+    "M4_pgTests": {
+      "status": "DONE",
+      "file": "src/modules/platform/dte-onboarding/mh-test-runs/mh20-m4-run-profiles.pg.test.ts",
+      "tests": "28/28 on scratch DB",
+      "residual": "no DB constraint ties profile.organization_id to run.organization_id; guaranteed by createRun"
+    },
+    "pgGuardHardening": {
+      "status": "DONE",
+      "file": "src/modules/commerce/dte/mh-test-runs/mh-test-runs.pg.test.ts",
+      "detail": "requires localhost and a _scratch_ or mig_test database"
+    },
+    "trustmeDbSync": {
+      "status": "DONE",
+      "backup": {
+        "path": "C:\\Users\\rodri\\Documents\\zolvi-backups\\trustmedb-pre-fase9-1-20261125\\TrustmeDB-20261125-pre-fase9-1.dump",
+        "bytes": 903043,
+        "sha256": "5d1f86df90b4e219bb9e1679578ba3265add82f254a6b01ec00b42f1a230e88c",
+        "tocEntries": 961,
+        "restoreTest": "PASS (0 errors, 102/102 tables identical row counts)"
+      },
+      "ambiguousCor01": 0,
+      "rehearsal": "PASS (72/72 fiscal_year=2026, empty diff, identical document fingerprint and correlatives)",
+      "migrationsApplied": ["20261125000000_cor01_fiscal_year"],
+      "after": "70/70, no drift, no P2022"
+    },
+    "remoteInventory": {
+      "status": "PARTIAL",
+      "controlPlane": { "ref": "nygdq…", "applied": "65/70", "pending": ["M1", "M1b", "M2", "M4", "M-COR-01"], "outsideBranch": ["20261119000000_gym_customer_links"], "ambiguousCor01": 0 },
+      "sharedRuntime": { "ref": "vkoyw…", "applied": "65/70", "pending": ["M1", "M1b", "M2", "M4", "M-COR-01"], "outsideBranch": ["20261119000000_gym_customer_links"], "ambiguousCor01": 0 },
+      "blocked": ["live Vercel flag values", "MH TEST credential validity (needs MH auth)", "live signer health (not probed)"]
+    },
+    "environmentSelection": { "status": "DONE", "proposed": "compaws", "activated": false },
+    "versionControl": {
+      "status": "DONE",
+      "commits": {
+        "A": "c05fa1b1ed0ae65baf9f13052dc9c189045a1a4d",
+        "G": "4dfb63bd3ceddb632795f777f290b2aa59aa0fad",
+        "B": "a8edef107bab0422a9a9f1642585181b789ab230",
+        "C": "22df2dcbfa506e55189c0231c7497a949434ef7b",
+        "D": "338c233fe9098e94ae84ace1655be29ac3833a93",
+        "E": "9feab6365ec3e3bdc7014d0ebe0103d2a1f29eb0",
+        "F": "commit containing this file"
+      },
+      "excludedManifest": "docs/fiscal/mh-normativa-2.0/auditoria/09-1-official-sources.sha256"
+    }
+  },
+  "tests": {
+    "wide": "2609 pass, 0 fail, 79 skipped (CAT-022 suite pre-existing failure)",
+    "pg": "63/63",
+    "sqlCor01": "PASS (8 cases)",
+    "goldenMh12": "8/8",
+    "internalCertification": "77/77",
+    "mariadbExclusion": "8/8",
+    "onboardingMh20": "90/90",
+    "tsc": "0 errors",
+    "eslint": "0 errors (155 pre-existing warnings)",
+    "build": "OK"
+  },
+  "pendingAuthorization": [
+    "Integrate origin/main (gym_customer_links) into the branch",
+    "Push / PR / merge",
+    "Remote migrations M1–M4 + M-COR-01 (runtime then CP) before 2026-12-31 18:00 SV, then deploy",
+    "Seed 2.0 catalogs on runtime",
+    "Recover Vercel env access; set MH TEST flags with allowlist=compaws",
+    "Confirm Compaws MH TEST authorization and VERIFY its TEST signer"
+  ],
+  "openBlockers": ["INC-003", "INC-004", "INC-005", "MT-GAP-001", "INC-013", "COR-03", "CAT-028 2.0 format (FEX goods)", "Special Operations authorization", "MariaDB 2.0 compatibility"],
+  "next": "Stop before remote changes or real transmissions."
+}

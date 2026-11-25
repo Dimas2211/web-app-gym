@@ -26,10 +26,23 @@
 
 import { Prisma, type PrismaClient }            from "@prisma/client";
 import { prisma }                               from "@/lib/db/prisma";
+import { checkDteFiscalYearForGeneration } from "../utils/dte-fiscal-year";
 import { numeroALetras }                        from "../utils/numero-a-letras";
 import { normalizeNitForDte, normalizeNrcForDte } from "../utils/fiscal-id.utils";
 import { buildContingencyIdentificationBlock }   from "../utils/dte-contingency-identification.utils";
 import { validateDteAddressCodes }               from "../utils/dte-territory.resolver";
+import { getDteSpecVersion }                     from "../spec/dte-spec-registry";
+import { DEFAULT_DTE_SPEC_PROFILE }              from "../spec/dte-spec-profile";
+import { mh20ProfileWriteData }                  from "../config/dte-mh20.flags";
+import { resolveIssuerSpecProfileForGeneration } from "../spec/resolve-issuer-spec-profile";
+import {
+  buildMh20Direccion,
+  mh20ControlNumberSectionError,
+  resolveMh20FiscalObservations,
+  remapKeys,
+  resolveMh20PartyTerritories,
+  type DteBuildProfileOptions,
+} from "../utils/mh20-builder-helpers";
 
 // FE 01: identificacion.motivoContin exige minLength 5 cuando aplica (tipoContingencia === 5).
 const FE01_MOTIVO_CONTIN_MIN_LENGTH = 5;
@@ -185,6 +198,8 @@ export async function generateFeJsonForDte(
         dte_status:             true,
         generation_code:        true,
         control_number:         true,
+        fiscal_year:      true, // COR-01
+        created_at:       true, // COR-01 (heredados sin fiscal_year)
         environment:            true,
         sale_id:                true,
         issuer_config_id:       true,
@@ -279,6 +294,13 @@ export async function generateFeJsonForDte(
       return { ok: false, error: "La configuración DTE del emisor no existe o no pertenece a esta location." };
     }
 
+    // ── 8a. MH20: perfil normativo activo (interruptor OFF → MH_1_2) ──
+    const profileCheck = await resolveIssuerSpecProfileForGeneration(
+      db, dteDoc.issuer_config_id, tenant_id, location_id, issuerConfig.environment, "01",
+    );
+    if (!profileCheck.ok) return { ok: false, error: profileCheck.error };
+    const profile = profileCheck.profile;
+
     // Validar campos obligatorios del emisor
     if (!issuerConfig.nit)           return { ok: false, error: "El emisor DTE no tiene NIT configurado." };
     if (!issuerConfig.name)          return { ok: false, error: "El emisor DTE no tiene nombre configurado." };
@@ -303,8 +325,25 @@ export async function generateFeJsonForDte(
     // ── Armado puro del JSON (buildFeJsonFromLoadedData) ─────────────────────────
     // Carga y validaciones de origen arriba; el armado vive en una función
     // pura reutilizable (también la usan las pruebas MH TEST del onboarding).
+    // ── 8c. MH20: territorio 2.0 (solo con MH_2_0; solo lectura) ─────
+    const terr = await resolveMh20PartyTerritories(
+      profile,
+      { deptCode: issuerConfig.dept_code, municipalityCode: issuerConfig.municipality_code },
+      sale.customer && sale.customer.id_type_code && sale.customer.id_type_code !== "00"
+        ? { role: "receptor", deptCode: sale.customer.dept_code, municipalityCode: sale.customer.municipality_code }
+        : null,
+      db,
+    );
+    if (!terr.ok) return { ok: false, error: terr.error };
+
     const now   = new Date();
-    const built = buildFeJsonFromLoadedData({ dteDoc, sale, issuerConfig }, now);
+    // COR-01 — el número se reservó en la secuencia de un ejercicio; no se emite en otro.
+    const fiscalYearCheck = checkDteFiscalYearForGeneration(dteDoc, now);
+    if (!fiscalYearCheck.ok) return { ok: false, error: fiscalYearCheck.error };
+    const built = buildFeJsonFromLoadedData({ dteDoc, sale, issuerConfig }, now, {
+      profile,
+      territories: terr.territories,
+    });
     if (!built.ok) return { ok: false, error: built.error };
     const jsonDocument = built.json;
 
@@ -316,6 +355,8 @@ export async function generateFeJsonForDte(
         dte_status:    "GENERATED",
         generated_at:  now,
         updated_by:    user_id,
+        // MH20 (IMP20-005): perfil aplicado, solo con el interruptor ON.
+        ...mh20ProfileWriteData(profile),
       },
     });
 
@@ -336,10 +377,12 @@ export async function generateFeJsonForDte(
 // error de negocio del módulo, que el caller convierte en { ok: false }.
 
 export function buildFeJsonFromLoadedData(
-  input: FeBuildInput,
-  now:   Date,
+  input:   FeBuildInput,
+  now:     Date,
+  options: DteBuildProfileOptions = {},
 ): FeBuildResult {
   const { dteDoc, sale, issuerConfig } = input;
+  const profile = options.profile ?? DEFAULT_DTE_SPEC_PROFILE;
   const totalAmount = Number(sale.total_amount);
 
   // ── 9. Construir cuerpoDocumento ──────────────────────────────
@@ -561,7 +604,7 @@ export function buildFeJsonFromLoadedData(
     };
   }
 
-  // ── 13. Derivar bloque de contingencia (CAT-004 / CAT-023) ─────
+  // ── 13. Derivar bloque de contingencia (CAT-004 / CAT-005) ─────
 
   const contingencyBlock = buildContingencyIdentificationBlock({
     transmission_type_code: dteDoc.transmission_type_code,
@@ -582,14 +625,14 @@ export function buildFeJsonFromLoadedData(
     : 1;
 
   const identificacion = {
-    version:         1,
+    version:         getDteSpecVersion(profile, "01"), // MH_1_2 → 1, MH_2_0 → 2 (registro central)
     ambiente:        mapAmbiente(issuerConfig.environment),
     tipoDte:         "01",
     numeroControl:   dteDoc.control_number,
     codigoGeneracion: dteDoc.generation_code,
     tipoModelo:      contingencyBlock.data.tipoModelo,        // CAT-003
     tipoOperacion:   contingencyBlock.data.tipoOperacion,     // CAT-004
-    tipoContingencia: contingencyBlock.data.tipoContingencia, // CAT-023
+    tipoContingencia: contingencyBlock.data.tipoContingencia, // CAT-005
     motivoContin:    contingencyBlock.data.motivoContin,
     fecEmi,
     horEmi,
@@ -654,6 +697,20 @@ export function buildFeJsonFromLoadedData(
 
   // ── 17. Ensamblar json_document completo ──────────────────────
 
+  if (profile === "MH_2_0") {
+    return buildFeV2FromV1Parts(
+      {
+        identificacion,
+        emisor:   emisor as unknown as Record<string, unknown>,
+        receptor: receptor as unknown as Record<string, unknown> | null,
+        cuerpoDocumento,
+        resumen:  resumen as unknown as Record<string, unknown>,
+      },
+      input,
+      options,
+    );
+  }
+
   const jsonDocument = {
     identificacion,
     documentoRelacionado: null,
@@ -668,4 +725,72 @@ export function buildFeJsonFromLoadedData(
   };
 
   return { ok: true, json: jsonDocument };
+}
+
+// ── MH20: FE v2 (fe-f-v2.json) ────────────────────────────────────
+//
+// Diferencias confirmadas (SCH20-002..011, MH20-026/032/075):
+//   - emisor: sin tipoEstablecimiento, codEstableMH, codPuntoVentaMH;
+//     direccion {departamento, municipio, distrito, complemento} requerida.
+//   - receptor.direccion (si existe) con distrito proyectado.
+//   - resumen: sin reteRenta; ivaRete1 → ivaRete (mismo cálculo: 0);
+//     + observaciones (null salvo texto explícito).
+//   - sin sección extension.
+// Montos, ítems, pagos e identificación (salvo version) idénticos a v1.
+
+function buildFeV2FromV1Parts(
+  parts: {
+    identificacion:  Record<string, unknown>;
+    emisor:          Record<string, unknown>;
+    receptor:        Record<string, unknown> | null;
+    cuerpoDocumento: unknown[];
+    resumen:         Record<string, unknown>;
+  },
+  input:   FeBuildInput,
+  options: DteBuildProfileOptions,
+): FeBuildResult {
+  const { dteDoc, sale, issuerConfig } = input;
+  const sectionError = mh20ControlNumberSectionError(dteDoc.control_number);
+  if (sectionError) return { ok: false, error: sectionError };
+  const territories = options.territories;
+  if (!territories) {
+    return { ok: false, error: "Perfil MH 2.0: falta la proyección territorial de emisor/receptor (resolveMh20PartyTerritories)." };
+  }
+
+  const emisorDir = buildMh20Direccion({
+    role: "emisor", territory: territories.emisor, complemento: issuerConfig.address_complement, required: true,
+  });
+  if (!emisorDir.ok) return { ok: false, error: emisorDir.error };
+  const emisor = remapKeys(parts.emisor, {}, ["tipoEstablecimiento", "codEstableMH", "codPuntoVentaMH"]);
+  emisor.direccion = emisorDir.direccion;
+
+  let receptor = parts.receptor;
+  if (receptor && receptor.direccion !== null) {
+    const receptorDir = buildMh20Direccion({
+      role: "receptor", territory: territories.receptor, complemento: sale.customer?.address_complement, required: false,
+    });
+    if (!receptorDir.ok) return { ok: false, error: receptorDir.error };
+    receptor = { ...receptor, direccion: receptorDir.direccion };
+  }
+
+  const resumen = remapKeys(parts.resumen, { ivaRete1: "ivaRete" }, ["reteRenta"]);
+  // 5.1D: solo observaciones fiscales explícitas; sale.notes nunca sale a MH.
+  const obs = resolveMh20FiscalObservations(options.observaciones);
+  if (!obs.ok) return { ok: false, error: obs.error };
+  resumen.observaciones = obs.value;
+
+  return {
+    ok: true,
+    json: {
+      identificacion:       parts.identificacion,
+      documentoRelacionado: null,
+      emisor,
+      receptor,
+      otrosDocumentos:      null,
+      ventaTercero:         null,
+      cuerpoDocumento:      parts.cuerpoDocumento,
+      resumen,
+      apendice:             null,
+    },
+  };
 }

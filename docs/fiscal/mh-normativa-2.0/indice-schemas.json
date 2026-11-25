@@ -1,0 +1,408 @@
+{
+ "root": "originales/svfe-json-schemas/",
+ "file_count": 15,
+ "json_count": 15,
+ "valid": 15,
+ "invalid": 0,
+ "errors": [],
+ "note": "Valores tomados literalmente de cada archivo; null = no declarado. Sin inferencias ni comparación con schemas anteriores.",
+ "schemas": [
+  {
+   "name": "fe-eop-v1.json",
+   "path": "v1/fe-eop-v1.json",
+   "size": 13105,
+   "sha256": "16c494520e5c75d6d51b86cc081db758913414570134129995e4213e64c859c6",
+   "parse_ok": true,
+   "bom": false,
+   "$schema": "http://json-schema.org/draft-07/schema#",
+   "$id": null,
+   "title": "Evento de Operaciones Especiales",
+   "description": null,
+   "declared_version": {
+    "identificacion.version.const": 1
+   },
+   "declared_tipoDte": null,
+   "top_level_required": [
+    "identificacion",
+    "emisor",
+    "cuerpoDocumento",
+    "resumen",
+    "apendice"
+   ]
+  },
+  {
+   "name": "fe-eret-v1.json",
+   "path": "v1/fe-eret-v1.json",
+   "size": 31963,
+   "sha256": "b845e98ca8acaa4e5829acdc36cb046d97ec87e71c823252895bdf907fdafb35",
+   "parse_ok": true,
+   "bom": false,
+   "$schema": "http://json-schema.org/draft-07/schema#",
+   "$id": null,
+   "title": "Evento de Retorno",
+   "description": null,
+   "declared_version": {
+    "identificacion.version.const": 1
+   },
+   "declared_tipoDte": null,
+   "top_level_required": [
+    "identificacion",
+    "documentoRelacionado",
+    "emisor",
+    "documento",
+    "ventaTercero",
+    "compraTercero",
+    "cuerpoDocumento",
+    "resumen",
+    "apendice"
+   ]
+  },
+  {
+   "name": "fe-cd-v2.json",
+   "path": "v2/fe-cd-v2.json",
+   "size": 20696,
+   "sha256": "736e9c7dc45bbee017a86aa33348b6f65bad85a36b477540dbf95b1229aa2da5",
+   "parse_ok": true,
+   "bom": false,
+   "$schema": "http://json-schema.org/draft-07/schema#",
+   "$id": null,
+   "title": "Comprobante de Donación Electrónica",
+   "description": null,
+   "declared_version": {
+    "identificacion.version.const": 2
+   },
+   "declared_tipoDte": {
+    "identificacion.tipoDte.const": "15"
+   },
+   "top_level_required": [
+    "identificacion",
+    "receptor",
+    "emisor",
+    "cuerpoDocumento",
+    "resumen",
+    "otrosDocumentos",
+    "apendice"
+   ]
+  },
+  {
+   "name": "fe-cl-v2.json",
+   "path": "v2/fe-cl-v2.json",
+   "size": 17089,
+   "sha256": "e8af85e2fc5e6f7401c16ca5bc23627d770c5313fcb996af842d9a748dddc067",
+   "parse_ok": true,
+   "bom": false,
+   "$schema": "http://json-schema.org/draft-07/schema#",
+   "$id": null,
+   "title": "Comprobante de Liquidación Electrónica",
+   "description": null,
+   "declared_version": {
+    "identificacion.version.const": 2
+   },
+   "declared_tipoDte": {
+    "identificacion.tipoDte.const": "08"
+   },
+   "top_level_required": [
+    "identificacion",
+    "emisor",
+    "receptor",
+    "cuerpoDocumento",
+    "resumen",
+    "apendice"
+   ]
+  },
+  {
+   "name": "fe-cr-v2.json",
+   "path": "v2/fe-cr-v2.json",
+   "size": 18988,
+   "sha256": "9c2faf7a40a0e9d71e54e157402f61689c265910ff27ccbf08a6e3868542231a",
+   "parse_ok": true,
+   "bom": false,
+   "$schema": "http://json-schema.org/draft-07/schema#",
+   "$id": null,
+   "title": "Comprobante de Retención Electrónico",
+   "description": null,
+   "declared_version": {
+    "identificacion.version.const": 2
+   },
+   "declared_tipoDte": {
+    "identificacion.tipoDte.const": "07"
+   },
+   "top_level_required": [
+    "identificacion",
+    "emisor",
+    "receptor",
+    "cuerpoDocumento",
+    "resumen",
+    "apendice"
+   ]
+  },
+  {
+   "name": "fe-dcl-v2.json",
+   "path": "v2/fe-dcl-v2.json",
+   "size": 19496,
+   "sha256": "a1b86f95446d0b0e374da0d9d888d79a4c2eef28f8a1105674e87013b94d7407",
+   "parse_ok": true,
+   "bom": false,
+   "$schema": "http://json-schema.org/draft-07/schema#",
+   "$id": null,
+   "title": "Documento Contable de Liquidación Electrónica",
+   "description": null,
+   "declared_version": {
+    "identificacion.version.const": 2
+   },
+   "declared_tipoDte": {
+    "identificacion.tipoDte.const": "09"
+   },
+   "top_level_required": [
+    "identificacion",
+    "emisor",
+    "receptor",
+    "cuerpoDocumento",
+    "extension",
+    "apendice"
+   ]
+  },
+  {
+   "name": "fe-f-v2.json",
+   "path": "v2/fe-f-v2.json",
+   "size": 36992,
+   "sha256": "2887ff3ccf5594eb1f49dcec1ce8bba134a86462f900069de1365d18ff997aff",
+   "parse_ok": true,
+   "bom": false,
+   "$schema": "http://json-schema.org/draft-07/schema#",
+   "$id": null,
+   "title": "Factura Electrónica",
+   "description": null,
+   "declared_version": {
+    "identificacion.version.const": 2
+   },
+   "declared_tipoDte": {
+    "identificacion.tipoDte.const": "01"
+   },
+   "top_level_required": [
+    "identificacion",
+    "documentoRelacionado",
+    "emisor",
+    "receptor",
+    "otrosDocumentos",
+    "ventaTercero",
+    "cuerpoDocumento",
+    "resumen",
+    "apendice"
+   ]
+  },
+  {
+   "name": "fe-fse-v2.json",
+   "path": "v2/fe-fse-v2.json",
+   "size": 21210,
+   "sha256": "21b20ae93f85795db3731ee853504edca9998f7f340defd0b6745659840bc75d",
+   "parse_ok": true,
+   "bom": false,
+   "$schema": "http://json-schema.org/draft-07/schema#",
+   "$id": null,
+   "title": "Factura de Sujeto Excluido Electrónica",
+   "description": null,
+   "declared_version": {
+    "identificacion.version.const": 2
+   },
+   "declared_tipoDte": {
+    "identificacion.tipoDte.const": "14"
+   },
+   "top_level_required": [
+    "identificacion",
+    "emisor",
+    "receptor",
+    "cuerpoDocumento",
+    "resumen",
+    "apendice"
+   ]
+  },
+  {
+   "name": "fe-fex-v3.json",
+   "path": "v3/fe-fex-v3.json",
+   "size": 26302,
+   "sha256": "9539e63b4aa80272a835e1e5e28435b466f17ef1ff8c768f81be156844d57977",
+   "parse_ok": true,
+   "bom": false,
+   "$schema": "http://json-schema.org/draft-07/schema#",
+   "$id": null,
+   "title": "Factura de Exportación Electrónica",
+   "description": null,
+   "declared_version": {
+    "identificacion.version.const": 3
+   },
+   "declared_tipoDte": {
+    "identificacion.tipoDte.const": "11"
+   },
+   "top_level_required": [
+    "identificacion",
+    "documentoRelacionado",
+    "emisor",
+    "receptor",
+    "otrosDocumentos",
+    "ventaTercero",
+    "compraTercero",
+    "cuerpoDocumento",
+    "resumen",
+    "apendice"
+   ]
+  },
+  {
+   "name": "invalidacion-schema-v3.json",
+   "path": "v3/invalidacion-schema-v3.json",
+   "size": 10451,
+   "sha256": "1ce117cb01b59da309dcbb237cc011e0c4539b3effe9cdd3c2b7794ea631693a",
+   "parse_ok": true,
+   "bom": false,
+   "$schema": "http://json-schema.org/draft-07/schema#",
+   "$id": null,
+   "title": "Evento de Invalidacion de Documento Tributario Electronico",
+   "description": null,
+   "declared_version": {
+    "identificacion.version.const": 3
+   },
+   "declared_tipoDte": null,
+   "top_level_required": [
+    "identificacion",
+    "emisor",
+    "documento",
+    "motivo"
+   ]
+  },
+  {
+   "name": "contingencia-schema-v4.json",
+   "path": "v4/contingencia-schema-v4.json",
+   "size": 7486,
+   "sha256": "03fc357397dc7aaa4a8b44f887497dd1ead3a04eb71ec043bb2c0cda485bb149",
+   "parse_ok": true,
+   "bom": false,
+   "$schema": "http://json-schema.org/draft-07/schema",
+   "$id": null,
+   "title": "Evento de Contingencia de Documento Tributario Electronico",
+   "description": null,
+   "declared_version": {
+    "identificacion.version.const": 4
+   },
+   "declared_tipoDte": null,
+   "top_level_required": [
+    "identificacion",
+    "emisor",
+    "detalleDTE",
+    "motivo"
+   ]
+  },
+  {
+   "name": "fe-ccf-v4.json",
+   "path": "v4/fe-ccf-v4.json",
+   "size": 36106,
+   "sha256": "2c2db8b3f6144bdd0d128ec2babecd38f277f8493458a06cf1b2be7b816fba32",
+   "parse_ok": true,
+   "bom": false,
+   "$schema": "http://json-schema.org/draft-07/schema#",
+   "$id": null,
+   "title": "Comprobante de Crédito Fiscal Electrónica",
+   "description": null,
+   "declared_version": {
+    "identificacion.version.const": 4
+   },
+   "declared_tipoDte": {
+    "identificacion.tipoDte.const": "03"
+   },
+   "top_level_required": [
+    "identificacion",
+    "documentoRelacionado",
+    "emisor",
+    "receptor",
+    "otrosDocumentos",
+    "ventaTercero",
+    "cuerpoDocumento",
+    "resumen",
+    "apendice"
+   ]
+  },
+  {
+   "name": "fe-nc-v4.json",
+   "path": "v4/fe-nc-v4.json",
+   "size": 28882,
+   "sha256": "f663902030a9ef28ddb8cef7d1e93fa286c1852465175e25d524e3fedb5419d2",
+   "parse_ok": true,
+   "bom": false,
+   "$schema": "http://json-schema.org/draft-07/schema#",
+   "$id": null,
+   "title": "Nota de Crédito Electrónica",
+   "description": null,
+   "declared_version": {
+    "identificacion.version.const": 4
+   },
+   "declared_tipoDte": {
+    "identificacion.tipoDte.const": "05"
+   },
+   "top_level_required": [
+    "identificacion",
+    "documentoRelacionado",
+    "emisor",
+    "receptor",
+    "ventaTercero",
+    "cuerpoDocumento",
+    "resumen",
+    "apendice"
+   ]
+  },
+  {
+   "name": "fe-nd-v4.json",
+   "path": "v4/fe-nd-v4.json",
+   "size": 29148,
+   "sha256": "3b4ffdd4dded315217c365325135d3aede0a67b84bd051c932698c5e5e0c3ca4",
+   "parse_ok": true,
+   "bom": false,
+   "$schema": "http://json-schema.org/draft-07/schema#",
+   "$id": null,
+   "title": "Nota de Débito Electrónica",
+   "description": null,
+   "declared_version": {
+    "identificacion.version.const": 4
+   },
+   "declared_tipoDte": {
+    "identificacion.tipoDte.const": "06"
+   },
+   "top_level_required": [
+    "identificacion",
+    "documentoRelacionado",
+    "emisor",
+    "receptor",
+    "ventaTercero",
+    "cuerpoDocumento",
+    "resumen",
+    "apendice"
+   ]
+  },
+  {
+   "name": "fe-nr-v4.json",
+   "path": "v4/fe-nr-v4.json",
+   "size": 20316,
+   "sha256": "4620688814a8e764caacfc460df73cb450fb9fa6912dd74e7a0017bc6936d80e",
+   "parse_ok": true,
+   "bom": false,
+   "$schema": "http://json-schema.org/draft-07/schema#",
+   "$id": null,
+   "title": "Nota de Remisión Electrónica",
+   "description": null,
+   "declared_version": {
+    "identificacion.version.const": 4
+   },
+   "declared_tipoDte": {
+    "identificacion.tipoDte.const": "04"
+   },
+   "top_level_required": [
+    "identificacion",
+    "documentoRelacionado",
+    "emisor",
+    "receptor",
+    "ventaTercero",
+    "cuerpoDocumento",
+    "resumen",
+    "apendice"
+   ]
+  }
+ ]
+}

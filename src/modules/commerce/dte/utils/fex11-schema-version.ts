@@ -14,7 +14,11 @@
 // un v1 aún no firmado debe regenerarse (pipeline de generación).
 // ─────────────────────────────────────────────────────────────────
 
-export const FEX11_SCHEMA_VERSION = 3 as const;
+import { getDteSpecVersion } from "../spec/dte-spec-registry";
+
+// MH20 (IMP20-001): la versión se declara solo en el registro central.
+// FEX v3 es común a MH_1_2 y MH_2_0 (pendingConfirmation INC-003 en 2.0).
+export const FEX11_SCHEMA_VERSION = getDteSpecVersion("MH_1_2", "11") as 3;
 
 /**
  * Lee identificacion.version de un json_document persistido (objeto

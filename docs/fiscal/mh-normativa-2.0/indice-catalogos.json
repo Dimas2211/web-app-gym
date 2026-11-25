@@ -1,0 +1,456 @@
+{
+ "file": "originales/Catálogos - Facturación Electrónica.xlsx",
+ "sha256": "e86d7edc503d876564cd2bf9b251fb100f838199330c0c513048f4075669b2c6",
+ "size": 92223,
+ "sheet_count": 1,
+ "sheets": [
+  {
+   "sheet": "Hoja1",
+   "max_row": 1907,
+   "max_column": 2,
+   "nonempty_rows": 1871,
+   "used_columns": 2,
+   "title_cell": "MINISTERIO DE HACIENDA",
+   "header_row": null,
+   "headers": null,
+   "catalog_code": null,
+   "note": "Hoja única con 33 bloques de catálogo consecutivos; encabezados por bloque en \"catalogs\".",
+   "catalogs": [
+    {
+     "code": "CAT-001",
+     "title": "Ambiente de destino",
+     "title_row": 7,
+     "last_row": 11,
+     "header_row": 8,
+     "headers": [
+      "Código",
+      "Valores"
+     ],
+     "data_rows": 2
+    },
+    {
+     "code": "CAT-002",
+     "title": "Tipo de Documento / Evento",
+     "title_row": 12,
+     "last_row": 27,
+     "header_row": 13,
+     "headers": [
+      "Código",
+      "Valores"
+     ],
+     "data_rows": 13
+    },
+    {
+     "code": "CAT-003",
+     "title": "Modelo de Facturación",
+     "title_row": 28,
+     "last_row": 32,
+     "header_row": 29,
+     "headers": [
+      "Código",
+      "Valores"
+     ],
+     "data_rows": 2
+    },
+    {
+     "code": "CAT-004",
+     "title": "Tipo de Transmisión",
+     "title_row": 33,
+     "last_row": 37,
+     "header_row": 34,
+     "headers": [
+      "Código",
+      "Valores"
+     ],
+     "data_rows": 2
+    },
+    {
+     "code": "CAT-005",
+     "title": "Tipo de Contingencia",
+     "title_row": 38,
+     "last_row": 45,
+     "header_row": 39,
+     "headers": [
+      "Código",
+      "Valores"
+     ],
+     "data_rows": 5
+    },
+    {
+     "code": "CAT-006",
+     "title": "Retención IVA MH",
+     "title_row": 46,
+     "last_row": 51,
+     "header_row": 47,
+     "headers": [
+      "Código",
+      "Valores"
+     ],
+     "data_rows": 3
+    },
+    {
+     "code": "CAT-007",
+     "title": "Tipo de Generación del Documento",
+     "title_row": 52,
+     "last_row": 56,
+     "header_row": 53,
+     "headers": [
+      "Código",
+      "Valores"
+     ],
+     "data_rows": 2
+    },
+    {
+     "code": "CAT-008",
+     "title": "Distrito",
+     "title_row": 57,
+     "last_row": 322,
+     "header_row": 58,
+     "headers": [
+      "Código",
+      "Valores"
+     ],
+     "data_rows": 263
+    },
+    {
+     "code": "CAT-009",
+     "title": "Tipo de establecimiento",
+     "title_row": 323,
+     "last_row": 329,
+     "header_row": 324,
+     "headers": [
+      "Código",
+      "Valores"
+     ],
+     "data_rows": 4
+    },
+    {
+     "code": "CAT-010",
+     "title": "Código tipo de Servicio (Médico)",
+     "title_row": 330,
+     "last_row": 338,
+     "header_row": 331,
+     "headers": [
+      "Código",
+      "Valores"
+     ],
+     "data_rows": 6
+    },
+    {
+     "code": "CAT-011",
+     "title": "Tipo de ítem",
+     "title_row": 339,
+     "last_row": 346,
+     "header_row": 341,
+     "headers": [
+      "Código",
+      "Valores"
+     ],
+     "data_rows": 4
+    },
+    {
+     "code": "CAT-012",
+     "title": "Departamento",
+     "title_row": 347,
+     "last_row": 364,
+     "header_row": 348,
+     "headers": [
+      "Código",
+      "Valores"
+     ],
+     "data_rows": 15
+    },
+    {
+     "code": "CAT-013",
+     "title": "Municipio",
+     "title_row": 365,
+     "last_row": 412,
+     "header_row": 366,
+     "headers": [
+      "Código",
+      "Valores"
+     ],
+     "data_rows": 45
+    },
+    {
+     "code": "CAT-014",
+     "title": "Unidad de Medida",
+     "title_row": 413,
+     "last_row": 462,
+     "header_row": 414,
+     "headers": [
+      "Código",
+      "Valores"
+     ],
+     "data_rows": 46
+    },
+    {
+     "code": "CAT-015",
+     "title": "Tributos",
+     "title_row": 463,
+     "last_row": 517,
+     "header_row": 464,
+     "headers": [
+      "Código",
+      "Valores"
+     ],
+     "data_rows": 52
+    },
+    {
+     "code": "CAT-016",
+     "title": "Condición de la Operación",
+     "title_row": 518,
+     "last_row": 523,
+     "header_row": 519,
+     "headers": [
+      "Código",
+      "Valores"
+     ],
+     "data_rows": 3
+    },
+    {
+     "code": "CAT-017",
+     "title": "Forma de Pago",
+     "title_row": 524,
+     "last_row": 538,
+     "header_row": 525,
+     "headers": [
+      "Código",
+      "Valores"
+     ],
+     "data_rows": 12
+    },
+    {
+     "code": "CAT-018",
+     "title": "Plazo",
+     "title_row": 539,
+     "last_row": 544,
+     "header_row": 540,
+     "headers": [
+      "Código",
+      "Valores"
+     ],
+     "data_rows": 3
+    },
+    {
+     "code": "CAT-019",
+     "title": "Código de Actividad Económica",
+     "title_row": 545,
+     "last_row": 1432,
+     "header_row": 546,
+     "headers": [
+      "CÓDIGO",
+      "ACTIVIDADES ECONÓMICAS"
+     ],
+     "data_rows": 885
+    },
+    {
+     "code": "CAT-020",
+     "title": "País",
+     "title_row": 1433,
+     "last_row": 1684,
+     "header_row": 1434,
+     "headers": [
+      "Código",
+      "Valores"
+     ],
+     "data_rows": 249
+    },
+    {
+     "code": "CAT-021",
+     "title": "Documentos Asociados",
+     "title_row": 1685,
+     "last_row": 1691,
+     "header_row": 1686,
+     "headers": [
+      "Código",
+      "Valores"
+     ],
+     "data_rows": 4
+    },
+    {
+     "code": "CAT-022",
+     "title": "Tipo de documento de identificación",
+     "title_row": 1692,
+     "last_row": 1699,
+     "header_row": 1693,
+     "headers": [
+      "Código",
+      "Valores"
+     ],
+     "data_rows": 5
+    },
+    {
+     "code": "CAT-023",
+     "title": "Operaciones Especiales",
+     "title_row": 1700,
+     "last_row": 1704,
+     "header_row": 1701,
+     "headers": [
+      "Código",
+      "Valores"
+     ],
+     "data_rows": 2
+    },
+    {
+     "code": "CAT-024",
+     "title": "Motivo del evento",
+     "title_row": 1705,
+     "last_row": 1710,
+     "header_row": 1706,
+     "headers": [
+      "Código",
+      "Valores"
+     ],
+     "data_rows": 3
+    },
+    {
+     "code": "CAT-025",
+     "title": "Título a que se remiten los bienes",
+     "title_row": 1711,
+     "last_row": 1718,
+     "header_row": 1712,
+     "headers": [
+      "Código",
+      "Valores"
+     ],
+     "data_rows": 5
+    },
+    {
+     "code": "CAT-026",
+     "title": "Tipo de Donación",
+     "title_row": 1719,
+     "last_row": 1724,
+     "header_row": 1720,
+     "headers": [
+      "Código",
+      "Valores"
+     ],
+     "data_rows": 3
+    },
+    {
+     "code": "CAT-027",
+     "title": "Recinto fiscal",
+     "title_row": 1725,
+     "last_row": 1775,
+     "header_row": 1726,
+     "headers": [
+      "Código",
+      "Valores"
+     ],
+     "data_rows": 48
+    },
+    {
+     "code": "CAT-028",
+     "title": "Régimen",
+     "title_row": 1776,
+     "last_row": 1868,
+     "header_row": 1777,
+     "headers": [
+      "Código",
+      "Valores"
+     ],
+     "data_rows": 90
+    },
+    {
+     "code": "CAT-029",
+     "title": "Tipo de persona",
+     "title_row": 1869,
+     "last_row": 1873,
+     "header_row": 1870,
+     "headers": [
+      "Código",
+      "Valores"
+     ],
+     "data_rows": 2
+    },
+    {
+     "code": "CAT-030",
+     "title": "Transporte",
+     "title_row": 1874,
+     "last_row": 1882,
+     "header_row": 1875,
+     "headers": [
+      "Código",
+      "Valores"
+     ],
+     "data_rows": 6
+    },
+    {
+     "code": "CAT-031",
+     "title": "INCOTERMS",
+     "title_row": 1883,
+     "last_row": 1896,
+     "header_row": 1884,
+     "headers": [
+      "Código",
+      "Valores"
+     ],
+     "data_rows": 11
+    },
+    {
+     "code": "CAT-032",
+     "title": "Domicilio Fiscal",
+     "title_row": 1897,
+     "last_row": 1901,
+     "header_row": 1898,
+     "headers": [
+      "Código",
+      "Valores"
+     ],
+     "data_rows": 2
+    },
+    {
+     "code": "CAT-033",
+     "title": "Tipo de Régimen",
+     "title_row": 1902,
+     "last_row": 1907,
+     "header_row": 1903,
+     "headers": [
+      "Código",
+      "Valores"
+     ],
+     "data_rows": 4
+    }
+   ],
+   "catalog_count": 33
+  }
+ ],
+ "pdf_companion": "originales/Catálogos- Facturación Electrónica.pdf",
+ "note": "Inventario estructural generado con openpyxl (read_only, data_only). No contiene los valores de los catálogos ni comparación con versiones anteriores.",
+ "catalog_codes": [
+  "CAT-001",
+  "CAT-002",
+  "CAT-003",
+  "CAT-004",
+  "CAT-005",
+  "CAT-006",
+  "CAT-007",
+  "CAT-008",
+  "CAT-009",
+  "CAT-010",
+  "CAT-011",
+  "CAT-012",
+  "CAT-013",
+  "CAT-014",
+  "CAT-015",
+  "CAT-016",
+  "CAT-017",
+  "CAT-018",
+  "CAT-019",
+  "CAT-020",
+  "CAT-021",
+  "CAT-022",
+  "CAT-023",
+  "CAT-024",
+  "CAT-025",
+  "CAT-026",
+  "CAT-027",
+  "CAT-028",
+  "CAT-029",
+  "CAT-030",
+  "CAT-031",
+  "CAT-032",
+  "CAT-033"
+ ]
+}

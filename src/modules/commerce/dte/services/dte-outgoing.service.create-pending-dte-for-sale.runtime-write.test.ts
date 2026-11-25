@@ -59,7 +59,7 @@ function buildFakeRuntimeDb() {
       }),
     },
     dteCorrelative: {
-      upsert: vi.fn().mockResolvedValue({}),
+      createMany: vi.fn().mockResolvedValue({ count: 1 }), // COR-01: alta atómica (antes upsert)
       findUniqueOrThrow: vi.fn().mockResolvedValue({
         last_sequence: 0,
         external_baseline_last_used_sequence: 0,

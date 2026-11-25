@@ -16,7 +16,19 @@ import { materializeMhTestDocuments } from "./mh-test-documents.service";
 import { reserveDteControlNumber, reserveDteControlNumberBlock } from "../services/dte-correlative.service";
 import { createPrismaMhTestRunRepository } from "@/modules/platform/dte-onboarding/mh-test-runs/mh-test-run.repository";
 
-const URL = process.env.MH_TEST_PG_URL;
+// Fase 9.1: guarda contra bases persistentes o remotas (solo localhost y una
+// base desechable: nombre con "_scratch_" o la histórica "mig_test").
+const URL = (() => {
+  const raw = process.env.MH_TEST_PG_URL;
+  if (!raw) return undefined;
+  try {
+    const u = new globalThis.URL(raw);
+    const local = ["localhost", "127.0.0.1"].includes(u.hostname);
+    return local && (/_scratch_/.test(u.pathname) || u.pathname === "/mig_test") ? raw : undefined;
+  } catch {
+    return undefined;
+  }
+})();
 const scope = { tenantId: "t1", locationId: "L1", issuerConfigId: "ISS-T", userId: null as unknown as string, contingency: null };
 const ctx = (type: string) => ({
   tenant_id: "t1", location_id: "L1", issuer_config_id: "ISS-T", environment: "TEST" as const,

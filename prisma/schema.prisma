@@ -2430,6 +2430,15 @@ model DteIssuerConfig {
   cod_estable_mh     String?
   cod_punto_venta_mh String?
 
+  // MH20 (M1 mh20_spec_profile) — perfil normativo activo del emisor por
+  // ambiente: NULL = MH_1_2. Solo tiene efecto con el interruptor
+  // DTE_MH20_PROFILE_ENABLED=true (apagado por defecto). CHECK en SQL:
+  // NULL | 'MH_1_2' | 'MH_2_0'. TEXT (no enum) para no exigir ALTER TYPE.
+  mh_spec_profile    String?
+  // Modalidad de numeración declarada (MH20-004 / COR-03), SIN efecto
+  // sobre correlativos: 'CENTRALIZED' | 'PER_ESTABLISHMENT' | NULL.
+  numbering_modality String?
+
   // Dirección fiscal
   dept_code          String?
   municipality_code  String?
@@ -2454,6 +2463,9 @@ model DteIssuerConfig {
   outgoing_documents      DteOutgoingDocument[]
   correlatives            DteCorrelative[]
   environment_switches_to DteEnvironmentAuditLog[] @relation("DteEnvironmentAuditLogNewConfig")
+  spec_profile_changes    DteSpecProfileAuditLog[]
+  // MH20 (M2) — Eventos de Retorno emitidos por este emisor/ambiente.
+  return_events           DteReturnEvent[]
 
   @@unique([tenant_id, location_id, environment])
   @@index([tenant_id, location_id, is_active])
@@ -2494,6 +2506,35 @@ model DteEnvironmentAuditLog {
   @@index([tenant_id, location_id])
   @@index([created_at])
   @@map("dte_environment_audit_logs")
+}
+
+// MH20 (Fase 5.1E, migración M1b) — log INMUTABLE de cambios del perfil
+// normativo (DteIssuerConfig.mh_spec_profile) por emisor y ambiente.
+// changed_by sin FK a users a propósito: el actor puede ser un Platform
+// Admin del Control Plane sin fila User en la base runtime.
+model DteSpecProfileAuditLog {
+  id               String         @id @default(uuid())
+  tenant_id        String
+  location_id      String
+  issuer_config_id String
+  environment      DteEnvironment
+
+  previous_profile String? // NULL = MH_1_2 implícito (columna M1 sin valor)
+  new_profile      String
+
+  changed_by       String
+  changed_by_scope String? // "PLATFORM" | "RUNTIME_CLIENT"
+  reason           String
+  warnings         Json?
+
+  // Sin updated_at — registro inmutable, igual que DteEnvironmentAuditLog.
+  created_at DateTime @default(now())
+
+  issuer_config DteIssuerConfig @relation(fields: [issuer_config_id], references: [id])
+
+  @@index([tenant_id, location_id])
+  @@index([issuer_config_id, created_at])
+  @@map("dte_spec_profile_audit_logs")
 }
 
 // Estructura para credenciales cifradas del emisor DTE.
@@ -2657,6 +2698,8 @@ model DteOutgoingDocument {
   invalidation_events         DteInvalidationEvent[]
   contingency_event_items     DteContingencyEventItem[]
   fiscal_metering_reservation DteFiscalMeteringReservation?
+  // MH20 (M2) — líneas de Eventos de Retorno que referencian este DTE.
+  return_event_items          DteReturnEventItem[]
 
   // F3-C24 — control_number nunca debe repetirse dentro del mismo tenant +
   // ambiente. La lógica de reserva (reserveDteControlNumber) ya lo
@@ -2677,7 +2720,27 @@ model DteOutgoingDocument {
   //
   // NULLs (documentos sin numeroControl aún reservado) no colisionan entre
   // sí en Postgres.
-  @@unique([tenant_id, environment, control_number])
+  //
+  // COR-01 (M-COR-01, 20261125000000_cor01_fiscal_year) — el numeroControl
+  // reinicia en cada ejercicio fiscal, así que el unique incluye
+  // fiscal_year: dos años distintos pueden repetir secuencia; dentro del
+  // mismo año no. Los documentos heredados cuyo año quedó NULL (ambiguos en
+  // el backfill) siguen protegidos por el índice parcial
+  // dte_outgoing_documents_legacy_control_number_key (SQL manual, no
+  // modelado por Prisma): unique (tenant_id, environment, control_number)
+  // WHERE fiscal_year IS NULL.
+  // MH20 (M1) — perfil normativo con el que se GENERÓ el json_document.
+  // NULL = histórico (se infiere por identificacion.version, sin backfill).
+  // Se fija en la generación y no cambia al aceptarse el documento.
+  mh_spec_profile String?
+
+  // COR-01 — ejercicio fiscal (hora de El Salvador) de la secuencia de la que
+  // se reservó control_number. Se fija en la reserva y no cambia. Backfill
+  // de solo lectura desde identificacion.fecEmi (ver migración). NULL =
+  // documento sin numeroControl o heredado ambiguo.
+  fiscal_year Int?
+
+  @@unique([tenant_id, environment, fiscal_year, control_number])
   @@index([tenant_id, location_id, dte_status])
   @@index([sale_id])
   @@index([purchase_id])
@@ -2874,6 +2937,9 @@ model DteInvalidationEvent {
   last_error   String?
   requested_by String?
 
+  // MH20 (M1) — perfil normativo del evento. NULL = histórico (v2).
+  mh_spec_profile String?
+
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
 
@@ -2939,6 +3005,9 @@ model DteContingencyEvent {
   rejected_at  DateTime?
   requested_by String?
 
+  // MH20 (M1) — perfil normativo del evento. NULL = histórico (v3).
+  mh_spec_profile String?
+
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
 
@@ -2970,6 +3039,157 @@ model DteContingencyEventItem {
   @@index([contingency_event_id])
   @@index([dte_document_id])
   @@map("dte_contingency_event_items")
+}
+
+// ─────────────────────────────────────────────────────────────────
+// MH20 (Fase 6, M2 `mh20_return_events`) — Evento de Retorno (tipo 18,
+// v2_0/fe-eret-v1.json). Modelo propio (D9): NUNCA es una invalidación y
+// NUNCA cambia el estado del DTE original (MH20-059).
+//
+// - Solo FE 01, FEXE 11 y FSEE 14 con sello (MH20-058).
+// - Un tipo de documento por evento, ≤ 50 documentos, ≤ 2000 ítems.
+// - La suma de retornos vigentes por línea original nunca supera la
+//   línea (se valida en el servicio con lock de fila sobre el DTE).
+// - requested_by/created_by son texto SIN FK a users: el actor puede ser
+//   el actor de sistema del Control Plane (runtime-port, b682b70).
+// - La transmisión está bloqueada (MT-GAP-001); estados SENT/ACCEPTED
+//   existen para el ciclo fiscal completo cuando MH publique el endpoint.
+// ─────────────────────────────────────────────────────────────────
+
+enum DteReturnStatus {
+  DRAFT
+  PENDING_SIGNATURE
+  SIGNED
+  SENT
+  ACCEPTED
+  REJECTED
+  CANCELLED
+}
+
+model DteReturnEvent {
+  id                   String  @id @default(uuid())
+  tenant_id            String
+  location_id          String
+  issuer_config_id     String
+  environment          String
+  generation_code      String
+  origin_dte_type_code String // '01' | '11' | '14'
+  reason               String?
+
+  event_json Json?
+  signed_jws String? @db.Text
+
+  // Respuesta del Ministerio de Hacienda (sin endpoint todavía: MT-GAP-001)
+  mh_estado          String?
+  mh_sello_recibido  String?
+  mh_codigo_msg      String?
+  mh_descripcion_msg String?
+  mh_observaciones   Json?
+
+  status                 DteReturnStatus @default(DRAFT)
+  transmission_type_code String          @default("1")
+  mh_spec_profile        String          @default("MH_2_0")
+
+  total_returned Decimal @default(0) @db.Decimal(14, 2)
+
+  requested_at DateTime?
+  signed_at    DateTime?
+  sent_at      DateTime?
+  accepted_at  DateTime?
+  rejected_at  DateTime?
+  cancelled_at DateTime?
+
+  last_error   String?
+  requested_by String?
+  created_by   String?
+  updated_by   String?
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  issuer_config       DteIssuerConfig              @relation(fields: [issuer_config_id], references: [id])
+  items               DteReturnEventItem[]
+  invalidation_events DteReturnInvalidationEvent[]
+
+  @@unique([tenant_id, environment, generation_code])
+  @@index([tenant_id, location_id])
+  @@index([issuer_config_id])
+  @@index([status])
+  @@map("dte_return_events")
+}
+
+model DteReturnEventItem {
+  id              String @id @default(uuid())
+  return_event_id String
+  dte_document_id String
+  /// numItem del cuerpoDocumento del Retorno (1..2000).
+  no_item         Int
+  /// numItem de la línea del DTE original que se retorna.
+  source_item_no  Int
+
+  quantity        Decimal @db.Decimal(18, 8)
+  /// ventaNoSuj + ventaExenta + ventaGravada + compra devueltos (sin IVA).
+  returned_amount Decimal @db.Decimal(14, 2)
+  /// ivaItem devuelto.
+  returned_tax    Decimal @db.Decimal(14, 2)
+  /// Línea completa enviada en cuerpoDocumento (auditoría y acumulados).
+  line_detail     Json
+
+  created_at DateTime @default(now())
+
+  return_event DteReturnEvent      @relation(fields: [return_event_id], references: [id])
+  dte_document DteOutgoingDocument @relation(fields: [dte_document_id], references: [id])
+
+  @@unique([return_event_id, no_item])
+  @@unique([return_event_id, dte_document_id, source_item_no])
+  @@index([dte_document_id])
+  @@map("dte_return_event_items")
+}
+
+// Invalidación de un Evento de Retorno (MH20-046/049, Invalidación v3 con
+// documento.tipoDte = "18" y numeroControl null). Tabla propia en vez de
+// relajar dte_invalidation_events.dte_document_id: un Retorno referencia
+// hasta 50 DTE, y los consumidores actuales de DteInvalidationEvent
+// (transmisión → DTE INVALIDATED, entrega MariaDB, listados) asumen un DTE
+// único. Así se preserva la integridad referencial sin cambios en filas ni
+// tipos existentes (ver 06-migration-status.md).
+model DteReturnInvalidationEvent {
+  id              String @id @default(uuid())
+  tenant_id       String
+  location_id     String
+  return_event_id String
+
+  invalidation_type_code String
+  reason                 String
+  event_json             Json?
+  signed_jws             String? @db.Text
+
+  mh_estado          String?
+  mh_sello_recibido  String?
+  mh_codigo_msg      String?
+  mh_descripcion_msg String?
+  mh_observaciones   Json?
+
+  status          DteInvalidationStatus @default(DRAFT)
+  mh_spec_profile String                @default("MH_2_0")
+
+  requested_at DateTime?
+  sent_at      DateTime?
+  accepted_at  DateTime?
+  rejected_at  DateTime?
+
+  last_error   String?
+  requested_by String?
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  return_event DteReturnEvent @relation(fields: [return_event_id], references: [id])
+
+  @@index([tenant_id, location_id])
+  @@index([return_event_id])
+  @@index([status])
+  @@map("dte_return_invalidation_events")
 }
 
 // ─── DteFiscalMeteringReservation ────────────────────────────────
@@ -4148,10 +4368,43 @@ model PlatformDteMhTestRun {
 
   organization PlatformOrganization       @relation(fields: [organization_id], references: [id])
   items        PlatformDteMhTestRunItem[]
+  // MH20 (Fase 8, M4): perfil normativo y cadena en tabla 1:1 aditiva.
+  run_profile  PlatformDteMhTestRunProfile? @relation("MhTestRunProfile")
+  // MH20 (Fase 9.2A, M5): destino de la FK compuesta que ata la
+  // organización del perfil a la de su corrida. Nunca más de una fila
+  // (run_id es PK del perfil); se expone como lista por exigencia de Prisma.
+  run_profile_org_guard PlatformDteMhTestRunProfile[] @relation("MhTestRunProfileOrganization")
 
+  @@unique([id, organization_id])
   @@index([organization_id, created_at])
   @@index([status])
   @@map("platform_dte_mh_test_runs")
+}
+
+// MH20 (Fase 8, M4) — perfil normativo por corrida (estable aunque el emisor
+// cambie después), snapshot saneado del emisor y segmento de cadena (límite
+// de 200 ítems). Tabla separada para que las lecturas existentes de
+// platform_dte_mh_test_runs no dependan de columnas nuevas. Solo Control
+// Plane. CHECK de perfil y coherencia de cadena en la migración.
+model PlatformDteMhTestRunProfile {
+  run_id          String   @id
+  organization_id String
+  mh_spec_profile String
+  chain_id        String?
+  chain_index     Int?
+  chain_total     Int?
+  /// Códigos AT y territorio del emisor al crear la corrida (sin secretos).
+  issuer_snapshot Json
+  created_by      String?
+  created_at      DateTime @default(now())
+
+  run PlatformDteMhTestRun @relation("MhTestRunProfile", fields: [run_id], references: [id], onDelete: Restrict)
+  // M5: un perfil de la organización A no puede apuntar a una corrida de B.
+  run_org_guard PlatformDteMhTestRun @relation("MhTestRunProfileOrganization", fields: [run_id, organization_id], references: [id, organization_id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([organization_id, chain_id, chain_index])
+  @@index([organization_id, mh_spec_profile])
+  @@map("platform_dte_mh_test_run_profiles")
 }
 
 model PlatformDteMhTestRunItem {

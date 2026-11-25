@@ -1,0 +1,61 @@
+{
+  "phase": "9.2B",
+  "title": "Publicación de rama y preparación del despliegue",
+  "date": "2026-11-25",
+  "branch": "feat/mh-normativa-2.0",
+  "verdict": "FASE_9_2B_PASS",
+  "git": {
+    "originMain": "79f0b7b02f07fe3aca116a92ecc34db4385e8ba1",
+    "originMainChangedSince92A": false,
+    "pushedHead": "799886966fadaf31d29291459c8116b32e66b3da",
+    "pushes": ["new branch -> dee2f6d045cb2ef4d7b6f602c9ea36c1a2e7224b", "dee2f6d..7998869 fast-forward"],
+    "forcePush": false,
+    "pr": { "number": 36, "url": "https://github.com/Dimas2211/web-app-gym/pull/36", "draft": true, "merged": false, "autoMerge": null, "createdBy": "operator via ChatGPT GitHub integration", "headMatchesLocal": true },
+    "checks": { "combined": "success", "vercelPreview": "success", "otherCi": "none" },
+    "mergeToMain": false, "productionDeploy": false,
+    "repoVisibility": "public", "privacyReview": "clean"
+  },
+  "localDb": {
+    "target": "localhost:5432/TrustmeDB",
+    "applied": ["20261119000000_gym_customer_links", "20261125010000_mh20_mh_test_run_profile_org_fk"],
+    "migrations": "72/72", "drift": false,
+    "backupSha256": "c0f296d69199d021308c7d9e4ae3137076054c69a5aa5f873921e4b0fd5198c1",
+    "restoreVerified": true, "rehearsal": "PASS", "fiscalFingerprintsUnchanged": true, "seeds20": false
+  },
+  "vercel": {
+    "cli": "vercel@latest 67.0.0", "account": "dimas2211", "project": "web-app-gym", "productionBranch": "main",
+    "buildCommand": "default (npm run build, no migrate)", "productionDeployment": "79f0b7b",
+    "previewScopeVars": ["AUTH_TRUST_HOST"], "previewHasDatabase": false,
+    "mh20Flags": { "DTE_MH_TEST_RUNS_MH20_ENABLED": "absent", "DTE_MH_TEST_RUNS_MH20_ORGANIZATIONS": "absent", "DTE_MH20_PROFILE_ENABLED": "absent", "DTE_MH_TEST_RUNS_M4_APPLIED": "absent" },
+    "legacyFlags": { "DTE_MH_TEST_RUNS_ENABLED": "true (production, unchanged)", "DTE_MH_TEST_TICK_SECRET": "absent (tick fails closed)" },
+    "flagsChanged": false
+  },
+  "remote": {
+    "controlPlane": { "ref": "nygdq", "applied": 66, "pending": 6, "docs": 0, "cor01Ambiguous": 0 },
+    "sharedRuntime": { "ref": "vkoyw", "applied": 66, "pending": 6, "docs": 562, "cor01Ambiguous": 0, "duplicates": 0 },
+    "otherDestinations": 0, "runbook": "09-2b-remote-migration-runbook.md", "executed": false
+  },
+  "compaws": {
+    "organizationId": "1b7d3db7-ee0e-4514-9376-c5796910ccfe", "tenants": 1, "locations": 1,
+    "testIssuerActive": true, "productionIssuer": false, "signer": "SIGNER_READY, last VERIFY SUCCESS 2026-11-23",
+    "mhCredentials": "1 active", "correlatives": 0, "documents": 0, "mhAuthorizationConfirmed": false
+  },
+  "tests": {
+    "codeChangedSince0746c94": false,
+    "cleanWorktree": { "tsc": 0, "build": "OK", "untrackedDocsPresent": false },
+    "goldenMh12": "8/8", "internalCertification": "77/77", "mariadbExclusion": "8/8", "onboardingMh20NonPg": "64/64",
+    "migrationIntegrity": "72/72, 0 divergent, 2 EOL-only", "cor01BackfillScriptRehearsal": "PASS",
+    "fullSuite": "not repeated (3707/0 at 0746c94, 9.2A)"
+  },
+  "restrictions": {
+    "mergeToMain": false, "productionDeploy": false, "remoteMigrations": false, "remoteSeeds": false,
+    "flagsChanged": false, "issuersChanged": false, "transmittedToMh": false, "mariadbWrites": false,
+    "correlativesChanged": false, "credentialsOrSignerChanged": false
+  },
+  "next": [
+    "Remote migrations per runbook: runtime vkoyw then CP nygdq (separate authorization)",
+    "Merge PR #36 + Production deploy same day, flags MH 2.0 OFF, before 2026-12-31 18:00 SV",
+    "COR-01 post-deploy backfill",
+    "2.0 catalog seed, Compaws MH TEST authorization, signer VERIFY, flags with allowlist, MH_2_0 profile on Compaws TEST issuer"
+  ]
+}

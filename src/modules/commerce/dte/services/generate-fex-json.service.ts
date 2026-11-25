@@ -43,13 +43,18 @@
 
 import type { PrismaClient } from "@prisma/client";
 import { prisma } from "@/lib/db/prisma";
+import { checkDteFiscalYearForGeneration } from "../utils/dte-fiscal-year";
 import { numeroALetras } from "../utils/numero-a-letras";
 import { normalizeNitForDte, normalizeNrcForDte } from "../utils/fiscal-id.utils";
 import { resolveDteMunicipality, validateDteAddressCodes } from "../utils/dte-territory.resolver";
 import { projectFexV3Territory, type FexV3Territory } from "../utils/fex11-v3-territory";
+import { mh20TerritoryAmbiguityError } from "../utils/dte-territory-projection";
+import { CAT013_V2_0 } from "../utils/cat013-municipalities";
 import { FEX11_SCHEMA_VERSION } from "../utils/fex11-schema-version";
+import type { DteSpecProfile } from "../spec/dte-spec-profile";
+import { resolveIssuerSpecProfileForGeneration } from "../spec/resolve-issuer-spec-profile";
 import { computeFexV3ResumenTotals, r2 } from "../utils/fex11-v3-formulas";
-import { FEX_V3_LIMITS, FEX_GOODS_TIPO_REGIMEN_BLOCKED_ERROR } from "../utils/fex11-v3-rules";
+import { FEX_V3_LIMITS, FEX_GOODS_MH20_BLOCKED_ERROR, FEX_GOODS_TIPO_REGIMEN_BLOCKED_ERROR } from "../utils/fex11-v3-rules";
 import type {
   FexJsonDocument,
   FexCuerpoItem,
@@ -169,6 +174,14 @@ export interface FexLoadedData {
   // existe/activo en CAT-020).
   emisorFexTerritory: FexV3Territory | null;
   receptorCountry:    { code: string; name: string } | null;
+  /** MH20 (5.1D): perfil aplicado. Omitido → MH_1_2 (salida histórica). */
+  profile?:            DteSpecProfile;
+  /**
+   * MH20 (5.1D): observaciones FISCALES explícitas, solo con MH_2_0. Con
+   * MH_2_0 sale.notes (nota interna) nunca se envía a MH; con MH_1_2 se
+   * conserva el comportamiento histórico (sale.notes).
+   */
+  fiscalObservations?: string | null;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────
@@ -199,7 +212,7 @@ const VALID_RECEPTOR_ID_TYPES = new Set(["36", "13", "02", "03", "37"]);
 // ── Tipo de resultado público ─────────────────────────────────────
 
 export type GenerateFexJsonResult =
-  | { ok: true; json: FexJsonDocument }
+  | { ok: true; json: FexJsonDocument; profile?: DteSpecProfile }
   | { ok: false; error: string };
 
 // ── Proyección territorial FEX v3 del emisor ──────────────────────
@@ -212,10 +225,16 @@ export type GenerateFexJsonResult =
 export async function resolveFexEmisorTerritory(
   params: { deptCode: string | null | undefined; municipalityCode: string | null | undefined },
   db: PrismaClient = prisma,
+  profile: DteSpecProfile = "MH_1_2",
 ): Promise<{ ok: true; territory: FexV3Territory | null } | { ok: false; error: string }> {
   const territory = await resolveDteMunicipality(params, db);
   if (!territory) return { ok: true, territory: null };
-  const projected = projectFexV3Territory(territory);
+  // Fase 6.1 (CAT-013 v1.1, Cabañas 10=ESTE/11=OESTE): con MH_2_0 la FEX
+  // usa la tabla CAT-013 2.0; MH_1_2 conserva la tabla V1.2 (aceptada en
+  // MH TEST/PROD) sin ningún cambio.
+  const projected = profile === "MH_2_0"
+    ? projectFexV3Territory(territory, CAT013_V2_0)
+    : projectFexV3Territory(territory);
   if (!projected.ok) return { ok: false, error: projected.error };
   return { ok: true, territory: projected.territory };
 }
@@ -240,6 +259,8 @@ export async function generateFexJsonForSale(
       dte_type_code:    true,
       generation_code:  true,
       control_number:   true,
+      fiscal_year:      true, // COR-01
+      created_at:       true, // COR-01 (heredados sin fiscal_year)
       environment:      true,
       sale_id:          true,
       issuer_config_id: true,
@@ -391,14 +412,6 @@ export async function generateFexJsonForSale(
   }, db);
   if (!emisorAddrCheck.ok) return { ok: false, error: emisorAddrCheck.error };
 
-  // Dirección v3: proyección FEX del mismo registro Municipality del
-  // emisor. Jerarquía territorial inconsistente → fail-closed.
-  const emisorFex = await resolveFexEmisorTerritory({
-    deptCode:         issuerConfig.dept_code,
-    municipalityCode: issuerConfig.municipality_code,
-  }, db);
-  if (!emisorFex.ok) return { ok: false, error: emisorFex.error };
-  const emisorFexTerritory = emisorFex.territory;
 
   // País del receptor: CAT-020 vigente (modelo Country). Solo se busca
   // por el código tal como está guardado — sin normalización ni mapeo.
@@ -410,7 +423,30 @@ export async function generateFexJsonForSale(
       })
     : null;
 
-  return buildFexJsonFromLoadedData({
+  // MH20 (IMP20-017): FEX v3 es idéntica en MH_1_2 y MH_2_0 (SHA-256 del
+  // esquema oficial = fex-11-v3.schema.json). Solo se resuelve el perfil para
+  // aplicar la regla de pendingConfirmation (CAT20-INC-003) y persistirlo.
+  const spec = await resolveIssuerSpecProfileForGeneration(
+    db, dteDoc.issuer_config_id, tenant_id, location_id, issuerConfig.environment, "11",
+  );
+  if (!spec.ok) return { ok: false, error: spec.error };
+
+  // Dirección v3: proyección FEX del mismo registro Municipality del
+  // emisor, con la tabla CAT-013 del perfil (Fase 6.1). Jerarquía
+  // territorial inconsistente → fail-closed.
+  const emisorFex = await resolveFexEmisorTerritory({
+    deptCode:         issuerConfig.dept_code,
+    municipalityCode: issuerConfig.municipality_code,
+  }, db, spec.profile);
+  if (!emisorFex.ok) return { ok: false, error: emisorFex.error };
+  const emisorFexTerritory = emisorFex.territory;
+
+  // MH20 (Fase 5.1B → 6.1): punto único de correspondencias ambiguas. Desde
+  // Fase 6.1 Cabañas está resuelto documentalmente y devuelve null.
+  const territoryAmbiguity = mh20TerritoryAmbiguityError(spec.profile, issuerConfig.dept_code, "emisor");
+  if (territoryAmbiguity) return { ok: false, error: territoryAmbiguity };
+
+  const built = buildFexJsonFromLoadedData({
     tenant_id,
     dteDoc: {
       control_number:  dteDoc.control_number,
@@ -420,7 +456,9 @@ export async function generateFexJsonForSale(
     issuerConfig:       issuerConfig as unknown as FexLoadedIssuerConfig,
     emisorFexTerritory,
     receptorCountry:    receptorCountry ?? null,
+    profile:            spec.profile,
   });
+  return built.ok ? { ...built, profile: spec.profile } : built;
 }
 
 // ── Función pura ───────────────────────────────────────────────────
@@ -546,7 +584,12 @@ export function buildFexJsonFromLoadedData(loaded: FexLoadedData): GenerateFexJs
     // emisor.tipoRegimen es requerido por el schema v3, pero ningún
     // catálogo oficial vigente (Catálogos v1.2, Manual Funcional V2.0)
     // define sus valores. No se infiere desde CAT-028 ni se inventa.
-    return { ok: false, error: FEX_GOODS_TIPO_REGIMEN_BLOCKED_ERROR };
+    // MH20 (5.1F): con MH_2_0 la causa es distinta (CAT-033 publicado, pero
+    // CAT-028/CAT-033 2.0 sin correspondencia confirmada). MH_1_2: intacto.
+    return {
+      ok:    false,
+      error: (loaded.profile ?? "MH_1_2") === "MH_2_0" ? FEX_GOODS_MH20_BLOCKED_ERROR : FEX_GOODS_TIPO_REGIMEN_BLOCKED_ERROR,
+    };
   }
   if (exportDetails.fiscal_precinct_code || exportDetails.regime_code) {
     return { ok: false, error: "Para exportación de servicios (item_type_export=2), recinto fiscal y régimen deben quedar vacíos." };
@@ -565,7 +608,9 @@ export function buildFexJsonFromLoadedData(loaded: FexLoadedData): GenerateFexJs
   if (descIncoterms && descIncoterms.length > FEX_V3_LIMITS.descIncotermsMax) {
     return { ok: false, error: `La descripción INCOTERMS excede ${FEX_V3_LIMITS.descIncotermsMax} caracteres.` };
   }
-  const observaciones = blankToNull(sale.notes);
+  const observaciones = (loaded.profile ?? "MH_1_2") === "MH_2_0"
+    ? blankToNull(loaded.fiscalObservations ?? null)
+    : blankToNull(sale.notes); // MH_1_2: comportamiento histórico intacto (golden)
   if (observaciones && observaciones.length > FEX_V3_LIMITS.observacionesMax) {
     return { ok: false, error: `Las observaciones exceden ${FEX_V3_LIMITS.observacionesMax} caracteres.` };
   }
@@ -746,6 +791,9 @@ export function buildFexJsonFromLoadedData(loaded: FexLoadedData): GenerateFexJs
   // ── 14. Construir identificacion ───────────────────────────────────
 
   const now = new Date();
+  // COR-01 — el número se reservó en la secuencia de un ejercicio; no se emite en otro.
+  const fiscalYearCheck = checkDteFiscalYearForGeneration(dteDoc, now);
+  if (!fiscalYearCheck.ok) return { ok: false, error: fiscalYearCheck.error };
   const { date: fecEmi, time: horEmi } = svDateTime(now);
   const condicion = sale.condition_operation_code
     ? parseInt(sale.condition_operation_code, 10) || 1

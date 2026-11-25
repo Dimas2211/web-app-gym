@@ -28,7 +28,8 @@
 import type { MhTestScenarioCode } from "@/modules/commerce/dte/mh-test-runs/mh-test-scenarios";
 import { mhTestItemKey } from "@/modules/commerce/dte/mh-test-runs/mh-test-key";
 import type { MhTestRuntimePort } from "./mh-test-run.runtime-port";
-import type { MhTestLease, MhTestRunRepository, MhTestItemPatch } from "./mh-test-run.repository";
+import type { MhTestLease, MhTestRunRepository, MhTestItemPatch, MhTestRunProfileRecord } from "./mh-test-run.repository";
+import { evaluateMh20RunGate } from "./mh-test-run.flags";
 import {
   MH_TEST_ITEM_REVIEW_STEPS,
   MH_TEST_ITEM_SUCCESS_STEPS,
@@ -54,8 +55,11 @@ const PRE_SEND_AUTH_CODES = {
 
 export interface AdvanceDeps {
   repo:     MhTestRunRepository;
-  runtime:  (run: MhTestRunRecord) => MhTestRuntimePort;
+  /** runProfile: fila M4 de la corrida (solo MH_2_0; null con 1.2). */
+  runtime:  (run: MhTestRunRecord, runProfile?: MhTestRunProfileRecord | null) => MhTestRuntimePort;
   now?:     () => Date;
+  /** Para tests: variables del Control Plane (default process.env). */
+  env?:     NodeJS.ProcessEnv;
   owner:    string;
   budgetMs?: number;
   /** Para tests: corta tras N acciones. */
@@ -108,7 +112,27 @@ export async function advanceMhTestRun(runId: string, deps: AdvanceDeps): Promis
   try {
     let run = await deps.repo.getRun(runId);
     if (!run) return { status: "NOT_FOUND" };
-    const rt = deps.runtime(run);
+
+    // MH20 (Fase 9.0): una corrida MH_2_0 solo se procesa si la puerta de
+    // activación del CP lo permite (flags + organización autorizada + TEST +
+    // fila M4 coherente). Si no, fail-closed como en Fase 8: sin preflight
+    // runtime, sin materializar y sin red. La fila M4 solo se lee con M4
+    // confirmada (la primera evaluación lo exige).
+    let runProfile: MhTestRunProfileRecord | null = null;
+    if ((run.plan.specProfile ?? "MH_1_2") === "MH_2_0") {
+      const gateInput = { organizationId: run.organization_id, environment: run.environment, planProfile: run.plan.specProfile };
+      let gate = evaluateMh20RunGate({ ...gateInput, requireRunProfile: false }, deps.env);
+      if (gate.length === 0) {
+        runProfile = deps.repo.getRunProfile ? await deps.repo.getRunProfile(run.id) : null;
+        gate = evaluateMh20RunGate({ ...gateInput, runProfile, requireRunProfile: true }, deps.env);
+      }
+      if (gate.length > 0) {
+        const msg = `MH20_RUN_BLOCKED: ${gate.join(" · ")}`;
+        await deps.repo.updateRun(lease, { status: "NEEDS_REVIEW", last_error: msg }, now());
+        return { status: "PREFLIGHT_FAILED", errors: [msg] };
+      }
+    }
+    const rt = deps.runtime(run, runProfile);
 
     const pre = await rt.preflight();
     if (!pre.ok) {

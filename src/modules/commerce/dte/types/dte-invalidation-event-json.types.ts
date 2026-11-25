@@ -4,6 +4,8 @@
 // Son interfaces mínimas: el caller puede pasar objetos más ricos siempre
 // que contengan los campos requeridos.
 
+import type { DteSpecProfile } from "../spec/dte-spec-profile";
+
 // ── Subset de DteIssuerConfig ─────────────────────────────────────
 
 export interface DteIssuerConfigForInvalidation {
@@ -55,6 +57,8 @@ export interface OriginalDteJsonDocument {
     tributos?:  Array<{ valor?: number }> | null;
   };
   receptor: OriginalDteReceptor | null;
+  /** FSE 14: la contraparte es el sujeto excluido (Fase 6.1, solo MH_2_0). */
+  sujetoExcluido?: OriginalDteReceptor | null;
 }
 
 // ── Persona responsable / solicitante ────────────────────────────
@@ -78,6 +82,11 @@ export interface InvalidationEventJsonParams {
   responsable:               InvalidationPersona;
   solicita:                  InvalidationPersona;
   now?:                      Date;
+  /**
+   * MH20 (Fase 6) — perfil normativo del evento. Ausente o MH_1_2 →
+   * Invalidación v2 histórica (byte a byte). MH_2_0 → Invalidación v3.
+   */
+  profile?:                  DteSpecProfile;
 }
 
 // ── Output del builder ────────────────────────────────────────────

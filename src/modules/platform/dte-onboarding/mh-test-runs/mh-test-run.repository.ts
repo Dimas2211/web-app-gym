@@ -48,10 +48,32 @@ export interface CreateMhTestRunInput {
   items:            PlannedMhTestItem[];
   created_by:       string;
   authorized_by:    string;
+  /**
+   * MH20 (Fase 8, M4): perfil/cadena/snapshot del emisor. Solo se escribe si
+   * viene informado (el llamador exige M4 aplicada); ausente → sin cambios.
+   */
+  runProfile?: {
+    mh_spec_profile: "MH_1_2" | "MH_2_0";
+    chain_id:        string | null;
+    chain_index:     number | null;
+    chain_total:     number | null;
+    issuer_snapshot: Record<string, string | null>;
+  } | null;
+}
+
+/** MH20 (Fase 9.0): fila M4 de la corrida (perfil persistido + snapshot del emisor). */
+export interface MhTestRunProfileRecord {
+  mh_spec_profile: "MH_1_2" | "MH_2_0";
+  issuer_snapshot: Record<string, string | null>;
 }
 
 export interface MhTestRunRepository {
-  createRun(input: CreateMhTestRunInput, now: Date): Promise<{ ok: true; runId: string } | { ok: false; code: "ALREADY_ACTIVE" }>;
+  /**
+   * MH20 (Fase 9.0): lectura de la fila M4. Solo se invoca con M4 aplicada
+   * (la puerta 2.0 lo exige); un repositorio sin este método no procesa 2.0.
+   */
+  getRunProfile?(runId: string): Promise<MhTestRunProfileRecord | null>;
+  createRun(input: CreateMhTestRunInput, now: Date): Promise<{ ok: true; runId: string } | { ok: false; code: "ALREADY_ACTIVE" | "CHAIN_SEGMENT_EXISTS" }>;
   getRun(runId: string): Promise<MhTestRunRecord | null>;
   acquireLease(runId: string, owner: string, ttlMs: number, now: Date): Promise<MhTestLease | null>;
   releaseLease(lease: MhTestLease): Promise<void>;
@@ -109,6 +131,15 @@ export function createPrismaMhTestRunRepository(db: PrismaClient): MhTestRunRepo
             },
             select: { id: true },
           });
+          if (input.runProfile) {
+            await tx.platformDteMhTestRunProfile.create({
+              data: {
+                run_id: run.id, organization_id: input.organization_id, mh_spec_profile: input.runProfile.mh_spec_profile,
+                chain_id: input.runProfile.chain_id, chain_index: input.runProfile.chain_index, chain_total: input.runProfile.chain_total,
+                issuer_snapshot: input.runProfile.issuer_snapshot as Prisma.InputJsonValue, created_by: input.created_by,
+              },
+            });
+          }
           const idBySeq = new Map<number, string>();
           for (const it of input.items) {
             const created = await tx.platformDteMhTestRunItem.create({
@@ -130,9 +161,23 @@ export function createPrismaMhTestRunRepository(db: PrismaClient): MhTestRunRepo
         return { ok: true, runId };
       } catch (err) {
         // Índice único parcial platform_dte_mh_test_runs_one_active.
-        if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") return { ok: false, code: "ALREADY_ACTIVE" };
+        if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
+          // M4: segmento de cadena ya creado (organization_id, chain_id, chain_index).
+          const target = JSON.stringify(err.meta?.target ?? "");
+          if (target.includes("chain")) return { ok: false, code: "CHAIN_SEGMENT_EXISTS" };
+          return { ok: false, code: "ALREADY_ACTIVE" };
+        }
         throw err;
       }
+    },
+
+    async getRunProfile(runId) {
+      const row = await db.platformDteMhTestRunProfile.findUnique({
+        where:  { run_id: runId },
+        select: { mh_spec_profile: true, issuer_snapshot: true },
+      });
+      if (!row) return null;
+      return { mh_spec_profile: row.mh_spec_profile as "MH_1_2" | "MH_2_0", issuer_snapshot: (row.issuer_snapshot ?? {}) as Record<string, string | null> };
     },
 
     async getRun(runId) {
@@ -268,13 +313,19 @@ export function createInMemoryMhTestRunRepository(seed: MhTestRunRecord[] = []):
     Object.assign(item, rest);
   };
   let n = 0;
+  const profiles = new Map<string, MhTestRunProfileRecord>();
   return {
     runs,
+    async getRunProfile(runId) {
+      const p = profiles.get(runId);
+      return p ? structuredClone(p) : null;
+    },
     async createRun(input) {
       for (const r of runs.values()) {
         if (r.organization_id === input.organization_id && ["QUEUED", "RUNNING", "PAUSED", "NEEDS_REVIEW"].includes(r.status)) return { ok: false, code: "ALREADY_ACTIVE" };
       }
       const id = `run-${++n}`;
+      if (input.runProfile) profiles.set(id, { mh_spec_profile: input.runProfile.mh_spec_profile, issuer_snapshot: { ...input.runProfile.issuer_snapshot } });
       const ids = new Map(input.items.map((it) => [it.seq, `${id}-item-${it.seq}`]));
       runs.set(id, {
         id, organization_id: input.organization_id, tenant_id: input.tenant_id, location_id: input.location_id,

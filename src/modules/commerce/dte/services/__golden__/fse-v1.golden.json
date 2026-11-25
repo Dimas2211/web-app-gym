@@ -1,0 +1,83 @@
+{
+  "identificacion": {
+    "version": 1,
+    "ambiente": "00",
+    "tipoDte": "14",
+    "numeroControl": "DTE-14-M001P001-000000000000009",
+    "codigoGeneracion": "A1B2C3D4-E5F6-4234-8678-9ABCDEF01234",
+    "tipoModelo": 1,
+    "tipoOperacion": 1,
+    "tipoContingencia": null,
+    "motivoContin": null,
+    "fecEmi": "2026-11-16",
+    "horEmi": "09:00:00",
+    "tipoMoneda": "USD"
+  },
+  "emisor": {
+    "nit": "06141234567890",
+    "nrc": "1234567",
+    "nombre": "EMISOR DE PRUEBA SA DE CV",
+    "codActividad": "93110",
+    "descActividad": "Gestión de instalaciones deportivas",
+    "direccion": {
+      "departamento": "05",
+      "municipio": "11",
+      "complemento": "Calle de prueba 123"
+    },
+    "telefono": "22223333",
+    "codEstableMH": "M001",
+    "codEstable": "M001",
+    "codPuntoVentaMH": "P001",
+    "codPuntoVenta": "P001",
+    "correo": "facturacion@emisor.test"
+  },
+  "sujetoExcluido": {
+    "tipoDocumento": "13",
+    "numDocumento": "000000000",
+    "nombre": "SUJETO EXCLUIDO FIXTURE",
+    "codActividad": null,
+    "descActividad": null,
+    "direccion": {
+      "departamento": "06",
+      "municipio": "14",
+      "complemento": "Col. Fixture"
+    },
+    "telefono": null,
+    "correo": "s@fixture.test"
+  },
+  "cuerpoDocumento": [
+    {
+      "numItem": 1,
+      "tipoItem": 2,
+      "cantidad": 1,
+      "codigo": "MHTEST-SRV",
+      "uniMedida": 59,
+      "descripcion": "SERVICIO DE PRUEBA DE CERTIFICACION MH",
+      "precioUni": 130,
+      "montoDescu": 0,
+      "compra": 130
+    }
+  ],
+  "resumen": {
+    "totalCompra": 130,
+    "descu": 0,
+    "totalDescu": 0,
+    "subTotal": 130,
+    "ivaRete1": 0,
+    "reteRenta": 13,
+    "totalPagar": 117,
+    "totalLetras": "CIENTO DIECISIETE 00/100 DOLARES",
+    "condicionOperacion": 1,
+    "pagos": [
+      {
+        "codigo": "99",
+        "montoPago": 117,
+        "referencia": null,
+        "plazo": null,
+        "periodo": null
+      }
+    ],
+    "observaciones": null
+  },
+  "apendice": null
+}

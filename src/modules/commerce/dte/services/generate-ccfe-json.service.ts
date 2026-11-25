@@ -30,10 +30,23 @@
 
 import { Prisma, type PrismaClient }            from "@prisma/client";
 import { prisma }                               from "@/lib/db/prisma";
+import { checkDteFiscalYearForGeneration } from "../utils/dte-fiscal-year";
 import { numeroALetras }                        from "../utils/numero-a-letras";
 import { normalizeNitForDte, normalizeNrcForDte } from "../utils/fiscal-id.utils";
 import { buildContingencyIdentificationBlock }   from "../utils/dte-contingency-identification.utils";
 import { validateDteAddressCodes }               from "../utils/dte-territory.resolver";
+import { getDteSpecVersion }                     from "../spec/dte-spec-registry";
+import { DEFAULT_DTE_SPEC_PROFILE }              from "../spec/dte-spec-profile";
+import { mh20ProfileWriteData }                  from "../config/dte-mh20.flags";
+import { resolveIssuerSpecProfileForGeneration } from "../spec/resolve-issuer-spec-profile";
+import {
+  buildMh20Direccion,
+  mh20ControlNumberSectionError,
+  resolveMh20FiscalObservations,
+  remapKeys,
+  resolveMh20PartyTerritories,
+  type DteBuildProfileOptions,
+} from "../utils/mh20-builder-helpers";
 
 // CCFE 03: identificacion.motivoContin exige minLength 1 cuando aplica (tipoContingencia === 5).
 const CCFE03_MOTIVO_CONTIN_MIN_LENGTH = 1;
@@ -188,6 +201,8 @@ export async function generateCcfeJsonForDte(
         dte_status:             true,
         generation_code:        true,
         control_number:         true,
+        fiscal_year:      true, // COR-01
+        created_at:       true, // COR-01 (heredados sin fiscal_year)
         environment:            true,
         sale_id:                true,
         issuer_config_id:       true,
@@ -330,11 +345,31 @@ export async function generateCcfeJsonForDte(
     }, db);
     if (!emisorAddrCheck.ok) return { ok: false, error: emisorAddrCheck.error };
 
+    // ── 10c. MH20: perfil activo + territorio 2.0 (solo lectura) ─────
+    const profileCheck = await resolveIssuerSpecProfileForGeneration(
+      db, dteDoc.issuer_config_id, tenant_id, location_id, issuerConfig.environment, "03",
+    );
+    if (!profileCheck.ok) return { ok: false, error: profileCheck.error };
+    const profile = profileCheck.profile;
+    const terr = await resolveMh20PartyTerritories(
+      profile,
+      { deptCode: issuerConfig.dept_code, municipalityCode: issuerConfig.municipality_code },
+      { role: "receptor", deptCode: sale.customer.dept_code, municipalityCode: sale.customer.municipality_code },
+      db,
+    );
+    if (!terr.ok) return { ok: false, error: terr.error };
+
     // ── Armado puro del JSON (buildCcfeJsonFromLoadedData) ─────────────────────────
     // Carga y validaciones de origen arriba; el armado vive en una función
     // pura reutilizable (también la usan las pruebas MH TEST del onboarding).
     const now   = new Date();
-    const built = buildCcfeJsonFromLoadedData({ dteDoc, sale, issuerConfig }, now);
+    // COR-01 — el número se reservó en la secuencia de un ejercicio; no se emite en otro.
+    const fiscalYearCheck = checkDteFiscalYearForGeneration(dteDoc, now);
+    if (!fiscalYearCheck.ok) return { ok: false, error: fiscalYearCheck.error };
+    const built = buildCcfeJsonFromLoadedData({ dteDoc, sale, issuerConfig }, now, {
+      profile,
+      territories: terr.territories,
+    });
     if (!built.ok) return { ok: false, error: built.error };
     const jsonDocument = built.json;
 
@@ -346,6 +381,8 @@ export async function generateCcfeJsonForDte(
         dte_status:    "GENERATED",
         generated_at:  now,
         updated_by:    user_id,
+        // MH20 (IMP20-005): perfil aplicado, solo con el interruptor ON.
+        ...mh20ProfileWriteData(profile),
       },
     });
 
@@ -366,10 +403,12 @@ export async function generateCcfeJsonForDte(
 // error de negocio del módulo, que el caller convierte en { ok: false }.
 
 export function buildCcfeJsonFromLoadedData(
-  input: CcfeBuildInput,
-  now:   Date,
+  input:   CcfeBuildInput,
+  now:     Date,
+  options: DteBuildProfileOptions = {},
 ): CcfeBuildResult {
   const { dteDoc, sale, issuerConfig } = input;
+  const profile = options.profile ?? DEFAULT_DTE_SPEC_PROFILE;
   const totalAmount = Number(sale.total_amount);
   const taxAmount   = Number(sale.tax_amount);
   const c = sale.customer!;
@@ -528,7 +567,7 @@ export function buildCcfeJsonFromLoadedData(
     correo:   c.email ?? null,
   };
 
-  // ── 15. Derivar bloque de contingencia (CAT-004 / CAT-023) ─────
+  // ── 15. Derivar bloque de contingencia (CAT-004 / CAT-005) ─────
 
   const contingencyBlock = buildContingencyIdentificationBlock({
     transmission_type_code: dteDoc.transmission_type_code,
@@ -548,14 +587,14 @@ export function buildCcfeJsonFromLoadedData(
     : 1;
 
   const identificacion = {
-    version:          3,    // CCFE 03 usa version 3 según especificación MH El Salvador
+    version:          getDteSpecVersion(profile, "03"), // MH_1_2 → 3, MH_2_0 → 4 (registro central)
     ambiente:         mapAmbiente(issuerConfig.environment),
     tipoDte:          "03",
     numeroControl:    dteDoc.control_number,
     codigoGeneracion: dteDoc.generation_code,
     tipoModelo:       contingencyBlock.data.tipoModelo,        // CAT-003
     tipoOperacion:    contingencyBlock.data.tipoOperacion,     // CAT-004
-    tipoContingencia: contingencyBlock.data.tipoContingencia,  // CAT-023
+    tipoContingencia: contingencyBlock.data.tipoContingencia,  // CAT-005
     motivoContin:     contingencyBlock.data.motivoContin,
     fecEmi,
     horEmi,
@@ -616,6 +655,51 @@ export function buildCcfeJsonFromLoadedData(
     pagos,
     numPagoElectronico:   null,
   };
+
+  // ── 18b. MH20: CCF v4 (fe-ccf-v4.json) ──────────────────────────
+  // SCH20-103..117, MH20-026/035/075: emisor sin tipoEstablecimiento /
+  // codEstableMH / codPuntoVentaMH; direcciones con distrito; resumen sin
+  // reteRenta, ivaPerci1 → ivaPerci, ivaRete1 → ivaRete (cálculo intacto:
+  // 0, no se habilitan retenciones nuevas); + observaciones; sin extension.
+  if (profile === "MH_2_0") {
+    const sectionError = mh20ControlNumberSectionError(dteDoc.control_number);
+    if (sectionError) return { ok: false, error: sectionError };
+    const territories = options.territories;
+    if (!territories) {
+      return { ok: false, error: "Perfil MH 2.0: falta la proyección territorial de emisor/receptor (resolveMh20PartyTerritories)." };
+    }
+    const emisorDir = buildMh20Direccion({
+      role: "emisor", territory: territories.emisor, complemento: issuerConfig.address_complement, required: true,
+    });
+    if (!emisorDir.ok) return { ok: false, error: emisorDir.error };
+    const receptorDir = buildMh20Direccion({
+      role: "receptor", territory: territories.receptor, complemento: c.address_complement, required: true,
+    });
+    if (!receptorDir.ok) return { ok: false, error: receptorDir.error };
+
+    const emisor20 = remapKeys(emisor, {}, ["tipoEstablecimiento", "codEstableMH", "codPuntoVentaMH"]);
+    emisor20.direccion = emisorDir.direccion;
+    const resumen20 = remapKeys(resumen, { ivaPerci1: "ivaPerci", ivaRete1: "ivaRete" }, ["reteRenta"]);
+    // 5.1D: solo observaciones fiscales explícitas; sale.notes nunca sale a MH.
+    const obs = resolveMh20FiscalObservations(options.observaciones);
+    if (!obs.ok) return { ok: false, error: obs.error };
+    resumen20.observaciones = obs.value;
+
+    return {
+      ok: true,
+      json: {
+        identificacion,
+        documentoRelacionado: null,
+        emisor:               emisor20,
+        receptor:             { ...receptor, direccion: receptorDir.direccion },
+        otrosDocumentos:      null,
+        ventaTercero:         null,
+        cuerpoDocumento,
+        resumen:              resumen20,
+        apendice:             null,
+      },
+    };
+  }
 
   // ── 19. Ensamblar json_document completo ──────────────────────
   const jsonDocument = {

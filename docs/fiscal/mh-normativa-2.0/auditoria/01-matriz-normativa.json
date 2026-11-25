@@ -1,0 +1,4163 @@
+{
+  "fase": "1 - Auditoría comparativa normativa",
+  "fecha": "2026-11-23",
+  "fuentes": {
+    "anterior": {
+      "documento": "Normativa de Cumplimiento de los DTE Versión 1.2 (17/11/2025)",
+      "archivo": "docs/fiscal/mh-normativa-1.2/Normativa de Cumplimiento de los Documentos Tributarios Electrónicos_Versión 1.2 17.11.2025.pdf",
+      "sha256": "7b892cc9655965c87165763fa984bc0744e31e965ae0dae62ff37c6b1715c9a2",
+      "paginas": 112,
+      "derivado": "docs/fiscal/mh-normativa-1.2/markdown/normativa-1.2.md"
+    },
+    "nueva": {
+      "documento": "Normativa de Cumplimiento de los DTE Versión 2.0 (25/05/2026)",
+      "archivo": "docs/fiscal/mh-normativa-2.0/originales/Normativa de Cumplimiento de los Documentos Tributarios Electrónicos_Versión 2.0.pdf",
+      "sha256": "89b275140f8090d9641925ad3c66951e91318d357cda6d42a7451529ab840abf",
+      "paginas": 137,
+      "derivado": "docs/fiscal/mh-normativa-2.0/markdown/normativa-2.0.md"
+    },
+    "complementarias": [
+      "markdown/manual-funcional.md",
+      "markdown/manual-tecnico-v2.md",
+      "indice-schemas.json",
+      "originales/svfe-json-schemas/"
+    ]
+  },
+  "notas": [
+    "Páginas = número de página del PDF (coinciden con la paginación impresa en ambos documentos).",
+    "La identificación de componentes es preliminar; no se auditó código.",
+    "Los DTE implementados considerados: FE, CCFE, NCE, FEXE, FSEE (según bloques B05-B09 del prompt de Fase 1)."
+  ],
+  "requisitos": [
+    {
+      "id": "MH20-001",
+      "bloque": "B01",
+      "titulo": "Versión del JSON por tipo de DTE",
+      "tipo_cambio": "MODIFICADO",
+      "regla_anterior": "Valor 3: CCFE, NCE, NDE, NRE. Valor 2: FEXE V2. Valor 1: FE, CRE, DCLE, CLE, FSEE, FEXE, CDE.",
+      "regla_nueva": "Valor 2: FE, CRE, CLE, DCLE, FSEE, CDE. Valor 4: CCFE, NRE, NCE, NDE. FEXE: valor 2 según Anexo II campo 1; valor 3 según Anexo IV campo 1 y schema fe-fex-v3 (const 3).",
+      "fuente_anterior": {
+        "documento": "Normativa 1.2 (17/11/2025)",
+        "seccion": "Anexo II, Sección 1, campo 1 (verificado visualmente)",
+        "pagina": 37
+      },
+      "fuente_nueva": [
+        {
+          "documento": "Normativa 2.0 (25/05/2026)",
+          "seccion": "Anexo II, Sección 1, campo 1 (verificado visualmente)",
+          "pagina": 48
+        },
+        {
+          "documento": "Normativa 2.0 (25/05/2026)",
+          "seccion": "Anexo IV, Sección 1, campo 1",
+          "pagina": 102
+        },
+        {
+          "documento": "svfe-json-schemas (paquete 2.0)",
+          "seccion": "identificacion.version const por schema",
+          "pagina": null
+        }
+      ],
+      "obligatoriedad": "OBLIGATORIO",
+      "aplicabilidad": "GENERAL",
+      "tipos_dte_afectados": [
+        "FE",
+        "CCFE",
+        "NRE",
+        "NCE",
+        "NDE",
+        "CRE",
+        "CLE",
+        "DCLE",
+        "FEXE",
+        "FSEE",
+        "CDE"
+      ],
+      "impacto_potencial_zolvi": "Un DTE con versión anterior sería rechazado tras la transición. Afecta a todos los builders y a la validación local contra schemas.",
+      "componentes_potenciales": [
+        "DTE_BUILDERS",
+        "DTE_VALIDATORS",
+        "FISCAL_CATALOGS"
+      ],
+      "impacta_onboarding_fiscal": true,
+      "impacta_documentos_historicos": "SI",
+      "prioridad": "P0",
+      "estado_evidencia": "CONFIRMADO",
+      "observaciones": "FEXE contradictoria dentro de la 2.0 (INC-003). Prioridad P0: el rechazo por versión impide obtener el Sello de Recepción. El tratamiento de DTE históricos con versión anterior no se regula (ver MH20 de B18)."
+    },
+    {
+      "id": "MH20-002",
+      "bloque": "B01",
+      "titulo": "Código de Generación UUID v4 en mayúsculas",
+      "tipo_cambio": "SIN_CAMBIO",
+      "regla_anterior": "UUID v4, 36 caracteres (8-4-4-4-12), letras mayúsculas; identifica el DTE y el Archivo DTE.",
+      "regla_nueva": "Igual; además se aclara que es aleatorio, no correlativo ni predecible, e identifica DTE y Eventos de forma única y universal.",
+      "fuente_anterior": {
+        "documento": "Normativa 1.2 (17/11/2025)",
+        "seccion": "Regla 7.1 y Anexo I 1.1",
+        "pagina": "11, 25"
+      },
+      "fuente_nueva": [
+        {
+          "documento": "Normativa 2.0 (25/05/2026)",
+          "seccion": "Regla 7.1.1 y Anexo I 1.2",
+          "pagina": "15, 36"
+        }
+      ],
+      "obligatoriedad": "OBLIGATORIO",
+      "aplicabilidad": "GENERAL",
+      "tipos_dte_afectados": [
+        "FE",
+        "CCFE",
+        "NCE",
+        "FEXE",
+        "FSEE"
+      ],
+      "impacto_potencial_zolvi": "Sin cambio funcional; mantener como control de regresión.",
+      "componentes_potenciales": [
+        "DTE_BUILDERS",
+        "DTE_VALIDATORS"
+      ],
+      "impacta_onboarding_fiscal": false,
+      "impacta_documentos_historicos": "NO",
+      "prioridad": "P3",
+      "estado_evidencia": "CONFIRMADO",
+      "observaciones": "P3: no se identificó cambio material. El orden de los campos 4/5 (codigoGeneracion/numeroControl) se invierte en la numeración del Anexo II sin cambio de clave JSON."
+    },
+    {
+      "id": "MH20-003",
+      "bloque": "B01",
+      "titulo": "Estructura de la sección 3 del Número de Control (establecimiento y punto de venta)",
+      "tipo_cambio": "MODIFICADO",
+      "regla_anterior": "Cuatro dígitos alfanuméricos de casa matriz/sucursal/bodega + cuatro de punto de venta, sin formato impuesto (ejemplo DTE-03-M001P001-...).",
+      "regla_nueva": "Los 8 caracteres describen el código de establecimiento y punto de venta proporcionado por la AT: posiciones 1-4 'M','B','S' o 'P' + 3 números; posiciones 5-8 'P' + 3 números. Se debe usar la codificación establecida por la AT (incluye Patio).",
+      "fuente_anterior": {
+        "documento": "Normativa 1.2 (17/11/2025)",
+        "seccion": "Regla 7.2; Anexo IV campo 4",
+        "pagina": "11, 85"
+      },
+      "fuente_nueva": [
+        {
+          "documento": "Normativa 2.0 (25/05/2026)",
+          "seccion": "Anexo I regla 1.3",
+          "pagina": 37
+        },
+        {
+          "documento": "Normativa 2.0 (25/05/2026)",
+          "seccion": "Anexo IV, Sección 1, campo 5 (verificado visualmente)",
+          "pagina": 102
+        }
+      ],
+      "obligatoriedad": "OBLIGATORIO",
+      "aplicabilidad": "GENERAL",
+      "tipos_dte_afectados": [
+        "FE",
+        "CCFE",
+        "NRE",
+        "NCE",
+        "NDE",
+        "CRE",
+        "CLE",
+        "DCLE",
+        "FEXE",
+        "FSEE",
+        "CDE"
+      ],
+      "impacto_potencial_zolvi": "Si los códigos de establecimiento/punto de venta configurados no siguen el formato asignado por MH, el DTE sería rechazado. Requiere obtener los códigos asignados por MH para cada cliente/establecimiento.",
+      "componentes_potenciales": [
+        "DTE_CORRELATIVES",
+        "DTE_VALIDATORS",
+        "FISCAL_CATALOGS",
+        "DATABASE",
+        "FISCAL_ONBOARDING"
+      ],
+      "impacta_onboarding_fiscal": true,
+      "impacta_documentos_historicos": "NO",
+      "prioridad": "P0",
+      "estado_evidencia": "CONFIRMADO",
+      "observaciones": "P0: validación de estructura del Número de Control produce rechazo. No se debe reasignar correlativos existentes en esta fase."
+    },
+    {
+      "id": "MH20-004",
+      "bloque": "B01",
+      "titulo": "Modalidad de numeración consecutiva (centralizada o por establecimiento)",
+      "tipo_cambio": "NUEVO",
+      "regla_anterior": "Consecutivo de 15 dígitos; la normativa no regulaba la unidad de numeración (por establecimiento, punto de venta o tipo).",
+      "regla_nueva": "Numeración centralizada (continua sin importar el establecimiento) o por establecimiento (independiente por establecimiento). No podrá asignarse por Punto de Venta ni por tipo de documento salvo resolución expresa de la AT.",
+      "fuente_anterior": {
+        "documento": "Normativa 1.2 (17/11/2025)",
+        "seccion": "No existe disposición equivalente",
+        "pagina": null
+      },
+      "fuente_nueva": [
+        {
+          "documento": "Normativa 2.0 (25/05/2026)",
+          "seccion": "Regla 7.1.2 (verificado visualmente)",
+          "pagina": "15-16"
+        }
+      ],
+      "obligatoriedad": "OBLIGATORIO",
+      "aplicabilidad": "GENERAL",
+      "tipos_dte_afectados": [
+        "FE",
+        "CCFE",
+        "NRE",
+        "NCE",
+        "NDE",
+        "CRE",
+        "CLE",
+        "DCLE",
+        "FEXE",
+        "FSEE",
+        "CDE"
+      ],
+      "impacto_potencial_zolvi": "Puede contradecir un esquema de correlativos por tipo de DTE o por punto de venta. Requiere auditoría del diseño de correlativos en fase posterior; no se afirma incumplimiento.",
+      "componentes_potenciales": [
+        "DTE_CORRELATIVES",
+        "DATABASE",
+        "MARIADB",
+        "FISCAL_ONBOARDING"
+      ],
+      "impacta_onboarding_fiscal": true,
+      "impacta_documentos_historicos": "NO_DETERMINADO",
+      "prioridad": "P0",
+      "estado_evidencia": "CONFIRMADO",
+      "observaciones": "P0: incumplimiento fiscal crítico potencial. Pendiente confirmar con MH si la validación se aplica en el servicio de recepción y cómo afecta la sección 2 (tipo DTE) del número."
+    },
+    {
+      "id": "MH20-005",
+      "bloque": "B01",
+      "titulo": "Reinicio del consecutivo",
+      "tipo_cambio": "MODIFICADO",
+      "regla_anterior": "Reiniciar al inicio de cada ejercicio impositivo o cuando se agote dentro del mismo; Anexo II: reiniciar el 01 de enero; no repetirse en el año calendario.",
+      "regla_nueva": "Reiniciar en '000000000000001' a partir del primer DTE de cada ejercicio impositivo; no repetirse del 01 de enero al 31 de diciembre. Se omite la mención 'cuando se agote'.",
+      "fuente_anterior": {
+        "documento": "Normativa 1.2 (17/11/2025)",
+        "seccion": "Regla 7.2; Anexo II campo 4",
+        "pagina": "11, 37"
+      },
+      "fuente_nueva": [
+        {
+          "documento": "Normativa 2.0 (25/05/2026)",
+          "seccion": "Regla 7.1.2; Anexo IV campo 5",
+          "pagina": "16, 102"
+        }
+      ],
+      "obligatoriedad": "OBLIGATORIO",
+      "aplicabilidad": "GENERAL",
+      "tipos_dte_afectados": [
+        "FE",
+        "CCFE",
+        "NCE",
+        "FEXE",
+        "FSEE"
+      ],
+      "impacto_potencial_zolvi": "Ajuste menor del cierre anual de correlativos.",
+      "componentes_potenciales": [
+        "DTE_CORRELATIVES",
+        "MARIADB"
+      ],
+      "impacta_onboarding_fiscal": false,
+      "impacta_documentos_historicos": "NO",
+      "prioridad": "P1",
+      "estado_evidencia": "CONFIRMADO",
+      "observaciones": "P1: afecta el ciclo anual de correlativos; no produce rechazo inmediato si ya se reinicia por ejercicio."
+    },
+    {
+      "id": "MH20-006",
+      "bloque": "B01",
+      "titulo": "Códigos de establecimiento y punto de venta asignados por MH en Eventos",
+      "tipo_cambio": "MODIFICADO",
+      "regla_anterior": "En Invalidación/Contingencia los códigos asignados por MH eran opcionales ('cuando sea otorgado'); el contribuyente podía informar códigos internos.",
+      "regla_nueva": "Código de establecimiento asignado por MH requerido (estructura M000, S000, B000, P000) y código de punto de venta otorgado por MH para Invalidación, Contingencia y Retorno; códigos internos opcionales. Establecimiento/punto de venta = desde donde se transmite el evento.",
+      "fuente_anterior": {
+        "documento": "Normativa 1.2 (17/11/2025)",
+        "seccion": "Anexo V campos 15-18",
+        "pagina": 109
+      },
+      "fuente_nueva": [
+        {
+          "documento": "Normativa 2.0 (25/05/2026)",
+          "seccion": "Anexo V campos 24-27 (verificado visualmente)",
+          "pagina": 125
+        }
+      ],
+      "obligatoriedad": "OBLIGATORIO",
+      "aplicabilidad": "GENERAL",
+      "tipos_dte_afectados": [
+        "FE",
+        "CCFE",
+        "NCE",
+        "FEXE",
+        "FSEE"
+      ],
+      "impacto_potencial_zolvi": "Los eventos deben portar los códigos MH del establecimiento/punto de venta emisor del evento.",
+      "componentes_potenciales": [
+        "DTE_EVENTS",
+        "FISCAL_CATALOGS",
+        "DATABASE"
+      ],
+      "impacta_onboarding_fiscal": true,
+      "impacta_documentos_historicos": "NO",
+      "prioridad": "P0",
+      "estado_evidencia": "CONFIRMADO",
+      "observaciones": "P0: campo requerido en eventos; su ausencia/formato inválido produce rechazo."
+    },
+    {
+      "id": "MH20-007",
+      "bloque": "B01",
+      "titulo": "Campo 'Fusiones y otros' (identificacion)",
+      "tipo_cambio": "NUEVO",
+      "regla_anterior": "No existía.",
+      "regla_nueva": "Campo 13 en identificación para NCE, NDE, CRE y CLE (y en eventos de Invalidación y Retorno): NIT del fusionado (9 o 14 dígitos) cuando el emisor continúa obligaciones de otro con NIT diferente; null en caso contrario; el NIT debe estar en la lista de contribuyentes fusionados.",
+      "fuente_anterior": {
+        "documento": "Normativa 1.2 (17/11/2025)",
+        "seccion": "No existe disposición equivalente",
+        "pagina": null
+      },
+      "fuente_nueva": [
+        {
+          "documento": "Normativa 2.0 (25/05/2026)",
+          "seccion": "Anexo II campo 13",
+          "pagina": "49-50"
+        },
+        {
+          "documento": "Normativa 2.0 (25/05/2026)",
+          "seccion": "Anexo IV campo 13",
+          "pagina": 103
+        },
+        {
+          "documento": "Normativa 2.0 (25/05/2026)",
+          "seccion": "Anexo V campo 13",
+          "pagina": 124
+        }
+      ],
+      "obligatoriedad": "CONDICIONAL",
+      "aplicabilidad": "POR_TIPO_DTE",
+      "tipos_dte_afectados": [
+        "NCE",
+        "NDE",
+        "CRE",
+        "CLE"
+      ],
+      "impacto_potencial_zolvi": "Nuevo campo en NC (implementada) y en eventos; normalmente null.",
+      "componentes_potenciales": [
+        "DTE_BUILDERS",
+        "DTE_VALIDATORS",
+        "DTE_EVENTS"
+      ],
+      "impacta_onboarding_fiscal": false,
+      "impacta_documentos_historicos": "NO",
+      "prioridad": "P2",
+      "estado_evidencia": "CONFIRMADO",
+      "observaciones": "P2: condicionado a fusión; el campo debe existir (null) si el schema lo exige — verificar en schema fe-nc-v4 en fase técnica."
+    },
+    {
+      "id": "MH20-008",
+      "bloque": "B01",
+      "titulo": "Ambiente de pruebas: documentos sin valor legal y advertencia en Representación Gráfica",
+      "tipo_cambio": "MODIFICADO",
+      "regla_anterior": "Ambiente para pruebas para cerciorarse de la correcta transmisión; 00 pruebas / 01 productivo.",
+      "regla_nueva": "Los DTE y Eventos generados en pruebas carecen de valor legal y no producen efectos tributarios; las Representaciones Gráficas de pruebas deben destacar la advertencia de que carecen de valor legal por ser documentación de ensayo.",
+      "fuente_anterior": {
+        "documento": "Normativa 1.2 (17/11/2025)",
+        "seccion": "Anexo I 3.1; Anexo IV campo 2",
+        "pagina": "33, 85"
+      },
+      "fuente_nueva": [
+        {
+          "documento": "Normativa 2.0 (25/05/2026)",
+          "seccion": "Regla 9.1 y 11.3",
+          "pagina": "19, 25"
+        },
+        {
+          "documento": "Normativa 2.0 (25/05/2026)",
+          "seccion": "Anexo I 3.1",
+          "pagina": 41
+        },
+        {
+          "documento": "Normativa 2.0 (25/05/2026)",
+          "seccion": "Anexo II campo 2",
+          "pagina": 48
+        }
+      ],
+      "obligatoriedad": "OBLIGATORIO",
+      "aplicabilidad": "GENERAL",
+      "tipos_dte_afectados": [
+        "FE",
+        "CCFE",
+        "NCE",
+        "FEXE",
+        "FSEE"
+      ],
+      "impacto_potencial_zolvi": "La plantilla PDF en ambiente 00 debe incluir la advertencia; separación TEST/PROD.",
+      "componentes_potenciales": [
+        "DTE_DELIVERY",
+        "FISCAL_ONBOARDING",
+        "CONTROL_PLANE"
+      ],
+      "impacta_onboarding_fiscal": true,
+      "impacta_documentos_historicos": "NO",
+      "prioridad": "P1",
+      "estado_evidencia": "CONFIRMADO",
+      "observaciones": "P1: afecta entregas en certificación; no afecta aceptación en producción."
+    },
+    {
+      "id": "MH20-009",
+      "bloque": "B02",
+      "titulo": "Definición de Fecha de Generación (fecha de la operación)",
+      "tipo_cambio": "MODIFICADO",
+      "regla_anterior": "La fecha/hora de generación debe tomarse del sistema del contribuyente al momento de generar el documento.",
+      "regla_nueva": "Fecha de Generación/Fecha del Evento = fecha en que se realiza la operación u ocurre el evento. Los DTE se generan cuando se causan los hechos generadores del IVA (donaciones: cuando se realizan). Se define también Fecha de Transmisión.",
+      "fuente_anterior": {
+        "documento": "Normativa 1.2 (17/11/2025)",
+        "seccion": "Anexo II campos 10-11",
+        "pagina": 38
+      },
+      "fuente_nueva": [
+        {
+          "documento": "Normativa 2.0 (25/05/2026)",
+          "seccion": "Regla 3 Definiciones",
+          "pagina": 10
+        },
+        {
+          "documento": "Normativa 2.0 (25/05/2026)",
+          "seccion": "Regla 7",
+          "pagina": 14
+        },
+        {
+          "documento": "Normativa 2.0 (25/05/2026)",
+          "seccion": "Anexo II campos 10-11",
+          "pagina": 49
+        }
+      ],
+      "obligatoriedad": "OBLIGATORIO",
+      "aplicabilidad": "GENERAL",
+      "tipos_dte_afectados": [
+        "FE",
+        "CCFE",
+        "NCE",
+        "FEXE",
+        "FSEE"
+      ],
+      "impacto_potencial_zolvi": "Separar fecha de operación de fecha/hora de generación técnica y de transmisión.",
+      "componentes_potenciales": [
+        "DTE_BUILDERS",
+        "SALES",
+        "PURCHASES",
+        "DATABASE"
+      ],
+      "impacta_onboarding_fiscal": false,
+      "impacta_documentos_historicos": "NO_DETERMINADO",
+      "prioridad": "P1",
+      "estado_evidencia": "CONFIRMADO",
+      "observaciones": "P1: cambia la semántica de fecEmi; impacto en declaración por fecha de generación."
+    },
+    {
+      "id": "MH20-010",
+      "bloque": "B02",
+      "titulo": "Tolerancias de la Fecha de Generación respecto a la transmisión",
+      "tipo_cambio": "MODIFICADO",
+      "regla_anterior": "Tolerancia de un día posterior a la fecha actual en casos especiales; no aplica el último día del período (usar fecha actual). FSEE exceptuada.",
+      "regla_nueva": "Se podrá ingresar cualquier fecha anterior a la transmisión en casos especiales (FSEE: hasta un período anterior); hasta cinco días posteriores a la fecha de transmisión en casos excepcionales sin sobrepasar el siguiente período tributario.",
+      "fuente_anterior": {
+        "documento": "Normativa 1.2 (17/11/2025)",
+        "seccion": "Anexo IV campo 10",
+        "pagina": 86
+      },
+      "fuente_nueva": [
+        {
+          "documento": "Normativa 2.0 (25/05/2026)",
+          "seccion": "Anexo IV campo 10",
+          "pagina": 103
+        }
+      ],
+      "obligatoriedad": "CONDICIONAL",
+      "aplicabilidad": "GENERAL",
+      "tipos_dte_afectados": [
+        "FE",
+        "CCFE",
+        "NCE",
+        "FEXE",
+        "FSEE"
+      ],
+      "impacto_potencial_zolvi": "Validadores locales de fecEmi deben actualizar límites (1 día → 5 días; fechas anteriores).",
+      "componentes_potenciales": [
+        "DTE_VALIDATORS"
+      ],
+      "impacta_onboarding_fiscal": false,
+      "impacta_documentos_historicos": "NO",
+      "prioridad": "P1",
+      "estado_evidencia": "CONFIRMADO",
+      "observaciones": "P1: validación de reglas de negocio MH; un validador local más restrictivo bloquearía operaciones legítimas."
+    },
+    {
+      "id": "MH20-011",
+      "bloque": "B02",
+      "titulo": "Holgura de 30 minutos el último día del mes",
+      "tipo_cambio": "SIN_CAMBIO",
+      "regla_anterior": "30 minutos posteriores a la hora de generación el último día del mes (DTE).",
+      "regla_nueva": "Se mantiene para DTE y se extiende a Hora del Evento (Invalidación, Retorno, OE) y a Hora del evento de contingencia.",
+      "fuente_anterior": {
+        "documento": "Normativa 1.2 (17/11/2025)",
+        "seccion": "Anexo IV campo 11",
+        "pagina": 86
+      },
+      "fuente_nueva": [
+        {
+          "documento": "Normativa 2.0 (25/05/2026)",
+          "seccion": "Anexo IV campo 11",
+          "pagina": 103
+        },
+        {
+          "documento": "Normativa 2.0 (25/05/2026)",
+          "seccion": "Anexo V campos 11-12",
+          "pagina": 124
+        }
+      ],
+      "obligatoriedad": "OBLIGATORIO",
+      "aplicabilidad": "GENERAL",
+      "tipos_dte_afectados": [
+        "FE",
+        "CCFE",
+        "NCE",
+        "FEXE",
+        "FSEE"
+      ],
+      "impacto_potencial_zolvi": "Extender la regla a eventos.",
+      "componentes_potenciales": [
+        "DTE_VALIDATORS",
+        "DTE_EVENTS"
+      ],
+      "impacta_onboarding_fiscal": false,
+      "impacta_documentos_historicos": "NO",
+      "prioridad": "P3",
+      "estado_evidencia": "CONFIRMADO",
+      "observaciones": "P3: sin cambio para DTE; extensión a eventos sin impacto funcional inmediato identificado."
+    },
+    {
+      "id": "MH20-012",
+      "bloque": "B02",
+      "titulo": "Fecha del Evento: límites (Retorno, OE, Invalidación)",
+      "tipo_cambio": "NUEVO",
+      "regla_anterior": "Invalidación: no se aceptan fechas que antecedan a la transmisión del evento.",
+      "regla_nueva": "Fecha del evento hasta 5 días posteriores a la transmisión sin pasar al siguiente período (último día del mes: holgura máx. 30 min); OE: se valida cualquier fecha anterior; Invalidación de DTE distintos de FE/FEXE/FSEE o de Eventos: misma fecha que la Fecha de Generación/Evento del documento invalidado; FE/FEXE/FSEE: fecha del evento hasta 3 meses posteriores a la fecha de generación.",
+      "fuente_anterior": {
+        "documento": "Normativa 1.2 (17/11/2025)",
+        "seccion": "Anexo V campo 4",
+        "pagina": 108
+      },
+      "fuente_nueva": [
+        {
+          "documento": "Normativa 2.0 (25/05/2026)",
+          "seccion": "Anexo V campo 9",
+          "pagina": 123
+        },
+        {
+          "documento": "Normativa 2.0 (25/05/2026)",
+          "seccion": "Regla 13.1.1",
+          "pagina": 28
+        }
+      ],
+      "obligatoriedad": "OBLIGATORIO",
+      "aplicabilidad": "GENERAL",
+      "tipos_dte_afectados": [
+        "FE",
+        "CCFE",
+        "NCE",
+        "FEXE",
+        "FSEE"
+      ],
+      "impacto_potencial_zolvi": "Nuevas reglas de cálculo de fecha de eventos.",
+      "componentes_potenciales": [
+        "DTE_EVENTS",
+        "DTE_VALIDATORS"
+      ],
+      "impacta_onboarding_fiscal": false,
+      "impacta_documentos_historicos": "SI",
+      "prioridad": "P1",
+      "estado_evidencia": "REQUIERE_VERIFICACION",
+      "observaciones": "Contradicción con regla 13.1.1 ('mismo día hasta el día posterior') — INC-006. P1: puede causar rechazo de eventos."
+    },
+    {
+      "id": "MH20-013",
+      "bloque": "B02",
+      "titulo": "Registro y declaración según Fecha de Generación / Fecha del Evento",
+      "tipo_cambio": "MODIFICADO",
+      "regla_anterior": "Registrar en libros de IVA con la fecha de generación, incluso sin transmitir; declarar en el período en que fueron generados.",
+      "regla_nueva": "Documentos en estado transitorio deben registrarse con la fecha de generación; DTE/Eventos se declaran según su Fecha de Generación o Fecha del Evento; no deducibles sin Sello de Recepción.",
+      "fuente_anterior": {
+        "documento": "Normativa 1.2 (17/11/2025)",
+        "seccion": "Regla 10.2",
+        "pagina": 16
+      },
+      "fuente_nueva": [
+        {
+          "documento": "Normativa 2.0 (25/05/2026)",
+          "seccion": "Regla 10.2",
+          "pagina": "22-23"
+        }
+      ],
+      "obligatoriedad": "OBLIGATORIO",
+      "aplicabilidad": "GENERAL",
+      "tipos_dte_afectados": [
+        "FE",
+        "CCFE",
+        "NCE",
+        "FEXE",
+        "FSEE"
+      ],
+      "impacto_potencial_zolvi": "Los reportes de libros IVA deben basarse en fecha de generación/evento e incluir eventos (Retorno).",
+      "componentes_potenciales": [
+        "REPORTS",
+        "SALES",
+        "PURCHASES"
+      ],
+      "impacta_onboarding_fiscal": false,
+      "impacta_documentos_historicos": "NO_DETERMINADO",
+      "prioridad": "P1",
+      "estado_evidencia": "CONFIRMADO",
+      "observaciones": "P1: afecta reportes fiscales; incorpora Eventos a la declaración."
+    },
+    {
+      "id": "MH20-014",
+      "bloque": "B03",
+      "titulo": "Emisión con Transmisión Diferida Normal (nueva modalidad autorizada)",
+      "tipo_cambio": "NUEVO",
+      "regla_anterior": "Sólo transmisión previa (normal) y diferida por contingencia.",
+      "regla_nueva": "Por resolución de la AT y con prueba idónea de imposibilidad: generación, firma, entrega en estado transitorio y transmisión por lote hasta un día posterior a la generación y entrega. Aplica a CCFE, NCE, NDE, NRE, CRE, FE, FEXE, FSEE y al Evento de Retorno.",
+      "fuente_anterior": {
+        "documento": "Normativa 1.2 (17/11/2025)",
+        "seccion": "No existe disposición equivalente",
+        "pagina": null
+      },
+      "fuente_nueva": [
+        {
+          "documento": "Normativa 2.0 (25/05/2026)",
+          "seccion": "Regla 6.2; Cuadros 4 y 5",
+          "pagina": "13-14, 18-19"
+        }
+      ],
+      "obligatoriedad": "CONDICIONAL",
+      "aplicabilidad": "POR_AUTORIZACION",
+      "tipos_dte_afectados": [
+        "CCFE",
+        "NCE",
+        "NDE",
+        "NRE",
+        "CRE",
+        "FE",
+        "FEXE",
+        "FSEE"
+      ],
+      "impacto_potencial_zolvi": "Sólo relevante si un cliente obtiene la resolución.",
+      "componentes_potenciales": [
+        "DTE_TRANSMISSION",
+        "DTE_DELIVERY"
+      ],
+      "impacta_onboarding_fiscal": false,
+      "impacta_documentos_historicos": "NO",
+      "prioridad": "P2",
+      "estado_evidencia": "CONFIRMADO",
+      "observaciones": "P2: condicionada a autorización expresa. Catálogo CAT-003/CAT-004 para esta modalidad no verificado (REQUIERE revisar catálogos en fase posterior)."
+    },
+    {
+      "id": "MH20-015",
+      "bloque": "B03",
+      "titulo": "Orden lógico de transmisión",
+      "tipo_cambio": "NUEVO",
+      "regla_anterior": "No regulado expresamente.",
+      "regla_nueva": "DTE y Eventos que afecten, ajusten, disminuyan o invaliden operaciones deben transmitirse después de los afectados; el DTE afectado debe estar previamente transmitido (también para afectar un Evento con otro). Aplica a uno a uno y lote de DTE, Retorno y OE; uno a uno para Invalidación y Contingencia.",
+      "fuente_anterior": {
+        "documento": "Normativa 1.2 (17/11/2025)",
+        "seccion": "No existe disposición equivalente",
+        "pagina": null
+      },
+      "fuente_nueva": [
+        {
+          "documento": "Normativa 2.0 (25/05/2026)",
+          "seccion": "Regla 9.2",
+          "pagina": 20
+        }
+      ],
+      "obligatoriedad": "OBLIGATORIO",
+      "aplicabilidad": "GENERAL",
+      "tipos_dte_afectados": [
+        "FE",
+        "CCFE",
+        "NCE",
+        "FEXE",
+        "FSEE"
+      ],
+      "impacto_potencial_zolvi": "Colas/lotes deben respetar dependencias (CCF→NC, FE→Retorno→Invalidación).",
+      "componentes_potenciales": [
+        "DTE_TRANSMISSION",
+        "DTE_EVENTS"
+      ],
+      "impacta_onboarding_fiscal": false,
+      "impacta_documentos_historicos": "NO",
+      "prioridad": "P1",
+      "estado_evidencia": "CONFIRMADO",
+      "observaciones": "P1: errores de orden causan rechazo de documentos dependientes; afecta especialmente contingencia y lotes."
+    },
+    {
+      "id": "MH20-016",
+      "bloque": "B03",
+      "titulo": "Plazos y modalidades de transmisión de DTE (Cuadro 4)",
+      "tipo_cambio": "MODIFICADO",
+      "regla_anterior": "Cuadro 1: Normal previa antes de la entrega (todos); Contingencia diferida hasta 72 h desde el sello del Evento de Contingencia para CCFE, FE, FEXE, NRE, NDE y FSEE.",
+      "regla_nueva": "Cuadro 4: Normal previa (todos); Normal diferida hasta 1 día (CCFE, NCE, NDE, NRE, CRE, FE, FEXE, FSEE); Contingencia diferida hasta 72 h desde el sello del Evento de Contingencia (mismos tipos, incluye NCE y CRE).",
+      "fuente_anterior": {
+        "documento": "Normativa 1.2 (17/11/2025)",
+        "seccion": "Regla 9, Cuadro 1",
+        "pagina": 13
+      },
+      "fuente_nueva": [
+        {
+          "documento": "Normativa 2.0 (25/05/2026)",
+          "seccion": "Regla 9, Cuadro 4",
+          "pagina": 18
+        }
+      ],
+      "obligatoriedad": "OBLIGATORIO",
+      "aplicabilidad": "GENERAL",
+      "tipos_dte_afectados": [
+        "FE",
+        "CCFE",
+        "NCE",
+        "FEXE",
+        "FSEE"
+      ],
+      "impacto_potencial_zolvi": "Plazo de contingencia sin cambio; se amplían tipos (NCE explícita, CRE).",
+      "componentes_potenciales": [
+        "DTE_TRANSMISSION"
+      ],
+      "impacta_onboarding_fiscal": false,
+      "impacta_documentos_historicos": "NO",
+      "prioridad": "P1",
+      "estado_evidencia": "CONFIRMADO",
+      "observaciones": "NCE ya figuraba en el Cuadro 3 de la 1.2 pero no en el Cuadro 1 (inconsistencia histórica 1.2, INC-010)."
+    },
+    {
+      "id": "MH20-017",
+      "bloque": "B03",
+      "titulo": "Plazos y modalidades de transmisión de Eventos (Cuadro 5)",
+      "tipo_cambio": "NUEVO",
+      "regla_anterior": "Plazos de eventos sólo en cuadros de Invalidación y Contingencia.",
+      "regla_nueva": "Cuadro 5: Normal previa antes de la entrega (todos los eventos); Normal diferida hasta 1 día (sólo Retorno); Contingencia diferida: Invalidación hasta 24 h desde el cese; Retorno hasta 72 h desde el sello del Evento de Contingencia.",
+      "fuente_anterior": {
+        "documento": "Normativa 1.2 (17/11/2025)",
+        "seccion": "No existe disposición equivalente",
+        "pagina": null
+      },
+      "fuente_nueva": [
+        {
+          "documento": "Normativa 2.0 (25/05/2026)",
+          "seccion": "Regla 9, Cuadro 5",
+          "pagina": 19
+        }
+      ],
+      "obligatoriedad": "OBLIGATORIO",
+      "aplicabilidad": "GENERAL",
+      "tipos_dte_afectados": [
+        "FE",
+        "CCFE",
+        "NCE",
+        "FEXE",
+        "FSEE"
+      ],
+      "impacto_potencial_zolvi": "Los eventos (Invalidación, Retorno) se entregan al receptor y deben transmitirse antes de la entrega.",
+      "componentes_potenciales": [
+        "DTE_EVENTS",
+        "DTE_TRANSMISSION",
+        "DTE_DELIVERY"
+      ],
+      "impacta_onboarding_fiscal": false,
+      "impacta_documentos_historicos": "NO",
+      "prioridad": "P1",
+      "estado_evidencia": "REQUIERE_VERIFICACION",
+      "observaciones": "La fila 3 menciona Invalidación pero la columna 'Tipo de Evento' dice 'Únicamente para el Evento de Retorno' (INC-007)."
+    },
+    {
+      "id": "MH20-018",
+      "bloque": "B03",
+      "titulo": "Emisión completa y eventos transmitidos",
+      "tipo_cambio": "NUEVO",
+      "regla_anterior": "DTE: carácter de DTE con el Sello de Recepción.",
+      "regla_nueva": "Los DTE se tienen por emitidos cuando han sido generados, firmados, transmitidos, poseen Sello y han sido entregados al receptor. Los Eventos se tienen por transmitidos con Sello; Invalidación y Retorno deben entregarse junto con su Representación Gráfica.",
+      "fuente_anterior": {
+        "documento": "Normativa 1.2 (17/11/2025)",
+        "seccion": "Regla 10",
+        "pagina": "14-15"
+      },
+      "fuente_nueva": [
+        {
+          "documento": "Normativa 2.0 (25/05/2026)",
+          "seccion": "Regla 6 (final)",
+          "pagina": 14
+        }
+      ],
+      "obligatoriedad": "OBLIGATORIO",
+      "aplicabilidad": "GENERAL",
+      "tipos_dte_afectados": [
+        "FE",
+        "CCFE",
+        "NCE",
+        "FEXE",
+        "FSEE"
+      ],
+      "impacto_potencial_zolvi": "La entrega pasa a ser parte de la emisión; trazabilidad de entrega requerida.",
+      "componentes_potenciales": [
+        "DTE_DELIVERY",
+        "DTE_EVENTS",
+        "SALES"
+      ],
+      "impacta_onboarding_fiscal": false,
+      "impacta_documentos_historicos": "NO",
+      "prioridad": "P1",
+      "estado_evidencia": "CONFIRMADO",
+      "observaciones": "P1: afecta el ciclo operativo y prueba de cumplimiento de entrega."
+    },
+    {
+      "id": "MH20-019",
+      "bloque": "B03",
+      "titulo": "Estado Transitorio del documento o evento",
+      "tipo_cambio": "NUEVO",
+      "regla_anterior": "Documentos de contingencia entregados sin sello; presunción de ingresos si no se transmiten.",
+      "regla_nueva": "Estado provisional dentro de los plazos de transmisión; debe registrarse contablemente y conservarse; si es rechazado debe corregirse con un nuevo documento/evento con sello y ajuste contable. Nuevo estado 'Transitorio' en 10.1.",
+      "fuente_anterior": {
+        "documento": "Normativa 1.2 (17/11/2025)",
+        "seccion": "Reglas 11.2 y 13.4",
+        "pagina": "17, 21"
+      },
+      "fuente_nueva": [
+        {
+          "documento": "Normativa 2.0 (25/05/2026)",
+          "seccion": "Reglas 9.3 y 10.1",
+          "pagina": "20, 22"
+        }
+      ],
+      "obligatoriedad": "OBLIGATORIO",
+      "aplicabilidad": "GENERAL",
+      "tipos_dte_afectados": [
+        "FE",
+        "CCFE",
+        "NCE",
+        "FEXE",
+        "FSEE"
+      ],
+      "impacto_potencial_zolvi": "Modelo de estados del DTE debe incluir 'Transitorio' y su tratamiento contable.",
+      "componentes_potenciales": [
+        "DATABASE",
+        "DTE_TRANSMISSION",
+        "SALES",
+        "REPORTS"
+      ],
+      "impacta_onboarding_fiscal": false,
+      "impacta_documentos_historicos": "NO",
+      "prioridad": "P1",
+      "estado_evidencia": "CONFIRMADO",
+      "observaciones": "P1: estados y registro contable."
+    },
+    {
+      "id": "MH20-020",
+      "bloque": "B03",
+      "titulo": "Transmisión uno a uno y por lote de DTE y Eventos",
+      "tipo_cambio": "MODIFICADO",
+      "regla_anterior": "Recepción de DTE uno a uno o en lote; eventos de Invalidación/Contingencia por servicio específico.",
+      "regla_nueva": "Recepción de DTE y Eventos uno a uno o en lote; Retorno y OE admiten lote; Invalidación y Contingencia uno a uno. Diferida normal sólo por lote.",
+      "fuente_anterior": {
+        "documento": "Normativa 1.2 (17/11/2025)",
+        "seccion": "Regla 6.1; Anexo I 3.2 y 3.4",
+        "pagina": "10, 33-34"
+      },
+      "fuente_nueva": [
+        {
+          "documento": "Normativa 2.0 (25/05/2026)",
+          "seccion": "Reglas 6.1-6.3 y 9.2; Anexo I 3.3",
+          "pagina": "13-14, 20, 42"
+        }
+      ],
+      "obligatoriedad": "OBLIGATORIO",
+      "aplicabilidad": "GENERAL",
+      "tipos_dte_afectados": [
+        "FE",
+        "CCFE",
+        "NCE",
+        "FEXE",
+        "FSEE"
+      ],
+      "impacto_potencial_zolvi": "Servicios de transmisión de eventos nuevos (Retorno/OE) y uso de lotes.",
+      "componentes_potenciales": [
+        "DTE_TRANSMISSION",
+        "DTE_EVENTS"
+      ],
+      "impacta_onboarding_fiscal": false,
+      "impacta_documentos_historicos": "NO",
+      "prioridad": "P1",
+      "estado_evidencia": "CONFIRMADO",
+      "observaciones": "Detalle de contratos API fuera del alcance de esta fase."
+    },
+    {
+      "id": "MH20-021",
+      "bloque": "B03",
+      "titulo": "Retransmisión tras rechazo y Código de Generación",
+      "tipo_cambio": "MODIFICADO",
+      "regla_anterior": "Corregir en 24 h; retransmitir con el mismo Código de Generación; vencido el plazo, transmitir con nuevo Código de Generación.",
+      "regla_nueva": "Corregir en 24 h; retransmitir con el mismo Código de Generación salvo que el motivo de rechazo se deba a dicho código; evitar la redundancia de transmisión una vez obtenida respuesta de recepción o rechazo. Se suprime la regla expresa de nuevo código tras vencer el plazo.",
+      "fuente_anterior": {
+        "documento": "Normativa 1.2 (17/11/2025)",
+        "seccion": "Regla 10",
+        "pagina": 15
+      },
+      "fuente_nueva": [
+        {
+          "documento": "Normativa 2.0 (25/05/2026)",
+          "seccion": "Regla 10",
+          "pagina": 21
+        }
+      ],
+      "obligatoriedad": "OBLIGATORIO",
+      "aplicabilidad": "GENERAL",
+      "tipos_dte_afectados": [
+        "FE",
+        "CCFE",
+        "NCE",
+        "FEXE",
+        "FSEE"
+      ],
+      "impacto_potencial_zolvi": "Lógica de reintento/corrección y deduplicación de envíos.",
+      "componentes_potenciales": [
+        "DTE_TRANSMISSION",
+        "DTE_BUILDERS"
+      ],
+      "impacta_onboarding_fiscal": false,
+      "impacta_documentos_historicos": "NO",
+      "prioridad": "P1",
+      "estado_evidencia": "CONFIRMADO",
+      "observaciones": "P1: afecta el ciclo de rechazo/reenvío. Tratamiento tras vencer las 24 h no explícito en 2.0 (ver estado transitorio 9.3)."
+    },
+    {
+      "id": "MH20-022",
+      "bloque": "B03",
+      "titulo": "Custodia de credenciales y pausa preventiva por abusos",
+      "tipo_cambio": "NUEVO",
+      "regla_anterior": "No regulado.",
+      "regla_nueva": "Datos de acceso al Sitio Emisores, credenciales API y claves de firma son exclusivos del sujeto pasivo, quien asume riesgos y sanción por exposición; la AT puede enlistar y pausar preventivamente el acceso a servicios ante abusos.",
+      "fuente_anterior": {
+        "documento": "Normativa 1.2 (17/11/2025)",
+        "seccion": "No existe disposición equivalente",
+        "pagina": null
+      },
+      "fuente_nueva": [
+        {
+          "documento": "Normativa 2.0 (25/05/2026)",
+          "seccion": "Reglas 2.1.2 y 9.2",
+          "pagina": "8, 20"
+        },
+        {
+          "documento": "Normativa 2.0 (25/05/2026)",
+          "seccion": "Anexo I 3.2",
+          "pagina": 42
+        }
+      ],
+      "obligatoriedad": "OBLIGATORIO",
+      "aplicabilidad": "GENERAL",
+      "tipos_dte_afectados": [
+        "FE",
+        "CCFE",
+        "NCE",
+        "FEXE",
+        "FSEE"
+      ],
+      "impacto_potencial_zolvi": "Modelo multi-cliente: custodia aislada de credenciales por emisor; riesgo de pausa por abuso (p. ej., reintentos excesivos).",
+      "componentes_potenciales": [
+        "CONTROL_PLANE",
+        "DTE_SIGNER",
+        "DTE_TRANSMISSION"
+      ],
+      "impacta_onboarding_fiscal": true,
+      "impacta_documentos_historicos": "NO",
+      "prioridad": "P1",
+      "estado_evidencia": "CONFIRMADO",
+      "observaciones": "P1: riesgo operativo (pausa de servicios) y de seguridad."
+    },
+    {
+      "id": "MH20-023",
+      "bloque": "B03",
+      "titulo": "Política de reintentos y reintentos cada 15 minutos",
+      "tipo_cambio": "SIN_CAMBIO",
+      "regla_anterior": "Agotar política de reintentos del Manual Técnico; reintentar como mínimo cada 15 minutos.",
+      "regla_nueva": "Igual; la política se remite a las Guías y Manuales.",
+      "fuente_anterior": {
+        "documento": "Normativa 1.2 (17/11/2025)",
+        "seccion": "Regla 13.1.2",
+        "pagina": 19
+      },
+      "fuente_nueva": [
+        {
+          "documento": "Normativa 2.0 (25/05/2026)",
+          "seccion": "Regla 13.2.1",
+          "pagina": 30
+        },
+        {
+          "documento": "Manual Técnico Integración Tecnológica v2",
+          "seccion": "3.3 Política de Reintentos",
+          "pagina": "14-15"
+        }
+      ],
+      "obligatoriedad": "OBLIGATORIO",
+      "aplicabilidad": "GENERAL",
+      "tipos_dte_afectados": [
+        "FE",
+        "CCFE",
+        "NCE",
+        "FEXE",
+        "FSEE"
+      ],
+      "impacto_potencial_zolvi": "Sin cambio normativo; validar parámetros del Manual Técnico en fase técnica.",
+      "componentes_potenciales": [
+        "DTE_TRANSMISSION"
+      ],
+      "impacta_onboarding_fiscal": false,
+      "impacta_documentos_historicos": "NO",
+      "prioridad": "P3",
+      "estado_evidencia": "CONFIRMADO",
+      "observaciones": "P3: sin cambio normativo."
+    },
+    {
+      "id": "MH20-024",
+      "bloque": "B04",
+      "titulo": "Estructura uniforme del Archivo DTE (firmaElectronica, selloRecibido)",
+      "tipo_cambio": "MODIFICADO",
+      "regla_anterior": "Archivo DTE: texto plano + DTE firmado + Sello de Recepción; ejemplos con atributos 'firma' y 'selloRecepcion'; nombrado con el Código de Generación.",
+      "regla_nueva": "Archivo DTE (JSON) con partes obligatorias: estructura de datos íntegra (identificacion, emisor, receptor, otrosDocumentos, documentoRelacionado, ventaTercero, compraTercero, cuerpoDocumento, resumen, apendice), 'firmaElectronica' y 'selloRecibido'. Archivos que no cumplan no podrán ser confirmados por la AT.",
+      "fuente_anterior": {
+        "documento": "Normativa 1.2 (17/11/2025)",
+        "seccion": "Regla 3 lit. b; Anexo I 1.6, 2.1 y 4",
+        "pagina": "7, 31, 34"
+      },
+      "fuente_nueva": [
+        {
+          "documento": "Normativa 2.0 (25/05/2026)",
+          "seccion": "Anexo I 4 y 4.1, Cuadro 11 (verificado visualmente en Fase 0.1)",
+          "pagina": "42-44"
+        }
+      ],
+      "obligatoriedad": "OBLIGATORIO",
+      "aplicabilidad": "GENERAL",
+      "tipos_dte_afectados": [
+        "FE",
+        "CCFE",
+        "NCE",
+        "FEXE",
+        "FSEE",
+        "Eventos"
+      ],
+      "impacto_potencial_zolvi": "El JSON entregado al receptor debe usar exactamente los nombres de atributo nuevos.",
+      "componentes_potenciales": [
+        "DTE_DELIVERY",
+        "DTE_BUILDERS",
+        "DATABASE"
+      ],
+      "impacta_onboarding_fiscal": false,
+      "impacta_documentos_historicos": "NO_DETERMINADO",
+      "prioridad": "P0",
+      "estado_evidencia": "CONFIRMADO",
+      "observaciones": "P0: incumplimiento crítico de entrega. No determinado si los Archivos DTE históricos deben regenerarse."
+    },
+    {
+      "id": "MH20-025",
+      "bloque": "B04",
+      "titulo": "Nombre de archivos (JSON, evento y representación gráfica)",
+      "tipo_cambio": "MODIFICADO",
+      "regla_anterior": "El Archivo DTE deberá nombrarse con el Código de Generación.",
+      "regla_nueva": "El nombre del Archivo DTE, del archivo del Evento y de la Representación Gráfica digital será el Código de Generación seguido de la extensión (.json, .pdf, .png).",
+      "fuente_anterior": {
+        "documento": "Normativa 1.2 (17/11/2025)",
+        "seccion": "Anexo I 4",
+        "pagina": 34
+      },
+      "fuente_nueva": [
+        {
+          "documento": "Normativa 2.0 (25/05/2026)",
+          "seccion": "Anexo I 1.2",
+          "pagina": 36
+        }
+      ],
+      "obligatoriedad": "OBLIGATORIO",
+      "aplicabilidad": "GENERAL",
+      "tipos_dte_afectados": [
+        "FE",
+        "CCFE",
+        "NCE",
+        "FEXE",
+        "FSEE"
+      ],
+      "impacto_potencial_zolvi": "Convención de nombres de adjuntos (correo/descarga).",
+      "componentes_potenciales": [
+        "DTE_DELIVERY"
+      ],
+      "impacta_onboarding_fiscal": false,
+      "impacta_documentos_historicos": "NO",
+      "prioridad": "P1",
+      "estado_evidencia": "CONFIRMADO",
+      "observaciones": "P1: obligación de entrega."
+    },
+    {
+      "id": "MH20-026",
+      "bloque": "B04",
+      "titulo": "Eliminación de la sección Extensión y nuevo campo Observaciones",
+      "tipo_cambio": "MODIFICADO",
+      "regla_anterior": "Sección 'Extensión' opcional en DTE (nombEntrega, docuEntrega, nombRecibe, docuRecibe, placaVehiculo, observaciones), excepto DCLE.",
+      "regla_nueva": "Se elimina la sección Extensión para FE, CCFE, NRE, NCE, NDE, CRE, CL, FSEE y CDE; se adiciona campo 168 'Observaciones' (resumen.observaciones en schemas). Extensión se mantiene sólo para DCLE.",
+      "fuente_anterior": {
+        "documento": "Normativa 1.2 (17/11/2025)",
+        "seccion": "Anexo I 1.2 (secciones) y 1.5 (ejemplo)",
+        "pagina": "26, 30"
+      },
+      "fuente_nueva": [
+        {
+          "documento": "Normativa 2.0 (25/05/2026)",
+          "seccion": "Anexo VI",
+          "pagina": "136-137"
+        },
+        {
+          "documento": "Normativa 2.0 (25/05/2026)",
+          "seccion": "Anexo I 1.4 lit. M",
+          "pagina": 38
+        },
+        {
+          "documento": "svfe-json-schemas (paquete 2.0)",
+          "seccion": "fe-f-v2, fe-ccf-v4: sin 'extension'",
+          "pagina": null
+        }
+      ],
+      "obligatoriedad": "OBLIGATORIO",
+      "aplicabilidad": "POR_TIPO_DTE",
+      "tipos_dte_afectados": [
+        "FE",
+        "CCFE",
+        "NRE",
+        "NCE",
+        "NDE",
+        "CRE",
+        "CLE",
+        "FSEE",
+        "CDE"
+      ],
+      "impacto_potencial_zolvi": "Enviar 'extension' provocaría rechazo por schema si se valida additionalProperties.",
+      "componentes_potenciales": [
+        "DTE_BUILDERS",
+        "DTE_VALIDATORS",
+        "DTE_DELIVERY"
+      ],
+      "impacta_onboarding_fiscal": false,
+      "impacta_documentos_historicos": "SI",
+      "prioridad": "P0",
+      "estado_evidencia": "CONFIRMADO",
+      "observaciones": "P0: incompatibilidad de esquema. Anexo VI p.137 transcrito por OCR sin curar ('NERE', 'CDF'); confirmado con schemas."
+    },
+    {
+      "id": "MH20-027",
+      "bloque": "B04",
+      "titulo": "Sección Documentos Relacionados: límites y obligatoriedad",
+      "tipo_cambio": "MODIFICADO",
+      "regla_anterior": "Máximo 50 documentos del mismo tipo; obligatoria para NCE/NDE; FE/CCFE podían relacionar NR o DCL sin sello.",
+      "regla_nueva": "Máximo 50 documentos/eventos y 2000 ítems; obligatoria para NCE y NDE con tipo 03-CCF o 07-CR; FE/CCFE pueden relacionar 04-NR, 08-CL o 09-DCL; FEXE 04-NR; NRE 01, 03 u 11.",
+      "fuente_anterior": {
+        "documento": "Normativa 1.2 (17/11/2025)",
+        "seccion": "Anexo II campos 13-15; Anexo IV campos 13-15",
+        "pagina": "39, 86"
+      },
+      "fuente_nueva": [
+        {
+          "documento": "Normativa 2.0 (25/05/2026)",
+          "seccion": "Anexo I 1.4 lit. B",
+          "pagina": 38
+        },
+        {
+          "documento": "Normativa 2.0 (25/05/2026)",
+          "seccion": "Anexo IV campos 14-16",
+          "pagina": 103
+        }
+      ],
+      "obligatoriedad": "OBLIGATORIO",
+      "aplicabilidad": "POR_TIPO_DTE",
+      "tipos_dte_afectados": [
+        "FE",
+        "CCFE",
+        "NCE",
+        "FEXE"
+      ],
+      "impacto_potencial_zolvi": "Reglas de relación para NC y FE/CCF.",
+      "componentes_potenciales": [
+        "DTE_BUILDERS",
+        "DTE_VALIDATORS"
+      ],
+      "impacta_onboarding_fiscal": false,
+      "impacta_documentos_historicos": "NO",
+      "prioridad": "P1",
+      "estado_evidencia": "CONFIRMADO",
+      "observaciones": "P1: reglas de validación de relación documental."
+    },
+    {
+      "id": "MH20-028",
+      "bloque": "B04",
+      "titulo": "Reglas de llenado de campos no utilizados y restricciones de uso",
+      "tipo_cambio": "NO_DETERMINADO",
+      "regla_anterior": "Campos numéricos no usados 0.00; alfanuméricos null; sección completa null. Prohibido: símbolos de moneda, exceder longitud, imágenes, signo negativo (salvo excepciones).",
+      "regla_nueva": "Anexo I 1.5 ya no contiene las reglas genéricas de llenado ni el apartado 1.3.1 de restricciones; las condiciones se expresan campo por campo (p. ej. 'De no existir... $0.00') y en Glosario regla 8.",
+      "fuente_anterior": {
+        "documento": "Normativa 1.2 (17/11/2025)",
+        "seccion": "Anexo I 1.3 y 1.3.1",
+        "pagina": "27-28"
+      },
+      "fuente_nueva": [
+        {
+          "documento": "Normativa 2.0 (25/05/2026)",
+          "seccion": "Anexo I 1.5 y 8",
+          "pagina": "39, 47"
+        }
+      ],
+      "obligatoriedad": "NO_DETERMINADO",
+      "aplicabilidad": "GENERAL",
+      "tipos_dte_afectados": [
+        "FE",
+        "CCFE",
+        "NCE",
+        "FEXE",
+        "FSEE"
+      ],
+      "impacto_potencial_zolvi": "Mantener el comportamiento actual hasta confirmar; no asumir eliminación.",
+      "componentes_potenciales": [
+        "DTE_BUILDERS",
+        "DTE_VALIDATORS"
+      ],
+      "impacta_onboarding_fiscal": false,
+      "impacta_documentos_historicos": "NO",
+      "prioridad": "P2",
+      "estado_evidencia": "REQUIERE_VERIFICACION",
+      "observaciones": "La ausencia de texto no implica eliminación del requisito (criterio de la fase)."
+    },
+    {
+      "id": "MH20-029",
+      "bloque": "B04",
+      "titulo": "Información complementaria en DTE y Eventos",
+      "tipo_cambio": "NUEVO",
+      "regla_anterior": "Apéndice opcional para cualquier otra información.",
+      "regla_nueva": "Se podrá incorporar información complementaria si es compatible con la estructura (cuando afecta totales) o exclusivamente informativa (sin afectar totales); responsabilidad por datos inexactos.",
+      "fuente_anterior": {
+        "documento": "Normativa 1.2 (17/11/2025)",
+        "seccion": "Anexo I 1.2 (Apéndice)",
+        "pagina": 26
+      },
+      "fuente_nueva": [
+        {
+          "documento": "Normativa 2.0 (25/05/2026)",
+          "seccion": "Regla 7.1",
+          "pagina": 15
+        }
+      ],
+      "obligatoriedad": "OPCIONAL",
+      "aplicabilidad": "GENERAL",
+      "tipos_dte_afectados": [
+        "FE",
+        "CCFE",
+        "NCE",
+        "FEXE",
+        "FSEE"
+      ],
+      "impacto_potencial_zolvi": "Sin impacto inmediato.",
+      "componentes_potenciales": [
+        "DTE_BUILDERS"
+      ],
+      "impacta_onboarding_fiscal": false,
+      "impacta_documentos_historicos": "NO",
+      "prioridad": "P3",
+      "estado_evidencia": "CONFIRMADO",
+      "observaciones": "P3: informativo."
+    },
+    {
+      "id": "MH20-030",
+      "bloque": "B04",
+      "titulo": "Columnas de estructura y Glosario de Representación Gráfica",
+      "tipo_cambio": "MODIFICADO",
+      "regla_anterior": "Columna 'Versión legible' con codificación alfabética; columna 'Especificación' y 'Documentos que aplican'.",
+      "regla_nueva": "Columna 'Representación Gráfica' (A: mostrar; B: mostrar cuando la Ley lo exija; C: no obligatorio; D: con guion) y columna 'Documento' con siglas; condición de campo redefinida en regla 8.",
+      "fuente_anterior": {
+        "documento": "Normativa 1.2 (17/11/2025)",
+        "seccion": "Anexo I 1.2",
+        "pagina": "26-27"
+      },
+      "fuente_nueva": [
+        {
+          "documento": "Normativa 2.0 (25/05/2026)",
+          "seccion": "Anexo I 1.4 y regla 8",
+          "pagina": "37-38, 47"
+        }
+      ],
+      "obligatoriedad": "OBLIGATORIO",
+      "aplicabilidad": "GENERAL",
+      "tipos_dte_afectados": [
+        "FE",
+        "CCFE",
+        "NCE",
+        "FEXE",
+        "FSEE"
+      ],
+      "impacto_potencial_zolvi": "Revisar contenido obligatorio de PDF por campo.",
+      "componentes_potenciales": [
+        "DTE_DELIVERY"
+      ],
+      "impacta_onboarding_fiscal": false,
+      "impacta_documentos_historicos": "NO",
+      "prioridad": "P2",
+      "estado_evidencia": "CONFIRMADO",
+      "observaciones": "P2: requiere revisión campo a campo de plantillas en fase posterior."
+    },
+    {
+      "id": "MH20-031",
+      "bloque": "B04",
+      "titulo": "Reglas de redondeo y holgura",
+      "tipo_cambio": "SIN_CAMBIO",
+      "regla_anterior": "8 decimales por ítem, 2 decimales en Resumen; holgura ±0.01.",
+      "regla_nueva": "Igual, extendido a Eventos ('Sección Cuerpo').",
+      "fuente_anterior": {
+        "documento": "Normativa 1.2 (17/11/2025)",
+        "seccion": "Reglas 7.3-7.4",
+        "pagina": "11-12"
+      },
+      "fuente_nueva": [
+        {
+          "documento": "Normativa 2.0 (25/05/2026)",
+          "seccion": "Reglas 7.2-7.3, Cuadros 1-3",
+          "pagina": "16-17"
+        }
+      ],
+      "obligatoriedad": "OBLIGATORIO",
+      "aplicabilidad": "GENERAL",
+      "tipos_dte_afectados": [
+        "FE",
+        "CCFE",
+        "NCE",
+        "FEXE",
+        "FSEE",
+        "Evento de Retorno"
+      ],
+      "impacto_potencial_zolvi": "Aplicar las mismas reglas a montos del Evento de Retorno.",
+      "componentes_potenciales": [
+        "DTE_BUILDERS",
+        "DTE_VALIDATORS"
+      ],
+      "impacta_onboarding_fiscal": false,
+      "impacta_documentos_historicos": "NO",
+      "prioridad": "P3",
+      "estado_evidencia": "CONFIRMADO",
+      "observaciones": "P3: sin cambio para DTE."
+    },
+    {
+      "id": "MH20-032",
+      "bloque": "B05",
+      "titulo": "Factura Electrónica versión 2: cambios estructurales",
+      "tipo_cambio": "MODIFICADO",
+      "regla_anterior": "FE versión 1 con sección Extensión y campo Retención renta en resumen.",
+      "regla_nueva": "FE versión 2: elimina 'Retención renta' y sección Extensión; añade Observaciones; emisor con Dirección Distrito; receptor con distrito condicional. Schema fe-f-v2 (resumen sin reteRenta; con ivaRete, totalIva, observaciones).",
+      "fuente_anterior": {
+        "documento": "Normativa 1.2 (17/11/2025)",
+        "seccion": "Anexo II campo 1; Anexo I 1.5",
+        "pagina": "37, 29-30"
+      },
+      "fuente_nueva": [
+        {
+          "documento": "Normativa 2.0 (25/05/2026)",
+          "seccion": "Anexo VI",
+          "pagina": "136-137"
+        },
+        {
+          "documento": "Normativa 2.0 (25/05/2026)",
+          "seccion": "Anexo II campos 1, 28, 49",
+          "pagina": "48, 52, 55"
+        },
+        {
+          "documento": "svfe-json-schemas (paquete 2.0)",
+          "seccion": "v2/fe-f-v2.json",
+          "pagina": null
+        }
+      ],
+      "obligatoriedad": "OBLIGATORIO",
+      "aplicabilidad": "POR_TIPO_DTE",
+      "tipos_dte_afectados": [
+        "FE"
+      ],
+      "impacto_potencial_zolvi": "Builder/validador de FE requieren migración completa al schema v2.",
+      "componentes_potenciales": [
+        "DTE_BUILDERS",
+        "DTE_VALIDATORS",
+        "SALES",
+        "DTE_DELIVERY"
+      ],
+      "impacta_onboarding_fiscal": true,
+      "impacta_documentos_historicos": "SI",
+      "prioridad": "P0",
+      "estado_evidencia": "CONFIRMADO",
+      "observaciones": "P0: FE es el documento principal de venta a consumidor final; incompatibilidad de esquema impediría emisión."
+    },
+    {
+      "id": "MH20-033",
+      "bloque": "B05",
+      "titulo": "Invalidación de FE sin nombre del receptor",
+      "tipo_cambio": "MODIFICADO",
+      "regla_anterior": "FE bajo umbral sin identificación del receptor; para invalidar se exige nombre y documento de quien solicita y del responsable.",
+      "regla_nueva": "Para FE bajo el monto legal (art. 119-G inc.1 lit. b núm. VII CT) no se exige 'Nombre (Receptor)' para invalidar cuando se omitió; se requiere Nombre, Tipo y Número de documento de quien solicita y de quien realiza el evento.",
+      "fuente_anterior": {
+        "documento": "Normativa 1.2 (17/11/2025)",
+        "seccion": "Regla 13.2.1",
+        "pagina": 20
+      },
+      "fuente_nueva": [
+        {
+          "documento": "Normativa 2.0 (25/05/2026)",
+          "seccion": "Regla 13.1.1.1",
+          "pagina": 29
+        }
+      ],
+      "obligatoriedad": "CONDICIONAL",
+      "aplicabilidad": "POR_TIPO_DTE",
+      "tipos_dte_afectados": [
+        "FE"
+      ],
+      "impacto_potencial_zolvi": "Captura de datos de solicitante/responsable en invalidación de FE.",
+      "componentes_potenciales": [
+        "DTE_EVENTS",
+        "SALES"
+      ],
+      "impacta_onboarding_fiscal": false,
+      "impacta_documentos_historicos": "NO",
+      "prioridad": "P2",
+      "estado_evidencia": "CONFIRMADO",
+      "observaciones": "P2: condicional; ahora se exige expresamente el 'Tipo de documento'."
+    },
+    {
+      "id": "MH20-034",
+      "bloque": "B05",
+      "titulo": "Entrega de DTE no condicionada al pago",
+      "tipo_cambio": "NUEVO",
+      "regla_anterior": "No regulado.",
+      "regla_nueva": "Causado el hecho generador del IVA, la entrega de los DTE no deberá diferirse o retenerse por la falta de pago.",
+      "fuente_anterior": {
+        "documento": "Normativa 1.2 (17/11/2025)",
+        "seccion": "No existe disposición equivalente",
+        "pagina": null
+      },
+      "fuente_nueva": [
+        {
+          "documento": "Normativa 2.0 (25/05/2026)",
+          "seccion": "Regla 11",
+          "pagina": 24
+        }
+      ],
+      "obligatoriedad": "OBLIGATORIO",
+      "aplicabilidad": "GENERAL",
+      "tipos_dte_afectados": [
+        "FE",
+        "CCFE",
+        "NCE",
+        "FEXE",
+        "FSEE"
+      ],
+      "impacto_potencial_zolvi": "Flujos de membresías/cuentas por cobrar no pueden retener la entrega del DTE.",
+      "componentes_potenciales": [
+        "DTE_DELIVERY",
+        "SALES",
+        "CASH"
+      ],
+      "impacta_onboarding_fiscal": false,
+      "impacta_documentos_historicos": "NO",
+      "prioridad": "P1",
+      "estado_evidencia": "CONFIRMADO",
+      "observaciones": "P1: ciclo operativo de ventas a crédito/membresías."
+    },
+    {
+      "id": "MH20-035",
+      "bloque": "B06",
+      "titulo": "Comprobante de Crédito Fiscal versión 4: cambios estructurales",
+      "tipo_cambio": "MODIFICADO",
+      "regla_anterior": "CCFE versión 3 con Extensión y Retención renta.",
+      "regla_nueva": "CCFE versión 4: elimina 'Retención renta' y Extensión; añade Observaciones; distrito emisor obligatorio. Schema fe-ccf-v4 (resumen con ivaPerci, ivaRete, observaciones).",
+      "fuente_anterior": {
+        "documento": "Normativa 1.2 (17/11/2025)",
+        "seccion": "Anexo II campo 1",
+        "pagina": 37
+      },
+      "fuente_nueva": [
+        {
+          "documento": "Normativa 2.0 (25/05/2026)",
+          "seccion": "Anexo II campo 1",
+          "pagina": 48
+        },
+        {
+          "documento": "Normativa 2.0 (25/05/2026)",
+          "seccion": "Anexo VI",
+          "pagina": "136-137"
+        },
+        {
+          "documento": "svfe-json-schemas (paquete 2.0)",
+          "seccion": "v4/fe-ccf-v4.json",
+          "pagina": null
+        }
+      ],
+      "obligatoriedad": "OBLIGATORIO",
+      "aplicabilidad": "POR_TIPO_DTE",
+      "tipos_dte_afectados": [
+        "CCFE"
+      ],
+      "impacto_potencial_zolvi": "Migración del builder CCF a v4.",
+      "componentes_potenciales": [
+        "DTE_BUILDERS",
+        "DTE_VALIDATORS",
+        "SALES"
+      ],
+      "impacta_onboarding_fiscal": true,
+      "impacta_documentos_historicos": "SI",
+      "prioridad": "P0",
+      "estado_evidencia": "CONFIRMADO",
+      "observaciones": "P0: rechazo por versión/esquema."
+    },
+    {
+      "id": "MH20-036",
+      "bloque": "B06",
+      "titulo": "Ajustes a CCFE mediante NC/ND y no por invalidación",
+      "tipo_cambio": "SIN_CAMBIO",
+      "regla_anterior": "Si no es corrección de errores, CCF y CR con sello deben modificarse mediante NC o ND.",
+      "regla_nueva": "Igual; se precisa que 'error' son omisiones/inexactitudes y 'afectación' modificación de características económicas (incluida devolución parcial).",
+      "fuente_anterior": {
+        "documento": "Normativa 1.2 (17/11/2025)",
+        "seccion": "Regla 13.2.2",
+        "pagina": 20
+      },
+      "fuente_nueva": [
+        {
+          "documento": "Normativa 2.0 (25/05/2026)",
+          "seccion": "Regla 13.1.1.2",
+          "pagina": 29
+        }
+      ],
+      "obligatoriedad": "OBLIGATORIO",
+      "aplicabilidad": "POR_TIPO_DTE",
+      "tipos_dte_afectados": [
+        "CCFE",
+        "NCE"
+      ],
+      "impacto_potencial_zolvi": "Reglas de negocio para devoluciones en CCF.",
+      "componentes_potenciales": [
+        "SALES",
+        "DTE_EVENTS"
+      ],
+      "impacta_onboarding_fiscal": false,
+      "impacta_documentos_historicos": "NO",
+      "prioridad": "P3",
+      "estado_evidencia": "CONFIRMADO",
+      "observaciones": "P3: precisión conceptual sin cambio funcional identificado."
+    },
+    {
+      "id": "MH20-037",
+      "bloque": "B07",
+      "titulo": "Nota de Crédito versión 4: nuevos campos y eliminaciones",
+      "tipo_cambio": "MODIFICADO",
+      "regla_anterior": "NCE versión 3 con NIT receptor, descuentos globales, porcentaje de descuento, subtotal, ivaPerci1/ivaRete1, retención renta.",
+      "regla_nueva": "NCE versión 4: se adicionan campos 98 Cargos/Abonos que no afectan la base imponible, 99 IVA percibido, 100 IVA 13%, 101 IVA retenido (por ítem), 143 Total IVA percibido, 144 Código retención MH, 145 Total IVA retenido, 146 Total IVA 13%, 151 Total cargos/abonos, 153 Total a pagar; se eliminan NIT (Receptor), descuentos globales, porcentaje de descuento, Sub Total, 'IVA percibido' e 'IVA retenido' (anteriores) y Retención renta; se elimina Extensión.",
+      "fuente_anterior": {
+        "documento": "Normativa 1.2 (17/11/2025)",
+        "seccion": "Anexo II (estructura NCE v3)",
+        "pagina": "37-78"
+      },
+      "fuente_nueva": [
+        {
+          "documento": "Normativa 2.0 (25/05/2026)",
+          "seccion": "Anexo VI",
+          "pagina": "136-137"
+        },
+        {
+          "documento": "Normativa 2.0 (25/05/2026)",
+          "seccion": "Anexo II campos 98-101, 143-153",
+          "pagina": "68, 75-77"
+        },
+        {
+          "documento": "svfe-json-schemas (paquete 2.0)",
+          "seccion": "v4/fe-nc-v4.json",
+          "pagina": null
+        },
+        {
+          "documento": "Manual Funcional Sistema de Transmisión v2.0 (05/2026)",
+          "seccion": "Control de cambios 2.0",
+          "pagina": 2
+        }
+      ],
+      "obligatoriedad": "OBLIGATORIO",
+      "aplicabilidad": "POR_TIPO_DTE",
+      "tipos_dte_afectados": [
+        "NCE"
+      ],
+      "impacto_potencial_zolvi": "Rediseño del cálculo de NC (IVA por ítem y totales).",
+      "componentes_potenciales": [
+        "DTE_BUILDERS",
+        "DTE_VALIDATORS",
+        "SALES",
+        "REPORTS"
+      ],
+      "impacta_onboarding_fiscal": true,
+      "impacta_documentos_historicos": "SI",
+      "prioridad": "P0",
+      "estado_evidencia": "CONFIRMADO",
+      "observaciones": "P0: incompatibilidad de esquema y cálculo. Detalle campo a campo pendiente de fase técnica."
+    },
+    {
+      "id": "MH20-038",
+      "bloque": "B07",
+      "titulo": "NC: documento relacionado obligatorio (CCF o CR)",
+      "tipo_cambio": "MODIFICADO",
+      "regla_anterior": "NCE debía relacionar documentos (obligatorio), del mismo tipo.",
+      "regla_nueva": "Documentos Relacionados obligatoria para NCE/NDE con código 03-CCF o 07-CR; no se pueden relacionar documentos invalidados o rechazados.",
+      "fuente_anterior": {
+        "documento": "Normativa 1.2 (17/11/2025)",
+        "seccion": "Anexo IV campos 13-15",
+        "pagina": 86
+      },
+      "fuente_nueva": [
+        {
+          "documento": "Normativa 2.0 (25/05/2026)",
+          "seccion": "Anexo IV campos 14-16",
+          "pagina": 103
+        }
+      ],
+      "obligatoriedad": "OBLIGATORIO",
+      "aplicabilidad": "POR_TIPO_DTE",
+      "tipos_dte_afectados": [
+        "NCE"
+      ],
+      "impacto_potencial_zolvi": "Validación de documentos relacionados en NC.",
+      "componentes_potenciales": [
+        "DTE_VALIDATORS",
+        "SALES"
+      ],
+      "impacta_onboarding_fiscal": false,
+      "impacta_documentos_historicos": "NO",
+      "prioridad": "P1",
+      "estado_evidencia": "CONFIRMADO",
+      "observaciones": "Relación con CR (07) es nueva respecto a lo localizado en 1.2."
+    },
+    {
+      "id": "MH20-039",
+      "bloque": "B07",
+      "titulo": "Invalidación de NC sin documento sustituto",
+      "tipo_cambio": "SIN_CAMBIO",
+      "regla_anterior": "Excepto NC y CL, cuando el motivo no es rescisión total debe transmitirse antes el nuevo documento.",
+      "regla_nueva": "Igual; se exige que el nuevo documento lleve nuevo Código de Generación y Número de Control; 'Código de generación que reemplaza' null para 05, 08, 16, 17 y 18.",
+      "fuente_anterior": {
+        "documento": "Normativa 1.2 (17/11/2025)",
+        "seccion": "Regla 13.2; Anexo V campo 36",
+        "pagina": "20, 111"
+      },
+      "fuente_nueva": [
+        {
+          "documento": "Normativa 2.0 (25/05/2026)",
+          "seccion": "Regla 13.1.1; Anexo V campo 48",
+          "pagina": "28, 127"
+        }
+      ],
+      "obligatoriedad": "OBLIGATORIO",
+      "aplicabilidad": "POR_TIPO_DTE",
+      "tipos_dte_afectados": [
+        "NCE"
+      ],
+      "impacto_potencial_zolvi": "Sin cambio material para NC.",
+      "componentes_potenciales": [
+        "DTE_EVENTS"
+      ],
+      "impacta_onboarding_fiscal": false,
+      "impacta_documentos_historicos": "NO",
+      "prioridad": "P3",
+      "estado_evidencia": "CONFIRMADO",
+      "observaciones": "P3."
+    },
+    {
+      "id": "MH20-040",
+      "bloque": "B08",
+      "titulo": "Factura de Exportación: versión y nuevos campos",
+      "tipo_cambio": "MODIFICADO",
+      "regla_anterior": "FEXE versiones 1/2; Sección 7 Compra por cuenta de terceros (campos 72-73) adicionada en v1.2.",
+      "regla_nueva": "FEXE: versión 3 (Anexo IV, schema fe-fex-v3) / 2 (Anexo II); se adicionan para FEXE campo 36 Tipo de Régimen, 75 Tipo de ítem, 80 Número de documento relacionado, 84 Tributo sujeto a cálculo de IVA, 96 Código del Tributo, 136-138 tributos en resumen, 152 Total de exportaciones que no representan ventas; tributos FOVIAL/COTRANS admitidos; sección Compra por cuenta de terceros.",
+      "fuente_anterior": {
+        "documento": "Normativa 1.2 (17/11/2025)",
+        "seccion": "Anexo II campo 1; Anexo VI 1.2",
+        "pagina": "37, 2"
+      },
+      "fuente_nueva": [
+        {
+          "documento": "Normativa 2.0 (25/05/2026)",
+          "seccion": "Anexo VI",
+          "pagina": "136-137"
+        },
+        {
+          "documento": "Normativa 2.0 (25/05/2026)",
+          "seccion": "Anexo IV campo 1",
+          "pagina": 102
+        },
+        {
+          "documento": "svfe-json-schemas (paquete 2.0)",
+          "seccion": "v3/fe-fex-v3.json",
+          "pagina": null
+        }
+      ],
+      "obligatoriedad": "OBLIGATORIO",
+      "aplicabilidad": "POR_TIPO_DTE",
+      "tipos_dte_afectados": [
+        "FEXE"
+      ],
+      "impacto_potencial_zolvi": "Migración del builder FEX a v3 con campos aduaneros y tributos.",
+      "componentes_potenciales": [
+        "DTE_BUILDERS",
+        "DTE_VALIDATORS",
+        "FISCAL_CATALOGS"
+      ],
+      "impacta_onboarding_fiscal": true,
+      "impacta_documentos_historicos": "SI",
+      "prioridad": "P0",
+      "estado_evidencia": "REQUIERE_VERIFICACION",
+      "observaciones": "INC-003 (versión) e INC-002 (modoTransp). Agrupación de campos del Anexo VI ambigua (qué campos aplican sólo a FEXE)."
+    },
+    {
+      "id": "MH20-041",
+      "bloque": "B08",
+      "titulo": "Transporte: longitud de modoTransp",
+      "tipo_cambio": "NO_DETERMINADO",
+      "regla_anterior": "No comparado en detalle.",
+      "regla_nueva": "Normativa indica longitud 11; schema fe-fex-v3 define entero 1-7.",
+      "fuente_anterior": {
+        "documento": "Normativa 1.2 (17/11/2025)",
+        "seccion": "No comparado",
+        "pagina": null
+      },
+      "fuente_nueva": [
+        {
+          "documento": "Normativa 2.0 (25/05/2026)",
+          "seccion": "Anexo II, otrosDocumentos.modoTransp",
+          "pagina": 59
+        },
+        {
+          "documento": "svfe-json-schemas (paquete 2.0)",
+          "seccion": "v3/fe-fex-v3.json",
+          "pagina": null
+        }
+      ],
+      "obligatoriedad": "CONDICIONAL",
+      "aplicabilidad": "POR_TIPO_DTE",
+      "tipos_dte_afectados": [
+        "FEXE"
+      ],
+      "impacto_potencial_zolvi": "Validación local debe seguir el schema hasta resolución oficial.",
+      "componentes_potenciales": [
+        "DTE_VALIDATORS"
+      ],
+      "impacta_onboarding_fiscal": false,
+      "impacta_documentos_historicos": "NO",
+      "prioridad": "P2",
+      "estado_evidencia": "REQUIERE_VERIFICACION",
+      "observaciones": "INC-002 (Fase 0.1)."
+    },
+    {
+      "id": "MH20-042",
+      "bloque": "B09",
+      "titulo": "Factura de Sujeto Excluido versión 2: eliminación de IVA retenido",
+      "tipo_cambio": "MODIFICADO",
+      "regla_anterior": "FSEE versión 1 con IVA Retenido, Retención renta y Extensión.",
+      "regla_nueva": "FSEE versión 2: se elimina 'IVA Retenido'; se mantiene 'Retención renta' (sólo para FSEE en resumen); se elimina Extensión; emisor con distrito. Schema fe-fse-v2 (resumen: totalCompra, descu, totalDescu, subTotal, reteRenta, totalPagar, observaciones).",
+      "fuente_anterior": {
+        "documento": "Normativa 1.2 (17/11/2025)",
+        "seccion": "Anexo II campo 1",
+        "pagina": 37
+      },
+      "fuente_nueva": [
+        {
+          "documento": "Normativa 2.0 (25/05/2026)",
+          "seccion": "Anexo VI",
+          "pagina": "136-137"
+        },
+        {
+          "documento": "Normativa 2.0 (25/05/2026)",
+          "seccion": "Anexo II campo 147",
+          "pagina": 75
+        },
+        {
+          "documento": "svfe-json-schemas (paquete 2.0)",
+          "seccion": "v2/fe-fse-v2.json",
+          "pagina": null
+        }
+      ],
+      "obligatoriedad": "OBLIGATORIO",
+      "aplicabilidad": "POR_TIPO_DTE",
+      "tipos_dte_afectados": [
+        "FSEE"
+      ],
+      "impacto_potencial_zolvi": "Migración del builder de compras a sujeto excluido.",
+      "componentes_potenciales": [
+        "DTE_BUILDERS",
+        "DTE_VALIDATORS",
+        "PURCHASES"
+      ],
+      "impacta_onboarding_fiscal": true,
+      "impacta_documentos_historicos": "SI",
+      "prioridad": "P0",
+      "estado_evidencia": "CONFIRMADO",
+      "observaciones": "P0: incompatibilidad de esquema."
+    },
+    {
+      "id": "MH20-043",
+      "bloque": "B09",
+      "titulo": "Plazo de invalidación de FSEE",
+      "tipo_cambio": "MODIFICADO",
+      "regla_anterior": "FSEE en el grupo de errores (1 día siguiente al sello) y rescisión total (1 día siguiente).",
+      "regla_nueva": "FSEE en el grupo de FE/FEXE: rescisión total o afectación, dentro de tres meses desde el sello del documento a invalidar.",
+      "fuente_anterior": {
+        "documento": "Normativa 1.2 (17/11/2025)",
+        "seccion": "Cuadro 2 filas 1-2 (verificado visualmente)",
+        "pagina": 19
+      },
+      "fuente_nueva": [
+        {
+          "documento": "Normativa 2.0 (25/05/2026)",
+          "seccion": "Cuadro 6 fila 2 (verificado visualmente)",
+          "pagina": 28
+        },
+        {
+          "documento": "Normativa 2.0 (25/05/2026)",
+          "seccion": "Anexo V campo 47 núm. 5",
+          "pagina": 127
+        }
+      ],
+      "obligatoriedad": "OBLIGATORIO",
+      "aplicabilidad": "POR_TIPO_DTE",
+      "tipos_dte_afectados": [
+        "FSEE"
+      ],
+      "impacto_potencial_zolvi": "Ampliación de ventana de invalidación de compras a sujeto excluido.",
+      "componentes_potenciales": [
+        "DTE_EVENTS",
+        "PURCHASES"
+      ],
+      "impacta_onboarding_fiscal": false,
+      "impacta_documentos_historicos": "SI",
+      "prioridad": "P1",
+      "estado_evidencia": "CONFIRMADO",
+      "observaciones": "P1: ciclo de eventos."
+    },
+    {
+      "id": "MH20-044",
+      "bloque": "B10",
+      "titulo": "Plazos de transmisión del Evento de Invalidación por tipo de documento",
+      "tipo_cambio": "MODIFICADO",
+      "regla_anterior": "Errores (todos): 1 día siguiente al sello; rescisión total CCFE, NRE, NCE, NDE, CLE, CRE, DCLE, FSEE, CDE: 1 día siguiente; FE y FEXE (rescisión/afectación): 3 meses desde el sello.",
+      "regla_nueva": "Cuadro 6: CCFE, NRE, NCE, NDE, CLE, CRE, DCLE y CDE (errores o rescisión total): hasta los 10 primeros días hábiles del mes siguiente al período en que obtuvo el sello; FE, FEXE, FSEE: 3 meses; Eventos de Retorno/OE: 10 primeros días hábiles del mes siguiente. Anexo V campo 47: CCFE, CRE, NCE, NDE: 1 día; CLE, DCLE: 10 días hábiles del mes siguiente; NRE, CDE, Retorno, OE: 4 días calendario; FE, FEXE, FSEE: 3 meses.",
+      "fuente_anterior": {
+        "documento": "Normativa 1.2 (17/11/2025)",
+        "seccion": "Cuadro 2 (verificado visualmente)",
+        "pagina": 19
+      },
+      "fuente_nueva": [
+        {
+          "documento": "Normativa 2.0 (25/05/2026)",
+          "seccion": "Cuadro 6 (verificado visualmente)",
+          "pagina": 28
+        },
+        {
+          "documento": "Normativa 2.0 (25/05/2026)",
+          "seccion": "Anexo V campo 47 (verificado visualmente)",
+          "pagina": 127
+        },
+        {
+          "documento": "Normativa 2.0 (25/05/2026)",
+          "seccion": "Anexo V campo 9 núm. 8",
+          "pagina": 124
+        },
+        {
+          "documento": "Manual Funcional Sistema de Transmisión v2.0 (05/2026)",
+          "seccion": "VII Evento de Invalidación",
+          "pagina": "14-20"
+        }
+      ],
+      "obligatoriedad": "OBLIGATORIO",
+      "aplicabilidad": "GENERAL",
+      "tipos_dte_afectados": [
+        "FE",
+        "CCFE",
+        "NCE",
+        "FEXE",
+        "FSEE",
+        "NRE",
+        "NDE",
+        "CRE",
+        "CLE",
+        "DCLE",
+        "CDE"
+      ],
+      "impacto_potencial_zolvi": "Las ventanas de invalidación permitidas por la UI/servicios deben reconfigurarse; contradicción oficial impide fijar el valor para CCFE/NCE.",
+      "componentes_potenciales": [
+        "DTE_EVENTS",
+        "DTE_VALIDATORS",
+        "SALES"
+      ],
+      "impacta_onboarding_fiscal": false,
+      "impacta_documentos_historicos": "SI",
+      "prioridad": "P0",
+      "estado_evidencia": "REQUIERE_VERIFICACION",
+      "observaciones": "INC-004. P0: un plazo erróneo causa rechazo del evento o invalidación extemporánea. No resolver arbitrariamente; aplicar el más restrictivo sólo como medida provisional si se decide en fase de diseño."
+    },
+    {
+      "id": "MH20-045",
+      "bloque": "B10",
+      "titulo": "Invalidación de FE/FEXE de medicamentos perecederos (2 años)",
+      "tipo_cambio": "NUEVO",
+      "regla_anterior": "No existía.",
+      "regla_nueva": "FE y FEXE por rescisión/afectación de venta de medicamentos y especialidades farmacéuticas perecederos: dentro de dos años desde el sello; Anexo V lo condiciona a códigos de actividad 21001, 21008, 46482, 46484, 46491 o 47721.",
+      "fuente_anterior": {
+        "documento": "Normativa 1.2 (17/11/2025)",
+        "seccion": "No existe disposición equivalente",
+        "pagina": null
+      },
+      "fuente_nueva": [
+        {
+          "documento": "Normativa 2.0 (25/05/2026)",
+          "seccion": "Cuadro 6 fila 3",
+          "pagina": 28
+        },
+        {
+          "documento": "Normativa 2.0 (25/05/2026)",
+          "seccion": "Anexo V campo 9 núm. 7",
+          "pagina": 124
+        }
+      ],
+      "obligatoriedad": "CONDICIONAL",
+      "aplicabilidad": "POR_TIPO_DTE",
+      "tipos_dte_afectados": [
+        "FE",
+        "FEXE"
+      ],
+      "impacto_potencial_zolvi": "Sólo para emisores con esas actividades económicas.",
+      "componentes_potenciales": [
+        "DTE_EVENTS",
+        "DTE_VALIDATORS"
+      ],
+      "impacta_onboarding_fiscal": false,
+      "impacta_documentos_historicos": "SI",
+      "prioridad": "P2",
+      "estado_evidencia": "CONFIRMADO",
+      "observaciones": "P2: condicionado a actividad económica."
+    },
+    {
+      "id": "MH20-046",
+      "bloque": "B10",
+      "titulo": "Invalidación de Eventos de Retorno y Operaciones Especiales",
+      "tipo_cambio": "NUEVO",
+      "regla_anterior": "Sólo DTE invalidables.",
+      "regla_nueva": "Los Eventos de Retorno y OE pueden invalidarse por errores en su contenido, con Sello previo; Tipo DTE 16/17/18 sin Número de Control; FE/FEXE/FSEE con Retorno aplicado: invalidar primero el Retorno.",
+      "fuente_anterior": {
+        "documento": "Normativa 1.2 (17/11/2025)",
+        "seccion": "No existe disposición equivalente",
+        "pagina": null
+      },
+      "fuente_nueva": [
+        {
+          "documento": "Normativa 2.0 (25/05/2026)",
+          "seccion": "Cuadro 6 fila 4; regla 13.3.2.2",
+          "pagina": "28, 32"
+        },
+        {
+          "documento": "Normativa 2.0 (25/05/2026)",
+          "seccion": "Anexo V campos 44 y 46",
+          "pagina": 127
+        }
+      ],
+      "obligatoriedad": "CONDICIONAL",
+      "aplicabilidad": "GENERAL",
+      "tipos_dte_afectados": [
+        "FE",
+        "FEXE",
+        "FSEE"
+      ],
+      "impacto_potencial_zolvi": "Cadena de invalidación Retorno → DTE origen.",
+      "componentes_potenciales": [
+        "DTE_EVENTS"
+      ],
+      "impacta_onboarding_fiscal": false,
+      "impacta_documentos_historicos": "NO",
+      "prioridad": "P1",
+      "estado_evidencia": "REQUIERE_VERIFICACION",
+      "observaciones": "Plazo contradictorio (INC-004); condición del Cuadro 6 fila 4 sólo menciona Retorno (INC-008). Código 16 sin definición localizada en esta fase."
+    },
+    {
+      "id": "MH20-047",
+      "bloque": "B10",
+      "titulo": "Fecha del Evento de Invalidación",
+      "tipo_cambio": "MODIFICADO",
+      "regla_anterior": "Formato YYYY-MM-DD; no se aceptan fechas anteriores a la transmisión del evento.",
+      "regla_nueva": "Regla 13.1.1: dentro del plazo desde el mismo día hasta el día posterior respecto de la Fecha de Generación del documento invalidado (salvo FE/FEXE/FSEE, regla 13.1.1.1). Anexo V: para DTE distintos de FE/FEXE/FSEE o eventos, misma fecha que la Fecha de Generación/Evento.",
+      "fuente_anterior": {
+        "documento": "Normativa 1.2 (17/11/2025)",
+        "seccion": "Anexo V campo 4",
+        "pagina": 108
+      },
+      "fuente_nueva": [
+        {
+          "documento": "Normativa 2.0 (25/05/2026)",
+          "seccion": "Regla 13.1.1 (verificado visualmente)",
+          "pagina": 28
+        },
+        {
+          "documento": "Normativa 2.0 (25/05/2026)",
+          "seccion": "Regla 13.1.1.1",
+          "pagina": 29
+        },
+        {
+          "documento": "Normativa 2.0 (25/05/2026)",
+          "seccion": "Anexo V campo 9",
+          "pagina": 123
+        }
+      ],
+      "obligatoriedad": "OBLIGATORIO",
+      "aplicabilidad": "GENERAL",
+      "tipos_dte_afectados": [
+        "FE",
+        "CCFE",
+        "NCE",
+        "FEXE",
+        "FSEE"
+      ],
+      "impacto_potencial_zolvi": "Cambio de semántica: fecha del evento referida a la fecha de generación del documento.",
+      "componentes_potenciales": [
+        "DTE_EVENTS",
+        "DTE_VALIDATORS"
+      ],
+      "impacta_onboarding_fiscal": false,
+      "impacta_documentos_historicos": "SI",
+      "prioridad": "P1",
+      "estado_evidencia": "REQUIERE_VERIFICACION",
+      "observaciones": "INC-006."
+    },
+    {
+      "id": "MH20-048",
+      "bloque": "B10",
+      "titulo": "Documento sustituto y tipos de invalidación",
+      "tipo_cambio": "MODIFICADO",
+      "regla_anterior": "Nuevo documento previo (excepto NC y CL) cuando el motivo no es rescisión; código del reemplazo requerido con tipo 1 o 3; null para 05 y 08.",
+      "regla_nueva": "Igual, con nuevo Código de Generación y Número de Control obligatorio; null también para 16, 17 y 18; excepción de 'regla 3'.",
+      "fuente_anterior": {
+        "documento": "Normativa 1.2 (17/11/2025)",
+        "seccion": "Regla 13.2; Anexo V campo 36",
+        "pagina": "20, 111"
+      },
+      "fuente_nueva": [
+        {
+          "documento": "Normativa 2.0 (25/05/2026)",
+          "seccion": "Regla 13.1.1; Anexo V campo 48",
+          "pagina": "28-29, 127"
+        }
+      ],
+      "obligatoriedad": "OBLIGATORIO",
+      "aplicabilidad": "GENERAL",
+      "tipos_dte_afectados": [
+        "FE",
+        "CCFE",
+        "NCE",
+        "FEXE",
+        "FSEE"
+      ],
+      "impacto_potencial_zolvi": "Flujo de sustitución previo a invalidar.",
+      "componentes_potenciales": [
+        "DTE_EVENTS",
+        "DTE_BUILDERS"
+      ],
+      "impacta_onboarding_fiscal": false,
+      "impacta_documentos_historicos": "NO",
+      "prioridad": "P1",
+      "estado_evidencia": "CONFIRMADO",
+      "observaciones": "'Regla 3' referida en Anexo V campo 48 núm. 1 no identificada con certeza (REQUIERE revisión en fase técnica)."
+    },
+    {
+      "id": "MH20-049",
+      "bloque": "B10",
+      "titulo": "Orden de invalidación: ajustes y retornos",
+      "tipo_cambio": "MODIFICADO",
+      "regla_anterior": "CCFE/CRE ajustados con NCE/NDE: invalidar primero NC/ND.",
+      "regla_nueva": "Se mantiene y se agrega: FE, FEXE o FSEE con Evento de Retorno aplicado deben invalidar primero el Retorno.",
+      "fuente_anterior": {
+        "documento": "Normativa 1.2 (17/11/2025)",
+        "seccion": "Anexo V campo 31 núm. 3",
+        "pagina": 110
+      },
+      "fuente_nueva": [
+        {
+          "documento": "Normativa 2.0 (25/05/2026)",
+          "seccion": "Anexo V campo 44 núm. 3-4",
+          "pagina": 127
+        }
+      ],
+      "obligatoriedad": "OBLIGATORIO",
+      "aplicabilidad": "GENERAL",
+      "tipos_dte_afectados": [
+        "FE",
+        "CCFE",
+        "NCE",
+        "FEXE",
+        "FSEE"
+      ],
+      "impacto_potencial_zolvi": "Dependencias para invalidación.",
+      "componentes_potenciales": [
+        "DTE_EVENTS"
+      ],
+      "impacta_onboarding_fiscal": false,
+      "impacta_documentos_historicos": "NO",
+      "prioridad": "P1",
+      "estado_evidencia": "CONFIRMADO",
+      "observaciones": "P1."
+    },
+    {
+      "id": "MH20-050",
+      "bloque": "B10",
+      "titulo": "Efectos y declaración de la invalidación",
+      "tipo_cambio": "MODIFICADO",
+      "regla_anterior": "Si el sello del evento se obtiene en el mismo período no modifica la declaración; si es posterior, se refleja en el período del sello del evento.",
+      "regla_nueva": "La invalidación extingue (no ajusta) el débito/crédito; se declara en el período según la 'Fecha del Evento', independientemente de la fecha del sello; la Fecha del Evento no debe exceder los plazos del art. 62 LIVA y 111 CT.",
+      "fuente_anterior": {
+        "documento": "Normativa 1.2 (17/11/2025)",
+        "seccion": "Regla 13.3",
+        "pagina": "20-21"
+      },
+      "fuente_nueva": [
+        {
+          "documento": "Normativa 2.0 (25/05/2026)",
+          "seccion": "Regla 13.1.2",
+          "pagina": "29-30"
+        }
+      ],
+      "obligatoriedad": "OBLIGATORIO",
+      "aplicabilidad": "GENERAL",
+      "tipos_dte_afectados": [
+        "FE",
+        "CCFE",
+        "NCE",
+        "FEXE",
+        "FSEE"
+      ],
+      "impacto_potencial_zolvi": "Reportes de IVA deben ubicar invalidaciones por Fecha del Evento.",
+      "componentes_potenciales": [
+        "REPORTS",
+        "DTE_EVENTS"
+      ],
+      "impacta_onboarding_fiscal": false,
+      "impacta_documentos_historicos": "SI",
+      "prioridad": "P1",
+      "estado_evidencia": "CONFIRMADO",
+      "observaciones": "P1: reportes fiscales."
+    },
+    {
+      "id": "MH20-051",
+      "bloque": "B10",
+      "titulo": "Entrega del Evento de Invalidación al receptor",
+      "tipo_cambio": "NUEVO",
+      "regla_anterior": "La invalidación dejaba sin valor la versión legible entregada; no se exigía entregar el evento.",
+      "regla_nueva": "El emisor deberá entregar el Evento de Invalidación junto con su Representación Gráfica al receptor (Archivo DTE del evento).",
+      "fuente_anterior": {
+        "documento": "Normativa 1.2 (17/11/2025)",
+        "seccion": "Regla 10.1 (Invalidado)",
+        "pagina": 16
+      },
+      "fuente_nueva": [
+        {
+          "documento": "Normativa 2.0 (25/05/2026)",
+          "seccion": "Reglas 6 (final) y 11",
+          "pagina": "14, 23"
+        }
+      ],
+      "obligatoriedad": "OBLIGATORIO",
+      "aplicabilidad": "GENERAL",
+      "tipos_dte_afectados": [
+        "FE",
+        "CCFE",
+        "NCE",
+        "FEXE",
+        "FSEE"
+      ],
+      "impacto_potencial_zolvi": "Nueva representación gráfica y entrega de eventos.",
+      "componentes_potenciales": [
+        "DTE_DELIVERY",
+        "DTE_EVENTS"
+      ],
+      "impacta_onboarding_fiscal": false,
+      "impacta_documentos_historicos": "NO",
+      "prioridad": "P1",
+      "estado_evidencia": "CONFIRMADO",
+      "observaciones": "P1: obligación de entrega."
+    },
+    {
+      "id": "MH20-052",
+      "bloque": "B10",
+      "titulo": "Estructura del Evento de Invalidación (versión 3)",
+      "tipo_cambio": "MODIFICADO",
+      "regla_anterior": "Versión 2; campos tipo de establecimiento, nombre de establecimiento y Monto Total de la Operación (requerido para FE, CCFE, FEXE).",
+      "regla_nueva": "Versión 3 (schema invalidacion-schema-v3); se eliminan Tipo de establecimiento, Nombre de casa matriz/sucursal y Monto Total de la Operación; se actualizan validaciones de Fecha del evento, Tipo de DTE, Fecha de Generación y Tipo de Invalidación; códigos MH de establecimiento requeridos.",
+      "fuente_anterior": {
+        "documento": "Normativa 1.2 (17/11/2025)",
+        "seccion": "Anexo V campos 1, 13-18, 35",
+        "pagina": "108-110"
+      },
+      "fuente_nueva": [
+        {
+          "documento": "Normativa 2.0 (25/05/2026)",
+          "seccion": "Anexo V campo 1",
+          "pagina": 123
+        },
+        {
+          "documento": "Normativa 2.0 (25/05/2026)",
+          "seccion": "Anexo VI",
+          "pagina": 137
+        },
+        {
+          "documento": "svfe-json-schemas (paquete 2.0)",
+          "seccion": "v3/invalidacion-schema-v3.json",
+          "pagina": null
+        }
+      ],
+      "obligatoriedad": "OBLIGATORIO",
+      "aplicabilidad": "GENERAL",
+      "tipos_dte_afectados": [
+        "FE",
+        "CCFE",
+        "NCE",
+        "FEXE",
+        "FSEE"
+      ],
+      "impacto_potencial_zolvi": "Migración del builder de invalidación.",
+      "componentes_potenciales": [
+        "DTE_EVENTS",
+        "DTE_BUILDERS",
+        "DTE_VALIDATORS"
+      ],
+      "impacta_onboarding_fiscal": true,
+      "impacta_documentos_historicos": "SI",
+      "prioridad": "P0",
+      "estado_evidencia": "CONFIRMADO",
+      "observaciones": "P0: incompatibilidad de esquema. Anexo VI p.137 OCR sin curar."
+    },
+    {
+      "id": "MH20-053",
+      "bloque": "B11",
+      "titulo": "Ámbito y plazos del Evento de Contingencia",
+      "tipo_cambio": "MODIFICADO",
+      "regla_anterior": "CCFE, FE, FEXE, NRE, NCE, NDE y FSEE; evento dentro de 24 h desde el cese; documentos dentro de 72 h desde el sello del evento.",
+      "regla_nueva": "CCFE, NCE, NDE, CRE, NRE, FE, FEXE, FSEE y Evento de Retorno; mismos plazos; contingencia para uno o varios DTE/Eventos; la entrega en transitorio no exime de transmitir.",
+      "fuente_anterior": {
+        "documento": "Normativa 1.2 (17/11/2025)",
+        "seccion": "Cuadro 3 y regla 13.4",
+        "pagina": "19, 21"
+      },
+      "fuente_nueva": [
+        {
+          "documento": "Normativa 2.0 (25/05/2026)",
+          "seccion": "Cuadro 7, reglas 13.2.1 y 13.2.2",
+          "pagina": "30-31"
+        },
+        {
+          "documento": "Normativa 2.0 (25/05/2026)",
+          "seccion": "Anexo V campo 35",
+          "pagina": 126
+        }
+      ],
+      "obligatoriedad": "CONDICIONAL",
+      "aplicabilidad": "GENERAL",
+      "tipos_dte_afectados": [
+        "FE",
+        "CCFE",
+        "NCE",
+        "FEXE",
+        "FSEE"
+      ],
+      "impacto_potencial_zolvi": "El evento debe poder listar Eventos de Retorno en contingencia (tipo 18).",
+      "componentes_potenciales": [
+        "DTE_EVENTS",
+        "DTE_TRANSMISSION"
+      ],
+      "impacta_onboarding_fiscal": false,
+      "impacta_documentos_historicos": "NO",
+      "prioridad": "P1",
+      "estado_evidencia": "CONFIRMADO",
+      "observaciones": "P1: ciclo de contingencia."
+    },
+    {
+      "id": "MH20-054",
+      "bloque": "B11",
+      "titulo": "Informe Técnico de Contingencia",
+      "tipo_cambio": "MODIFICADO",
+      "regla_anterior": "Si persiste más de cuatro días consecutivos: informe dentro de las siguientes 48 horas.",
+      "regla_nueva": "Si persiste más de tres días consecutivos: informe técnico previo a transmitir el Evento, en la forma y medios que disponga la AT.",
+      "fuente_anterior": {
+        "documento": "Normativa 1.2 (17/11/2025)",
+        "seccion": "Regla 13.4",
+        "pagina": 21
+      },
+      "fuente_nueva": [
+        {
+          "documento": "Normativa 2.0 (25/05/2026)",
+          "seccion": "Regla 13.2.1.1",
+          "pagina": 31
+        }
+      ],
+      "obligatoriedad": "CONDICIONAL",
+      "aplicabilidad": "GENERAL",
+      "tipos_dte_afectados": [
+        "FE",
+        "CCFE",
+        "NCE",
+        "FEXE",
+        "FSEE"
+      ],
+      "impacto_potencial_zolvi": "Alertas operativas por duración de contingencia; bloqueo del envío del evento hasta informe.",
+      "componentes_potenciales": [
+        "DTE_EVENTS",
+        "CONTROL_PLANE"
+      ],
+      "impacta_onboarding_fiscal": false,
+      "impacta_documentos_historicos": "NO",
+      "prioridad": "P1",
+      "estado_evidencia": "CONFIRMADO",
+      "observaciones": "P1."
+    },
+    {
+      "id": "MH20-055",
+      "bloque": "B11",
+      "titulo": "Estructura y versión del Evento de Contingencia",
+      "tipo_cambio": "MODIFICADO",
+      "regla_anterior": "Versión 3; hasta 1000 ítems (campo 21) y 'hasta 5000 códigos' (campo 23); tipos 01, 03, 04, 05, 06, 11, 14.",
+      "regla_nueva": "Normativa: versión 3 (Anexo III campo 1, Anexo V campo 1); schema contingencia-schema-v4 const 4; hasta 1000 códigos; tipos 01, 03, 04, 05, 06, 07, 11, 14 y 18.",
+      "fuente_anterior": {
+        "documento": "Normativa 1.2 (17/11/2025)",
+        "seccion": "Anexo V campos 1, 21-23",
+        "pagina": "108-109"
+      },
+      "fuente_nueva": [
+        {
+          "documento": "Normativa 2.0 (25/05/2026)",
+          "seccion": "Anexo III campo 1 (verificado visualmente)",
+          "pagina": 81
+        },
+        {
+          "documento": "Normativa 2.0 (25/05/2026)",
+          "seccion": "Anexo V campos 1, 34-36",
+          "pagina": "123, 126"
+        },
+        {
+          "documento": "svfe-json-schemas (paquete 2.0)",
+          "seccion": "v4/contingencia-schema-v4.json",
+          "pagina": null
+        }
+      ],
+      "obligatoriedad": "OBLIGATORIO",
+      "aplicabilidad": "GENERAL",
+      "tipos_dte_afectados": [
+        "FE",
+        "CCFE",
+        "NCE",
+        "FEXE",
+        "FSEE"
+      ],
+      "impacto_potencial_zolvi": "Versión a enviar incierta.",
+      "componentes_potenciales": [
+        "DTE_EVENTS",
+        "DTE_VALIDATORS"
+      ],
+      "impacta_onboarding_fiscal": false,
+      "impacta_documentos_historicos": "NO",
+      "prioridad": "P0",
+      "estado_evidencia": "REQUIERE_VERIFICACION",
+      "observaciones": "INC-005. P0: rechazo por versión."
+    },
+    {
+      "id": "MH20-056",
+      "bloque": "B11",
+      "titulo": "Formularios preimpresos en contingencia para usuarios del Sistema de Facturación",
+      "tipo_cambio": "ELIMINADO",
+      "regla_anterior": "Usuarios del 'Sistema de Facturación DTE' podían usar documentos preimpresos/formulario único/imprentas digitales durante la contingencia.",
+      "regla_nueva": "No se localizó disposición equivalente.",
+      "fuente_anterior": {
+        "documento": "Normativa 1.2 (17/11/2025)",
+        "seccion": "Regla 13.4",
+        "pagina": 22
+      },
+      "fuente_nueva": [
+        {
+          "documento": "Normativa 2.0 (25/05/2026)",
+          "seccion": "Reglas 13.2-13.2.2",
+          "pagina": "30-31"
+        }
+      ],
+      "obligatoriedad": "NO_DETERMINADO",
+      "aplicabilidad": "NO_APLICA_ACTUALMENTE",
+      "tipos_dte_afectados": [],
+      "impacto_potencial_zolvi": "Zolvi opera como Sistema de Transmisión; sin impacto.",
+      "componentes_potenciales": [],
+      "impacta_onboarding_fiscal": false,
+      "impacta_documentos_historicos": "NO",
+      "prioridad": "P3",
+      "estado_evidencia": "REQUIERE_VERIFICACION",
+      "observaciones": "La ausencia de texto no implica derogación expresa."
+    },
+    {
+      "id": "MH20-057",
+      "bloque": "B11",
+      "titulo": "Incumplimiento del plazo de contingencia",
+      "tipo_cambio": "NUEVO",
+      "regla_anterior": "Sanciones art. 239-A CT.",
+      "regla_nueva": "Si no se transmite el evento o los DTE en plazo, se debe informar y justificar por escrito a la DGII; la AT puede revocar la autorización de emisor.",
+      "fuente_anterior": {
+        "documento": "Normativa 1.2 (17/11/2025)",
+        "seccion": "Regla 13.4",
+        "pagina": "21-22"
+      },
+      "fuente_nueva": [
+        {
+          "documento": "Manual Funcional Sistema de Transmisión v2.0 (05/2026)",
+          "seccion": "VIII Evento de Contingencia",
+          "pagina": 23
+        }
+      ],
+      "obligatoriedad": "CONDICIONAL",
+      "aplicabilidad": "GENERAL",
+      "tipos_dte_afectados": [
+        "FE",
+        "CCFE",
+        "NCE",
+        "FEXE",
+        "FSEE"
+      ],
+      "impacto_potencial_zolvi": "Monitoreo de plazos 24 h / 72 h.",
+      "componentes_potenciales": [
+        "DTE_EVENTS",
+        "CONTROL_PLANE"
+      ],
+      "impacta_onboarding_fiscal": true,
+      "impacta_documentos_historicos": "NO",
+      "prioridad": "P1",
+      "estado_evidencia": "CONFIRMADO",
+      "observaciones": "Fuente: Manual Funcional, no Normativa."
+    },
+    {
+      "id": "MH20-058",
+      "bloque": "B12",
+      "titulo": "Evento de Retorno: documentos elegibles, casos y plazo",
+      "tipo_cambio": "NUEVO",
+      "regla_anterior": "No existía; devoluciones se documentaban por invalidación (FE/FEXE) o NC (CCF).",
+      "regla_nueva": "Aplica sólo a FE, FEXE y FSEE con Sello: retorno de bienes (por receptor o tercero), reembolsos por defectos ocultos, recuperación de depósitos de envases/empaques, reimportación de exportación definitiva, disminución de lo exportado por pérdida, merma o daño. Plazo: tres meses desde el sello del documento relacionado.",
+      "fuente_anterior": {
+        "documento": "Normativa 1.2 (17/11/2025)",
+        "seccion": "No existe disposición equivalente",
+        "pagina": null
+      },
+      "fuente_nueva": [
+        {
+          "documento": "Normativa 2.0 (25/05/2026)",
+          "seccion": "Regla 13.3, Cuadro 8",
+          "pagina": "31-32"
+        },
+        {
+          "documento": "Normativa 2.0 (25/05/2026)",
+          "seccion": "Anexo V campos 15-17",
+          "pagina": 124
+        },
+        {
+          "documento": "Manual Funcional Sistema de Transmisión v2.0 (05/2026)",
+          "seccion": "X Evento de Retorno",
+          "pagina": "29-31"
+        }
+      ],
+      "obligatoriedad": "CONDICIONAL",
+      "aplicabilidad": "POR_TIPO_DTE",
+      "tipos_dte_afectados": [
+        "FE",
+        "FEXE",
+        "FSEE"
+      ],
+      "impacto_potencial_zolvi": "Nuevo flujo de devoluciones/reembolsos de ventas a consumidor final (FE).",
+      "componentes_potenciales": [
+        "DTE_EVENTS",
+        "DTE_BUILDERS",
+        "SALES",
+        "INVENTORY",
+        "CASH"
+      ],
+      "impacta_onboarding_fiscal": true,
+      "impacta_documentos_historicos": "SI",
+      "prioridad": "P1",
+      "estado_evidencia": "CONFIRMADO",
+      "observaciones": "P1: obligatorio cuando ocurre el caso (no opcional). Puede aplicarse a FE emitidas antes de la transición dentro de 3 meses (NO_DETERMINADO su compatibilidad de versión)."
+    },
+    {
+      "id": "MH20-059",
+      "bloque": "B12",
+      "titulo": "Retornos parciales y totales; límites",
+      "tipo_cambio": "NUEVO",
+      "regla_anterior": "No existía.",
+      "regla_nueva": "El retorno no es descuento ni puede exceder lo vendido/comprado; un solo tipo de documento por evento; hasta 50 documentos y 2000 ítems; cada Código de Generación una vez por evento, pero pueden generarse varios eventos para un mismo documento (suma ≤ valor del DTE); no produce la invalidación del origen aunque cubra el total.",
+      "fuente_anterior": {
+        "documento": "Normativa 1.2 (17/11/2025)",
+        "seccion": "No existe disposición equivalente",
+        "pagina": null
+      },
+      "fuente_nueva": [
+        {
+          "documento": "Normativa 2.0 (25/05/2026)",
+          "seccion": "Reglas 13.3.1 y 13.3.2.2",
+          "pagina": 32
+        },
+        {
+          "documento": "Normativa 2.0 (25/05/2026)",
+          "seccion": "Anexo V Sección 2",
+          "pagina": 124
+        },
+        {
+          "documento": "Manual Funcional Sistema de Transmisión v2.0 (05/2026)",
+          "seccion": "X Evento de Retorno, condiciones",
+          "pagina": 29
+        }
+      ],
+      "obligatoriedad": "OBLIGATORIO",
+      "aplicabilidad": "POR_TIPO_DTE",
+      "tipos_dte_afectados": [
+        "FE",
+        "FEXE",
+        "FSEE"
+      ],
+      "impacto_potencial_zolvi": "Control acumulado de retornos por DTE.",
+      "componentes_potenciales": [
+        "DTE_EVENTS",
+        "DTE_VALIDATORS",
+        "SALES",
+        "DATABASE"
+      ],
+      "impacta_onboarding_fiscal": false,
+      "impacta_documentos_historicos": "SI",
+      "prioridad": "P1",
+      "estado_evidencia": "CONFIRMADO",
+      "observaciones": "P1."
+    },
+    {
+      "id": "MH20-060",
+      "bloque": "B12",
+      "titulo": "Efectos fiscales del Retorno",
+      "tipo_cambio": "NUEVO",
+      "regla_anterior": "No existía.",
+      "regla_nueva": "FE: disminución de la venta y del débito fiscal; FEXE: disminución de exportación y del remanente de crédito fiscal; FSEE: disminución de la compra. No genera crédito fiscal al receptor; no es ajustable mediante evento ni documento.",
+      "fuente_anterior": {
+        "documento": "Normativa 1.2 (17/11/2025)",
+        "seccion": "No existe disposición equivalente",
+        "pagina": null
+      },
+      "fuente_nueva": [
+        {
+          "documento": "Normativa 2.0 (25/05/2026)",
+          "seccion": "Reglas 13.3.2 y 13.3.2.1",
+          "pagina": 32
+        }
+      ],
+      "obligatoriedad": "OBLIGATORIO",
+      "aplicabilidad": "POR_TIPO_DTE",
+      "tipos_dte_afectados": [
+        "FE",
+        "FEXE",
+        "FSEE"
+      ],
+      "impacto_potencial_zolvi": "Reportes de ventas/IVA y caja deben restar retornos.",
+      "componentes_potenciales": [
+        "REPORTS",
+        "SALES",
+        "CASH",
+        "INVENTORY",
+        "PURCHASES"
+      ],
+      "impacta_onboarding_fiscal": false,
+      "impacta_documentos_historicos": "SI",
+      "prioridad": "P1",
+      "estado_evidencia": "CONFIRMADO",
+      "observaciones": "P1."
+    },
+    {
+      "id": "MH20-061",
+      "bloque": "B12",
+      "titulo": "Retorno: transmisión, entrega y estructura",
+      "tipo_cambio": "NUEVO",
+      "regla_anterior": "No existía.",
+      "regla_nueva": "Transmisión previa normal, diferida normal (1 día) o en contingencia (72 h); se entrega al receptor mediante Archivo DTE con Representación Gráfica; versión 1 (schema fe-eret-v1), tipo de evento 18; datos de emisor/receptor iguales al DTE; para FEXE recinto, régimen, tipo de exportación y país deben coincidir.",
+      "fuente_anterior": {
+        "documento": "Normativa 1.2 (17/11/2025)",
+        "seccion": "No existe disposición equivalente",
+        "pagina": null
+      },
+      "fuente_nueva": [
+        {
+          "documento": "Normativa 2.0 (25/05/2026)",
+          "seccion": "Cuadro 5; regla 13.3.1",
+          "pagina": "19, 32"
+        },
+        {
+          "documento": "Normativa 2.0 (25/05/2026)",
+          "seccion": "Anexo III y V (Retorno)",
+          "pagina": "81-101, 123-135"
+        },
+        {
+          "documento": "svfe-json-schemas (paquete 2.0)",
+          "seccion": "v1/fe-eret-v1.json",
+          "pagina": null
+        },
+        {
+          "documento": "Manual Funcional Sistema de Transmisión v2.0 (05/2026)",
+          "seccion": "X Evento de Retorno",
+          "pagina": "30-31"
+        }
+      ],
+      "obligatoriedad": "OBLIGATORIO",
+      "aplicabilidad": "POR_TIPO_DTE",
+      "tipos_dte_afectados": [
+        "FE",
+        "FEXE",
+        "FSEE"
+      ],
+      "impacto_potencial_zolvi": "Nuevo builder, firma, transmisión, PDF y entrega del evento.",
+      "componentes_potenciales": [
+        "DTE_EVENTS",
+        "DTE_BUILDERS",
+        "DTE_SIGNER",
+        "DTE_TRANSMISSION",
+        "DTE_DELIVERY"
+      ],
+      "impacta_onboarding_fiscal": true,
+      "impacta_documentos_historicos": "NO",
+      "prioridad": "P1",
+      "estado_evidencia": "CONFIRMADO",
+      "observaciones": "P1."
+    },
+    {
+      "id": "MH20-062",
+      "bloque": "B12",
+      "titulo": "Retorno de medicamentos: plazo de dos años",
+      "tipo_cambio": "NUEVO",
+      "regla_anterior": "No existía.",
+      "regla_nueva": "Anexo V extiende a Invalidación y Retorno un plazo de hasta dos años para FE/FEXE con actividades 21001, 21008, 46482, 46484, 46491 o 47721; el Cuadro 8 sólo establece tres meses.",
+      "fuente_anterior": {
+        "documento": "Normativa 1.2 (17/11/2025)",
+        "seccion": "No existe disposición equivalente",
+        "pagina": null
+      },
+      "fuente_nueva": [
+        {
+          "documento": "Normativa 2.0 (25/05/2026)",
+          "seccion": "Anexo V campo 9 núm. 7",
+          "pagina": 124
+        },
+        {
+          "documento": "Normativa 2.0 (25/05/2026)",
+          "seccion": "Cuadro 8",
+          "pagina": "31-32"
+        }
+      ],
+      "obligatoriedad": "CONDICIONAL",
+      "aplicabilidad": "POR_TIPO_DTE",
+      "tipos_dte_afectados": [
+        "FE",
+        "FEXE"
+      ],
+      "impacto_potencial_zolvi": "Sólo para emisores farmacéuticos.",
+      "componentes_potenciales": [
+        "DTE_EVENTS"
+      ],
+      "impacta_onboarding_fiscal": false,
+      "impacta_documentos_historicos": "SI",
+      "prioridad": "P2",
+      "estado_evidencia": "REQUIERE_VERIFICACION",
+      "observaciones": "INC-009."
+    },
+    {
+      "id": "MH20-063",
+      "bloque": "B13",
+      "titulo": "Evento de Operaciones Especiales: emisores y casos",
+      "tipo_cambio": "NUEVO",
+      "regla_anterior": "No existía.",
+      "regla_nueva": "Obligatorio para emisores de DTE que (1) posean autorización de numeración de Facturas de Venta Simplificada (FVS) y las emitan, o (2) tengan Comprobantes de Control Interno autorizados por resolución (art. 113 CT). Plazo: 10 primeros días hábiles del mes siguiente. Sólo para las operaciones designadas; el resto con DTE. Deben emitirlo los contribuyentes designados por la AT.",
+      "fuente_anterior": {
+        "documento": "Normativa 1.2 (17/11/2025)",
+        "seccion": "No existe disposición equivalente",
+        "pagina": null
+      },
+      "fuente_nueva": [
+        {
+          "documento": "Normativa 2.0 (25/05/2026)",
+          "seccion": "Regla 13.4, Cuadro 9",
+          "pagina": 33
+        },
+        {
+          "documento": "Normativa 2.0 (25/05/2026)",
+          "seccion": "Anexo V campo 18 núm. 3",
+          "pagina": 125
+        },
+        {
+          "documento": "Manual Funcional Sistema de Transmisión v2.0 (05/2026)",
+          "seccion": "IX Evento de Operaciones Especiales",
+          "pagina": "24-28"
+        }
+      ],
+      "obligatoriedad": "CONDICIONAL",
+      "aplicabilidad": "POR_AUTORIZACION",
+      "tipos_dte_afectados": [],
+      "impacto_potencial_zolvi": "Sólo si un cliente tiene FVS o sistema especial autorizado.",
+      "componentes_potenciales": [
+        "DTE_EVENTS",
+        "FISCAL_ONBOARDING"
+      ],
+      "impacta_onboarding_fiscal": true,
+      "impacta_documentos_historicos": "NO",
+      "prioridad": "P2",
+      "estado_evidencia": "CONFIRMADO",
+      "observaciones": "P2: condicionado a autorización; no se clasifica como opcional: es obligatorio para quien esté en el supuesto."
+    },
+    {
+      "id": "MH20-064",
+      "bloque": "B13",
+      "titulo": "Coexistencia de sistemas especiales y FVS con DTE",
+      "tipo_cambio": "NUEVO",
+      "regla_anterior": "Coexistencia sólo de tiquetes hasta 31/12/2024.",
+      "regla_nueva": "Sistemas especiales autorizados a partir de la vigencia de la 2.0 y FVS pueden coexistir con DTE si se transmite el Evento de OE; los autorizados antes de la vigencia no pueden coexistir.",
+      "fuente_anterior": {
+        "documento": "Normativa 1.2 (17/11/2025)",
+        "seccion": "Regla 15",
+        "pagina": 22
+      },
+      "fuente_nueva": [
+        {
+          "documento": "Normativa 2.0 (25/05/2026)",
+          "seccion": "Regla 15",
+          "pagina": 34
+        }
+      ],
+      "obligatoriedad": "CONDICIONAL",
+      "aplicabilidad": "POR_AUTORIZACION",
+      "tipos_dte_afectados": [],
+      "impacto_potencial_zolvi": "Revisión de clientes con sistemas previos autorizados.",
+      "componentes_potenciales": [
+        "FISCAL_ONBOARDING",
+        "CONTROL_PLANE"
+      ],
+      "impacta_onboarding_fiscal": true,
+      "impacta_documentos_historicos": "NO",
+      "prioridad": "P2",
+      "estado_evidencia": "CONFIRMADO",
+      "observaciones": "P2."
+    },
+    {
+      "id": "MH20-065",
+      "bloque": "B13",
+      "titulo": "Estructura y transmisión del Evento de OE",
+      "tipo_cambio": "NUEVO",
+      "regla_anterior": "No existía.",
+      "regla_nueva": "Versión 1 (schema fe-eop-v1), tipo de evento 17; transmisión uno a uno o por lote; invalidable; detalle uno a uno o por rangos (DocDel/DocAl).",
+      "fuente_anterior": {
+        "documento": "Normativa 1.2 (17/11/2025)",
+        "seccion": "No existe disposición equivalente",
+        "pagina": null
+      },
+      "fuente_nueva": [
+        {
+          "documento": "Normativa 2.0 (25/05/2026)",
+          "seccion": "Anexo III/V (OE)",
+          "pagina": "81-101, 123"
+        },
+        {
+          "documento": "Normativa 2.0 (25/05/2026)",
+          "seccion": "Anexo III, Sección 9 (DocDel/DocAl)",
+          "pagina": 92
+        },
+        {
+          "documento": "svfe-json-schemas (paquete 2.0)",
+          "seccion": "v1/fe-eop-v1.json",
+          "pagina": null
+        }
+      ],
+      "obligatoriedad": "CONDICIONAL",
+      "aplicabilidad": "POR_AUTORIZACION",
+      "tipos_dte_afectados": [],
+      "impacto_potencial_zolvi": "Nuevo builder si se habilita.",
+      "componentes_potenciales": [
+        "DTE_EVENTS",
+        "DTE_BUILDERS"
+      ],
+      "impacta_onboarding_fiscal": true,
+      "impacta_documentos_historicos": "NO",
+      "prioridad": "P2",
+      "estado_evidencia": "REQUIERE_VERIFICACION",
+      "observaciones": "INC-001."
+    },
+    {
+      "id": "MH20-066",
+      "bloque": "B14",
+      "titulo": "Entrega electrónica de DTE y Eventos con Representación Gráfica",
+      "tipo_cambio": "MODIFICADO",
+      "regla_anterior": "Entrega electrónica de Archivo DTE y versión interpretada y legible (con QR) por cada operación.",
+      "regla_nueva": "Entrega electrónica de DTE y de Eventos de Invalidación y Retorno con Archivo DTE (regla 4.1 Anexo I) y Representación Gráfica; la RG sólo respalda deducciones si se corresponde con su DTE; omisión sancionable y la AT no subroga.",
+      "fuente_anterior": {
+        "documento": "Normativa 1.2 (17/11/2025)",
+        "seccion": "Reglas 11 y 11.3",
+        "pagina": "16-17"
+      },
+      "fuente_nueva": [
+        {
+          "documento": "Normativa 2.0 (25/05/2026)",
+          "seccion": "Regla 11",
+          "pagina": "23-24"
+        }
+      ],
+      "obligatoriedad": "OBLIGATORIO",
+      "aplicabilidad": "GENERAL",
+      "tipos_dte_afectados": [
+        "FE",
+        "CCFE",
+        "NCE",
+        "FEXE",
+        "FSEE"
+      ],
+      "impacto_potencial_zolvi": "Entrega de eventos y evidencia de entrega.",
+      "componentes_potenciales": [
+        "DTE_DELIVERY",
+        "DTE_EVENTS"
+      ],
+      "impacta_onboarding_fiscal": false,
+      "impacta_documentos_historicos": "NO",
+      "prioridad": "P1",
+      "estado_evidencia": "CONFIRMADO",
+      "observaciones": "P1."
+    },
+    {
+      "id": "MH20-067",
+      "bloque": "B14",
+      "titulo": "Medios de entrega y evidencia",
+      "tipo_cambio": "NUEVO",
+      "regla_anterior": "El medio debe ser propicio, mediante mecanismos acordados.",
+      "regla_nueva": "Medio acordado como parte de la negociación; a falta de acuerdo, medios con rastro perceptible (art. 20 LFE); entregado cuando exista evidencia de envío o disponibilidad; excepcionalmente RG física a solicitud.",
+      "fuente_anterior": {
+        "documento": "Normativa 1.2 (17/11/2025)",
+        "seccion": "Anexo I 4",
+        "pagina": 34
+      },
+      "fuente_nueva": [
+        {
+          "documento": "Normativa 2.0 (25/05/2026)",
+          "seccion": "Regla 11",
+          "pagina": "23-24"
+        }
+      ],
+      "obligatoriedad": "OBLIGATORIO",
+      "aplicabilidad": "GENERAL",
+      "tipos_dte_afectados": [
+        "FE",
+        "CCFE",
+        "NCE",
+        "FEXE",
+        "FSEE"
+      ],
+      "impacto_potencial_zolvi": "Registrar evidencia de envío/disponibilidad.",
+      "componentes_potenciales": [
+        "DTE_DELIVERY",
+        "DATABASE"
+      ],
+      "impacta_onboarding_fiscal": false,
+      "impacta_documentos_historicos": "NO",
+      "prioridad": "P1",
+      "estado_evidencia": "CONFIRMADO",
+      "observaciones": "P1."
+    },
+    {
+      "id": "MH20-068",
+      "bloque": "B14",
+      "titulo": "Entrega por correo electrónico sin contenido no deseado",
+      "tipo_cambio": "NUEVO",
+      "regla_anterior": "No regulado.",
+      "regla_nueva": "El mensaje sólo debe contener información de la entrega, sin publicidad, promociones o encuestas.",
+      "fuente_anterior": {
+        "documento": "Normativa 1.2 (17/11/2025)",
+        "seccion": "No existe disposición equivalente",
+        "pagina": null
+      },
+      "fuente_nueva": [
+        {
+          "documento": "Normativa 2.0 (25/05/2026)",
+          "seccion": "Anexo I 4",
+          "pagina": 43
+        }
+      ],
+      "obligatoriedad": "CONDICIONAL",
+      "aplicabilidad": "GENERAL",
+      "tipos_dte_afectados": [
+        "FE",
+        "CCFE",
+        "NCE",
+        "FEXE",
+        "FSEE"
+      ],
+      "impacto_potencial_zolvi": "Plantillas de correo de entrega.",
+      "componentes_potenciales": [
+        "DTE_DELIVERY"
+      ],
+      "impacta_onboarding_fiscal": false,
+      "impacta_documentos_historicos": "NO",
+      "prioridad": "P1",
+      "estado_evidencia": "CONFIRMADO",
+      "observaciones": "P1."
+    },
+    {
+      "id": "MH20-069",
+      "bloque": "B14",
+      "titulo": "Sitio de descarga para autogestión del receptor",
+      "tipo_cambio": "NUEVO",
+      "regla_anterior": "No regulado.",
+      "regla_nueva": "Si se usa sitio de descarga: acceso seguro y exclusivo, disponible siempre; información mínima (nombre y NIT del emisor, modelo y tipo de transmisión, fecha y hora, Código de Generación, Sello, QR al sitio/ruta, instrucción); libre de malware; mantener 60 días hábiles tras fusión/liquidación/desinscripción.",
+      "fuente_anterior": {
+        "documento": "Normativa 1.2 (17/11/2025)",
+        "seccion": "No existe disposición equivalente",
+        "pagina": null
+      },
+      "fuente_nueva": [
+        {
+          "documento": "Normativa 2.0 (25/05/2026)",
+          "seccion": "Regla 11",
+          "pagina": 23
+        },
+        {
+          "documento": "Normativa 2.0 (25/05/2026)",
+          "seccion": "Anexo I 4",
+          "pagina": 43
+        }
+      ],
+      "obligatoriedad": "CONDICIONAL",
+      "aplicabilidad": "GENERAL",
+      "tipos_dte_afectados": [
+        "FE",
+        "CCFE",
+        "NCE",
+        "FEXE",
+        "FSEE"
+      ],
+      "impacto_potencial_zolvi": "Portal de descarga (si existe o se implementa).",
+      "componentes_potenciales": [
+        "DTE_DELIVERY",
+        "CONTROL_PLANE"
+      ],
+      "impacta_onboarding_fiscal": false,
+      "impacta_documentos_historicos": "NO",
+      "prioridad": "P2",
+      "estado_evidencia": "CONFIRMADO",
+      "observaciones": "P2: condicionado al medio elegido."
+    },
+    {
+      "id": "MH20-070",
+      "bloque": "B14",
+      "titulo": "Representación Gráfica: diseño, contenido y correspondencia",
+      "tipo_cambio": "MODIFICADO",
+      "regla_anterior": "Versión legible según columna 'Versión legible'; QR con parámetros del Manual; diseño gráfico idóneo.",
+      "regla_nueva": "Diseño uniforme y único por tipo de DTE/Evento; conservar nombres de campos de los Anexos (pueden añadirse denominaciones propias); exportar valores directamente del JSON; QR o dirección web de consulta; no modificar la RG independientemente del DTE.",
+      "fuente_anterior": {
+        "documento": "Normativa 1.2 (17/11/2025)",
+        "seccion": "Regla 11.3",
+        "pagina": 17
+      },
+      "fuente_nueva": [
+        {
+          "documento": "Normativa 2.0 (25/05/2026)",
+          "seccion": "Reglas 11.3, 11.3.1 y 14",
+          "pagina": "25-26, 34"
+        },
+        {
+          "documento": "Normativa 2.0 (25/05/2026)",
+          "seccion": "Anexo I 4",
+          "pagina": 43
+        }
+      ],
+      "obligatoriedad": "OBLIGATORIO",
+      "aplicabilidad": "GENERAL",
+      "tipos_dte_afectados": [
+        "FE",
+        "CCFE",
+        "NCE",
+        "FEXE",
+        "FSEE"
+      ],
+      "impacto_potencial_zolvi": "Revisión de plantillas PDF por tipo.",
+      "componentes_potenciales": [
+        "DTE_DELIVERY"
+      ],
+      "impacta_onboarding_fiscal": false,
+      "impacta_documentos_historicos": "NO",
+      "prioridad": "P1",
+      "estado_evidencia": "CONFIRMADO",
+      "observaciones": "P1."
+    },
+    {
+      "id": "MH20-071",
+      "bloque": "B14",
+      "titulo": "Entrega en transmisión diferida e integración posterior del sello",
+      "tipo_cambio": "MODIFICADO",
+      "regla_anterior": "Entregar documento firmado sin sello y versión legible; transmitir después.",
+      "regla_nueva": "Entregar en transitorio con RG; una vez recibido el sello, integrarlo en el Archivo DTE que podrá remitirse al receptor; prevalece lo recibido por la AT; alteración = lesivo.",
+      "fuente_anterior": {
+        "documento": "Normativa 1.2 (17/11/2025)",
+        "seccion": "Regla 11.2",
+        "pagina": 17
+      },
+      "fuente_nueva": [
+        {
+          "documento": "Normativa 2.0 (25/05/2026)",
+          "seccion": "Regla 11.2",
+          "pagina": "24-25"
+        }
+      ],
+      "obligatoriedad": "CONDICIONAL",
+      "aplicabilidad": "GENERAL",
+      "tipos_dte_afectados": [
+        "FE",
+        "CCFE",
+        "NCE",
+        "FEXE",
+        "FSEE"
+      ],
+      "impacto_potencial_zolvi": "Reenvío del Archivo DTE con sello tras contingencia.",
+      "componentes_potenciales": [
+        "DTE_DELIVERY",
+        "DTE_TRANSMISSION"
+      ],
+      "impacta_onboarding_fiscal": false,
+      "impacta_documentos_historicos": "NO",
+      "prioridad": "P2",
+      "estado_evidencia": "CONFIRMADO",
+      "observaciones": "P2: sólo contingencia/diferida."
+    },
+    {
+      "id": "MH20-072",
+      "bloque": "B14",
+      "titulo": "Módulo de Entrega obligatorio en la plataforma del emisor",
+      "tipo_cambio": "NUEVO",
+      "regla_anterior": "Módulos: Generación, Firmado, Transmisión.",
+      "regla_nueva": "Se añade el módulo 4) Entrega: medios para entregar DTE/Evento y su Representación Gráfica.",
+      "fuente_anterior": {
+        "documento": "Normativa 1.2 (17/11/2025)",
+        "seccion": "Anexo I 5",
+        "pagina": 35
+      },
+      "fuente_nueva": [
+        {
+          "documento": "Normativa 2.0 (25/05/2026)",
+          "seccion": "Anexo I 5",
+          "pagina": 44
+        }
+      ],
+      "obligatoriedad": "OBLIGATORIO",
+      "aplicabilidad": "GENERAL",
+      "tipos_dte_afectados": [
+        "FE",
+        "CCFE",
+        "NCE",
+        "FEXE",
+        "FSEE"
+      ],
+      "impacto_potencial_zolvi": "Formaliza la entrega como componente.",
+      "componentes_potenciales": [
+        "DTE_DELIVERY"
+      ],
+      "impacta_onboarding_fiscal": false,
+      "impacta_documentos_historicos": "NO",
+      "prioridad": "P1",
+      "estado_evidencia": "CONFIRMADO",
+      "observaciones": "P1."
+    },
+    {
+      "id": "MH20-073",
+      "bloque": "B14",
+      "titulo": "Conservación, orden y copia de respaldo",
+      "tipo_cambio": "MODIFICADO",
+      "regla_anterior": "Conservar DTE electrónicamente de forma segura e inalterable (art. 147 CT), incluidos los firmados no transmitidos.",
+      "regla_nueva": "Conservar DTE, Eventos y Representaciones Gráficas (en el mismo formato y medio), ordenados cronológicamente por período; los DTE no pueden reponerse mediante servicios de la AT; usuarios del Sistema de Transmisión deben mantener copia de respaldo de la base de datos de JSON transmitidos con su Sello.",
+      "fuente_anterior": {
+        "documento": "Normativa 1.2 (17/11/2025)",
+        "seccion": "Regla 12",
+        "pagina": 18
+      },
+      "fuente_nueva": [
+        {
+          "documento": "Normativa 2.0 (25/05/2026)",
+          "seccion": "Reglas 12 y 12.1",
+          "pagina": "26-27"
+        },
+        {
+          "documento": "Normativa 2.0 (25/05/2026)",
+          "seccion": "Anexo I 6.1",
+          "pagina": 45
+        }
+      ],
+      "obligatoriedad": "OBLIGATORIO",
+      "aplicabilidad": "GENERAL",
+      "tipos_dte_afectados": [
+        "FE",
+        "CCFE",
+        "NCE",
+        "FEXE",
+        "FSEE"
+      ],
+      "impacto_potencial_zolvi": "Retención y respaldo de JSON+sello y PDF por emisor.",
+      "componentes_potenciales": [
+        "DATABASE",
+        "MARIADB",
+        "DTE_DELIVERY",
+        "CONTROL_PLANE"
+      ],
+      "impacta_onboarding_fiscal": false,
+      "impacta_documentos_historicos": "SI",
+      "prioridad": "P1",
+      "estado_evidencia": "CONFIRMADO",
+      "observaciones": "P1."
+    },
+    {
+      "id": "MH20-074",
+      "bloque": "B14",
+      "titulo": "Protección de datos personales",
+      "tipo_cambio": "NUEVO",
+      "regla_anterior": "No regulado.",
+      "regla_nueva": "Garantizar seguridad, integridad, disponibilidad y confidencialidad de datos personales; responsabilidad por filtraciones o incidentes del Gestor de Facturación.",
+      "fuente_anterior": {
+        "documento": "Normativa 1.2 (17/11/2025)",
+        "seccion": "No existe disposición equivalente",
+        "pagina": null
+      },
+      "fuente_nueva": [
+        {
+          "documento": "Normativa 2.0 (25/05/2026)",
+          "seccion": "Regla 12.2",
+          "pagina": 27
+        }
+      ],
+      "obligatoriedad": "OBLIGATORIO",
+      "aplicabilidad": "GENERAL",
+      "tipos_dte_afectados": [
+        "FE",
+        "CCFE",
+        "NCE",
+        "FEXE",
+        "FSEE"
+      ],
+      "impacto_potencial_zolvi": "Controles de acceso y aislamiento por cliente.",
+      "componentes_potenciales": [
+        "DATABASE",
+        "CONTROL_PLANE"
+      ],
+      "impacta_onboarding_fiscal": false,
+      "impacta_documentos_historicos": "NO",
+      "prioridad": "P1",
+      "estado_evidencia": "CONFIRMADO",
+      "observaciones": "P1."
+    },
+    {
+      "id": "MH20-075",
+      "bloque": "B15",
+      "titulo": "Dirección Distrito (CAT-008) en emisor y receptor",
+      "tipo_cambio": "NUEVO",
+      "regla_anterior": "Dirección con departamento, municipio y complemento (no se localizó CAT-008 en la 1.2).",
+      "regla_nueva": "Campo 28 emisor.direccion.distrito requerido (CAT-008), con correspondencia con departamento y municipio; campo 49 receptor distrito cuando aplique (FE opcional).",
+      "fuente_anterior": {
+        "documento": "Normativa 1.2 (17/11/2025)",
+        "seccion": "Anexo I 1.5 (ejemplo de dirección)",
+        "pagina": "28-29"
+      },
+      "fuente_nueva": [
+        {
+          "documento": "Normativa 2.0 (25/05/2026)",
+          "seccion": "Anexo II campos 28 y 49",
+          "pagina": "52, 55"
+        },
+        {
+          "documento": "Normativa 2.0 (25/05/2026)",
+          "seccion": "Anexo IV campos 28 y 49",
+          "pagina": "105, 107"
+        },
+        {
+          "documento": "svfe-json-schemas (paquete 2.0)",
+          "seccion": "direccion.distrito en schemas",
+          "pagina": null
+        }
+      ],
+      "obligatoriedad": "OBLIGATORIO",
+      "aplicabilidad": "GENERAL",
+      "tipos_dte_afectados": [
+        "FE",
+        "CCFE",
+        "NRE",
+        "NCE",
+        "NDE",
+        "CRE",
+        "CLE",
+        "DCLE",
+        "FEXE",
+        "FSEE",
+        "CDE"
+      ],
+      "impacto_potencial_zolvi": "Datos maestros de establecimientos y clientes deben incluir distrito válido.",
+      "componentes_potenciales": [
+        "FISCAL_CATALOGS",
+        "DTE_BUILDERS",
+        "DTE_VALIDATORS",
+        "DATABASE",
+        "FISCAL_ONBOARDING"
+      ],
+      "impacta_onboarding_fiscal": true,
+      "impacta_documentos_historicos": "NO",
+      "prioridad": "P0",
+      "estado_evidencia": "CONFIRMADO",
+      "observaciones": "P0: campo requerido del emisor. Registros del Excel no comparados en esta fase."
+    },
+    {
+      "id": "MH20-076",
+      "bloque": "B15",
+      "titulo": "Catálogo CAT-002 'Tipo de Documento/Evento' y códigos de eventos",
+      "tipo_cambio": "MODIFICADO",
+      "regla_anterior": "CAT-002 Tipo de Documento; CAT-023 Tipo de documento en contingencia.",
+      "regla_nueva": "CAT-002 renombrado 'Tipo de Documento/Evento' (incluye 17 OE y 18 Retorno; 16 referido); el Evento de Contingencia usa CAT-002 para los tipos en contingencia.",
+      "fuente_anterior": {
+        "documento": "Normativa 1.2 (17/11/2025)",
+        "seccion": "Anexo V campo 22",
+        "pagina": 109
+      },
+      "fuente_nueva": [
+        {
+          "documento": "Normativa 2.0 (25/05/2026)",
+          "seccion": "Anexo II campo 3",
+          "pagina": 48
+        },
+        {
+          "documento": "Normativa 2.0 (25/05/2026)",
+          "seccion": "Anexo V campos 8, 35, 46",
+          "pagina": "123, 126-127"
+        }
+      ],
+      "obligatoriedad": "OBLIGATORIO",
+      "aplicabilidad": "GENERAL",
+      "tipos_dte_afectados": [
+        "FE",
+        "CCFE",
+        "NCE",
+        "FEXE",
+        "FSEE"
+      ],
+      "impacto_potencial_zolvi": "Actualizar catálogo local de tipos.",
+      "componentes_potenciales": [
+        "FISCAL_CATALOGS",
+        "DTE_EVENTS"
+      ],
+      "impacta_onboarding_fiscal": false,
+      "impacta_documentos_historicos": "NO",
+      "prioridad": "P1",
+      "estado_evidencia": "REQUIERE_VERIFICACION",
+      "observaciones": "Código 16 no identificado en esta fase; verificar contra el Excel de catálogos en fase posterior."
+    },
+    {
+      "id": "MH20-077",
+      "bloque": "B15",
+      "titulo": "Codificación de establecimientos (Casa Matriz, Sucursal, Bodega, Patio) asignada por la AT",
+      "tipo_cambio": "MODIFICADO",
+      "regla_anterior": "Códigos internos o MH opcionales; CAT-009 Tipo de establecimiento.",
+      "regla_nueva": "Codificación establecida por la AT obligatoria para la tercera sección del Número de Control (M/S/B/P + 3 dígitos; P + 3 dígitos para punto de venta); se agrega 'Patio'; 'Tipo de establecimiento' se elimina en DCLE y en el Evento de Invalidación.",
+      "fuente_anterior": {
+        "documento": "Normativa 1.2 (17/11/2025)",
+        "seccion": "Regla 7.2",
+        "pagina": 11
+      },
+      "fuente_nueva": [
+        {
+          "documento": "Normativa 2.0 (25/05/2026)",
+          "seccion": "Anexo I 1.3",
+          "pagina": 37
+        },
+        {
+          "documento": "Normativa 2.0 (25/05/2026)",
+          "seccion": "Anexo IV campo 5",
+          "pagina": 102
+        },
+        {
+          "documento": "Normativa 2.0 (25/05/2026)",
+          "seccion": "Anexo VI",
+          "pagina": "136-137"
+        }
+      ],
+      "obligatoriedad": "OBLIGATORIO",
+      "aplicabilidad": "GENERAL",
+      "tipos_dte_afectados": [
+        "FE",
+        "CCFE",
+        "NCE",
+        "FEXE",
+        "FSEE"
+      ],
+      "impacto_potencial_zolvi": "Dato maestro de establecimiento por cliente con código MH.",
+      "componentes_potenciales": [
+        "FISCAL_CATALOGS",
+        "DATABASE",
+        "FISCAL_ONBOARDING",
+        "DTE_CORRELATIVES"
+      ],
+      "impacta_onboarding_fiscal": true,
+      "impacta_documentos_historicos": "NO",
+      "prioridad": "P0",
+      "estado_evidencia": "CONFIRMADO",
+      "observaciones": "Vinculado a MH20 de B01 (Número de Control)."
+    },
+    {
+      "id": "MH20-078",
+      "bloque": "B15",
+      "titulo": "Nuevos catálogos referenciados en FEXE/Retorno (CAT-033 Tipo de Régimen)",
+      "tipo_cambio": "NUEVO",
+      "regla_anterior": "No se localizó CAT-033 en el OCR de la 1.2 (CAT-027 Recinto, CAT-028 Régimen y CAT-032 Domicilio Fiscal sí aparecen en 1.2 parcialmente).",
+      "regla_nueva": "Campo 36 'Tipo de Régimen' (CAT-033) para FEXE y en Evento de Retorno (campo 29).",
+      "fuente_anterior": {
+        "documento": "Normativa 1.2 (17/11/2025)",
+        "seccion": "Búsqueda OCR sin coincidencias de CAT-033",
+        "pagina": null
+      },
+      "fuente_nueva": [
+        {
+          "documento": "Normativa 2.0 (25/05/2026)",
+          "seccion": "Anexo V campo 29",
+          "pagina": 125
+        },
+        {
+          "documento": "Normativa 2.0 (25/05/2026)",
+          "seccion": "Anexo VI",
+          "pagina": 136
+        }
+      ],
+      "obligatoriedad": "CONDICIONAL",
+      "aplicabilidad": "POR_TIPO_DTE",
+      "tipos_dte_afectados": [
+        "FEXE"
+      ],
+      "impacto_potencial_zolvi": "Ampliar catálogos para FEX.",
+      "componentes_potenciales": [
+        "FISCAL_CATALOGS"
+      ],
+      "impacta_onboarding_fiscal": false,
+      "impacta_documentos_historicos": "NO",
+      "prioridad": "P2",
+      "estado_evidencia": "REQUIERE_VERIFICACION",
+      "observaciones": "OCR de la 1.2 puede no haber capturado todas las referencias; comparar Excel en fase posterior."
+    },
+    {
+      "id": "MH20-079",
+      "bloque": "B15",
+      "titulo": "Uso obligatorio de catálogos",
+      "tipo_cambio": "SIN_CAMBIO",
+      "regla_anterior": "Catálogos establecidos por la AT, de uso obligatorio.",
+      "regla_nueva": "Igual.",
+      "fuente_anterior": {
+        "documento": "Normativa 1.2 (17/11/2025)",
+        "seccion": "Anexo I 1.7",
+        "pagina": 31
+      },
+      "fuente_nueva": [
+        {
+          "documento": "Normativa 2.0 (25/05/2026)",
+          "seccion": "Anexo I 1.8",
+          "pagina": 39
+        }
+      ],
+      "obligatoriedad": "OBLIGATORIO",
+      "aplicabilidad": "GENERAL",
+      "tipos_dte_afectados": [
+        "FE",
+        "CCFE",
+        "NCE",
+        "FEXE",
+        "FSEE"
+      ],
+      "impacto_potencial_zolvi": "Sin cambio normativo.",
+      "componentes_potenciales": [
+        "FISCAL_CATALOGS"
+      ],
+      "impacta_onboarding_fiscal": false,
+      "impacta_documentos_historicos": "NO",
+      "prioridad": "P3",
+      "estado_evidencia": "CONFIRMADO",
+      "observaciones": "P3."
+    },
+    {
+      "id": "MH20-080",
+      "bloque": "B16",
+      "titulo": "Firma electrónica de DTE y de todos los Eventos; responsabilidad del certificado",
+      "tipo_cambio": "MODIFICADO",
+      "regla_anterior": "Firma simple JWS/RS512 (CAdES PKCS8); la AT resguarda información de certificados; firma de DTE y eventos de contingencia e invalidación.",
+      "regla_nueva": "Firma simple JWS/RS512 para todos los documentos y eventos; certificado único válido mientras esté vigente o no cancelado; el sujeto pasivo es único responsable del uso y de la conservación del certificado y del resguardo de la información de certificados.",
+      "fuente_anterior": {
+        "documento": "Normativa 1.2 (17/11/2025)",
+        "seccion": "Regla 8; Anexo I 2.1",
+        "pagina": "12-13, 31"
+      },
+      "fuente_nueva": [
+        {
+          "documento": "Normativa 2.0 (25/05/2026)",
+          "seccion": "Reglas 8 y 8.1; Anexo I 2.1-2.2",
+          "pagina": "17-18, 40-41"
+        }
+      ],
+      "obligatoriedad": "OBLIGATORIO",
+      "aplicabilidad": "GENERAL",
+      "tipos_dte_afectados": [
+        "FE",
+        "CCFE",
+        "NCE",
+        "FEXE",
+        "FSEE",
+        "Eventos"
+      ],
+      "impacto_potencial_zolvi": "Firmado de Retorno/OE y custodia de certificados por cliente.",
+      "componentes_potenciales": [
+        "DTE_SIGNER",
+        "CONTROL_PLANE"
+      ],
+      "impacta_onboarding_fiscal": true,
+      "impacta_documentos_historicos": "NO",
+      "prioridad": "P1",
+      "estado_evidencia": "CONFIRMADO",
+      "observaciones": "P1."
+    },
+    {
+      "id": "MH20-081",
+      "bloque": "B16",
+      "titulo": "Formato del Sello de Recepción",
+      "tipo_cambio": "MODIFICADO",
+      "regla_anterior": "Código con base UUID v4 más caracteres alfanuméricos (ej. 40 caracteres); ejemplo con atributo 'selloRecepcion'.",
+      "regla_nueva": "Código de 40 caracteres alfanuméricos, sin guiones, en mayúsculas; atributo base 'selloRecibido' en el Archivo DTE.",
+      "fuente_anterior": {
+        "documento": "Normativa 1.2 (17/11/2025)",
+        "seccion": "Regla 3 lit. v; Anexo I 1.6 y 3.5",
+        "pagina": "9, 31, 34"
+      },
+      "fuente_nueva": [
+        {
+          "documento": "Normativa 2.0 (25/05/2026)",
+          "seccion": "Anexo I 3.4",
+          "pagina": 42
+        }
+      ],
+      "obligatoriedad": "OBLIGATORIO",
+      "aplicabilidad": "GENERAL",
+      "tipos_dte_afectados": [
+        "FE",
+        "CCFE",
+        "NCE",
+        "FEXE",
+        "FSEE"
+      ],
+      "impacto_potencial_zolvi": "Validación/almacenamiento del sello y su inclusión en el Archivo DTE.",
+      "componentes_potenciales": [
+        "DTE_TRANSMISSION",
+        "DATABASE",
+        "DTE_DELIVERY"
+      ],
+      "impacta_onboarding_fiscal": false,
+      "impacta_documentos_historicos": "NO_DETERMINADO",
+      "prioridad": "P1",
+      "estado_evidencia": "CONFIRMADO",
+      "observaciones": "P1."
+    },
+    {
+      "id": "MH20-082",
+      "bloque": "B16",
+      "titulo": "Consulta del Estado del Servicio de Recepción",
+      "tipo_cambio": "NUEVO",
+      "regla_anterior": "No existía.",
+      "regla_nueva": "La AT dispondrá de enlaces de consulta de servicios para pruebas y producción, según Guías y Manuales.",
+      "fuente_anterior": {
+        "documento": "Normativa 1.2 (17/11/2025)",
+        "seccion": "No existe disposición equivalente",
+        "pagina": null
+      },
+      "fuente_nueva": [
+        {
+          "documento": "Normativa 2.0 (25/05/2026)",
+          "seccion": "Anexo I 3.5",
+          "pagina": 42
+        }
+      ],
+      "obligatoriedad": "OPCIONAL",
+      "aplicabilidad": "GENERAL",
+      "tipos_dte_afectados": [
+        "FE",
+        "CCFE",
+        "NCE",
+        "FEXE",
+        "FSEE"
+      ],
+      "impacto_potencial_zolvi": "Posible uso para detección de contingencia.",
+      "componentes_potenciales": [
+        "DTE_TRANSMISSION",
+        "CONTROL_PLANE"
+      ],
+      "impacta_onboarding_fiscal": false,
+      "impacta_documentos_historicos": "NO",
+      "prioridad": "P2",
+      "estado_evidencia": "CONFIRMADO",
+      "observaciones": "P2: no se identificó obligación de uso."
+    },
+    {
+      "id": "MH20-083",
+      "bloque": "B16",
+      "titulo": "Autenticación y recepción por lotes (parámetros del Manual Técnico)",
+      "tipo_cambio": "NO_DETERMINADO",
+      "regla_anterior": "Autenticación previa y recepción uno a uno/lote según Manual Técnico (versión anterior no disponible en el repositorio).",
+      "regla_nueva": "Manual Técnico v2: token con vigencia 48 h (pruebas) / 24 h (producción); lote máximo 100 DTE, hasta 400 lotes; horarios de recepción de lotes; contingencia usa servicio de lotes.",
+      "fuente_anterior": {
+        "documento": "Normativa 1.2 (17/11/2025)",
+        "seccion": "Anexo I 3.3-3.4",
+        "pagina": "33-34"
+      },
+      "fuente_nueva": [
+        {
+          "documento": "Manual Técnico Integración Tecnológica v2",
+          "seccion": "3.2-3.4, 4.2.2, 4.3.2",
+          "pagina": "15-28"
+        }
+      ],
+      "obligatoriedad": "OBLIGATORIO",
+      "aplicabilidad": "GENERAL",
+      "tipos_dte_afectados": [
+        "FE",
+        "CCFE",
+        "NCE",
+        "FEXE",
+        "FSEE"
+      ],
+      "impacto_potencial_zolvi": "Validar contratos API en fase técnica.",
+      "componentes_potenciales": [
+        "DTE_TRANSMISSION"
+      ],
+      "impacta_onboarding_fiscal": false,
+      "impacta_documentos_historicos": "NO",
+      "prioridad": "P2",
+      "estado_evidencia": "REQUIERE_VERIFICACION",
+      "observaciones": "Comparación de contratos API fuera de alcance; manual técnico anterior no localizado."
+    },
+    {
+      "id": "MH20-084",
+      "bloque": "B16",
+      "titulo": "Requisitos de arquitectura y seguridad del Gestor de Facturación",
+      "tipo_cambio": "MODIFICADO",
+      "regla_anterior": "Alta disponibilidad, recuperación ante desastres, balanceadores, autoescalado; seguridad: ataques externos, accesos, registro por IP, logs.",
+      "regla_nueva": "Se agregan componentes de seguridad de privacidad, respaldo de datos, trazabilidad, monitoreo de transacciones, reportes de sistema, cifrado de información sensible, plan de continuidad por contingencia y gestión de incidentes; se elimina la mención de registro por IP origen.",
+      "fuente_anterior": {
+        "documento": "Normativa 1.2 (17/11/2025)",
+        "seccion": "Anexo I 5-6",
+        "pagina": "35-36"
+      },
+      "fuente_nueva": [
+        {
+          "documento": "Normativa 2.0 (25/05/2026)",
+          "seccion": "Anexo I 5-6",
+          "pagina": "44-45"
+        }
+      ],
+      "obligatoriedad": "OBLIGATORIO",
+      "aplicabilidad": "GENERAL",
+      "tipos_dte_afectados": [
+        "FE",
+        "CCFE",
+        "NCE",
+        "FEXE",
+        "FSEE"
+      ],
+      "impacto_potencial_zolvi": "Brechas potenciales de observabilidad/seguridad a auditar.",
+      "componentes_potenciales": [
+        "CONTROL_PLANE",
+        "DATABASE",
+        "DTE_TRANSMISSION"
+      ],
+      "impacta_onboarding_fiscal": false,
+      "impacta_documentos_historicos": "NO",
+      "prioridad": "P2",
+      "estado_evidencia": "CONFIRMADO",
+      "observaciones": "P2: obligaciones 'de acuerdo al volumen de transacciones'."
+    },
+    {
+      "id": "MH20-085",
+      "bloque": "B16",
+      "titulo": "Flujo de validación MH (token, firma, esquema, reglas de negocio)",
+      "tipo_cambio": "SIN_CAMBIO",
+      "regla_anterior": "Flujo DTE (diagrama ilegible en OCR).",
+      "regla_nueva": "Flujo DTE y Eventos: valida token, firma, esquema y reglas de negocio; genera sello; consulta.",
+      "fuente_anterior": {
+        "documento": "Normativa 1.2 (17/11/2025)",
+        "seccion": "Anexo I 7 (diagrama, OCR deficiente)",
+        "pagina": 36
+      },
+      "fuente_nueva": [
+        {
+          "documento": "Normativa 2.0 (25/05/2026)",
+          "seccion": "Anexo I 7 (verificado en Fase 0.1)",
+          "pagina": 46
+        }
+      ],
+      "obligatoriedad": "OBLIGATORIO",
+      "aplicabilidad": "GENERAL",
+      "tipos_dte_afectados": [
+        "FE",
+        "CCFE",
+        "NCE",
+        "FEXE",
+        "FSEE"
+      ],
+      "impacto_potencial_zolvi": "Clasificación de errores por etapa.",
+      "componentes_potenciales": [
+        "DTE_TRANSMISSION"
+      ],
+      "impacta_onboarding_fiscal": false,
+      "impacta_documentos_historicos": "NO",
+      "prioridad": "P3",
+      "estado_evidencia": "REQUIERE_VERIFICACION",
+      "observaciones": "Diagrama 1.2 no legible por OCR; no se verificó visualmente en esta fase."
+    },
+    {
+      "id": "MH20-086",
+      "bloque": "B17",
+      "titulo": "Autorización y certificado previos; plazo para iniciar emisión",
+      "tipo_cambio": "NUEVO",
+      "regla_anterior": "Requisitos para ser emisor: sistema conforme y completar satisfactoriamente las pruebas requeridas.",
+      "regla_nueva": "Obtener previamente la Autorización y el Certificado de Firma; los usuarios del Sistema de Transmisión tienen hasta un mes desde el día siguiente a la autorización para iniciar la emisión, sin exceder la fecha de inicio de la obligación.",
+      "fuente_anterior": {
+        "documento": "Normativa 1.2 (17/11/2025)",
+        "seccion": "Regla 17",
+        "pagina": 23
+      },
+      "fuente_nueva": [
+        {
+          "documento": "Normativa 2.0 (25/05/2026)",
+          "seccion": "Reglas 2.2 y 6",
+          "pagina": "8-9, 13"
+        }
+      ],
+      "obligatoriedad": "OBLIGATORIO",
+      "aplicabilidad": "GENERAL",
+      "tipos_dte_afectados": [
+        "FE",
+        "CCFE",
+        "NCE",
+        "FEXE",
+        "FSEE"
+      ],
+      "impacto_potencial_zolvi": "Calendario de onboarding: autorización → inicio en producción ≤ 1 mes.",
+      "componentes_potenciales": [
+        "FISCAL_ONBOARDING",
+        "CONTROL_PLANE"
+      ],
+      "impacta_onboarding_fiscal": true,
+      "impacta_documentos_historicos": "NO",
+      "prioridad": "P1",
+      "estado_evidencia": "CONFIRMADO",
+      "observaciones": "P1: certificación fiscal."
+    },
+    {
+      "id": "MH20-087",
+      "bloque": "B17",
+      "titulo": "Pruebas mínimas de transmisión por tipo de DTE",
+      "tipo_cambio": "NUEVO",
+      "regla_anterior": "La Normativa 1.2 sólo exigía completar 'las pruebas requeridas' sin cantidades; no se localizó en el repositorio el manual funcional anterior con cantidades.",
+      "regla_nueva": "Manual Funcional 2.0: FE 90, CCF 75, NR 50, NC 50, ND 25, CR 50, CL 75, DCL 50, FEX 90, FSE 25, CD 25 (Sistema de Transmisión). La Normativa 2.0 exige 'completar satisfactoriamente las pruebas mínimas requeridas'.",
+      "fuente_anterior": {
+        "documento": "Normativa 1.2 (17/11/2025)",
+        "seccion": "Regla 17 lit. a",
+        "pagina": 23
+      },
+      "fuente_nueva": [
+        {
+          "documento": "Normativa 2.0 (25/05/2026)",
+          "seccion": "Regla 9.1",
+          "pagina": 19
+        },
+        {
+          "documento": "Manual Funcional Sistema de Transmisión v2.0 (05/2026)",
+          "seccion": "XXIV Pruebas de Transmisión Satisfactorias Mínimas",
+          "pagina": 79
+        }
+      ],
+      "obligatoriedad": "OBLIGATORIO",
+      "aplicabilidad": "POR_TIPO_DTE",
+      "tipos_dte_afectados": [
+        "FE",
+        "CCFE",
+        "NCE",
+        "FEXE",
+        "FSEE"
+      ],
+      "impacto_potencial_zolvi": "Automatización de pruebas en MH TEST por tipo implementado: FE 90, CCF 75, NC 50, FEX 90, FSE 25.",
+      "componentes_potenciales": [
+        "FISCAL_ONBOARDING",
+        "CONTROL_PLANE"
+      ],
+      "impacta_onboarding_fiscal": true,
+      "impacta_documentos_historicos": "NO",
+      "prioridad": "P1",
+      "estado_evidencia": "CONFIRMADO",
+      "observaciones": "Cantidades provienen del Manual Funcional, no de la Normativa. Aplicabilidad por tipo: sólo los tipos que el emisor emite (regla 2.2)."
+    },
+    {
+      "id": "MH20-088",
+      "bloque": "B17",
+      "titulo": "Pruebas mínimas de eventos (incluye Retorno y OE)",
+      "tipo_cambio": "NUEVO",
+      "regla_anterior": "No se establecían pruebas de eventos en la Normativa 1.2.",
+      "regla_nueva": "Invalidación 5, Contingencia 5, Retorno 5, Operaciones Especiales 5; las pruebas de eventos se consideran al autorizar emisores.",
+      "fuente_anterior": {
+        "documento": "Normativa 1.2 (17/11/2025)",
+        "seccion": "No existe disposición equivalente",
+        "pagina": null
+      },
+      "fuente_nueva": [
+        {
+          "documento": "Manual Funcional Sistema de Transmisión v2.0 (05/2026)",
+          "seccion": "XXIV (tabla de eventos)",
+          "pagina": 79
+        },
+        {
+          "documento": "Manual Funcional Sistema de Transmisión v2.0 (05/2026)",
+          "seccion": "IV Eventos",
+          "pagina": 11
+        }
+      ],
+      "obligatoriedad": "OBLIGATORIO",
+      "aplicabilidad": "GENERAL",
+      "tipos_dte_afectados": [
+        "FE",
+        "CCFE",
+        "NCE",
+        "FEXE",
+        "FSEE"
+      ],
+      "impacto_potencial_zolvi": "Escenarios automatizados de eventos en MH TEST; OE posiblemente sólo para emisores designados.",
+      "componentes_potenciales": [
+        "FISCAL_ONBOARDING",
+        "DTE_EVENTS"
+      ],
+      "impacta_onboarding_fiscal": true,
+      "impacta_documentos_historicos": "NO",
+      "prioridad": "P1",
+      "estado_evidencia": "REQUIERE_VERIFICACION",
+      "observaciones": "La tabla salta el N° 4 (INC-011). No se determina si OE es exigible a emisores sin autorización de FVS/CCI."
+    },
+    {
+      "id": "MH20-089",
+      "bloque": "B17",
+      "titulo": "Implementación de todos los DTE y Eventos aplicables en todos los establecimientos",
+      "tipo_cambio": "MODIFICADO",
+      "regla_anterior": "Implementar en todos los establecimientos todos los tipos de DTE autorizados y los que surjan de su operatividad.",
+      "regla_nueva": "Iniciar la transmisión de todos los tipos de DTE y Eventos que emiten según su operatividad, en todos sus establecimientos.",
+      "fuente_anterior": {
+        "documento": "Normativa 1.2 (17/11/2025)",
+        "seccion": "Regla 17",
+        "pagina": 23
+      },
+      "fuente_nueva": [
+        {
+          "documento": "Normativa 2.0 (25/05/2026)",
+          "seccion": "Regla 2.2",
+          "pagina": "8-9"
+        }
+      ],
+      "obligatoriedad": "OBLIGATORIO",
+      "aplicabilidad": "GENERAL",
+      "tipos_dte_afectados": [
+        "FE",
+        "CCFE",
+        "NCE",
+        "FEXE",
+        "FSEE"
+      ],
+      "impacto_potencial_zolvi": "Incluye eventos (Retorno) en el alcance de cada cliente.",
+      "componentes_potenciales": [
+        "FISCAL_ONBOARDING"
+      ],
+      "impacta_onboarding_fiscal": true,
+      "impacta_documentos_historicos": "NO",
+      "prioridad": "P1",
+      "estado_evidencia": "CONFIRMADO",
+      "observaciones": "P1."
+    },
+    {
+      "id": "MH20-090",
+      "bloque": "B17",
+      "titulo": "Repetición de pruebas para emisores existentes",
+      "tipo_cambio": "NO_DETERMINADO",
+      "regla_anterior": "No regulado.",
+      "regla_nueva": "La Normativa 2.0 no indica si los emisores ya autorizados deben repetir pruebas para las nuevas versiones o eventos.",
+      "fuente_anterior": {
+        "documento": "Normativa 1.2 (17/11/2025)",
+        "seccion": "No existe disposición equivalente",
+        "pagina": null
+      },
+      "fuente_nueva": [
+        {
+          "documento": "Normativa 2.0 (25/05/2026)",
+          "seccion": "Reglas 2.2, 9.1 y 18",
+          "pagina": "8-9, 19, 34-35"
+        }
+      ],
+      "obligatoriedad": "NO_DETERMINADO",
+      "aplicabilidad": "GENERAL",
+      "tipos_dte_afectados": [
+        "FE",
+        "CCFE",
+        "NCE",
+        "FEXE",
+        "FSEE"
+      ],
+      "impacto_potencial_zolvi": "Planificación de re-certificación de clientes actuales.",
+      "componentes_potenciales": [
+        "FISCAL_ONBOARDING"
+      ],
+      "impacta_onboarding_fiscal": true,
+      "impacta_documentos_historicos": "NO",
+      "prioridad": "P1",
+      "estado_evidencia": "REQUIERE_VERIFICACION",
+      "observaciones": "Pregunta abierta a MH."
+    },
+    {
+      "id": "MH20-091",
+      "bloque": "B17",
+      "titulo": "Sujetos obligados voluntarios, transparencia tecnológica y responsabilidad del emisor",
+      "tipo_cambio": "NUEVO",
+      "regla_anterior": "Programa de implementación; opción de iniciar antes de la fecha.",
+      "regla_nueva": "Quienes opten voluntariamente adquieren la calidad de obligados; el sujeto pasivo puede elegir gestor propio, de mercado o tercerizado, pero es el responsable del cumplimiento.",
+      "fuente_anterior": {
+        "documento": "Normativa 1.2 (17/11/2025)",
+        "seccion": "Regla 17",
+        "pagina": 23
+      },
+      "fuente_nueva": [
+        {
+          "documento": "Normativa 2.0 (25/05/2026)",
+          "seccion": "Reglas 2.1.1.1 y Anexo I 1.1",
+          "pagina": "8, 36"
+        }
+      ],
+      "obligatoriedad": "OBLIGATORIO",
+      "aplicabilidad": "GENERAL",
+      "tipos_dte_afectados": [
+        "FE",
+        "CCFE",
+        "NCE",
+        "FEXE",
+        "FSEE"
+      ],
+      "impacto_potencial_zolvi": "Zolvi como gestor tercerizado: responsabilidad fiscal del cliente-emisor; contratos/SLA.",
+      "componentes_potenciales": [
+        "FISCAL_ONBOARDING",
+        "CONTROL_PLANE"
+      ],
+      "impacta_onboarding_fiscal": true,
+      "impacta_documentos_historicos": "NO",
+      "prioridad": "P2",
+      "estado_evidencia": "CONFIRMADO",
+      "observaciones": "P2."
+    },
+    {
+      "id": "MH20-092",
+      "bloque": "B18",
+      "titulo": "Entrada en vigor de la Normativa 2.0",
+      "tipo_cambio": "MODIFICADO",
+      "regla_anterior": "Normativa 1.2 vigente a partir de su emisión (17/11/2025).",
+      "regla_nueva": "Vigente a partir del día de su publicación; firmada en San Salvador el 25 de mayo de 2026.",
+      "fuente_anterior": {
+        "documento": "Normativa 1.2 (17/11/2025)",
+        "seccion": "Regla 21",
+        "pagina": 24
+      },
+      "fuente_nueva": [
+        {
+          "documento": "Normativa 2.0 (25/05/2026)",
+          "seccion": "Regla 20",
+          "pagina": 35
+        }
+      ],
+      "obligatoriedad": "OBLIGATORIO",
+      "aplicabilidad": "GENERAL",
+      "tipos_dte_afectados": [
+        "FE",
+        "CCFE",
+        "NCE",
+        "FEXE",
+        "FSEE"
+      ],
+      "impacto_potencial_zolvi": "Fecha de publicación oficial no consta en los documentos.",
+      "componentes_potenciales": [
+        "FISCAL_ONBOARDING",
+        "CONTROL_PLANE"
+      ],
+      "impacta_onboarding_fiscal": true,
+      "impacta_documentos_historicos": "NO_DETERMINADO",
+      "prioridad": "P0",
+      "estado_evidencia": "REQUIERE_VERIFICACION",
+      "observaciones": "Fecha de firma con OCR parcial ('25 de mayo e 026'); confirmada en README Fase 0 (portada). Fecha de publicación pendiente."
+    },
+    {
+      "id": "MH20-093",
+      "bloque": "B18",
+      "titulo": "Plazos de adaptación a versiones y modificaciones",
+      "tipo_cambio": "MODIFICADO",
+      "regla_anterior": "Cuadro 4: versiones (cambios sustanciales) hasta los diez primeros días hábiles del tercer mes siguiente al período de comunicación; modificaciones hasta los diez primeros días hábiles del mes siguiente; sin sello si no se aplican en plazo.",
+      "regla_nueva": "Actualizaciones que afecten estructura, formato o atributos: vigentes desde la publicación salvo que la ley disponga otro plazo; usuarios del Sistema de Transmisión deben concluir adaptaciones dentro del plazo que establezca la AT; cambios sin efecto estructural vigentes desde que se informen.",
+      "fuente_anterior": {
+        "documento": "Normativa 1.2 (17/11/2025)",
+        "seccion": "Regla 19, Cuadro 4",
+        "pagina": "23-24"
+      },
+      "fuente_nueva": [
+        {
+          "documento": "Normativa 2.0 (25/05/2026)",
+          "seccion": "Regla 18",
+          "pagina": "34-35"
+        }
+      ],
+      "obligatoriedad": "OBLIGATORIO",
+      "aplicabilidad": "GENERAL",
+      "tipos_dte_afectados": [
+        "FE",
+        "CCFE",
+        "NCE",
+        "FEXE",
+        "FSEE"
+      ],
+      "impacto_potencial_zolvi": "La fecha límite de adaptación no está publicada en las fuentes; riesgo de rechazo masivo si la AT activa validaciones v2.0.",
+      "componentes_potenciales": [
+        "FISCAL_ONBOARDING",
+        "CONTROL_PLANE",
+        "DTE_BUILDERS"
+      ],
+      "impacta_onboarding_fiscal": true,
+      "impacta_documentos_historicos": "SI",
+      "prioridad": "P0",
+      "estado_evidencia": "CONFIRMADO",
+      "observaciones": "P0. El paquete se denomina 'DOC_CAMBIOS_DIC2026' (README Fase 0), pero ninguna fuente normativa fija esa fecha: no se asume."
+    },
+    {
+      "id": "MH20-094",
+      "bloque": "B18",
+      "titulo": "Coexistencia de versiones y documentos históricos",
+      "tipo_cambio": "NO_DETERMINADO",
+      "regla_anterior": "No regulado.",
+      "regla_nueva": "No se localizaron disposiciones sobre: coexistencia de versiones de schema, DTE generados antes y transmitidos después del cambio, eventos (invalidación/retorno) sobre DTE emitidos con versiones anteriores, ni reemisión de Archivos DTE históricos con 'selloRecibido'/'firmaElectronica'.",
+      "fuente_anterior": {
+        "documento": "Normativa 1.2 (17/11/2025)",
+        "seccion": "No existe disposición equivalente",
+        "pagina": null
+      },
+      "fuente_nueva": [
+        {
+          "documento": "Normativa 2.0 (25/05/2026)",
+          "seccion": "Reglas 15, 18 y 20",
+          "pagina": "34-35"
+        }
+      ],
+      "obligatoriedad": "NO_DETERMINADO",
+      "aplicabilidad": "GENERAL",
+      "tipos_dte_afectados": [
+        "FE",
+        "CCFE",
+        "NCE",
+        "FEXE",
+        "FSEE"
+      ],
+      "impacto_potencial_zolvi": "Decisión de diseño crítica para la migración (versionado por documento).",
+      "componentes_potenciales": [
+        "DTE_BUILDERS",
+        "DTE_EVENTS",
+        "DATABASE",
+        "MARIADB",
+        "DTE_DELIVERY"
+      ],
+      "impacta_onboarding_fiscal": true,
+      "impacta_documentos_historicos": "SI",
+      "prioridad": "P0",
+      "estado_evidencia": "REQUIERE_VERIFICACION",
+      "observaciones": "Pregunta abierta prioritaria a MH."
+    },
+    {
+      "id": "MH20-095",
+      "bloque": "B18",
+      "titulo": "Actualización de reglas para el otorgamiento del Sello",
+      "tipo_cambio": "NUEVO",
+      "regla_anterior": "Cambios sin efecto estructural vigentes desde su publicación.",
+      "regla_nueva": "Cuando la AT actualice las reglas de otorgamiento del sello, se comunicarán y deberán implementarse en todos los DTE y Eventos aplicables dentro del plazo que establezca.",
+      "fuente_anterior": {
+        "documento": "Normativa 1.2 (17/11/2025)",
+        "seccion": "Regla 19",
+        "pagina": 24
+      },
+      "fuente_nueva": [
+        {
+          "documento": "Normativa 2.0 (25/05/2026)",
+          "seccion": "Regla 10",
+          "pagina": 21
+        }
+      ],
+      "obligatoriedad": "OBLIGATORIO",
+      "aplicabilidad": "GENERAL",
+      "tipos_dte_afectados": [
+        "FE",
+        "CCFE",
+        "NCE",
+        "FEXE",
+        "FSEE"
+      ],
+      "impacto_potencial_zolvi": "Proceso de gestión de cambios normativos continuo.",
+      "componentes_potenciales": [
+        "CONTROL_PLANE",
+        "DTE_VALIDATORS"
+      ],
+      "impacta_onboarding_fiscal": false,
+      "impacta_documentos_historicos": "NO",
+      "prioridad": "P1",
+      "estado_evidencia": "CONFIRMADO",
+      "observaciones": "P1."
+    },
+    {
+      "id": "MH20-096",
+      "bloque": "B18",
+      "titulo": "Tiquetes y fechas de liberación de informes",
+      "tipo_cambio": "SIN_CAMBIO",
+      "regla_anterior": "Tiquetes hasta 31/12/2024; desde 01/01/2025 Factura Electrónica a consumidor final. Liberación de informes en fechas que fije la AT.",
+      "regla_nueva": "Igual (se añade referencia a sanción).",
+      "fuente_anterior": {
+        "documento": "Normativa 1.2 (17/11/2025)",
+        "seccion": "Reglas 15 y 18",
+        "pagina": "22-23"
+      },
+      "fuente_nueva": [
+        {
+          "documento": "Normativa 2.0 (25/05/2026)",
+          "seccion": "Reglas 15 y 17",
+          "pagina": 34
+        }
+      ],
+      "obligatoriedad": "OBLIGATORIO",
+      "aplicabilidad": "GENERAL",
+      "tipos_dte_afectados": [
+        "FE"
+      ],
+      "impacto_potencial_zolvi": "Sin cambio.",
+      "componentes_potenciales": [
+        "SALES"
+      ],
+      "impacta_onboarding_fiscal": false,
+      "impacta_documentos_historicos": "NO",
+      "prioridad": "P3",
+      "estado_evidencia": "CONFIRMADO",
+      "observaciones": "P3."
+    },
+    {
+      "id": "MH20-097",
+      "bloque": "B04",
+      "titulo": "Cambios en DTE no implementados actualmente (NRE, NDE, CRE, CLE, DCLE, CDE)",
+      "tipo_cambio": "MODIFICADO",
+      "regla_anterior": "NRE/NDE v3; CRE, CLE, DCLE, CDE v1; DCLE con códigos de establecimiento del receptor.",
+      "regla_nueva": "NRE/NDE v4; CRE, CLE, DCLE, CDE v2; NDE con los mismos campos nuevos que NCE; CRE campo 157 IVA 13%; CLE sin NIT receptor; DCLE sin tipo/códigos de establecimiento y punto de venta; plazos de invalidación propios (INC-004).",
+      "fuente_anterior": {
+        "documento": "Normativa 1.2 (17/11/2025)",
+        "seccion": "Anexo II campo 1",
+        "pagina": 37
+      },
+      "fuente_nueva": [
+        {
+          "documento": "Normativa 2.0 (25/05/2026)",
+          "seccion": "Anexo II campo 1",
+          "pagina": 48
+        },
+        {
+          "documento": "Normativa 2.0 (25/05/2026)",
+          "seccion": "Anexo VI",
+          "pagina": "136-137"
+        },
+        {
+          "documento": "svfe-json-schemas (paquete 2.0)",
+          "seccion": "v2 y v4",
+          "pagina": null
+        }
+      ],
+      "obligatoriedad": "OBLIGATORIO",
+      "aplicabilidad": "NO_APLICA_ACTUALMENTE",
+      "tipos_dte_afectados": [
+        "NRE",
+        "NDE",
+        "CRE",
+        "CLE",
+        "DCLE",
+        "CDE"
+      ],
+      "impacto_potencial_zolvi": "Sin impacto mientras no se implementen; considerar en roadmap.",
+      "componentes_potenciales": [
+        "DTE_BUILDERS"
+      ],
+      "impacta_onboarding_fiscal": false,
+      "impacta_documentos_historicos": "NO",
+      "prioridad": "P3",
+      "estado_evidencia": "CONFIRMADO",
+      "observaciones": "P3: tipos fuera del alcance actual según el prompt de fase (FE, CCFE, NC, FEX, FSE)."
+    }
+  ],
+  "resumen": {
+    "total": 97,
+    "por_bloque": {
+      "B01": 8,
+      "B02": 5,
+      "B03": 10,
+      "B04": 9,
+      "B05": 3,
+      "B06": 2,
+      "B07": 3,
+      "B08": 2,
+      "B09": 2,
+      "B10": 9,
+      "B11": 5,
+      "B12": 5,
+      "B13": 3,
+      "B14": 9,
+      "B15": 5,
+      "B16": 6,
+      "B17": 6,
+      "B18": 5
+    },
+    "por_tipo_cambio": {
+      "MODIFICADO": 46,
+      "SIN_CAMBIO": 9,
+      "NUEVO": 36,
+      "NO_DETERMINADO": 5,
+      "ELIMINADO": 1
+    },
+    "por_prioridad": {
+      "P0": 19,
+      "P1": 48,
+      "P2": 18,
+      "P3": 12
+    },
+    "por_evidencia": {
+      "CONFIRMADO": 77,
+      "REQUIERE_VERIFICACION": 20
+    },
+    "impacta_onboarding": 30
+  }
+}

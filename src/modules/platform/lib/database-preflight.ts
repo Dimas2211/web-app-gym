@@ -14,6 +14,7 @@
 import type { PrismaClient } from "@prisma/client";
 import { prisma } from "@/lib/db/prisma";
 import { PLATFORM_MODULE_CODES, GYM_VERTICAL_MODULES } from "../constants/platform-modules.constants";
+import { dteCatalogWhere } from "@/modules/commerce/dte/spec/dte-catalog-version";
 import type {
   DatabasePreflightInput,
   DatabasePreflightResult,
@@ -297,7 +298,7 @@ async function runGlobalChecks(
     const dteCatalogCounts = await Promise.all(
       REQUIRED_DTE_CATALOGS.map((cat) =>
         db.dteCatalogItem
-          .count({ where: { catalog_code: cat, is_active: true } })
+          .count({ where: { ...dteCatalogWhere(cat), is_active: true } })
           .then((count) => ({ cat, count })),
       ),
     );
@@ -334,7 +335,7 @@ async function runGlobalChecks(
     const fex11CatalogCounts = await Promise.all(
       FEX11_DTE_CATALOGS.map((cat) =>
         db.dteCatalogItem
-          .count({ where: { catalog_code: cat, is_active: true } })
+          .count({ where: { ...dteCatalogWhere(cat), is_active: true } })
           .then((count) => ({ cat, count })),
       ),
     );

@@ -1,0 +1,1852 @@
+{
+ "fase": "FASE_3",
+ "generado_por": "scripts/03-compare-catalogs.py",
+ "excel_2_0": {
+  "archivo": "docs/fiscal/mh-normativa-2.0/originales/Catálogos - Facturación Electrónica.xlsx",
+  "sha256": "e86d7edc503d876564cd2bf9b251fb100f838199330c0c513048f4075669b2c6",
+  "hoja": "Hoja1",
+  "max_row": 1907,
+  "titulo_libro": "CATÁLOGOS - FACTURACIÓN ELECTRÓNICA - V 1.1"
+ },
+ "excel_v1_2": {
+  "archivo": "database/catalogs/Catálogos del Sistema de Transmisión V 1.2.xlsx",
+  "sha256": "38054132b39c7f95ec979b17492e80abe631ae2c4a3b53838abd5a26c98929e0",
+  "hoja": "Hoja1",
+  "max_row": 1610,
+  "titulo_libro": "CATÁLOGOS DEL SISTEMA DE TRANSMISIÓN - V 1.2"
+ },
+ "resumen": {
+  "catalogos_2_0": 33,
+  "catalogos_v1_2": 32,
+  "registros_2_0": 1681,
+  "registros_v1_2": 1387,
+  "catalogos_con_fuente_zolvi": [
+   "CAT-001",
+   "CAT-002",
+   "CAT-003",
+   "CAT-004",
+   "CAT-008",
+   "CAT-012",
+   "CAT-013",
+   "CAT-014",
+   "CAT-015",
+   "CAT-016",
+   "CAT-017",
+   "CAT-018",
+   "CAT-019",
+   "CAT-020",
+   "CAT-022",
+   "CAT-024",
+   "CAT-027",
+   "CAT-028",
+   "CAT-029",
+   "CAT-030",
+   "CAT-031"
+  ]
+ },
+ "corroboracion_territorial": {
+  "CAT-013": {
+   "segmentos_detectados": 14,
+   "departamentos_cat012": 15,
+   "fuentes": [
+    {
+     "fuente": "prisma/importers/generated/commerce-catalogs.data.ts",
+     "filas_zolvi": 43,
+     "coinciden": 43,
+     "faltan_en_zolvi": 2,
+     "nombres_territoriales_coinciden": 41,
+     "nombres_territoriales_difieren": 2
+    },
+    {
+     "fuente": "src/modules/commerce/dte/utils/cat013-fex-v3-municipalities.ts",
+     "filas_zolvi": 44,
+     "coinciden": 44,
+     "faltan_en_zolvi": 1,
+     "nombres_territoriales_coinciden": 42,
+     "nombres_territoriales_difieren": 2
+    },
+    {
+     "fuente": "docs/dte-official/catalogs/cat-013-municipios-v1.2.csv",
+     "filas_zolvi": 44,
+     "coinciden": 44,
+     "faltan_en_zolvi": 1,
+     "nombres_territoriales_coinciden": 42,
+     "nombres_territoriales_difieren": 2
+    }
+   ]
+  },
+  "CAT-008": {
+   "segmentos_detectados": 14,
+   "departamentos_cat012": 15,
+   "fuentes": [
+    {
+     "fuente": "prisma/importers/generated/municipalities.data.ts",
+     "filas_zolvi": 262,
+     "coinciden": 262,
+     "faltan_en_zolvi": 1,
+     "nombres_territoriales_coinciden": 261,
+     "nombres_territoriales_difieren": 1
+    }
+   ]
+  }
+ },
+ "catalogos": [
+  {
+   "codigo": "CAT-001",
+   "titulo_2_0": "Ambiente de destino",
+   "titulo_v1_2": "Ambiente de destino",
+   "critico_para_zolvi": false,
+   "fila_titulo": 7,
+   "fila_encabezado": 8,
+   "ultima_fila": 11,
+   "encabezados": [
+    "Código",
+    "Valores"
+   ],
+   "registros": 2,
+   "tipos_celda": {
+    "str": 2
+   },
+   "con_jerarquia": false,
+   "clave_compuesta": "codigo",
+   "segmentos": null,
+   "notas": [],
+   "calidad": [],
+   "registros_v1_2": 2,
+   "fuentes_zolvi": [
+    {
+     "fuente": "prisma/seeds/seed.dte-catalog-items.ts",
+     "nota": "DteCatalogItem (seed)",
+     "filas_zolvi": 2,
+     "coinciden": 2,
+     "faltan_en_zolvi": 0,
+     "nombres_territoriales_coinciden": null,
+     "nombres_territoriales_difieren": null
+    }
+   ],
+   "consumidores": [
+    "src/modules/platform/lib/seed-runners/dte-catalog-items-runner.ts:38,48,60,61,62",
+    "prisma/seeds/seed.dte-catalog-items.ts:19,20,21,130",
+    "prisma/schema.prisma:2717,2721",
+    "prisma/scripts/seed-preflight-blockers.ts:8",
+    "src/modules/commerce/dte/adapters/dte-query.adapter.ts:30",
+    "src/modules/commerce/dte/types/dte-catalog.types.ts:31"
+   ],
+   "consumidores_tests": []
+  },
+  {
+   "codigo": "CAT-002",
+   "titulo_2_0": "Tipo de Documento / Evento",
+   "titulo_v1_2": "Tipo de Documento",
+   "critico_para_zolvi": true,
+   "fila_titulo": 12,
+   "fila_encabezado": 13,
+   "ultima_fila": 27,
+   "encabezados": [
+    "Código",
+    "Valores"
+   ],
+   "registros": 13,
+   "tipos_celda": {
+    "str": 8,
+    "int": 5
+   },
+   "con_jerarquia": false,
+   "clave_compuesta": "codigo",
+   "segmentos": null,
+   "notas": [],
+   "calidad": [
+    {
+     "tipo": "TIPOS_DE_CELDA_MIXTOS",
+     "conteo": {
+      "str": 8,
+      "int": 5
+     }
+    }
+   ],
+   "registros_v1_2": 11,
+   "fuentes_zolvi": [
+    {
+     "fuente": "prisma/seeds/seed.dte-catalog-items.ts",
+     "nota": "DteCatalogItem (seed)",
+     "filas_zolvi": 4,
+     "coinciden": 4,
+     "faltan_en_zolvi": 9,
+     "nombres_territoriales_coinciden": null,
+     "nombres_territoriales_difieren": null
+    }
+   ],
+   "consumidores": [
+    "src/modules/platform/lib/seed-runners/dte-catalog-items-runner.ts:39,64,65,66,67,68",
+    "prisma/schema.prisma:2220,2548,2592,2717,2721",
+    "prisma/seeds/seed.dte-catalog-items.ts:23,24,25,26,27",
+    "src/modules/commerce/sales/schemas/sale.schemas.ts:20,75",
+    "src/modules/commerce/dte/constants/dte-type-codes-for-alignment.ts:4",
+    "src/modules/commerce/dte/types/dte-catalog.types.ts:32",
+    "src/modules/commerce/dte/types/dte-query.types.ts:32",
+    "src/modules/commerce/sales/utils/dte-type-labels.ts:1"
+   ],
+   "consumidores_tests": []
+  },
+  {
+   "codigo": "CAT-003",
+   "titulo_2_0": "Modelo de Facturación",
+   "titulo_v1_2": "Modelo de Facturación",
+   "critico_para_zolvi": true,
+   "fila_titulo": 28,
+   "fila_encabezado": 29,
+   "ultima_fila": 32,
+   "encabezados": [
+    "Código",
+    "Valores"
+   ],
+   "registros": 2,
+   "tipos_celda": {
+    "int": 2
+   },
+   "con_jerarquia": false,
+   "clave_compuesta": "codigo",
+   "segmentos": null,
+   "notas": [],
+   "calidad": [],
+   "registros_v1_2": 2,
+   "fuentes_zolvi": [
+    {
+     "fuente": "prisma/seeds/seed.dte-catalog-items.ts",
+     "nota": "DteCatalogItem (seed)",
+     "filas_zolvi": 2,
+     "coinciden": 2,
+     "faltan_en_zolvi": 0,
+     "nombres_territoriales_coinciden": null,
+     "nombres_territoriales_difieren": null
+    }
+   ],
+   "consumidores": [
+    "src/modules/commerce/dte/utils/dte-contingency-identification.utils.ts:4,13,14,15,16,23…",
+    "prisma/seeds/seed.dte-catalog-items.ts:29,30,31",
+    "src/modules/platform/lib/seed-runners/dte-catalog-items-runner.ts:70,71,72",
+    "prisma/schema.prisma:2717",
+    "src/modules/commerce/dte/services/generate-ccfe-json.service.ts:556",
+    "src/modules/commerce/dte/services/generate-fe-json.service.ts:590",
+    "src/modules/commerce/dte/services/generate-fex-json.service.ts:760",
+    "src/modules/commerce/dte/services/generate-fse-json.service.ts:428",
+    "src/modules/commerce/dte/services/generate-nc-json.service.ts:286",
+    "src/modules/commerce/dte/types/dte-catalog.types.ts:33",
+    "src/modules/commerce/dte/types/fex-json.types.ts:22",
+    "src/modules/commerce/dte/types/fse-json.types.ts:15"
+   ],
+   "consumidores_tests": [
+    "src/modules/commerce/dte/certification/dte-internal-certification.test.ts",
+    "src/modules/commerce/dte/mh-test-runs/mh-test-scenarios.test.ts",
+    "src/modules/commerce/dte/services/deliver-dte-to-external-db.service.idempotency.test.ts",
+    "src/modules/commerce/dte/services/generate-ccfe-json.service.runtime-write.test.ts",
+    "src/modules/commerce/dte/services/generate-fe-json.service.runtime-write.test.ts"
+   ]
+  },
+  {
+   "codigo": "CAT-004",
+   "titulo_2_0": "Tipo de Transmisión",
+   "titulo_v1_2": "Tipo de Transmisión",
+   "critico_para_zolvi": true,
+   "fila_titulo": 33,
+   "fila_encabezado": 34,
+   "ultima_fila": 37,
+   "encabezados": [
+    "Código",
+    "Valores"
+   ],
+   "registros": 2,
+   "tipos_celda": {
+    "int": 2
+   },
+   "con_jerarquia": false,
+   "clave_compuesta": "codigo",
+   "segmentos": null,
+   "notas": [],
+   "calidad": [],
+   "registros_v1_2": 2,
+   "fuentes_zolvi": [
+    {
+     "fuente": "prisma/seeds/seed.dte-catalog-items.ts",
+     "nota": "DteCatalogItem (seed)",
+     "filas_zolvi": 2,
+     "coinciden": 2,
+     "faltan_en_zolvi": 0,
+     "nombres_territoriales_coinciden": null,
+     "nombres_territoriales_difieren": null
+    }
+   ],
+   "consumidores": [
+    "src/modules/commerce/dte/dev/verify-contingency-dte-generation.ts:211,259,260,279,342,351…",
+    "src/modules/commerce/dte/utils/dte-contingency-identification.utils.ts:4,13,14,15,24,47…",
+    "prisma/schema.prisma:2602,2717,2899",
+    "prisma/seeds/seed.dte-catalog-items.ts:33,34,35",
+    "src/modules/platform/lib/seed-runners/dte-catalog-items-runner.ts:74,75,76",
+    "src/modules/commerce/dte/services/generate-ccfe-json.service.ts:531,557",
+    "src/modules/commerce/dte/services/generate-fe-json.service.ts:564,591",
+    "src/modules/commerce/dte/services/assert-dte-contingency-transmission-allowed.service.ts:73",
+    "src/modules/commerce/dte/services/generate-fex-json.service.ts:761",
+    "src/modules/commerce/dte/services/generate-fse-json.service.ts:429",
+    "src/modules/commerce/dte/services/generate-nc-json.service.ts:287",
+    "src/modules/commerce/dte/types/dte-catalog.types.ts:34"
+   ],
+   "consumidores_tests": [
+    "src/modules/commerce/dte/mh-test-runs/mh-test-scenarios.test.ts",
+    "src/modules/commerce/dte/certification/dte-internal-certification.test.ts",
+    "src/modules/commerce/dte/services/deliver-dte-to-external-db.service.idempotency.test.ts",
+    "src/modules/commerce/dte/services/generate-ccfe-json.service.runtime-write.test.ts",
+    "src/modules/commerce/dte/services/generate-fe-json.service.runtime-write.test.ts"
+   ]
+  },
+  {
+   "codigo": "CAT-005",
+   "titulo_2_0": "Tipo de Contingencia",
+   "titulo_v1_2": "Tipo de Contingencia",
+   "critico_para_zolvi": true,
+   "fila_titulo": 38,
+   "fila_encabezado": 39,
+   "ultima_fila": 45,
+   "encabezados": [
+    "Código",
+    "Valores"
+   ],
+   "registros": 5,
+   "tipos_celda": {
+    "int": 5
+   },
+   "con_jerarquia": false,
+   "clave_compuesta": "codigo",
+   "segmentos": null,
+   "notas": [],
+   "calidad": [],
+   "registros_v1_2": 5,
+   "fuentes_zolvi": [],
+   "consumidores": [
+    "src/modules/commerce/dte/services/create-contingency-event.service.ts:11,44,118,144,145,146…",
+    "src/modules/commerce/dte/dev/verify-contingency-dte-generation.ts:211,262,263,279,342,351…",
+    "src/modules/commerce/dte/services/build-contingency-event-json.service.ts:70,128,129,130,131,135…",
+    "src/modules/commerce/dte/dev/verify-contingency-event-local.ts:273,304,331,348,369,391…",
+    "src/modules/commerce/dte/utils/dte-contingency-identification.utils.ts:5,25,47,58,59,65…",
+    "src/modules/commerce/dte/utils/dte-transmission-validation.utils.ts:89,90,96,99,103,128…",
+    "src/modules/commerce/dte/mh-test-runs/mh-test-scenarios.ts:122,123,252,253,598",
+    "src/modules/commerce/dte/dev/verify-contingency-transmission-guard.ts:66,78,91,105",
+    "src/modules/commerce/dte/services/assert-dte-contingency-transmission-allowed.service.ts:47,86,102,119",
+    "src/modules/platform/components/platform-mh-test-runs-section.tsx:82,134,210",
+    "prisma/schema.prisma:2717,2899",
+    "src/modules/commerce/dte/dev/verify-contingency-event-mh-test.ts:231,245"
+   ],
+   "consumidores_tests": [
+    "src/modules/commerce/dte/services/assert-dte-contingency-transmission-allowed.service.runtime-write.test.ts",
+    "src/modules/commerce/dte/mh-test-runs/mh-test-scenarios.test.ts",
+    "src/modules/commerce/dte/services/create-contingency-event.service.runtime-write.test.ts",
+    "src/modules/commerce/dte/services/generate-ccfe-json.service.runtime-write.test.ts",
+    "src/modules/commerce/dte/services/generate-fe-json.service.runtime-write.test.ts",
+    "src/modules/platform/dte-onboarding/mh-test-runs/mh-test-run.engine.test.ts",
+    "src/modules/platform/dte-onboarding/mh-test-runs/mh-test-run.planner.test.ts"
+   ]
+  },
+  {
+   "codigo": "CAT-006",
+   "titulo_2_0": "Retención IVA MH",
+   "titulo_v1_2": "Retención IVA MH",
+   "critico_para_zolvi": false,
+   "fila_titulo": 46,
+   "fila_encabezado": 47,
+   "ultima_fila": 51,
+   "encabezados": [
+    "Código",
+    "Valores"
+   ],
+   "registros": 3,
+   "tipos_celda": {
+    "int": 1,
+    "str": 2
+   },
+   "con_jerarquia": false,
+   "clave_compuesta": "codigo",
+   "segmentos": null,
+   "notas": [],
+   "calidad": [
+    {
+     "tipo": "TIPOS_DE_CELDA_MIXTOS",
+     "conteo": {
+      "int": 1,
+      "str": 2
+     }
+    }
+   ],
+   "registros_v1_2": 3,
+   "fuentes_zolvi": [],
+   "consumidores": [],
+   "consumidores_tests": []
+  },
+  {
+   "codigo": "CAT-007",
+   "titulo_2_0": "Tipo de Generación del Documento",
+   "titulo_v1_2": "Tipo de Generación del Documento",
+   "critico_para_zolvi": false,
+   "fila_titulo": 52,
+   "fila_encabezado": 53,
+   "ultima_fila": 56,
+   "encabezados": [
+    "Código",
+    "Valores"
+   ],
+   "registros": 2,
+   "tipos_celda": {
+    "int": 2
+   },
+   "con_jerarquia": false,
+   "clave_compuesta": "codigo",
+   "segmentos": null,
+   "notas": [],
+   "calidad": [],
+   "registros_v1_2": 2,
+   "fuentes_zolvi": [],
+   "consumidores": [
+    "src/modules/commerce/dte/services/generate-nc-json.service.ts:296,302",
+    "src/modules/commerce/dte/types/fex-json.types.ts:35"
+   ],
+   "consumidores_tests": [
+    "src/modules/commerce/dte/services/generate-fex-json.v3.test.ts"
+   ]
+  },
+  {
+   "codigo": "CAT-008",
+   "titulo_2_0": "Distrito",
+   "titulo_v1_2": "",
+   "critico_para_zolvi": true,
+   "fila_titulo": 57,
+   "fila_encabezado": 58,
+   "ultima_fila": 322,
+   "encabezados": [
+    "Código",
+    "Valores"
+   ],
+   "registros": 263,
+   "tipos_celda": {
+    "str": 263
+   },
+   "con_jerarquia": false,
+   "clave_compuesta": "segmento|codigo (departamento INFERIDO por reinicio de secuencia)",
+   "segmentos": 14,
+   "notas": [],
+   "calidad": [],
+   "registros_v1_2": 1,
+   "fuentes_zolvi": [
+    {
+     "fuente": "prisma/importers/generated/municipalities.data.ts",
+     "nota": "Municipality (dept_code|code → district_name) (seed activo)",
+     "filas_zolvi": 262,
+     "coinciden": 262,
+     "faltan_en_zolvi": 1,
+     "nombres_territoriales_coinciden": 261,
+     "nombres_territoriales_difieren": 1
+    }
+   ],
+   "consumidores": [
+    "prisma/importers/import-csv-municipalities.ts:12,13,73,74,146,147…",
+    "src/modules/commerce/dte/utils/fex11-v3-territory.ts:5,8,9,14,17,38…",
+    "src/modules/commerce/dte/utils/dte-territory.resolver.ts:19,22,23,44,74,75…",
+    "prisma/schema.prisma:1432,1433,1439,1448",
+    "prisma/seeds/seed.commerce-catalogs.ts:71,72,81,82",
+    "src/modules/commerce/dte/services/generate-fex-json.service.ts:26,27,582,783",
+    "src/modules/commerce/dte/services/fex11-v3.test-fixture.ts:7,120",
+    "src/modules/commerce/customers/actions/update-customer-address.action.ts:82",
+    "src/modules/commerce/dte/certification/harness/certification-fixtures.ts:78",
+    "src/modules/commerce/dte/dev/verify-fex11-json.fixture.ts:148",
+    "src/modules/commerce/dte/types/fex-json.types.ts:43",
+    "src/modules/commerce/suppliers/actions/update-supplier-address.action.ts:82"
+   ],
+   "consumidores_tests": [
+    "src/modules/commerce/dte/utils/fex11-v3-territory.test.ts",
+    "src/modules/commerce/dte/services/generate-fex-json-pipeline.service.v3.test.ts",
+    "src/modules/commerce/dte/utils/dte-territory.resolver.test.ts",
+    "src/modules/commerce/dte/certification/dte-internal-certification.test.ts",
+    "src/modules/commerce/dte/services/generate-fex-json.service.runtime-write.test.ts",
+    "src/modules/commerce/dte/services/generate-fex-json.v3.test.ts",
+    "src/modules/commerce/dte/mh-test-runs/mh-test-scenarios.test.ts"
+   ]
+  },
+  {
+   "codigo": "CAT-009",
+   "titulo_2_0": "Tipo de establecimiento",
+   "titulo_v1_2": "Tipo de establecimiento",
+   "critico_para_zolvi": true,
+   "fila_titulo": 323,
+   "fila_encabezado": 324,
+   "ultima_fila": 329,
+   "encabezados": [
+    "Código",
+    "Valores"
+   ],
+   "registros": 4,
+   "tipos_celda": {
+    "str": 4
+   },
+   "con_jerarquia": false,
+   "clave_compuesta": "codigo",
+   "segmentos": null,
+   "notas": [],
+   "calidad": [],
+   "registros_v1_2": 4,
+   "fuentes_zolvi": [],
+   "consumidores": [
+    "prisma/seeds/seed.dte-local-test-data.ts:40,41,42,124,146",
+    "src/modules/commerce/dte/services/create-invalidation-event.service.ts:181,215,217,240",
+    "src/modules/commerce/dte/services/build-contingency-event-json.service.ts:87,88,179",
+    "src/modules/commerce/dte/services/build-invalidation-event-json.service.ts:86,87,181",
+    "src/modules/commerce/dte/services/dte-issuer-config.service.ts:77,159,200",
+    "prisma/schema.prisma:2420,2422",
+    "src/modules/commerce/dte/actions/upsert-dte-issuer-config-for-client.action.ts:67,137",
+    "src/modules/commerce/dte/mh-test-runs/mh-test-scenarios.ts:275,371",
+    "src/modules/commerce/dte/services/dte-production-preflight.service.ts:193,245",
+    "src/modules/commerce/dte/services/generate-ccfe-json.service.ts:138,576",
+    "src/modules/commerce/dte/services/generate-fe-json.service.ts:135,611",
+    "src/modules/commerce/dte/services/generate-nc-json.service.ts:247,319"
+   ],
+   "consumidores_tests": [
+    "src/modules/commerce/dte/services/generate-fex-json.v3.test.ts",
+    "src/modules/commerce/dte/mh-test-runs/mh-test-scenarios.test.ts",
+    "src/modules/commerce/dte/services/build-invalidation-event-json.fex.test.ts",
+    "src/modules/commerce/dte/services/create-invalidation-event.service.runtime-write.test.ts",
+    "src/modules/commerce/dte/services/dte-production-preflight.service.test.ts",
+    "src/modules/commerce/dte/services/generate-ccfe-json.service.runtime-write.test.ts",
+    "src/modules/commerce/dte/services/generate-fe-json.service.runtime-write.test.ts",
+    "src/modules/commerce/dte/services/generate-fex-json.service.runtime-write.test.ts"
+   ]
+  },
+  {
+   "codigo": "CAT-010",
+   "titulo_2_0": "Código tipo de Servicio (Médico)",
+   "titulo_v1_2": "Código tipo de Servicio (Médico)",
+   "critico_para_zolvi": false,
+   "fila_titulo": 330,
+   "fila_encabezado": 331,
+   "ultima_fila": 338,
+   "encabezados": [
+    "Código",
+    "Valores"
+   ],
+   "registros": 6,
+   "tipos_celda": {
+    "int": 6
+   },
+   "con_jerarquia": false,
+   "clave_compuesta": "codigo",
+   "segmentos": null,
+   "notas": [],
+   "calidad": [],
+   "registros_v1_2": 6,
+   "fuentes_zolvi": [],
+   "consumidores": [],
+   "consumidores_tests": []
+  },
+  {
+   "codigo": "CAT-011",
+   "titulo_2_0": "Tipo de ítem",
+   "titulo_v1_2": "Tipo de ítem",
+   "critico_para_zolvi": true,
+   "fila_titulo": 339,
+   "fila_encabezado": 341,
+   "ultima_fila": 346,
+   "encabezados": [
+    "Código",
+    "Valores"
+   ],
+   "registros": 4,
+   "tipos_celda": {
+    "int": 4
+   },
+   "con_jerarquia": false,
+   "clave_compuesta": "codigo",
+   "segmentos": null,
+   "notas": [],
+   "calidad": [
+    {
+     "tipo": "ESPACIOS_EN_DESCRIPCION",
+     "fila": 342,
+     "codigo": "1"
+    },
+    {
+     "tipo": "ESPACIOS_EN_DESCRIPCION",
+     "fila": 343,
+     "codigo": "2"
+    },
+    {
+     "tipo": "ESPACIOS_EN_DESCRIPCION",
+     "fila": 344,
+     "codigo": "3"
+    },
+    {
+     "tipo": "ESPACIOS_EN_DESCRIPCION",
+     "fila": 345,
+     "codigo": "4"
+    }
+   ],
+   "registros_v1_2": 4,
+   "fuentes_zolvi": [],
+   "consumidores": [
+    "src/modules/commerce/dte/services/generate-fex-json.service.ts:33,36,96,187,312,542…",
+    "src/modules/commerce/sales/export/services/export-sale.service.ts:468,582,583,584",
+    "src/modules/commerce/dte/services/generate-ccfe-json.service.ts:22,385,420",
+    "src/modules/commerce/dte/services/generate-fe-json.service.ts:20,351,392",
+    "src/modules/commerce/dte/services/generate-nc-json.service.ts:62,353,378",
+    "src/modules/commerce/sales/export/utils/fex-validation.ts:73,77,122",
+    "prisma/schema.prisma:2295,2717",
+    "src/modules/commerce/dte/dev/verify-fex11-preview-local.ts:363,454",
+    "src/modules/commerce/dte/services/generate-fse-json.service.ts:57,360",
+    "src/modules/commerce/dte/types/fex-json.types.ts:87,91",
+    "src/modules/commerce/dte/dev/verify-fex11-json.fixture.ts:99",
+    "src/modules/commerce/dte/mh-test-runs/mh-test-scenarios.ts:472"
+   ],
+   "consumidores_tests": [
+    "src/modules/commerce/dte/certification/dte-internal-certification.test.ts",
+    "src/modules/commerce/sales/export/services/export-sale.service.routing.test.ts",
+    "src/modules/commerce/sales/export/services/export-sale.service.v3.test.ts",
+    "src/modules/commerce/dte/services/generate-fex-json.v3.test.ts",
+    "src/modules/commerce/dte/services/generate-fex-json.service.runtime-write.test.ts",
+    "src/modules/commerce/dte/services/generate-nc-json.service.runtime-write.test.ts",
+    "src/modules/commerce/dte/utils/fex11-architecture.test.ts",
+    "src/modules/commerce/sales/export/actions/export-writes.runtime.test.ts"
+   ]
+  },
+  {
+   "codigo": "CAT-012",
+   "titulo_2_0": "Departamento",
+   "titulo_v1_2": "Departamento",
+   "critico_para_zolvi": true,
+   "fila_titulo": 347,
+   "fila_encabezado": 348,
+   "ultima_fila": 364,
+   "encabezados": [
+    "Código",
+    "Valores"
+   ],
+   "registros": 15,
+   "tipos_celda": {
+    "str": 10,
+    "int": 5
+   },
+   "con_jerarquia": false,
+   "clave_compuesta": "codigo",
+   "segmentos": null,
+   "notas": [],
+   "calidad": [
+    {
+     "tipo": "TIPOS_DE_CELDA_MIXTOS",
+     "conteo": {
+      "str": 10,
+      "int": 5
+     }
+    }
+   ],
+   "registros_v1_2": 15,
+   "fuentes_zolvi": [
+    {
+     "fuente": "prisma/importers/generated/municipalities.data.ts",
+     "nota": "Municipality.dept_code/dept_name (seed activo)",
+     "filas_zolvi": 14,
+     "coinciden": 14,
+     "faltan_en_zolvi": 1,
+     "nombres_territoriales_coinciden": null,
+     "nombres_territoriales_difieren": null
+    }
+   ],
+   "consumidores": [
+    "src/modules/commerce/customers/components/customer-detail-tabs.tsx:80,115,650,710,711,715…",
+    "src/modules/commerce/customers/components/municipality-picker.tsx:7,14,19,21,33,40…",
+    "prisma/importers/import-csv-municipalities.ts:18,47,69,128,142,169…",
+    "src/modules/commerce/dte/mh-test-runs/mh-test-scenarios.ts:185,200,231,279,297,310…",
+    "src/modules/commerce/dte/utils/dte-territory.resolver.ts:11,12,16,33,34,51…",
+    "src/modules/commerce/suppliers/components/supplier-detail-tabs.tsx:367,441,488,513,524,575…",
+    "src/modules/commerce/suppliers/queries/get-municipalities.ts:8,12,15,16,35,40…",
+    "prisma/importers/import-excel-catalogs.ts:9,45,48,108,127,133…",
+    "prisma/schema.prisma:1415,1421,1422,1425,1444,1446…",
+    "src/modules/commerce/customers/actions/update-customer-address.action.ts:11,57,67,68,71,74…",
+    "src/modules/commerce/dte/services/generate-fe-json.service.ts:95,137,291,298,490,534…",
+    "src/modules/commerce/dte/utils/fex11-v3-territory.ts:5,12,13,36,63,69…"
+   ],
+   "consumidores_tests": [
+    "src/modules/commerce/dte/utils/dte-territory.resolver.test.ts",
+    "src/modules/commerce/dte/utils/fex11-v3-territory.test.ts",
+    "src/modules/commerce/dte/services/generate-fex-json-pipeline.service.v3.test.ts",
+    "src/modules/commerce/dte/utils/cat013-fex-v3-municipalities.test.ts",
+    "src/modules/commerce/dte/mh-test-runs/mh-test-scenarios.test.ts",
+    "src/modules/commerce/dte/services/generate-ccfe-json.service.runtime-write.test.ts",
+    "src/modules/commerce/dte/services/generate-fex-json.service.runtime-write.test.ts",
+    "src/modules/commerce/dte/services/generate-fse-json.payment-nature.test.ts"
+   ]
+  },
+  {
+   "codigo": "CAT-013",
+   "titulo_2_0": "Municipio",
+   "titulo_v1_2": "Municipio",
+   "critico_para_zolvi": true,
+   "fila_titulo": 365,
+   "fila_encabezado": 366,
+   "ultima_fila": 412,
+   "encabezados": [
+    "Código",
+    "Valores"
+   ],
+   "registros": 45,
+   "tipos_celda": {
+    "str": 1,
+    "int": 44
+   },
+   "con_jerarquia": false,
+   "clave_compuesta": "segmento|codigo (departamento INFERIDO por reinicio de secuencia)",
+   "segmentos": 14,
+   "notas": [],
+   "calidad": [
+    {
+     "tipo": "TIPOS_DE_CELDA_MIXTOS",
+     "conteo": {
+      "str": 1,
+      "int": 44
+     }
+    }
+   ],
+   "registros_v1_2": 45,
+   "fuentes_zolvi": [
+    {
+     "fuente": "prisma/importers/generated/commerce-catalogs.data.ts",
+     "nota": "MUNICIPALITIES V1.2 generado (no importado por seed.commerce-catalogs.ts)",
+     "filas_zolvi": 43,
+     "coinciden": 43,
+     "faltan_en_zolvi": 2,
+     "nombres_territoriales_coinciden": 41,
+     "nombres_territoriales_difieren": 2
+    },
+    {
+     "fuente": "src/modules/commerce/dte/utils/cat013-fex-v3-municipalities.ts",
+     "nota": "Artefacto runtime FEX 11 v3 (44 municipios, sin '00')",
+     "filas_zolvi": 44,
+     "coinciden": 44,
+     "faltan_en_zolvi": 1,
+     "nombres_territoriales_coinciden": 42,
+     "nombres_territoriales_difieren": 2
+    },
+    {
+     "fuente": "docs/dte-official/catalogs/cat-013-municipios-v1.2.csv",
+     "nota": "Transcripción documental CAT-013 v1.2",
+     "filas_zolvi": 44,
+     "coinciden": 44,
+     "faltan_en_zolvi": 1,
+     "nombres_territoriales_coinciden": 42,
+     "nombres_territoriales_difieren": 2
+    }
+   ],
+   "consumidores": [
+    "src/modules/commerce/dte/utils/fex11-v3-territory.ts:5,8,9,10,13,14…",
+    "src/modules/commerce/dte/utils/dte-territory.resolver.ts:14,18,21,24,27,28…",
+    "src/modules/commerce/customers/components/customer-detail-tabs.tsx:11,116,708,710,711,714…",
+    "src/modules/commerce/dte/mh-test-runs/mh-test-scenarios.ts:185,200,231,280,310,330…",
+    "prisma/scripts/fix-dh-apps-municipality.ts:6,7,15,16,26,30…",
+    "src/modules/commerce/suppliers/actions/update-supplier-address.action.ts:10,59,67,68,69,70…",
+    "src/modules/commerce/dte/services/generate-fex-json.service.ts:26,27,154,206,367,390…",
+    "src/modules/commerce/suppliers/components/supplier-detail-tabs.tsx:11,408,413,439,443,514…",
+    "src/modules/commerce/customers/actions/update-customer-address.action.ts:11,58,67,68,71,74…",
+    "src/modules/commerce/customers/components/municipality-picker.tsx:6,7,15,20,22,171…",
+    "src/modules/commerce/dte/services/generate-fe-json.service.ts:96,138,292,299,491,534…",
+    "src/modules/commerce/dte/services/generate-fse-json.service.ts:76,121,210,253,269,276…"
+   ],
+   "consumidores_tests": [
+    "src/modules/commerce/dte/utils/fex11-v3-territory.test.ts",
+    "src/modules/commerce/dte/utils/dte-territory.resolver.test.ts",
+    "src/modules/commerce/dte/utils/cat013-fex-v3-municipalities.test.ts",
+    "src/modules/commerce/dte/services/generate-fex-json-pipeline.service.v3.test.ts",
+    "src/modules/commerce/dte/certification/dte-internal-certification.test.ts",
+    "src/modules/commerce/dte/mh-test-runs/mh-test-scenarios.test.ts",
+    "src/modules/commerce/dte/services/generate-ccfe-json.service.runtime-write.test.ts",
+    "src/modules/commerce/dte/services/generate-fex-json.service.runtime-write.test.ts"
+   ]
+  },
+  {
+   "codigo": "CAT-014",
+   "titulo_2_0": "Unidad de Medida",
+   "titulo_v1_2": "Unidad de Medida",
+   "critico_para_zolvi": true,
+   "fila_titulo": 413,
+   "fila_encabezado": 414,
+   "ultima_fila": 462,
+   "encabezados": [
+    "Código",
+    "Valores"
+   ],
+   "registros": 40,
+   "tipos_celda": {
+    "int": 40
+   },
+   "con_jerarquia": false,
+   "clave_compuesta": "codigo",
+   "segmentos": null,
+   "notas": [
+    "1: Unidad de medida que se utilizará según el Reglamento Técnico Salvadoreño RTS. 01.02.01:18 Metrología (SI).",
+    "2: Unidad de medida dejará de utilizarse con la entrada en vigencia del Reglamento Técnico Salvadoreño RTS. 01.02.01:18 Metrología (SI).",
+    "3: Aplica solo para productos derivados del petróleo.",
+    "4: Se refiere al Galón USA.",
+    "5: Medida aplica solo para tipo de bien oro.",
+    "6: Utilizada para detallar formas de presentación del producto"
+   ],
+   "calidad": [
+    {
+     "tipo": "ESPACIOS_EN_DESCRIPCION",
+     "fila": 426,
+     "codigo": "24"
+    }
+   ],
+   "registros_v1_2": 40,
+   "fuentes_zolvi": [
+    {
+     "fuente": "prisma/seeds/data/cat014-units.ts",
+     "nota": "UnitOfMeasure.mh_unit_code (seed; mh_code numérico)",
+     "filas_zolvi": 40,
+     "coinciden": 40,
+     "faltan_en_zolvi": 0,
+     "nombres_territoriales_coinciden": null,
+     "nombres_territoriales_difieren": null
+    }
+   ],
+   "consumidores": [
+    "src/modules/commerce/sales/export/services/export-sale.service.ts:289,292,293,297,302,316…",
+    "prisma/seeds/seed.units-of-measure.ts:5,9,13,23,30,34…",
+    "src/modules/commerce/sales/export/components/export-configure-mh-unit-modal.tsx:7,8,23,61,79,89…",
+    "src/modules/commerce/dte/services/generate-fex-json.service.ts:117,336,623,625,661",
+    "src/modules/commerce/dte/services/generate-fse-json.service.ts:91,228,350,363,377",
+    "src/modules/commerce/dte/dev/verify-fex11-preview-local.ts:8,210,214,230",
+    "src/modules/commerce/sales/export/components/export-sale-workspace.tsx:92,93,120,122",
+    "src/modules/commerce/sales/export/queries/get-unit-mh-context.ts:5,19,30,42",
+    "src/modules/commerce/sales/export/queries/search-export-products.ts:6,22,53,69",
+    "src/modules/commerce/sales/export/utils/fex-validation.ts:26,125,127,128",
+    "prisma/seeds/data/cat014-units.ts:4,22,68",
+    "src/modules/commerce/dte/certification/harness/certification-fixtures.ts:14,175,176"
+   ],
+   "consumidores_tests": [
+    "src/modules/commerce/dte/utils/fex11-architecture.test.ts",
+    "src/modules/commerce/dte/certification/dte-internal-certification.test.ts",
+    "src/modules/commerce/sales/export/actions/export-writes.runtime.test.ts",
+    "src/modules/commerce/sales/export/queries/export-lookups.query.test.ts",
+    "src/modules/commerce/dte/services/generate-fex-json.service.runtime-write.test.ts",
+    "src/modules/commerce/dte/services/generate-fse-json.payment-nature.test.ts",
+    "src/modules/commerce/dte/services/generate-fse-json.service.runtime-write.test.ts",
+    "src/modules/commerce/dte/services/generate-nc-json.service.runtime-write.test.ts"
+   ]
+  },
+  {
+   "codigo": "CAT-015",
+   "titulo_2_0": "Tributos",
+   "titulo_v1_2": "Tributos",
+   "critico_para_zolvi": true,
+   "fila_titulo": 463,
+   "fila_encabezado": 464,
+   "ultima_fila": 517,
+   "encabezados": [
+    "Código",
+    "Valores"
+   ],
+   "registros": 49,
+   "tipos_celda": {
+    "int": 33,
+    "str": 16
+   },
+   "con_jerarquia": true,
+   "clave_compuesta": "codigo",
+   "segmentos": null,
+   "notas": [],
+   "calidad": [
+    {
+     "tipo": "ESPACIOS_EN_DESCRIPCION",
+     "fila": 467,
+     "codigo": "C3"
+    },
+    {
+     "tipo": "ESPACIOS_EN_DESCRIPCION",
+     "fila": 476,
+     "codigo": "57"
+    },
+    {
+     "tipo": "ESPACIOS_EN_DESCRIPCION",
+     "fila": 482,
+     "codigo": "C5"
+    },
+    {
+     "tipo": "ESPACIOS_EN_DESCRIPCION",
+     "fila": 483,
+     "codigo": "C6"
+    },
+    {
+     "tipo": "ESPACIOS_EN_DESCRIPCION",
+     "fila": 484,
+     "codigo": "C7"
+    },
+    {
+     "tipo": "TIPOS_DE_CELDA_MIXTOS",
+     "conteo": {
+      "int": 33,
+      "str": 16
+     }
+    }
+   ],
+   "registros_v1_2": 49,
+   "fuentes_zolvi": [
+    {
+     "fuente": "prisma/seeds/data/fex11-catalog-rows.ts",
+     "nota": "DteCatalogItem (seed)",
+     "filas_zolvi": 1,
+     "coinciden": 1,
+     "faltan_en_zolvi": 48,
+     "nombres_territoriales_coinciden": null,
+     "nombres_territoriales_difieren": null
+    }
+   ],
+   "consumidores": [
+    "src/modules/commerce/dte/services/generate-fex-json.service.ts:35,65,660",
+    "src/modules/commerce/sales/export/utils/fex-catalogs.ts:16,25,26",
+    "prisma/seeds/data/fex11-catalog-rows.ts:106,110",
+    "prisma/seeds/seed.dte-catalog-items.ts:69,127",
+    "src/modules/commerce/dte/services/generate-ccfe-json.service.ts:389,424",
+    "src/modules/commerce/dte/services/generate-fe-json.service.ts:355,396",
+    "src/modules/commerce/dte/services/generate-nc-json.service.ts:357,382",
+    "src/modules/commerce/dte/certification/harness/certification-fixtures.ts:89",
+    "src/modules/commerce/dte/types/dte-catalog.types.ts:37",
+    "src/modules/commerce/dte/types/fex-json.types.ts:91",
+    "src/modules/commerce/sales/export/services/export-sale.service.ts:517",
+    "src/modules/platform/lib/seed-runners/dte-catalog-items-runner.ts:52"
+   ],
+   "consumidores_tests": [
+    "src/modules/commerce/dte/services/generate-fex-json.v3.test.ts",
+    "src/modules/commerce/dte/utils/fex11-architecture.test.ts",
+    "src/modules/commerce/sales/export/services/export-sale.service.routing.test.ts",
+    "src/modules/commerce/sales/export/services/export-sale.service.v3.test.ts"
+   ]
+  },
+  {
+   "codigo": "CAT-016",
+   "titulo_2_0": "Condición de la Operación",
+   "titulo_v1_2": "Condición de la Operación",
+   "critico_para_zolvi": true,
+   "fila_titulo": 518,
+   "fila_encabezado": 519,
+   "ultima_fila": 523,
+   "encabezados": [
+    "Código",
+    "Valores"
+   ],
+   "registros": 3,
+   "tipos_celda": {
+    "int": 3
+   },
+   "con_jerarquia": false,
+   "clave_compuesta": "codigo",
+   "segmentos": null,
+   "notas": [],
+   "calidad": [],
+   "registros_v1_2": 3,
+   "fuentes_zolvi": [
+    {
+     "fuente": "prisma/seeds/seed.dte-catalog-items.ts",
+     "nota": "DteCatalogItem (seed)",
+     "filas_zolvi": 3,
+     "coinciden": 3,
+     "faltan_en_zolvi": 0,
+     "nombres_territoriales_coinciden": null,
+     "nombres_territoriales_difieren": null
+    }
+   ],
+   "consumidores": [
+    "src/modules/commerce/dte/services/generate-fex-json.service.ts:132,285,720,750,751,812",
+    "src/modules/commerce/dte/services/generate-ccfe-json.service.ts:80,502,546,547,615",
+    "src/modules/commerce/dte/services/generate-fe-json.service.ts:77,477,580,581,650",
+    "src/modules/commerce/sales/schemas/sale.schemas.ts:32,33,87,88,100",
+    "src/modules/platform/lib/seed-runners/dte-catalog-items-runner.ts:40,78,79,80,81",
+    "prisma/seeds/seed.dte-catalog-items.ts:37,38,39,40",
+    "src/modules/commerce/sales/components/sale-new-client.tsx:116,265,280,313",
+    "src/modules/commerce/sales/components/sale-summary-panel.tsx:53,182,183,185",
+    "src/modules/commerce/dte/services/generate-fse-json.service.ts:402,403,469",
+    "prisma/schema.prisma:2227,2718",
+    "src/modules/commerce/dte/mh-test-runs/mh-test-scenarios.ts:388,461",
+    "src/modules/commerce/dte/utils/purchase-payment-method.mapper.ts:10,11"
+   ],
+   "consumidores_tests": [
+    "src/modules/commerce/dte/certification/dte-internal-certification.test.ts",
+    "src/modules/commerce/dte/services/generate-ccfe-json.service.runtime-write.test.ts",
+    "src/modules/commerce/dte/services/generate-fe-json.service.runtime-write.test.ts",
+    "src/modules/commerce/dte/services/generate-fex-json.service.runtime-write.test.ts",
+    "src/modules/commerce/dte/services/generate-fse-json.payment-nature.test.ts",
+    "src/modules/commerce/dte/utils/fex11-architecture.test.ts",
+    "src/modules/commerce/sales/export/services/export-sale.service.routing.test.ts",
+    "src/modules/commerce/sales/export/services/export-sale.service.v3.test.ts"
+   ]
+  },
+  {
+   "codigo": "CAT-017",
+   "titulo_2_0": "Forma de Pago",
+   "titulo_v1_2": "Forma de Pago",
+   "critico_para_zolvi": true,
+   "fila_titulo": 524,
+   "fila_encabezado": 525,
+   "ultima_fila": 538,
+   "encabezados": [
+    "Código",
+    "Valores"
+   ],
+   "registros": 12,
+   "tipos_celda": {
+    "str": 7,
+    "int": 5
+   },
+   "con_jerarquia": false,
+   "clave_compuesta": "codigo",
+   "segmentos": null,
+   "notas": [],
+   "calidad": [
+    {
+     "tipo": "ESPACIOS_EN_DESCRIPCION",
+     "fila": 536,
+     "codigo": "14"
+    },
+    {
+     "tipo": "TIPOS_DE_CELDA_MIXTOS",
+     "conteo": {
+      "str": 7,
+      "int": 5
+     }
+    }
+   ],
+   "registros_v1_2": 12,
+   "fuentes_zolvi": [
+    {
+     "fuente": "prisma/seeds/seed.dte-catalog-items.ts",
+     "nota": "DteCatalogItem (seed)",
+     "filas_zolvi": 6,
+     "coinciden": 6,
+     "faltan_en_zolvi": 6,
+     "nombres_territoriales_coinciden": null,
+     "nombres_territoriales_difieren": null
+    }
+   ],
+   "consumidores": [
+    "src/modules/commerce/sales/services/sale.service.ts:133,218,530,694,696,700…",
+    "src/modules/commerce/cash/queries/get-cash-session-cut-report.ts:169,170,194,197,198,199…",
+    "src/modules/platform/lib/seed-runners/dte-catalog-items-runner.ts:41,83,84,85,86,87…",
+    "prisma/seeds/seed.dte-catalog-items.ts:42,43,44,45,46,47…",
+    "src/modules/commerce/cash/services/cash-session-payment.service.ts:7,20,21,24,25,27…",
+    "src/modules/commerce/dte/services/generate-fex-json.service.ts:122,133,286,343,706,713…",
+    "prisma/schema.prisma:2226,2367,2368,2384,2385,2718",
+    "src/modules/commerce/dte/services/generate-ccfe-json.service.ts:27,81,123,492,495,504",
+    "src/modules/commerce/dte/services/generate-fe-json.service.ts:24,78,120,467,470,479",
+    "src/modules/commerce/cash/utils/export-cash-cut-pdf.ts:230,254,255,256,259",
+    "src/modules/commerce/cash/types/cash.types.ts:147,148,160,162",
+    "src/modules/commerce/cash/utils/export-cash-cut-excel.ts:193,194,226,227"
+   ],
+   "consumidores_tests": [
+    "src/modules/commerce/sales/services/cancel-confirmed-sale.test.ts",
+    "src/modules/commerce/sales/services/confirm-sale-payment-status.test.ts",
+    "src/modules/commerce/dte/certification/dte-internal-certification.test.ts",
+    "src/modules/commerce/dte/services/generate-ccfe-json.service.runtime-write.test.ts",
+    "src/modules/commerce/dte/services/generate-fe-json.service.runtime-write.test.ts",
+    "src/modules/commerce/dte/services/generate-fex-json.service.runtime-write.test.ts",
+    "src/modules/commerce/dte/services/generate-fse-json.payment-nature.test.ts",
+    "src/modules/commerce/dte/utils/fex11-architecture.test.ts"
+   ]
+  },
+  {
+   "codigo": "CAT-018",
+   "titulo_2_0": "Plazo",
+   "titulo_v1_2": "Plazo",
+   "critico_para_zolvi": false,
+   "fila_titulo": 539,
+   "fila_encabezado": 540,
+   "ultima_fila": 544,
+   "encabezados": [
+    "Código",
+    "Valores"
+   ],
+   "registros": 3,
+   "tipos_celda": {
+    "str": 3
+   },
+   "con_jerarquia": false,
+   "clave_compuesta": "codigo",
+   "segmentos": null,
+   "notas": [],
+   "calidad": [],
+   "registros_v1_2": 3,
+   "fuentes_zolvi": [
+    {
+     "fuente": "prisma/seeds/seed.dte-catalog-items.ts",
+     "nota": "DteCatalogItem (seed)",
+     "filas_zolvi": 3,
+     "coinciden": 3,
+     "faltan_en_zolvi": 0,
+     "nombres_territoriales_coinciden": null,
+     "nombres_territoriales_difieren": null
+    }
+   ],
+   "consumidores": [
+    "src/modules/commerce/sales/schemas/sale.schemas.ts:38,39,93,94,99",
+    "src/modules/platform/lib/seed-runners/dte-catalog-items-runner.ts:42,91,92,93,94",
+    "prisma/seeds/seed.dte-catalog-items.ts:50,51,52,53",
+    "src/modules/commerce/sales/components/sale-new-client.tsx:122,266,281,314",
+    "prisma/schema.prisma:2228,2229,2718",
+    "src/modules/commerce/dte/services/generate-fex-json.service.ts:134,287,725",
+    "src/modules/commerce/dte/mh-test-runs/mh-test-scenarios.ts:390,461",
+    "src/modules/commerce/dte/services/generate-ccfe-json.service.ts:82,507",
+    "src/modules/commerce/dte/services/generate-fe-json.service.ts:79,482",
+    "src/modules/commerce/sales/queries/get-sale-detail-by-id.ts:40,218",
+    "src/modules/commerce/sales/services/sale.service.ts:135,220",
+    "src/app/(dashboard)/dashboard/sales/new/page.tsx:59"
+   ],
+   "consumidores_tests": [
+    "src/modules/commerce/dte/services/generate-ccfe-json.service.runtime-write.test.ts",
+    "src/modules/commerce/dte/services/generate-fe-json.service.runtime-write.test.ts",
+    "src/modules/commerce/dte/services/generate-fex-json.service.runtime-write.test.ts",
+    "src/modules/commerce/dte/utils/fex11-architecture.test.ts",
+    "src/modules/commerce/sales/export/services/export-sale.service.routing.test.ts",
+    "src/modules/commerce/sales/export/services/export-sale.service.v3.test.ts",
+    "src/modules/commerce/sales/queries/get-sale-detail-by-id.dte-json.test.ts"
+   ]
+  },
+  {
+   "codigo": "CAT-019",
+   "titulo_2_0": "Código de Actividad Económica",
+   "titulo_v1_2": "Código de Actividad Económica",
+   "critico_para_zolvi": true,
+   "fila_titulo": 545,
+   "fila_encabezado": 546,
+   "ultima_fila": 1432,
+   "encabezados": [
+    "CÓDIGO",
+    "ACTIVIDADES ECONÓMICAS"
+   ],
+   "registros": 774,
+   "tipos_celda": {
+    "str": 79,
+    "int": 695
+   },
+   "con_jerarquia": true,
+   "clave_compuesta": "codigo",
+   "segmentos": null,
+   "notas": [],
+   "calidad": [
+    {
+     "tipo": "ESPACIOS_EN_DESCRIPCION",
+     "fila": 833,
+     "codigo": "28220"
+    },
+    {
+     "tipo": "ESPACIOS_EN_DESCRIPCION",
+     "fila": 1213,
+     "codigo": "61102"
+    },
+    {
+     "tipo": "TIPOS_DE_CELDA_MIXTOS",
+     "conteo": {
+      "str": 79,
+      "int": 695
+     }
+    }
+   ],
+   "registros_v1_2": 774,
+   "fuentes_zolvi": [
+    {
+     "fuente": "prisma/importers/generated/commerce-catalogs.data.ts",
+     "nota": "EconomicActivity (seed vía seed.commerce-catalogs.ts)",
+     "filas_zolvi": 774,
+     "coinciden": 774,
+     "faltan_en_zolvi": 0,
+     "nombres_territoriales_coinciden": null,
+     "nombres_territoriales_difieren": null
+    }
+   ],
+   "consumidores": [
+    "src/modules/commerce/suppliers/services/supplier.service.ts:16,52,105,106,133,136…",
+    "src/modules/commerce/customers/components/customer-detail-tabs.tsx:10,113,451,452,490,492…",
+    "src/modules/commerce/dte/mh-test-runs/mh-test-scenarios.ts:198,272,308,370,425,444…",
+    "src/modules/commerce/suppliers/components/supplier-detail-tabs.tsx:10,166,167,205,207,252…",
+    "src/modules/commerce/dte/services/generate-fe-json.service.ts:93,132,285,500,541,556…",
+    "prisma/schema.prisma:1403,1484,1485,2147,2148,2417",
+    "src/modules/commerce/customers/components/activity-picker.tsx:7,10,15,17,147,201",
+    "src/modules/commerce/customers/components/edit-customer-dialog.tsx:12,124,284,289,296,298",
+    "src/modules/commerce/dte/services/generate-ccfe-json.service.ts:96,135,266,322,519,573",
+    "src/modules/commerce/dte/services/generate-fse-json.service.ts:73,114,207,246,325,443",
+    "src/modules/commerce/dte/services/generate-nc-json.service.ts:221,229,245,262,316,338",
+    "src/modules/commerce/customers/actions/update-customer-activity.action.ts:10,11,57,66,71"
+   ],
+   "consumidores_tests": [
+    "src/modules/commerce/dte/services/generate-ccfe-json.service.runtime-write.test.ts",
+    "src/modules/commerce/dte/services/generate-fse-json.payment-nature.test.ts",
+    "src/modules/commerce/dte/services/generate-fse-json.service.runtime-write.test.ts",
+    "src/modules/commerce/dte/services/generate-nc-json.service.runtime-write.test.ts",
+    "src/modules/commerce/dte/certification/dte-internal-certification.test.ts",
+    "src/modules/commerce/dte/mh-test-runs/mh-test-scenarios.test.ts",
+    "src/modules/commerce/dte/services/dte-outgoing.service.create-pending-dte-for-sale.runtime-write.test.ts",
+    "src/modules/commerce/dte/services/dte-production-preflight.service.test.ts"
+   ]
+  },
+  {
+   "codigo": "CAT-020",
+   "titulo_2_0": "País",
+   "titulo_v1_2": "País",
+   "critico_para_zolvi": true,
+   "fila_titulo": 1433,
+   "fila_encabezado": 1434,
+   "ultima_fila": 1684,
+   "encabezados": [
+    "Código",
+    "Valores"
+   ],
+   "registros": 249,
+   "tipos_celda": {
+    "str": 249
+   },
+   "con_jerarquia": false,
+   "clave_compuesta": "codigo",
+   "segmentos": null,
+   "notas": [],
+   "calidad": [],
+   "registros_v1_2": 249,
+   "fuentes_zolvi": [
+    {
+     "fuente": "prisma/importers/generated/commerce-catalogs.data.ts",
+     "nota": "Country (seed vía seed.commerce-catalogs.ts)",
+     "filas_zolvi": 249,
+     "coinciden": 249,
+     "faltan_en_zolvi": 0,
+     "nombres_territoriales_coinciden": null,
+     "nombres_territoriales_difieren": null
+    }
+   ],
+   "consumidores": [
+    "src/modules/commerce/suppliers/services/supplier.service.ts:17,52,117,118,134,148…",
+    "src/modules/commerce/sales/export/services/export-sale.service.ts:48,76,77,114,115,133…",
+    "prisma/seeds/data/fex11-catalog-rows.ts:24,25,36,74,75,77…",
+    "src/modules/commerce/dte/services/generate-fex-json.service.ts:20,21,89,168,169,304…",
+    "src/modules/commerce/sales/export/components/export-customer-modal.tsx:28,29,50,100,104,121…",
+    "src/modules/commerce/sales/export/utils/fex-validation.ts:29,36,41,44,45,46…",
+    "src/modules/commerce/dte/dev/verify-fex11-json.fixture.ts:13,93,149,172,242,249…",
+    "src/modules/commerce/dte/types/dte-catalog.types.ts:41,44,45,54,56,58",
+    "prisma/importers/import-excel-catalogs.ts:10,81,143,208,250",
+    "prisma/seeds/seed.dte-catalog-items.ts:74,84,88,89,91",
+    "src/modules/commerce/customers/services/customer.service.ts:57,77,80,81,84",
+    "src/modules/commerce/sales/export/actions/export-sale.actions.ts:210,213,217,224,231"
+   ],
+   "consumidores_tests": [
+    "src/modules/commerce/sales/export/services/export-sale.service.v3.test.ts",
+    "src/modules/commerce/customers/services/customer-export.service.test.ts",
+    "src/modules/commerce/dte/services/generate-fex-json.v3.test.ts",
+    "src/modules/commerce/dte/services/generate-fex-json.service.runtime-write.test.ts",
+    "src/modules/commerce/sales/export/actions/export-writes.runtime.test.ts",
+    "src/modules/commerce/dte/utils/fex11-architecture.test.ts",
+    "src/modules/commerce/sales/export/queries/export-lookups.query.test.ts",
+    "src/modules/commerce/dte/services/generate-fex-json-pipeline.service.v3.test.ts"
+   ]
+  },
+  {
+   "codigo": "CAT-021",
+   "titulo_2_0": "Documentos Asociados",
+   "titulo_v1_2": "Otros Documentos Asociados",
+   "critico_para_zolvi": false,
+   "fila_titulo": 1685,
+   "fila_encabezado": 1686,
+   "ultima_fila": 1691,
+   "encabezados": [
+    "Código",
+    "Valores"
+   ],
+   "registros": 4,
+   "tipos_celda": {
+    "int": 4
+   },
+   "con_jerarquia": false,
+   "clave_compuesta": "codigo",
+   "segmentos": null,
+   "notas": [],
+   "calidad": [],
+   "registros_v1_2": 4,
+   "fuentes_zolvi": [],
+   "consumidores": [],
+   "consumidores_tests": []
+  },
+  {
+   "codigo": "CAT-022",
+   "titulo_2_0": "Tipo de documento de identificación",
+   "titulo_v1_2": "Tipo de documento de identificación del Receptor",
+   "critico_para_zolvi": true,
+   "fila_titulo": 1692,
+   "fila_encabezado": 1693,
+   "ultima_fila": 1699,
+   "encabezados": [
+    "Código",
+    "Valores"
+   ],
+   "registros": 5,
+   "tipos_celda": {
+    "int": 3,
+    "str": 2
+   },
+   "con_jerarquia": false,
+   "clave_compuesta": "codigo",
+   "segmentos": null,
+   "notas": [],
+   "calidad": [
+    {
+     "tipo": "TIPOS_DE_CELDA_MIXTOS",
+     "conteo": {
+      "int": 3,
+      "str": 2
+     }
+    }
+   ],
+   "registros_v1_2": 5,
+   "fuentes_zolvi": [
+    {
+     "fuente": "prisma/seeds/seed.dte-catalog-items.ts",
+     "nota": "DteCatalogItem (seed)",
+     "filas_zolvi": 5,
+     "coinciden": 5,
+     "faltan_en_zolvi": 0,
+     "nombres_territoriales_coinciden": null,
+     "nombres_territoriales_difieren": null
+    },
+    {
+     "fuente": "prisma/seeds/seed.commerce-catalogs.ts",
+     "nota": "identification_types (seed commerce)",
+     "filas_zolvi": 5,
+     "coinciden": 5,
+     "faltan_en_zolvi": 0,
+     "nombres_territoriales_coinciden": null,
+     "nombres_territoriales_difieren": null
+    }
+   ],
+   "consumidores": [
+    "src/modules/commerce/dte/mh-test-runs/mh-test-scenarios.ts:58,84,95,139,141,143…",
+    "prisma/scripts/retire-cat022-code-00.ts:5,11,12,16,17,19…",
+    "src/modules/commerce/dte/utils/supplier-to-sujeto-excluido.mapper.ts:5,7,9,10,11,13…",
+    "src/modules/commerce/customers/components/edit-customer-dialog.tsx:10,63,92,94,120,220…",
+    "src/modules/commerce/customers/components/new-customer-dialog.tsx:10,17,60,87,116,219…",
+    "prisma/schema.prisma:1393,1395,1400,1477,1478,1479…",
+    "src/modules/commerce/dte/services/generate-fe-json.service.ts:89,510,511,516,518,524…",
+    "src/modules/commerce/suppliers/components/new-supplier-dialog.tsx:10,16,17,83,260,264…",
+    "src/modules/commerce/customers/components/customer-detail-tabs.tsx:51,140,163,176,215,298…",
+    "src/modules/commerce/suppliers/components/edit-supplier-dialog.tsx:13,103,105,274,278,279…",
+    "src/modules/platform/lib/seed-runners/dte-catalog-items-runner.ts:43,96,97,98,99,100…",
+    "prisma/seeds/seed.dte-catalog-items.ts:55,56,57,58,59,60"
+   ],
+   "consumidores_tests": [
+    "src/modules/commerce/suppliers/schemas/create-supplier.schema.test.ts",
+    "src/modules/commerce/customers/actions/update-customer-identification.action.test.ts",
+    "src/modules/commerce/suppliers/actions/create-supplier.action.test.ts",
+    "src/modules/commerce/dte/mh-test-runs/mh-test-scenarios.test.ts",
+    "src/modules/commerce/suppliers/components/supplier-dialogs.test.tsx",
+    "src/modules/commerce/dte/utils/fex11-architecture.test.ts",
+    "src/modules/commerce/sales/export/queries/export-lookups.query.test.ts",
+    "src/modules/commerce/sales/export/services/export-sale.service.v3.test.ts"
+   ]
+  },
+  {
+   "codigo": "CAT-023",
+   "titulo_2_0": "Operaciones Especiales",
+   "titulo_v1_2": "Tipo de Documento en Contingencia",
+   "critico_para_zolvi": false,
+   "fila_titulo": 1700,
+   "fila_encabezado": 1701,
+   "ultima_fila": 1704,
+   "encabezados": [
+    "Código",
+    "Valores"
+   ],
+   "registros": 2,
+   "tipos_celda": {
+    "str": 1,
+    "int": 1
+   },
+   "con_jerarquia": false,
+   "clave_compuesta": "codigo",
+   "segmentos": null,
+   "notas": [],
+   "calidad": [
+    {
+     "tipo": "TIPOS_DE_CELDA_MIXTOS",
+     "conteo": {
+      "str": 1,
+      "int": 1
+     }
+    }
+   ],
+   "registros_v1_2": 7,
+   "fuentes_zolvi": [],
+   "consumidores": [
+    "prisma/schema.prisma:2603,2906",
+    "src/modules/commerce/dte/services/generate-ccfe-json.service.ts:531,558",
+    "src/modules/commerce/dte/services/generate-fe-json.service.ts:564,592",
+    "src/modules/commerce/dte/utils/dte-transmission-validation.utils.ts:13,30"
+   ],
+   "consumidores_tests": []
+  },
+  {
+   "codigo": "CAT-024",
+   "titulo_2_0": "Motivo del evento",
+   "titulo_v1_2": "Tipo de Invalidación",
+   "critico_para_zolvi": true,
+   "fila_titulo": 1705,
+   "fila_encabezado": 1706,
+   "ultima_fila": 1710,
+   "encabezados": [
+    "Código",
+    "Valores"
+   ],
+   "registros": 3,
+   "tipos_celda": {
+    "int": 3
+   },
+   "con_jerarquia": false,
+   "clave_compuesta": "codigo",
+   "segmentos": null,
+   "notas": [],
+   "calidad": [],
+   "registros_v1_2": 3,
+   "fuentes_zolvi": [
+    {
+     "fuente": "prisma/seeds/seed.dte-catalog-items.ts",
+     "nota": "DteCatalogItem (seed)",
+     "filas_zolvi": 3,
+     "coinciden": 3,
+     "faltan_en_zolvi": 0,
+     "nombres_territoriales_coinciden": null,
+     "nombres_territoriales_difieren": null
+    }
+   ],
+   "consumidores": [
+    "src/modules/commerce/dte/services/build-invalidation-event-json.service.ts:12,13,14,71,133,134…",
+    "src/modules/platform/lib/seed-runners/dte-catalog-items-runner.ts:44,103,104,105,106",
+    "prisma/seeds/seed.dte-catalog-items.ts:62,65,66,67",
+    "src/modules/commerce/dte/services/create-invalidation-event.service.ts:37,88,258,276",
+    "src/modules/commerce/dte/actions/create-sign-transmit-invalidation.action.ts:54,108,124",
+    "prisma/schema.prisma:2718,2851",
+    "src/modules/commerce/dte/actions/create-invalidation-event.action.ts:46,115",
+    "src/modules/commerce/dte/outgoing/utils/dte-status.utils.ts:55",
+    "src/modules/commerce/dte/schemas/dte-invalidation.schemas.ts:17",
+    "src/modules/commerce/dte/types/dte-catalog.types.ts:47",
+    "src/modules/commerce/dte/types/dte-invalidation-event-json.types.ts:75",
+    "src/modules/commerce/dte/types/dte-invalidation.types.ts:17"
+   ],
+   "consumidores_tests": [
+    "src/modules/commerce/dte/certification/dte-internal-certification.test.ts",
+    "src/modules/commerce/dte/actions/create-sign-transmit-invalidation.action.test.ts",
+    "src/modules/commerce/dte/services/build-invalidation-event-json.fex.test.ts",
+    "src/modules/commerce/dte/services/create-invalidation-event.service.runtime-write.test.ts"
+   ]
+  },
+  {
+   "codigo": "CAT-025",
+   "titulo_2_0": "Título a que se remiten los bienes",
+   "titulo_v1_2": "Título a que se remiten los bienes",
+   "critico_para_zolvi": false,
+   "fila_titulo": 1711,
+   "fila_encabezado": 1712,
+   "ultima_fila": 1718,
+   "encabezados": [
+    "Código",
+    "Valores"
+   ],
+   "registros": 5,
+   "tipos_celda": {
+    "str": 5
+   },
+   "con_jerarquia": false,
+   "clave_compuesta": "codigo",
+   "segmentos": null,
+   "notas": [],
+   "calidad": [
+    {
+     "tipo": "ESPACIOS_EN_DESCRIPCION",
+     "fila": 1713,
+     "codigo": "01"
+    }
+   ],
+   "registros_v1_2": 5,
+   "fuentes_zolvi": [],
+   "consumidores": [],
+   "consumidores_tests": []
+  },
+  {
+   "codigo": "CAT-026",
+   "titulo_2_0": "Tipo de Donación",
+   "titulo_v1_2": "Tipo de Donación",
+   "critico_para_zolvi": false,
+   "fila_titulo": 1719,
+   "fila_encabezado": 1720,
+   "ultima_fila": 1724,
+   "encabezados": [
+    "Código",
+    "Valores"
+   ],
+   "registros": 3,
+   "tipos_celda": {
+    "int": 3
+   },
+   "con_jerarquia": false,
+   "clave_compuesta": "codigo",
+   "segmentos": null,
+   "notas": [],
+   "calidad": [],
+   "registros_v1_2": 3,
+   "fuentes_zolvi": [],
+   "consumidores": [],
+   "consumidores_tests": []
+  },
+  {
+   "codigo": "CAT-027",
+   "titulo_2_0": "Recinto fiscal",
+   "titulo_v1_2": "Recinto fiscal",
+   "critico_para_zolvi": false,
+   "fila_titulo": 1725,
+   "fila_encabezado": 1726,
+   "ultima_fila": 1775,
+   "encabezados": [
+    "Código",
+    "Valores"
+   ],
+   "registros": 48,
+   "tipos_celda": {
+    "str": 10,
+    "int": 38
+   },
+   "con_jerarquia": false,
+   "clave_compuesta": "codigo",
+   "segmentos": null,
+   "notas": [],
+   "calidad": [
+    {
+     "tipo": "ESPACIOS_EN_DESCRIPCION",
+     "fila": 1770,
+     "codigo": "80"
+    },
+    {
+     "tipo": "TIPOS_DE_CELDA_MIXTOS",
+     "conteo": {
+      "str": 10,
+      "int": 38
+     }
+    }
+   ],
+   "registros_v1_2": 46,
+   "fuentes_zolvi": [
+    {
+     "fuente": "prisma/seeds/data/fex11-catalog-rows.ts",
+     "nota": "DteCatalogItem (seed)",
+     "filas_zolvi": 46,
+     "coinciden": 46,
+     "faltan_en_zolvi": 2,
+     "nombres_territoriales_coinciden": null,
+     "nombres_territoriales_difieren": null
+    }
+   ],
+   "consumidores": [
+    "prisma/seeds/data/fex11-catalog-rows.ts:113,117,118,119,120,121…",
+    "src/modules/commerce/dte/dev/verify-fex11-preview-local.ts:33,62,69",
+    "prisma/seeds/seed.dte-catalog-items.ts:69,127",
+    "src/modules/commerce/dte/services/generate-fex-json.service.ts:31,791",
+    "src/modules/commerce/sales/export/utils/fex-validation.ts:57,87",
+    "src/app/(dashboard)/dashboard/sales/export/page.tsx:67",
+    "src/modules/commerce/dte/types/dte-catalog.types.ts:49",
+    "src/modules/commerce/dte/types/fex-json.types.ts:60",
+    "src/modules/commerce/sales/export/components/catalog-search-select.tsx:8",
+    "src/modules/commerce/sales/export/components/export-fiscal-modal.tsx:91",
+    "src/modules/commerce/sales/export/utils/fex-catalogs.ts:5",
+    "src/modules/platform/lib/seed-runners/dte-catalog-items-runner.ts:52"
+   ],
+   "consumidores_tests": [
+    "src/modules/commerce/dte/utils/fex11-architecture.test.ts",
+    "src/modules/commerce/dte/certification/dte-internal-certification.test.ts",
+    "src/modules/commerce/dte/services/generate-fex-json.v3.test.ts",
+    "src/modules/commerce/sales/export/services/export-sale.service.routing.test.ts",
+    "src/modules/commerce/sales/export/services/export-sale.service.v3.test.ts"
+   ]
+  },
+  {
+   "codigo": "CAT-028",
+   "titulo_2_0": "Régimen",
+   "titulo_v1_2": "Régimen",
+   "critico_para_zolvi": false,
+   "fila_titulo": 1776,
+   "fila_encabezado": 1777,
+   "ultima_fila": 1868,
+   "encabezados": [
+    "Código",
+    "Valores"
+   ],
+   "registros": 90,
+   "tipos_celda": {
+    "str": 90
+   },
+   "con_jerarquia": false,
+   "clave_compuesta": "codigo",
+   "segmentos": null,
+   "notas": [],
+   "calidad": [],
+   "registros_v1_2": 61,
+   "fuentes_zolvi": [
+    {
+     "fuente": "prisma/seeds/data/fex11-catalog-rows.ts",
+     "nota": "DteCatalogItem (seed)",
+     "filas_zolvi": 56,
+     "coinciden": 0,
+     "faltan_en_zolvi": 90,
+     "nombres_territoriales_coinciden": null,
+     "nombres_territoriales_difieren": null
+    }
+   ],
+   "consumidores": [
+    "prisma/seeds/data/fex11-catalog-rows.ts:56,165,175,176,177,178…",
+    "src/modules/commerce/dte/services/generate-fex-json.service.ts:31,548,793",
+    "prisma/seeds/seed.dte-catalog-items.ts:69,127",
+    "src/modules/commerce/dte/dev/verify-fex11-preview-local.ts:62,70",
+    "src/modules/commerce/sales/export/utils/fex-validation.ts:58,90",
+    "src/app/(dashboard)/dashboard/sales/export/page.tsx:68",
+    "src/modules/commerce/dte/types/dte-catalog.types.ts:50",
+    "src/modules/commerce/dte/types/fex-json.types.ts:62",
+    "src/modules/commerce/sales/export/components/catalog-search-select.tsx:8",
+    "src/modules/commerce/sales/export/components/export-fiscal-modal.tsx:98",
+    "src/modules/commerce/sales/export/utils/fex-catalogs.ts:5",
+    "src/modules/platform/lib/seed-runners/dte-catalog-items-runner.ts:52"
+   ],
+   "consumidores_tests": [
+    "src/modules/commerce/dte/certification/dte-internal-certification.test.ts",
+    "src/modules/commerce/dte/services/generate-fex-json.v3.test.ts",
+    "src/modules/commerce/dte/utils/fex11-architecture.test.ts",
+    "src/modules/commerce/sales/export/services/export-sale.service.routing.test.ts",
+    "src/modules/commerce/sales/export/services/export-sale.service.v3.test.ts"
+   ]
+  },
+  {
+   "codigo": "CAT-029",
+   "titulo_2_0": "Tipo de persona",
+   "titulo_v1_2": "Tipo de persona",
+   "critico_para_zolvi": false,
+   "fila_titulo": 1869,
+   "fila_encabezado": 1870,
+   "ultima_fila": 1873,
+   "encabezados": [
+    "Código",
+    "Valores"
+   ],
+   "registros": 2,
+   "tipos_celda": {
+    "int": 2
+   },
+   "con_jerarquia": false,
+   "clave_compuesta": "codigo",
+   "segmentos": null,
+   "notas": [],
+   "calidad": [],
+   "registros_v1_2": 2,
+   "fuentes_zolvi": [
+    {
+     "fuente": "prisma/seeds/data/fex11-catalog-rows.ts",
+     "nota": "DteCatalogItem (seed)",
+     "filas_zolvi": 2,
+     "coinciden": 2,
+     "faltan_en_zolvi": 0,
+     "nombres_territoriales_coinciden": null,
+     "nombres_territoriales_difieren": null
+    }
+   ],
+   "consumidores": [
+    "prisma/seeds/data/fex11-catalog-rows.ts:46,233,237,238",
+    "prisma/seeds/seed.dte-catalog-items.ts:69,127",
+    "src/modules/commerce/sales/export/utils/fex-validation.ts:138,151",
+    "src/app/(dashboard)/dashboard/sales/export/page.tsx:69",
+    "src/modules/commerce/dte/services/generate-fex-json.service.ts:740",
+    "src/modules/commerce/dte/types/dte-catalog.types.ts:51",
+    "src/modules/commerce/dte/types/fex-json.types.ts:73",
+    "src/modules/commerce/sales/export/components/catalog-search-select.tsx:8",
+    "src/modules/commerce/sales/export/components/export-customer-modal.tsx:296",
+    "src/modules/commerce/sales/export/schemas/export-sale.schemas.ts:50",
+    "src/modules/commerce/sales/export/utils/fex-catalogs.ts:6",
+    "src/modules/platform/lib/seed-runners/dte-catalog-items-runner.ts:52"
+   ],
+   "consumidores_tests": [
+    "src/modules/commerce/dte/utils/fex11-architecture.test.ts",
+    "src/modules/commerce/sales/export/services/export-sale.service.v3.test.ts"
+   ]
+  },
+  {
+   "codigo": "CAT-030",
+   "titulo_2_0": "Transporte",
+   "titulo_v1_2": "Transporte",
+   "critico_para_zolvi": false,
+   "fila_titulo": 1874,
+   "fila_encabezado": 1875,
+   "ultima_fila": 1882,
+   "encabezados": [
+    "Código",
+    "Valores"
+   ],
+   "registros": 6,
+   "tipos_celda": {
+    "int": 6
+   },
+   "con_jerarquia": false,
+   "clave_compuesta": "codigo",
+   "segmentos": null,
+   "notas": [],
+   "calidad": [],
+   "registros_v1_2": 6,
+   "fuentes_zolvi": [
+    {
+     "fuente": "prisma/seeds/data/fex11-catalog-rows.ts",
+     "nota": "DteCatalogItem (seed)",
+     "filas_zolvi": 6,
+     "coinciden": 6,
+     "faltan_en_zolvi": 0,
+     "nombres_territoriales_coinciden": null,
+     "nombres_territoriales_difieren": null
+    }
+   ],
+   "consumidores": [
+    "prisma/seeds/data/fex11-catalog-rows.ts:60,241,245,246,247,248…",
+    "prisma/seeds/seed.dte-catalog-items.ts:69,127,129",
+    "src/modules/platform/lib/seed-runners/dte-catalog-items-runner.ts:53"
+   ],
+   "consumidores_tests": [
+    "src/modules/commerce/dte/utils/fex11-architecture.test.ts"
+   ]
+  },
+  {
+   "codigo": "CAT-031",
+   "titulo_2_0": "INCOTERMS",
+   "titulo_v1_2": "INCOTERMS",
+   "critico_para_zolvi": false,
+   "fila_titulo": 1883,
+   "fila_encabezado": 1884,
+   "ultima_fila": 1896,
+   "encabezados": [
+    "Código",
+    "Valores"
+   ],
+   "registros": 11,
+   "tipos_celda": {
+    "str": 9,
+    "int": 2
+   },
+   "con_jerarquia": false,
+   "clave_compuesta": "codigo",
+   "segmentos": null,
+   "notas": [],
+   "calidad": [
+    {
+     "tipo": "TIPOS_DE_CELDA_MIXTOS",
+     "conteo": {
+      "str": 9,
+      "int": 2
+     }
+    }
+   ],
+   "registros_v1_2": 11,
+   "fuentes_zolvi": [
+    {
+     "fuente": "prisma/seeds/data/fex11-catalog-rows.ts",
+     "nota": "DteCatalogItem (seed)",
+     "filas_zolvi": 11,
+     "coinciden": 11,
+     "faltan_en_zolvi": 0,
+     "nombres_territoriales_coinciden": null,
+     "nombres_territoriales_difieren": null
+    }
+   ],
+   "consumidores": [
+    "prisma/seeds/data/fex11-catalog-rows.ts:56,257,260,261,262,263…",
+    "prisma/seeds/seed.dte-catalog-items.ts:69,127",
+    "src/modules/commerce/dte/dev/verify-fex11-preview-local.ts:61,71",
+    "src/modules/commerce/sales/export/utils/fex-validation.ts:59,95",
+    "src/app/(dashboard)/dashboard/sales/export/page.tsx:70",
+    "src/modules/commerce/dte/services/generate-fex-json.service.ts:814",
+    "src/modules/commerce/dte/types/dte-catalog.types.ts:52",
+    "src/modules/commerce/dte/types/fex-json.types.ts:131",
+    "src/modules/commerce/sales/export/components/catalog-search-select.tsx:8",
+    "src/modules/commerce/sales/export/components/export-fiscal-modal.tsx:111",
+    "src/modules/commerce/sales/export/utils/fex-catalogs.ts:4",
+    "src/modules/platform/lib/seed-runners/dte-catalog-items-runner.ts:53"
+   ],
+   "consumidores_tests": [
+    "src/modules/commerce/dte/services/generate-fex-json.v3.test.ts",
+    "src/modules/commerce/dte/utils/fex11-architecture.test.ts",
+    "src/modules/commerce/sales/export/services/export-sale.service.routing.test.ts",
+    "src/modules/commerce/sales/export/services/export-sale.service.v3.test.ts"
+   ]
+  },
+  {
+   "codigo": "CAT-032",
+   "titulo_2_0": "Domicilio Fiscal",
+   "titulo_v1_2": "Domicilio Fiscal",
+   "critico_para_zolvi": false,
+   "fila_titulo": 1897,
+   "fila_encabezado": 1898,
+   "ultima_fila": 1901,
+   "encabezados": [
+    "Código",
+    "Valores"
+   ],
+   "registros": 2,
+   "tipos_celda": {
+    "int": 2
+   },
+   "con_jerarquia": false,
+   "clave_compuesta": "codigo",
+   "segmentos": null,
+   "notas": [],
+   "calidad": [],
+   "registros_v1_2": 2,
+   "fuentes_zolvi": [],
+   "consumidores": [],
+   "consumidores_tests": [
+    "src/modules/commerce/dte/services/generate-fex-json.v3.test.ts"
+   ]
+  },
+  {
+   "codigo": "CAT-033",
+   "titulo_2_0": "Tipo de Régimen",
+   "titulo_v1_2": null,
+   "critico_para_zolvi": false,
+   "fila_titulo": 1902,
+   "fila_encabezado": 1903,
+   "ultima_fila": 1907,
+   "encabezados": [
+    "Código",
+    "Valores"
+   ],
+   "registros": 4,
+   "tipos_celda": {
+    "str": 4
+   },
+   "con_jerarquia": false,
+   "clave_compuesta": "codigo",
+   "segmentos": null,
+   "notas": [],
+   "calidad": [
+    {
+     "tipo": "ESPACIOS_EN_CODIGO",
+     "fila": 1907,
+     "codigo_raw": " TA-1"
+    }
+   ],
+   "registros_v1_2": null,
+   "fuentes_zolvi": [],
+   "consumidores": [
+    "src/modules/commerce/dte/services/generate-fex-json.service.ts:30,546,792",
+    "src/modules/commerce/dte/types/fex-json.types.ts:61",
+    "src/modules/commerce/dte/utils/fex11-v3-rules.ts:27",
+    "src/modules/commerce/sales/export/components/export-fiscal-modal.tsx:81",
+    "src/modules/commerce/sales/export/utils/fex-validation.ts:83"
+   ],
+   "consumidores_tests": [
+    "src/modules/commerce/dte/services/generate-fex-json.v3.test.ts",
+    "src/modules/commerce/sales/export/services/export-sale.service.v3.test.ts"
+   ]
+  }
+ ]
+}

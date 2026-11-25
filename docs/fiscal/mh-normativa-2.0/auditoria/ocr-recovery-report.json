@@ -1,0 +1,1539 @@
+{
+  "fase": "0.1 - Corrección focalizada de extracción OCR",
+  "fecha": "2026-11-23",
+  "documento": "originales/Normativa de Cumplimiento de los Documentos Tributarios Electrónicos_Versión 2.0.pdf",
+  "paginas_totales": 137,
+  "paginas_recuperadas": [
+    1,
+    17,
+    19,
+    28,
+    30,
+    31,
+    32,
+    33,
+    40,
+    43,
+    46,
+    48,
+    50,
+    52,
+    54,
+    56,
+    58,
+    59,
+    60,
+    61,
+    62,
+    63,
+    64,
+    66,
+    68,
+    70,
+    76,
+    78,
+    82,
+    84,
+    86,
+    88,
+    89,
+    90,
+    92,
+    94,
+    96,
+    97,
+    98,
+    104,
+    106,
+    108,
+    114,
+    120,
+    124,
+    126,
+    128,
+    130,
+    131,
+    132,
+    136
+  ],
+  "paginas_no_modificadas": 86,
+  "motor": {
+    "nombre": "Tesseract OCR",
+    "version": "5.4.0.20240606 (UB-Mannheim, leptonica 1.84.1)",
+    "ubicacion": "fuera del repositorio (C:\\Program Files\\Tesseract-OCR)",
+    "modelos": {
+      "spa": "tessdata_best e2c1ffdad8b30f26c45d4017a9183d3a7f9aa69e59918be4f88b126fac99ab2c",
+      "eng": "tessdata_best 8280aed0782fe27257a68ea10fe7ef324ca0f8d85bd2fd145d1c2b560bcb66ba",
+      "osd": "9cf5d576fcc47564f11265841e5ca839001e7e6f38ff7f7aacf46d15a96b00ff"
+    },
+    "render": "PyMuPDF, escala de grises"
+  },
+  "piloto": {
+    "paginas": {
+      "43": "JSON",
+      "28": "tabla",
+      "46": "diagrama",
+      "17": "tabla (adicional)"
+    },
+    "caracteres_300dpi": {
+      "43": {
+        "windows_ocr": 2521,
+        "psm3": 3256,
+        "psm6": 3344,
+        "psm11": 2857,
+        "psm6_400dpi": 3726
+      },
+      "46": {
+        "windows_ocr": 436,
+        "psm3": 1952,
+        "psm6": 2946,
+        "psm11": 539
+      },
+      "28": {
+        "windows_ocr": 3126,
+        "psm3": 3885,
+        "psm6": 3797,
+        "psm11": 3265
+      },
+      "17": {
+        "windows_ocr": 2309,
+        "psm3": 2648,
+        "psm6": 2827,
+        "psm11": 2315
+      }
+    },
+    "conclusiones": [
+      "PSM 6 a 300 dpi es la mejor configuración: recupera contenido de celdas y el JSON de p.43 omitido por Windows OCR.",
+      "400 dpi no corrige el ruido de comillas (™ ” ‘); más caracteres no implica mejor extracción.",
+      "PSM 11 fragmenta; PSM 3 pierde celdas en tablas densas.",
+      "Ningún modo recupera el diagrama de p.46; requiere transcripción visual.",
+      "Decisión: Markdown final = transcripción curada y verificada visualmente contra la imagen, usando Tesseract como apoyo."
+    ]
+  },
+  "validacion_cruzada_schemas": {
+    "schemas": 15,
+    "campos_json_contrastados": 157,
+    "coincidencia_exacta": 155,
+    "discrepancias": [
+      {
+        "pagina": 92,
+        "filas": [
+          73,
+          74
+        ],
+        "normativa": "cuerpoDocumento.DocDel / cuerpoDocumento.DocAl",
+        "schema": "originales/svfe-json-schemas/v1/fe-eop-v1.json",
+        "schema_valor": "docDel / docAl",
+        "accion": "conservado lo impreso; documentado"
+      },
+      {
+        "pagina": 59,
+        "fila": 65,
+        "normativa": "otrosDocumentos.modoTransp Longitud: 11",
+        "schema": "originales/svfe-json-schemas/v3/fe-fex-v3.json",
+        "schema_valor": "integer|null, minimum 1, maximum 7",
+        "accion": "conservado lo impreso; documentado"
+      }
+    ],
+    "nota": "Los 15 'no_encontrado' restantes del script son nombres descriptivos de la columna CAMPO de las tablas de validación (Anexos III/V), no nombres JSON. Ningún ejemplo de la normativa fue sustituido por estructuras de los schemas."
+  },
+  "paginas": [
+    {
+      "pagina": 1,
+      "flag_original": "ocr_poco_texto",
+      "metodo": "tesseract_5.4.0_tessdata_best_spa+eng + transcripcion_visual_verificada",
+      "resolucion_dpi": 300,
+      "psm": 6,
+      "psm_contraste": 3,
+      "preprocesamiento": "render escala de grises PyMuPDF; sin binarización adicional (no mejoró en piloto)",
+      "caracteres_antes_windows_ocr": 126,
+      "caracteres_tesseract_psm6_bruto": 269,
+      "caracteres_tesseract_psm3_bruto": 167,
+      "caracteres_despues_markdown_curado": 168,
+      "problemas_detectados_ocr": [
+        "Portada: Windows OCR omitió el escudo y parte del texto (ocr_poco_texto)."
+      ],
+      "discrepancias_y_anomalias": [],
+      "contraste_schemas": null,
+      "verificacion": "verificada_visualmente",
+      "requiere_revision_visual_adicional": false,
+      "archivos": {
+        "curado": "auditoria/ocr-recovery/curated/p001.md",
+        "ocr_bruto_psm6": "auditoria/ocr-recovery/raw/p001_tesseract_300dpi_psm6.txt",
+        "ocr_bruto_psm3": "auditoria/ocr-recovery/raw/p001_tesseract_300dpi_psm3.txt"
+      }
+    },
+    {
+      "pagina": 17,
+      "flag_original": "ocr_tabla_o_diagrama_incompleto",
+      "metodo": "tesseract_5.4.0_tessdata_best_spa+eng + transcripcion_visual_verificada",
+      "resolucion_dpi": 300,
+      "psm": 6,
+      "psm_contraste": 3,
+      "preprocesamiento": "render escala de grises PyMuPDF; sin binarización adicional (no mejoró en piloto)",
+      "caracteres_antes_windows_ocr": 2309,
+      "caracteres_tesseract_psm6_bruto": 2827,
+      "caracteres_tesseract_psm3_bruto": 2648,
+      "caracteres_despues_markdown_curado": 2472,
+      "problemas_detectados_ocr": [
+        "Tabla de redondeo/holgura con celdas perdidas en OCR previo."
+      ],
+      "discrepancias_y_anomalias": [],
+      "contraste_schemas": null,
+      "verificacion": "verificada_visualmente",
+      "requiere_revision_visual_adicional": false,
+      "archivos": {
+        "curado": "auditoria/ocr-recovery/curated/p017.md",
+        "ocr_bruto_psm6": "auditoria/ocr-recovery/raw/p017_tesseract_300dpi_psm6.txt",
+        "ocr_bruto_psm3": "auditoria/ocr-recovery/raw/p017_tesseract_300dpi_psm3.txt"
+      }
+    },
+    {
+      "pagina": 19,
+      "flag_original": "ocr_tabla_o_diagrama_incompleto",
+      "metodo": "tesseract_5.4.0_tessdata_best_spa+eng + transcripcion_visual_verificada",
+      "resolucion_dpi": 300,
+      "psm": 6,
+      "psm_contraste": 3,
+      "preprocesamiento": "render escala de grises PyMuPDF; sin binarización adicional (no mejoró en piloto)",
+      "caracteres_antes_windows_ocr": 2436,
+      "caracteres_tesseract_psm6_bruto": 2846,
+      "caracteres_tesseract_psm3_bruto": 2629,
+      "caracteres_despues_markdown_curado": 2548,
+      "problemas_detectados_ocr": [
+        "Cuadro de modalidades de transmisión aplanado por el OCR previo."
+      ],
+      "discrepancias_y_anomalias": [],
+      "contraste_schemas": null,
+      "verificacion": "verificada_visualmente",
+      "requiere_revision_visual_adicional": false,
+      "archivos": {
+        "curado": "auditoria/ocr-recovery/curated/p019.md",
+        "ocr_bruto_psm6": "auditoria/ocr-recovery/raw/p019_tesseract_300dpi_psm6.txt",
+        "ocr_bruto_psm3": "auditoria/ocr-recovery/raw/p019_tesseract_300dpi_psm3.txt"
+      }
+    },
+    {
+      "pagina": 28,
+      "flag_original": "ocr_tabla_o_diagrama_incompleto",
+      "metodo": "tesseract_5.4.0_tessdata_best_spa+eng + transcripcion_visual_verificada",
+      "resolucion_dpi": 300,
+      "psm": 6,
+      "psm_contraste": 3,
+      "preprocesamiento": "render escala de grises PyMuPDF; sin binarización adicional (no mejoró en piloto)",
+      "caracteres_antes_windows_ocr": 3126,
+      "caracteres_tesseract_psm6_bruto": 3797,
+      "caracteres_tesseract_psm3_bruto": 3885,
+      "caracteres_despues_markdown_curado": 3189,
+      "problemas_detectados_ocr": [
+        "Tabla/diagrama incompleto en OCR previo (celdas con texto entrecomillado o nombres JSON omitidos, columnas aplanadas)."
+      ],
+      "discrepancias_y_anomalias": [],
+      "contraste_schemas": null,
+      "verificacion": "verificada_visualmente",
+      "requiere_revision_visual_adicional": false,
+      "archivos": {
+        "curado": "auditoria/ocr-recovery/curated/p028.md",
+        "ocr_bruto_psm6": "auditoria/ocr-recovery/raw/p028_tesseract_300dpi_psm6.txt",
+        "ocr_bruto_psm3": "auditoria/ocr-recovery/raw/p028_tesseract_300dpi_psm3.txt"
+      }
+    },
+    {
+      "pagina": 30,
+      "flag_original": "ocr_tabla_o_diagrama_incompleto",
+      "metodo": "tesseract_5.4.0_tessdata_best_spa+eng + transcripcion_visual_verificada",
+      "resolucion_dpi": 300,
+      "psm": 6,
+      "psm_contraste": 3,
+      "preprocesamiento": "render escala de grises PyMuPDF; sin binarización adicional (no mejoró en piloto)",
+      "caracteres_antes_windows_ocr": 2833,
+      "caracteres_tesseract_psm6_bruto": 3258,
+      "caracteres_tesseract_psm3_bruto": 3216,
+      "caracteres_despues_markdown_curado": 2893,
+      "problemas_detectados_ocr": [
+        "Tabla/diagrama incompleto en OCR previo (celdas con texto entrecomillado o nombres JSON omitidos, columnas aplanadas)."
+      ],
+      "discrepancias_y_anomalias": [],
+      "contraste_schemas": null,
+      "verificacion": "verificada_visualmente",
+      "requiere_revision_visual_adicional": false,
+      "archivos": {
+        "curado": "auditoria/ocr-recovery/curated/p030.md",
+        "ocr_bruto_psm6": "auditoria/ocr-recovery/raw/p030_tesseract_300dpi_psm6.txt",
+        "ocr_bruto_psm3": "auditoria/ocr-recovery/raw/p030_tesseract_300dpi_psm3.txt"
+      }
+    },
+    {
+      "pagina": 31,
+      "flag_original": "ocr_tabla_o_diagrama_incompleto",
+      "metodo": "tesseract_5.4.0_tessdata_best_spa+eng + transcripcion_visual_verificada",
+      "resolucion_dpi": 300,
+      "psm": 6,
+      "psm_contraste": 3,
+      "preprocesamiento": "render escala de grises PyMuPDF; sin binarización adicional (no mejoró en piloto)",
+      "caracteres_antes_windows_ocr": 2453,
+      "caracteres_tesseract_psm6_bruto": 3236,
+      "caracteres_tesseract_psm3_bruto": 2993,
+      "caracteres_despues_markdown_curado": 2509,
+      "problemas_detectados_ocr": [
+        "Tabla/diagrama incompleto en OCR previo (celdas con texto entrecomillado o nombres JSON omitidos, columnas aplanadas)."
+      ],
+      "discrepancias_y_anomalias": [],
+      "contraste_schemas": null,
+      "verificacion": "verificada_visualmente",
+      "requiere_revision_visual_adicional": false,
+      "archivos": {
+        "curado": "auditoria/ocr-recovery/curated/p031.md",
+        "ocr_bruto_psm6": "auditoria/ocr-recovery/raw/p031_tesseract_300dpi_psm6.txt",
+        "ocr_bruto_psm3": "auditoria/ocr-recovery/raw/p031_tesseract_300dpi_psm3.txt"
+      }
+    },
+    {
+      "pagina": 32,
+      "flag_original": "ocr_tabla_o_diagrama_incompleto",
+      "metodo": "tesseract_5.4.0_tessdata_best_spa+eng + transcripcion_visual_verificada",
+      "resolucion_dpi": 300,
+      "psm": 6,
+      "psm_contraste": 3,
+      "preprocesamiento": "render escala de grises PyMuPDF; sin binarización adicional (no mejoró en piloto)",
+      "caracteres_antes_windows_ocr": 1894,
+      "caracteres_tesseract_psm6_bruto": 2082,
+      "caracteres_tesseract_psm3_bruto": 1974,
+      "caracteres_despues_markdown_curado": 2004,
+      "problemas_detectados_ocr": [
+        "Tabla/diagrama incompleto en OCR previo (celdas con texto entrecomillado o nombres JSON omitidos, columnas aplanadas)."
+      ],
+      "discrepancias_y_anomalias": [],
+      "contraste_schemas": null,
+      "verificacion": "verificada_visualmente",
+      "requiere_revision_visual_adicional": false,
+      "archivos": {
+        "curado": "auditoria/ocr-recovery/curated/p032.md",
+        "ocr_bruto_psm6": "auditoria/ocr-recovery/raw/p032_tesseract_300dpi_psm6.txt",
+        "ocr_bruto_psm3": "auditoria/ocr-recovery/raw/p032_tesseract_300dpi_psm3.txt"
+      }
+    },
+    {
+      "pagina": 33,
+      "flag_original": "ocr_tabla_o_diagrama_incompleto",
+      "metodo": "tesseract_5.4.0_tessdata_best_spa+eng + transcripcion_visual_verificada",
+      "resolucion_dpi": 300,
+      "psm": 6,
+      "psm_contraste": 3,
+      "preprocesamiento": "render escala de grises PyMuPDF; sin binarización adicional (no mejoró en piloto)",
+      "caracteres_antes_windows_ocr": 2813,
+      "caracteres_tesseract_psm6_bruto": 3620,
+      "caracteres_tesseract_psm3_bruto": 3410,
+      "caracteres_despues_markdown_curado": 2845,
+      "problemas_detectados_ocr": [
+        "Tabla/diagrama incompleto en OCR previo (celdas con texto entrecomillado o nombres JSON omitidos, columnas aplanadas)."
+      ],
+      "discrepancias_y_anomalias": [],
+      "contraste_schemas": null,
+      "verificacion": "verificada_visualmente",
+      "requiere_revision_visual_adicional": false,
+      "archivos": {
+        "curado": "auditoria/ocr-recovery/curated/p033.md",
+        "ocr_bruto_psm6": "auditoria/ocr-recovery/raw/p033_tesseract_300dpi_psm6.txt",
+        "ocr_bruto_psm3": "auditoria/ocr-recovery/raw/p033_tesseract_300dpi_psm3.txt"
+      }
+    },
+    {
+      "pagina": 40,
+      "flag_original": "ocr_tabla_o_diagrama_incompleto",
+      "metodo": "tesseract_5.4.0_tessdata_best_spa+eng + transcripcion_visual_verificada",
+      "resolucion_dpi": 300,
+      "psm": 6,
+      "psm_contraste": 3,
+      "preprocesamiento": "render escala de grises PyMuPDF; sin binarización adicional (no mejoró en piloto)",
+      "caracteres_antes_windows_ocr": 4221,
+      "caracteres_tesseract_psm6_bruto": 4491,
+      "caracteres_tesseract_psm3_bruto": 4497,
+      "caracteres_despues_markdown_curado": 1621,
+      "problemas_detectados_ocr": [
+        "Ejemplo JWS en base64 (~38 líneas) ilegible de forma fiable por OCR."
+      ],
+      "discrepancias_y_anomalias": [
+        "Ejemplo ilustrativo base64 no transcrito carácter a carácter; solo el inicio verificado por decodificación ({\"alg\":\"RS512\"} / {\"identificacion\":{\"version\":1,...). No normativo; se mantiene nota en la página."
+      ],
+      "contraste_schemas": null,
+      "verificacion": "verificada_visualmente_con_limitacion_no_material",
+      "requiere_revision_visual_adicional": true,
+      "archivos": {
+        "curado": "auditoria/ocr-recovery/curated/p040.md",
+        "ocr_bruto_psm6": "auditoria/ocr-recovery/raw/p040_tesseract_300dpi_psm6.txt",
+        "ocr_bruto_psm3": "auditoria/ocr-recovery/raw/p040_tesseract_300dpi_psm3.txt"
+      }
+    },
+    {
+      "pagina": 43,
+      "flag_original": "ocr_tabla_o_diagrama_incompleto",
+      "metodo": "tesseract_5.4.0_tessdata_best_spa+eng + transcripcion_visual_verificada",
+      "resolucion_dpi": 300,
+      "psm": 6,
+      "psm_contraste": 3,
+      "preprocesamiento": "render escala de grises PyMuPDF; sin binarización adicional (no mejoró en piloto)",
+      "caracteres_antes_windows_ocr": 2521,
+      "caracteres_tesseract_psm6_bruto": 3344,
+      "caracteres_tesseract_psm3_bruto": 3256,
+      "caracteres_despues_markdown_curado": 3424,
+      "problemas_detectados_ocr": [
+        "JSON de ejemplo omitido por Windows OCR; comillas/llaves alteradas."
+      ],
+      "discrepancias_y_anomalias": [
+        "Sello de recepción de ejemplo con ambigüedad 0/O ('E000A'): transcrito como cero. Claves sin valor transcritas tal cual; no completadas con schemas."
+      ],
+      "contraste_schemas": null,
+      "verificacion": "verificada_visualmente",
+      "requiere_revision_visual_adicional": false,
+      "archivos": {
+        "curado": "auditoria/ocr-recovery/curated/p043.md",
+        "ocr_bruto_psm6": "auditoria/ocr-recovery/raw/p043_tesseract_300dpi_psm6.txt",
+        "ocr_bruto_psm3": "auditoria/ocr-recovery/raw/p043_tesseract_300dpi_psm3.txt"
+      }
+    },
+    {
+      "pagina": 46,
+      "flag_original": "ocr_tabla_o_diagrama_incompleto",
+      "metodo": "transcripcion_visual_verificada (diagrama; OCR Tesseract solo como apoyo de etiquetas)",
+      "resolucion_dpi": 300,
+      "psm": 6,
+      "psm_contraste": 3,
+      "preprocesamiento": "render escala de grises PyMuPDF; sin binarización adicional (no mejoró en piloto)",
+      "caracteres_antes_windows_ocr": 436,
+      "caracteres_tesseract_psm6_bruto": 2946,
+      "caracteres_tesseract_psm3_bruto": 1952,
+      "caracteres_despues_markdown_curado": 1433,
+      "problemas_detectados_ocr": [
+        "Diagrama de flujo DTE y Eventos: ningún modo PSM lo recupera."
+      ],
+      "discrepancias_y_anomalias": [
+        "Transcrito visualmente como flujo textual. El escaneo lee 'Valida loken' (interpretado como 'Valida token', anotado)."
+      ],
+      "contraste_schemas": null,
+      "verificacion": "verificada_visualmente",
+      "requiere_revision_visual_adicional": false,
+      "archivos": {
+        "curado": "auditoria/ocr-recovery/curated/p046.md",
+        "ocr_bruto_psm6": "auditoria/ocr-recovery/raw/p046_tesseract_300dpi_psm6.txt",
+        "ocr_bruto_psm3": "auditoria/ocr-recovery/raw/p046_tesseract_300dpi_psm3.txt"
+      }
+    },
+    {
+      "pagina": 48,
+      "flag_original": "ocr_tabla_o_diagrama_incompleto",
+      "metodo": "tesseract_5.4.0_tessdata_best_spa+eng + transcripcion_visual_verificada",
+      "resolucion_dpi": 300,
+      "psm": 6,
+      "psm_contraste": 3,
+      "preprocesamiento": "render escala de grises PyMuPDF; sin binarización adicional (no mejoró en piloto)",
+      "caracteres_antes_windows_ocr": 2818,
+      "caracteres_tesseract_psm6_bruto": 5602,
+      "caracteres_tesseract_psm3_bruto": 5678,
+      "caracteres_despues_markdown_curado": 3125,
+      "problemas_detectados_ocr": [
+        "Tabla/diagrama incompleto en OCR previo (celdas con texto entrecomillado o nombres JSON omitidos, columnas aplanadas)."
+      ],
+      "discrepancias_y_anomalias": [],
+      "contraste_schemas": {
+        "campos_json_verificados": 6,
+        "campos_json_sin_coincidencia": []
+      },
+      "verificacion": "verificada_visualmente",
+      "requiere_revision_visual_adicional": false,
+      "archivos": {
+        "curado": "auditoria/ocr-recovery/curated/p048.md",
+        "ocr_bruto_psm6": "auditoria/ocr-recovery/raw/p048_tesseract_300dpi_psm6.txt",
+        "ocr_bruto_psm3": "auditoria/ocr-recovery/raw/p048_tesseract_300dpi_psm3.txt"
+      }
+    },
+    {
+      "pagina": 50,
+      "flag_original": "ocr_tabla_o_diagrama_incompleto",
+      "metodo": "tesseract_5.4.0_tessdata_best_spa+eng + transcripcion_visual_verificada",
+      "resolucion_dpi": 300,
+      "psm": 6,
+      "psm_contraste": 3,
+      "preprocesamiento": "render escala de grises PyMuPDF; sin binarización adicional (no mejoró en piloto)",
+      "caracteres_antes_windows_ocr": 2571,
+      "caracteres_tesseract_psm6_bruto": 4181,
+      "caracteres_tesseract_psm3_bruto": 4578,
+      "caracteres_despues_markdown_curado": 3204,
+      "problemas_detectados_ocr": [
+        "Tabla/diagrama incompleto en OCR previo (celdas con texto entrecomillado o nombres JSON omitidos, columnas aplanadas)."
+      ],
+      "discrepancias_y_anomalias": [],
+      "contraste_schemas": {
+        "campos_json_verificados": 3,
+        "campos_json_sin_coincidencia": []
+      },
+      "verificacion": "verificada_visualmente",
+      "requiere_revision_visual_adicional": false,
+      "archivos": {
+        "curado": "auditoria/ocr-recovery/curated/p050.md",
+        "ocr_bruto_psm6": "auditoria/ocr-recovery/raw/p050_tesseract_300dpi_psm6.txt",
+        "ocr_bruto_psm3": "auditoria/ocr-recovery/raw/p050_tesseract_300dpi_psm3.txt"
+      }
+    },
+    {
+      "pagina": 52,
+      "flag_original": "ocr_tabla_o_diagrama_incompleto",
+      "metodo": "tesseract_5.4.0_tessdata_best_spa+eng + transcripcion_visual_verificada",
+      "resolucion_dpi": 300,
+      "psm": 6,
+      "psm_contraste": 3,
+      "preprocesamiento": "render escala de grises PyMuPDF; sin binarización adicional (no mejoró en piloto)",
+      "caracteres_antes_windows_ocr": 2988,
+      "caracteres_tesseract_psm6_bruto": 6300,
+      "caracteres_tesseract_psm3_bruto": 6899,
+      "caracteres_despues_markdown_curado": 3340,
+      "problemas_detectados_ocr": [
+        "Tabla/diagrama incompleto en OCR previo (celdas con texto entrecomillado o nombres JSON omitidos, columnas aplanadas)."
+      ],
+      "discrepancias_y_anomalias": [
+        "emisor.direccion.distrito remite a CAT-008 'Distrito' tal como está impreso (sin cambios)."
+      ],
+      "contraste_schemas": {
+        "campos_json_verificados": 9,
+        "campos_json_sin_coincidencia": []
+      },
+      "verificacion": "verificada_visualmente",
+      "requiere_revision_visual_adicional": false,
+      "archivos": {
+        "curado": "auditoria/ocr-recovery/curated/p052.md",
+        "ocr_bruto_psm6": "auditoria/ocr-recovery/raw/p052_tesseract_300dpi_psm6.txt",
+        "ocr_bruto_psm3": "auditoria/ocr-recovery/raw/p052_tesseract_300dpi_psm3.txt"
+      }
+    },
+    {
+      "pagina": 54,
+      "flag_original": "ocr_tabla_o_diagrama_incompleto",
+      "metodo": "tesseract_5.4.0_tessdata_best_spa+eng + transcripcion_visual_verificada",
+      "resolucion_dpi": 300,
+      "psm": 6,
+      "psm_contraste": 3,
+      "preprocesamiento": "render escala de grises PyMuPDF; sin binarización adicional (no mejoró en piloto)",
+      "caracteres_antes_windows_ocr": 2633,
+      "caracteres_tesseract_psm6_bruto": 5638,
+      "caracteres_tesseract_psm3_bruto": 5705,
+      "caracteres_despues_markdown_curado": 2962,
+      "problemas_detectados_ocr": [
+        "Tabla/diagrama incompleto en OCR previo (celdas con texto entrecomillado o nombres JSON omitidos, columnas aplanadas)."
+      ],
+      "discrepancias_y_anomalias": [],
+      "contraste_schemas": {
+        "campos_json_verificados": 6,
+        "campos_json_sin_coincidencia": []
+      },
+      "verificacion": "verificada_visualmente",
+      "requiere_revision_visual_adicional": false,
+      "archivos": {
+        "curado": "auditoria/ocr-recovery/curated/p054.md",
+        "ocr_bruto_psm6": "auditoria/ocr-recovery/raw/p054_tesseract_300dpi_psm6.txt",
+        "ocr_bruto_psm3": "auditoria/ocr-recovery/raw/p054_tesseract_300dpi_psm3.txt"
+      }
+    },
+    {
+      "pagina": 56,
+      "flag_original": "ocr_tabla_o_diagrama_incompleto",
+      "metodo": "tesseract_5.4.0_tessdata_best_spa+eng + transcripcion_visual_verificada",
+      "resolucion_dpi": 300,
+      "psm": 6,
+      "psm_contraste": 3,
+      "preprocesamiento": "render escala de grises PyMuPDF; sin binarización adicional (no mejoró en piloto)",
+      "caracteres_antes_windows_ocr": 2071,
+      "caracteres_tesseract_psm6_bruto": 4135,
+      "caracteres_tesseract_psm3_bruto": 4344,
+      "caracteres_despues_markdown_curado": 2571,
+      "problemas_detectados_ocr": [
+        "Tabla/diagrama incompleto en OCR previo (celdas con texto entrecomillado o nombres JSON omitidos, columnas aplanadas)."
+      ],
+      "discrepancias_y_anomalias": [],
+      "contraste_schemas": {
+        "campos_json_verificados": 6,
+        "campos_json_sin_coincidencia": []
+      },
+      "verificacion": "verificada_visualmente",
+      "requiere_revision_visual_adicional": false,
+      "archivos": {
+        "curado": "auditoria/ocr-recovery/curated/p056.md",
+        "ocr_bruto_psm6": "auditoria/ocr-recovery/raw/p056_tesseract_300dpi_psm6.txt",
+        "ocr_bruto_psm3": "auditoria/ocr-recovery/raw/p056_tesseract_300dpi_psm3.txt"
+      }
+    },
+    {
+      "pagina": 58,
+      "flag_original": "ocr_tabla_o_diagrama_incompleto",
+      "metodo": "tesseract_5.4.0_tessdata_best_spa+eng + transcripcion_visual_verificada",
+      "resolucion_dpi": 300,
+      "psm": 6,
+      "psm_contraste": 3,
+      "preprocesamiento": "render escala de grises PyMuPDF; sin binarización adicional (no mejoró en piloto)",
+      "caracteres_antes_windows_ocr": 2280,
+      "caracteres_tesseract_psm6_bruto": 4388,
+      "caracteres_tesseract_psm3_bruto": 4344,
+      "caracteres_despues_markdown_curado": 2583,
+      "problemas_detectados_ocr": [
+        "Tabla/diagrama incompleto en OCR previo (celdas con texto entrecomillado o nombres JSON omitidos, columnas aplanadas)."
+      ],
+      "discrepancias_y_anomalias": [],
+      "contraste_schemas": {
+        "campos_json_verificados": 4,
+        "campos_json_sin_coincidencia": []
+      },
+      "verificacion": "verificada_visualmente",
+      "requiere_revision_visual_adicional": false,
+      "archivos": {
+        "curado": "auditoria/ocr-recovery/curated/p058.md",
+        "ocr_bruto_psm6": "auditoria/ocr-recovery/raw/p058_tesseract_300dpi_psm6.txt",
+        "ocr_bruto_psm3": "auditoria/ocr-recovery/raw/p058_tesseract_300dpi_psm3.txt"
+      }
+    },
+    {
+      "pagina": 59,
+      "flag_original": "ocr_tabla_o_diagrama_incompleto",
+      "metodo": "tesseract_5.4.0_tessdata_best_spa+eng + transcripcion_visual_verificada",
+      "resolucion_dpi": 300,
+      "psm": 6,
+      "psm_contraste": 3,
+      "preprocesamiento": "render escala de grises PyMuPDF; sin binarización adicional (no mejoró en piloto)",
+      "caracteres_antes_windows_ocr": 2130,
+      "caracteres_tesseract_psm6_bruto": 4252,
+      "caracteres_tesseract_psm3_bruto": 3592,
+      "caracteres_despues_markdown_curado": 3064,
+      "problemas_detectados_ocr": [
+        "Tabla/diagrama incompleto en OCR previo (celdas con texto entrecomillado o nombres JSON omitidos, columnas aplanadas)."
+      ],
+      "discrepancias_y_anomalias": [
+        "Fila 65 otrosDocumentos.modoTransp: Longitud impresa '11' (verificado a 250 dpi); schema v3/fe-fex-v3.json define integer 1..7. Se conserva lo impreso."
+      ],
+      "contraste_schemas": {
+        "campos_json_verificados": 4,
+        "campos_json_sin_coincidencia": []
+      },
+      "verificacion": "verificada_visualmente",
+      "requiere_revision_visual_adicional": false,
+      "archivos": {
+        "curado": "auditoria/ocr-recovery/curated/p059.md",
+        "ocr_bruto_psm6": "auditoria/ocr-recovery/raw/p059_tesseract_300dpi_psm6.txt",
+        "ocr_bruto_psm3": "auditoria/ocr-recovery/raw/p059_tesseract_300dpi_psm3.txt"
+      }
+    },
+    {
+      "pagina": 60,
+      "flag_original": "ocr_tabla_o_diagrama_incompleto",
+      "metodo": "tesseract_5.4.0_tessdata_best_spa+eng + transcripcion_visual_verificada",
+      "resolucion_dpi": 300,
+      "psm": 6,
+      "psm_contraste": 3,
+      "preprocesamiento": "render escala de grises PyMuPDF; sin binarización adicional (no mejoró en piloto)",
+      "caracteres_antes_windows_ocr": 2184,
+      "caracteres_tesseract_psm6_bruto": 5143,
+      "caracteres_tesseract_psm3_bruto": 4960,
+      "caracteres_despues_markdown_curado": 2687,
+      "problemas_detectados_ocr": [
+        "Tabla/diagrama incompleto en OCR previo (celdas con texto entrecomillado o nombres JSON omitidos, columnas aplanadas)."
+      ],
+      "discrepancias_y_anomalias": [],
+      "contraste_schemas": {
+        "campos_json_verificados": 4,
+        "campos_json_sin_coincidencia": []
+      },
+      "verificacion": "verificada_visualmente",
+      "requiere_revision_visual_adicional": false,
+      "archivos": {
+        "curado": "auditoria/ocr-recovery/curated/p060.md",
+        "ocr_bruto_psm6": "auditoria/ocr-recovery/raw/p060_tesseract_300dpi_psm6.txt",
+        "ocr_bruto_psm3": "auditoria/ocr-recovery/raw/p060_tesseract_300dpi_psm3.txt"
+      }
+    },
+    {
+      "pagina": 61,
+      "flag_original": "ocr_tabla_o_diagrama_incompleto",
+      "metodo": "tesseract_5.4.0_tessdata_best_spa+eng + transcripcion_visual_verificada",
+      "resolucion_dpi": 300,
+      "psm": 6,
+      "psm_contraste": 3,
+      "preprocesamiento": "render escala de grises PyMuPDF; sin binarización adicional (no mejoró en piloto)",
+      "caracteres_antes_windows_ocr": 1854,
+      "caracteres_tesseract_psm6_bruto": 4490,
+      "caracteres_tesseract_psm3_bruto": 4124,
+      "caracteres_despues_markdown_curado": 2353,
+      "problemas_detectados_ocr": [
+        "Tabla/diagrama incompleto en OCR previo (celdas con texto entrecomillado o nombres JSON omitidos, columnas aplanadas)."
+      ],
+      "discrepancias_y_anomalias": [],
+      "contraste_schemas": {
+        "campos_json_verificados": 4,
+        "campos_json_sin_coincidencia": []
+      },
+      "verificacion": "verificada_visualmente",
+      "requiere_revision_visual_adicional": false,
+      "archivos": {
+        "curado": "auditoria/ocr-recovery/curated/p061.md",
+        "ocr_bruto_psm6": "auditoria/ocr-recovery/raw/p061_tesseract_300dpi_psm6.txt",
+        "ocr_bruto_psm3": "auditoria/ocr-recovery/raw/p061_tesseract_300dpi_psm3.txt"
+      }
+    },
+    {
+      "pagina": 62,
+      "flag_original": "ocr_tabla_o_diagrama_incompleto",
+      "metodo": "tesseract_5.4.0_tessdata_best_spa+eng + transcripcion_visual_verificada",
+      "resolucion_dpi": 300,
+      "psm": 6,
+      "psm_contraste": 3,
+      "preprocesamiento": "render escala de grises PyMuPDF; sin binarización adicional (no mejoró en piloto)",
+      "caracteres_antes_windows_ocr": 2415,
+      "caracteres_tesseract_psm6_bruto": 4149,
+      "caracteres_tesseract_psm3_bruto": 4109,
+      "caracteres_despues_markdown_curado": 2739,
+      "problemas_detectados_ocr": [
+        "Tabla/diagrama incompleto en OCR previo (celdas con texto entrecomillado o nombres JSON omitidos, columnas aplanadas)."
+      ],
+      "discrepancias_y_anomalias": [],
+      "contraste_schemas": {
+        "campos_json_verificados": 4,
+        "campos_json_sin_coincidencia": []
+      },
+      "verificacion": "verificada_visualmente",
+      "requiere_revision_visual_adicional": false,
+      "archivos": {
+        "curado": "auditoria/ocr-recovery/curated/p062.md",
+        "ocr_bruto_psm6": "auditoria/ocr-recovery/raw/p062_tesseract_300dpi_psm6.txt",
+        "ocr_bruto_psm3": "auditoria/ocr-recovery/raw/p062_tesseract_300dpi_psm3.txt"
+      }
+    },
+    {
+      "pagina": 63,
+      "flag_original": "ocr_tabla_o_diagrama_incompleto",
+      "metodo": "tesseract_5.4.0_tessdata_best_spa+eng + transcripcion_visual_verificada",
+      "resolucion_dpi": 300,
+      "psm": 6,
+      "psm_contraste": 3,
+      "preprocesamiento": "render escala de grises PyMuPDF; sin binarización adicional (no mejoró en piloto)",
+      "caracteres_antes_windows_ocr": 2318,
+      "caracteres_tesseract_psm6_bruto": 4392,
+      "caracteres_tesseract_psm3_bruto": 3818,
+      "caracteres_despues_markdown_curado": 2647,
+      "problemas_detectados_ocr": [
+        "Tabla/diagrama incompleto en OCR previo (celdas con texto entrecomillado o nombres JSON omitidos, columnas aplanadas)."
+      ],
+      "discrepancias_y_anomalias": [],
+      "contraste_schemas": {
+        "campos_json_verificados": 4,
+        "campos_json_sin_coincidencia": []
+      },
+      "verificacion": "verificada_visualmente",
+      "requiere_revision_visual_adicional": false,
+      "archivos": {
+        "curado": "auditoria/ocr-recovery/curated/p063.md",
+        "ocr_bruto_psm6": "auditoria/ocr-recovery/raw/p063_tesseract_300dpi_psm6.txt",
+        "ocr_bruto_psm3": "auditoria/ocr-recovery/raw/p063_tesseract_300dpi_psm3.txt"
+      }
+    },
+    {
+      "pagina": 64,
+      "flag_original": "ocr_tabla_o_diagrama_incompleto",
+      "metodo": "tesseract_5.4.0_tessdata_best_spa+eng + transcripcion_visual_verificada",
+      "resolucion_dpi": 300,
+      "psm": 6,
+      "psm_contraste": 3,
+      "preprocesamiento": "render escala de grises PyMuPDF; sin binarización adicional (no mejoró en piloto)",
+      "caracteres_antes_windows_ocr": 2145,
+      "caracteres_tesseract_psm6_bruto": 4186,
+      "caracteres_tesseract_psm3_bruto": 2296,
+      "caracteres_despues_markdown_curado": 2494,
+      "problemas_detectados_ocr": [
+        "Tabla/diagrama incompleto en OCR previo (celdas con texto entrecomillado o nombres JSON omitidos, columnas aplanadas)."
+      ],
+      "discrepancias_y_anomalias": [],
+      "contraste_schemas": {
+        "campos_json_verificados": 3,
+        "campos_json_sin_coincidencia": []
+      },
+      "verificacion": "verificada_visualmente",
+      "requiere_revision_visual_adicional": false,
+      "archivos": {
+        "curado": "auditoria/ocr-recovery/curated/p064.md",
+        "ocr_bruto_psm6": "auditoria/ocr-recovery/raw/p064_tesseract_300dpi_psm6.txt",
+        "ocr_bruto_psm3": "auditoria/ocr-recovery/raw/p064_tesseract_300dpi_psm3.txt"
+      }
+    },
+    {
+      "pagina": 66,
+      "flag_original": "ocr_tabla_o_diagrama_incompleto",
+      "metodo": "tesseract_5.4.0_tessdata_best_spa+eng + transcripcion_visual_verificada",
+      "resolucion_dpi": 300,
+      "psm": 6,
+      "psm_contraste": 3,
+      "preprocesamiento": "render escala de grises PyMuPDF; sin binarización adicional (no mejoró en piloto)",
+      "caracteres_antes_windows_ocr": 1846,
+      "caracteres_tesseract_psm6_bruto": 3022,
+      "caracteres_tesseract_psm3_bruto": 2027,
+      "caracteres_despues_markdown_curado": 2195,
+      "problemas_detectados_ocr": [
+        "Tabla/diagrama incompleto en OCR previo (celdas con texto entrecomillado o nombres JSON omitidos, columnas aplanadas)."
+      ],
+      "discrepancias_y_anomalias": [],
+      "contraste_schemas": {
+        "campos_json_verificados": 2,
+        "campos_json_sin_coincidencia": []
+      },
+      "verificacion": "verificada_visualmente",
+      "requiere_revision_visual_adicional": false,
+      "archivos": {
+        "curado": "auditoria/ocr-recovery/curated/p066.md",
+        "ocr_bruto_psm6": "auditoria/ocr-recovery/raw/p066_tesseract_300dpi_psm6.txt",
+        "ocr_bruto_psm3": "auditoria/ocr-recovery/raw/p066_tesseract_300dpi_psm3.txt"
+      }
+    },
+    {
+      "pagina": 68,
+      "flag_original": "ocr_tabla_o_diagrama_incompleto",
+      "metodo": "tesseract_5.4.0_tessdata_best_spa+eng + transcripcion_visual_verificada",
+      "resolucion_dpi": 300,
+      "psm": 6,
+      "psm_contraste": 3,
+      "preprocesamiento": "render escala de grises PyMuPDF; sin binarización adicional (no mejoró en piloto)",
+      "caracteres_antes_windows_ocr": 2361,
+      "caracteres_tesseract_psm6_bruto": 4357,
+      "caracteres_tesseract_psm3_bruto": 4344,
+      "caracteres_despues_markdown_curado": 2719,
+      "problemas_detectados_ocr": [
+        "Tabla/diagrama incompleto en OCR previo (celdas con texto entrecomillado o nombres JSON omitidos, columnas aplanadas)."
+      ],
+      "discrepancias_y_anomalias": [],
+      "contraste_schemas": {
+        "campos_json_verificados": 6,
+        "campos_json_sin_coincidencia": []
+      },
+      "verificacion": "verificada_visualmente",
+      "requiere_revision_visual_adicional": false,
+      "archivos": {
+        "curado": "auditoria/ocr-recovery/curated/p068.md",
+        "ocr_bruto_psm6": "auditoria/ocr-recovery/raw/p068_tesseract_300dpi_psm6.txt",
+        "ocr_bruto_psm3": "auditoria/ocr-recovery/raw/p068_tesseract_300dpi_psm3.txt"
+      }
+    },
+    {
+      "pagina": 70,
+      "flag_original": "ocr_tabla_o_diagrama_incompleto",
+      "metodo": "tesseract_5.4.0_tessdata_best_spa+eng + transcripcion_visual_verificada",
+      "resolucion_dpi": 300,
+      "psm": 6,
+      "psm_contraste": 3,
+      "preprocesamiento": "render escala de grises PyMuPDF; sin binarización adicional (no mejoró en piloto)",
+      "caracteres_antes_windows_ocr": 2632,
+      "caracteres_tesseract_psm6_bruto": 5516,
+      "caracteres_tesseract_psm3_bruto": 5573,
+      "caracteres_despues_markdown_curado": 3033,
+      "problemas_detectados_ocr": [
+        "Tabla/diagrama incompleto en OCR previo (celdas con texto entrecomillado o nombres JSON omitidos, columnas aplanadas)."
+      ],
+      "discrepancias_y_anomalias": [
+        "Fila 111: '$0.000' (sic, tres decimales, tal como está impreso). Primera fila es fragmento '…tidadDoc' de p. 69."
+      ],
+      "contraste_schemas": {
+        "campos_json_verificados": 10,
+        "campos_json_sin_coincidencia": []
+      },
+      "verificacion": "verificada_visualmente",
+      "requiere_revision_visual_adicional": false,
+      "archivos": {
+        "curado": "auditoria/ocr-recovery/curated/p070.md",
+        "ocr_bruto_psm6": "auditoria/ocr-recovery/raw/p070_tesseract_300dpi_psm6.txt",
+        "ocr_bruto_psm3": "auditoria/ocr-recovery/raw/p070_tesseract_300dpi_psm3.txt"
+      }
+    },
+    {
+      "pagina": 76,
+      "flag_original": "ocr_tabla_o_diagrama_incompleto",
+      "metodo": "tesseract_5.4.0_tessdata_best_spa+eng + transcripcion_visual_verificada",
+      "resolucion_dpi": 300,
+      "psm": 6,
+      "psm_contraste": 3,
+      "preprocesamiento": "render escala de grises PyMuPDF; sin binarización adicional (no mejoró en piloto)",
+      "caracteres_antes_windows_ocr": 2737,
+      "caracteres_tesseract_psm6_bruto": 4077,
+      "caracteres_tesseract_psm3_bruto": 4764,
+      "caracteres_despues_markdown_curado": 3068,
+      "problemas_detectados_ocr": [
+        "Tabla/diagrama incompleto en OCR previo (celdas con texto entrecomillado o nombres JSON omitidos, columnas aplanadas)."
+      ],
+      "discrepancias_y_anomalias": [
+        "Fila 155: nombre 'resumen.totalIva' continúa en p. 77 ('Retenido') → resumen.totalIvaRetenido, coincide con v2/fe-cr-v2.json."
+      ],
+      "contraste_schemas": {
+        "campos_json_verificados": 7,
+        "campos_json_sin_coincidencia": []
+      },
+      "verificacion": "verificada_visualmente",
+      "requiere_revision_visual_adicional": false,
+      "archivos": {
+        "curado": "auditoria/ocr-recovery/curated/p076.md",
+        "ocr_bruto_psm6": "auditoria/ocr-recovery/raw/p076_tesseract_300dpi_psm6.txt",
+        "ocr_bruto_psm3": "auditoria/ocr-recovery/raw/p076_tesseract_300dpi_psm3.txt"
+      }
+    },
+    {
+      "pagina": 78,
+      "flag_original": "ocr_tabla_o_diagrama_incompleto",
+      "metodo": "tesseract_5.4.0_tessdata_best_spa+eng + transcripcion_visual_verificada",
+      "resolucion_dpi": 300,
+      "psm": 6,
+      "psm_contraste": 3,
+      "preprocesamiento": "render escala de grises PyMuPDF; sin binarización adicional (no mejoró en piloto)",
+      "caracteres_antes_windows_ocr": 2341,
+      "caracteres_tesseract_psm6_bruto": 4452,
+      "caracteres_tesseract_psm3_bruto": 4476,
+      "caracteres_despues_markdown_curado": 2676,
+      "problemas_detectados_ocr": [
+        "Tabla/diagrama incompleto en OCR previo (celdas con texto entrecomillado o nombres JSON omitidos, columnas aplanadas)."
+      ],
+      "discrepancias_y_anomalias": [],
+      "contraste_schemas": {
+        "campos_json_verificados": 5,
+        "campos_json_sin_coincidencia": []
+      },
+      "verificacion": "verificada_visualmente",
+      "requiere_revision_visual_adicional": false,
+      "archivos": {
+        "curado": "auditoria/ocr-recovery/curated/p078.md",
+        "ocr_bruto_psm6": "auditoria/ocr-recovery/raw/p078_tesseract_300dpi_psm6.txt",
+        "ocr_bruto_psm3": "auditoria/ocr-recovery/raw/p078_tesseract_300dpi_psm3.txt"
+      }
+    },
+    {
+      "pagina": 82,
+      "flag_original": "ocr_tabla_o_diagrama_incompleto",
+      "metodo": "tesseract_5.4.0_tessdata_best_spa+eng + transcripcion_visual_verificada",
+      "resolucion_dpi": 300,
+      "psm": 6,
+      "psm_contraste": 3,
+      "preprocesamiento": "render escala de grises PyMuPDF; sin binarización adicional (no mejoró en piloto)",
+      "caracteres_antes_windows_ocr": 2513,
+      "caracteres_tesseract_psm6_bruto": 5038,
+      "caracteres_tesseract_psm3_bruto": 5139,
+      "caracteres_despues_markdown_curado": 2968,
+      "problemas_detectados_ocr": [
+        "Tabla/diagrama incompleto en OCR previo (celdas con texto entrecomillado o nombres JSON omitidos, columnas aplanadas)."
+      ],
+      "discrepancias_y_anomalias": [],
+      "contraste_schemas": {
+        "campos_json_verificados": 7,
+        "campos_json_sin_coincidencia": []
+      },
+      "verificacion": "verificada_visualmente",
+      "requiere_revision_visual_adicional": false,
+      "archivos": {
+        "curado": "auditoria/ocr-recovery/curated/p082.md",
+        "ocr_bruto_psm6": "auditoria/ocr-recovery/raw/p082_tesseract_300dpi_psm6.txt",
+        "ocr_bruto_psm3": "auditoria/ocr-recovery/raw/p082_tesseract_300dpi_psm3.txt"
+      }
+    },
+    {
+      "pagina": 84,
+      "flag_original": "ocr_tabla_o_diagrama_incompleto",
+      "metodo": "tesseract_5.4.0_tessdata_best_spa+eng + transcripcion_visual_verificada",
+      "resolucion_dpi": 300,
+      "psm": 6,
+      "psm_contraste": 3,
+      "preprocesamiento": "render escala de grises PyMuPDF; sin binarización adicional (no mejoró en piloto)",
+      "caracteres_antes_windows_ocr": 3310,
+      "caracteres_tesseract_psm6_bruto": 6193,
+      "caracteres_tesseract_psm3_bruto": 6117,
+      "caracteres_despues_markdown_curado": 3606,
+      "problemas_detectados_ocr": [
+        "Tabla/diagrama incompleto en OCR previo (celdas con texto entrecomillado o nombres JSON omitidos, columnas aplanadas)."
+      ],
+      "discrepancias_y_anomalias": [],
+      "contraste_schemas": {
+        "campos_json_verificados": 10,
+        "campos_json_sin_coincidencia": []
+      },
+      "verificacion": "verificada_visualmente",
+      "requiere_revision_visual_adicional": false,
+      "archivos": {
+        "curado": "auditoria/ocr-recovery/curated/p084.md",
+        "ocr_bruto_psm6": "auditoria/ocr-recovery/raw/p084_tesseract_300dpi_psm6.txt",
+        "ocr_bruto_psm3": "auditoria/ocr-recovery/raw/p084_tesseract_300dpi_psm3.txt"
+      }
+    },
+    {
+      "pagina": 86,
+      "flag_original": "ocr_tabla_o_diagrama_incompleto",
+      "metodo": "tesseract_5.4.0_tessdata_best_spa+eng + transcripcion_visual_verificada",
+      "resolucion_dpi": 300,
+      "psm": 6,
+      "psm_contraste": 3,
+      "preprocesamiento": "render escala de grises PyMuPDF; sin binarización adicional (no mejoró en piloto)",
+      "caracteres_antes_windows_ocr": 2202,
+      "caracteres_tesseract_psm6_bruto": 3806,
+      "caracteres_tesseract_psm3_bruto": 3594,
+      "caracteres_despues_markdown_curado": 2772,
+      "problemas_detectados_ocr": [
+        "Tabla/diagrama incompleto en OCR previo (celdas con texto entrecomillado o nombres JSON omitidos, columnas aplanadas)."
+      ],
+      "discrepancias_y_anomalias": [],
+      "contraste_schemas": {
+        "campos_json_verificados": 6,
+        "campos_json_sin_coincidencia": []
+      },
+      "verificacion": "verificada_visualmente",
+      "requiere_revision_visual_adicional": false,
+      "archivos": {
+        "curado": "auditoria/ocr-recovery/curated/p086.md",
+        "ocr_bruto_psm6": "auditoria/ocr-recovery/raw/p086_tesseract_300dpi_psm6.txt",
+        "ocr_bruto_psm3": "auditoria/ocr-recovery/raw/p086_tesseract_300dpi_psm3.txt"
+      }
+    },
+    {
+      "pagina": 88,
+      "flag_original": "ocr_tabla_o_diagrama_incompleto",
+      "metodo": "tesseract_5.4.0_tessdata_best_spa+eng + transcripcion_visual_verificada",
+      "resolucion_dpi": 300,
+      "psm": 6,
+      "psm_contraste": 3,
+      "preprocesamiento": "render escala de grises PyMuPDF; sin binarización adicional (no mejoró en piloto)",
+      "caracteres_antes_windows_ocr": 2683,
+      "caracteres_tesseract_psm6_bruto": 4684,
+      "caracteres_tesseract_psm3_bruto": 4820,
+      "caracteres_despues_markdown_curado": 2953,
+      "problemas_detectados_ocr": [
+        "Tabla/diagrama incompleto en OCR previo (celdas con texto entrecomillado o nombres JSON omitidos, columnas aplanadas)."
+      ],
+      "discrepancias_y_anomalias": [],
+      "contraste_schemas": {
+        "campos_json_verificados": 7,
+        "campos_json_sin_coincidencia": []
+      },
+      "verificacion": "verificada_visualmente",
+      "requiere_revision_visual_adicional": false,
+      "archivos": {
+        "curado": "auditoria/ocr-recovery/curated/p088.md",
+        "ocr_bruto_psm6": "auditoria/ocr-recovery/raw/p088_tesseract_300dpi_psm6.txt",
+        "ocr_bruto_psm3": "auditoria/ocr-recovery/raw/p088_tesseract_300dpi_psm3.txt"
+      }
+    },
+    {
+      "pagina": 89,
+      "flag_original": "ocr_tabla_o_diagrama_incompleto",
+      "metodo": "tesseract_5.4.0_tessdata_best_spa+eng + transcripcion_visual_verificada",
+      "resolucion_dpi": 300,
+      "psm": 6,
+      "psm_contraste": 3,
+      "preprocesamiento": "render escala de grises PyMuPDF; sin binarización adicional (no mejoró en piloto)",
+      "caracteres_antes_windows_ocr": 1943,
+      "caracteres_tesseract_psm6_bruto": 5234,
+      "caracteres_tesseract_psm3_bruto": 4629,
+      "caracteres_despues_markdown_curado": 2431,
+      "problemas_detectados_ocr": [
+        "Tabla/diagrama incompleto en OCR previo (celdas con texto entrecomillado o nombres JSON omitidos, columnas aplanadas)."
+      ],
+      "discrepancias_y_anomalias": [],
+      "contraste_schemas": {
+        "campos_json_verificados": 5,
+        "campos_json_sin_coincidencia": []
+      },
+      "verificacion": "verificada_visualmente",
+      "requiere_revision_visual_adicional": false,
+      "archivos": {
+        "curado": "auditoria/ocr-recovery/curated/p089.md",
+        "ocr_bruto_psm6": "auditoria/ocr-recovery/raw/p089_tesseract_300dpi_psm6.txt",
+        "ocr_bruto_psm3": "auditoria/ocr-recovery/raw/p089_tesseract_300dpi_psm3.txt"
+      }
+    },
+    {
+      "pagina": 90,
+      "flag_original": "ocr_tabla_o_diagrama_incompleto",
+      "metodo": "tesseract_5.4.0_tessdata_best_spa+eng + transcripcion_visual_verificada",
+      "resolucion_dpi": 300,
+      "psm": 6,
+      "psm_contraste": 3,
+      "preprocesamiento": "render escala de grises PyMuPDF; sin binarización adicional (no mejoró en piloto)",
+      "caracteres_antes_windows_ocr": 2393,
+      "caracteres_tesseract_psm6_bruto": 5934,
+      "caracteres_tesseract_psm3_bruto": 5996,
+      "caracteres_despues_markdown_curado": 2878,
+      "problemas_detectados_ocr": [
+        "Tabla/diagrama incompleto en OCR previo (celdas con texto entrecomillado o nombres JSON omitidos, columnas aplanadas)."
+      ],
+      "discrepancias_y_anomalias": [],
+      "contraste_schemas": {
+        "campos_json_verificados": 6,
+        "campos_json_sin_coincidencia": []
+      },
+      "verificacion": "verificada_visualmente",
+      "requiere_revision_visual_adicional": false,
+      "archivos": {
+        "curado": "auditoria/ocr-recovery/curated/p090.md",
+        "ocr_bruto_psm6": "auditoria/ocr-recovery/raw/p090_tesseract_300dpi_psm6.txt",
+        "ocr_bruto_psm3": "auditoria/ocr-recovery/raw/p090_tesseract_300dpi_psm3.txt"
+      }
+    },
+    {
+      "pagina": 92,
+      "flag_original": "ocr_tabla_o_diagrama_incompleto",
+      "metodo": "tesseract_5.4.0_tessdata_best_spa+eng + transcripcion_visual_verificada",
+      "resolucion_dpi": 300,
+      "psm": 6,
+      "psm_contraste": 3,
+      "preprocesamiento": "render escala de grises PyMuPDF; sin binarización adicional (no mejoró en piloto)",
+      "caracteres_antes_windows_ocr": 2460,
+      "caracteres_tesseract_psm6_bruto": 4351,
+      "caracteres_tesseract_psm3_bruto": 4409,
+      "caracteres_despues_markdown_curado": 3216,
+      "problemas_detectados_ocr": [
+        "Tabla/diagrama incompleto en OCR previo (celdas con texto entrecomillado o nombres JSON omitidos, columnas aplanadas)."
+      ],
+      "discrepancias_y_anomalias": [
+        "Filas 73/74: impreso 'cuerpoDocumento.DocDel'/'DocAl' (D mayúscula, verificado a 300 dpi); schema v1/fe-eop-v1.json usa 'docDel'/'docAl'. Se conserva lo impreso.",
+        "Fila 73: condición 'Requerido para por tipo de operación' (sic)."
+      ],
+      "contraste_schemas": {
+        "campos_json_verificados": 4,
+        "campos_json_sin_coincidencia": [
+          {
+            "campo": "cuerpoDocumento.DocDel",
+            "fila": 73
+          },
+          {
+            "campo": "cuerpoDocumento.DocAl",
+            "fila": 74
+          }
+        ]
+      },
+      "verificacion": "verificada_visualmente",
+      "requiere_revision_visual_adicional": false,
+      "archivos": {
+        "curado": "auditoria/ocr-recovery/curated/p092.md",
+        "ocr_bruto_psm6": "auditoria/ocr-recovery/raw/p092_tesseract_300dpi_psm6.txt",
+        "ocr_bruto_psm3": "auditoria/ocr-recovery/raw/p092_tesseract_300dpi_psm3.txt"
+      }
+    },
+    {
+      "pagina": 94,
+      "flag_original": "ocr_tabla_o_diagrama_incompleto",
+      "metodo": "tesseract_5.4.0_tessdata_best_spa+eng + transcripcion_visual_verificada",
+      "resolucion_dpi": 300,
+      "psm": 6,
+      "psm_contraste": 3,
+      "preprocesamiento": "render escala de grises PyMuPDF; sin binarización adicional (no mejoró en piloto)",
+      "caracteres_antes_windows_ocr": 2003,
+      "caracteres_tesseract_psm6_bruto": 3105,
+      "caracteres_tesseract_psm3_bruto": 2143,
+      "caracteres_despues_markdown_curado": 2269,
+      "problemas_detectados_ocr": [
+        "Tabla/diagrama incompleto en OCR previo (celdas con texto entrecomillado o nombres JSON omitidos, columnas aplanadas)."
+      ],
+      "discrepancias_y_anomalias": [],
+      "contraste_schemas": {
+        "campos_json_verificados": 3,
+        "campos_json_sin_coincidencia": []
+      },
+      "verificacion": "verificada_visualmente",
+      "requiere_revision_visual_adicional": false,
+      "archivos": {
+        "curado": "auditoria/ocr-recovery/curated/p094.md",
+        "ocr_bruto_psm6": "auditoria/ocr-recovery/raw/p094_tesseract_300dpi_psm6.txt",
+        "ocr_bruto_psm3": "auditoria/ocr-recovery/raw/p094_tesseract_300dpi_psm3.txt"
+      }
+    },
+    {
+      "pagina": 96,
+      "flag_original": "ocr_tabla_o_diagrama_incompleto",
+      "metodo": "tesseract_5.4.0_tessdata_best_spa+eng + transcripcion_visual_verificada",
+      "resolucion_dpi": 300,
+      "psm": 6,
+      "psm_contraste": 3,
+      "preprocesamiento": "render escala de grises PyMuPDF; sin binarización adicional (no mejoró en piloto)",
+      "caracteres_antes_windows_ocr": 2544,
+      "caracteres_tesseract_psm6_bruto": 3913,
+      "caracteres_tesseract_psm3_bruto": 4066,
+      "caracteres_despues_markdown_curado": 2854,
+      "problemas_detectados_ocr": [
+        "Tabla/diagrama incompleto en OCR previo (celdas con texto entrecomillado o nombres JSON omitidos, columnas aplanadas)."
+      ],
+      "discrepancias_y_anomalias": [],
+      "contraste_schemas": {
+        "campos_json_verificados": 6,
+        "campos_json_sin_coincidencia": []
+      },
+      "verificacion": "verificada_visualmente",
+      "requiere_revision_visual_adicional": false,
+      "archivos": {
+        "curado": "auditoria/ocr-recovery/curated/p096.md",
+        "ocr_bruto_psm6": "auditoria/ocr-recovery/raw/p096_tesseract_300dpi_psm6.txt",
+        "ocr_bruto_psm3": "auditoria/ocr-recovery/raw/p096_tesseract_300dpi_psm3.txt"
+      }
+    },
+    {
+      "pagina": 97,
+      "flag_original": "ocr_tabla_o_diagrama_incompleto",
+      "metodo": "tesseract_5.4.0_tessdata_best_spa+eng + transcripcion_visual_verificada",
+      "resolucion_dpi": 300,
+      "psm": 6,
+      "psm_contraste": 3,
+      "preprocesamiento": "render escala de grises PyMuPDF; sin binarización adicional (no mejoró en piloto)",
+      "caracteres_antes_windows_ocr": 2730,
+      "caracteres_tesseract_psm6_bruto": 5101,
+      "caracteres_tesseract_psm3_bruto": 4415,
+      "caracteres_despues_markdown_curado": 3148,
+      "problemas_detectados_ocr": [
+        "Tabla/diagrama incompleto en OCR previo (celdas con texto entrecomillado o nombres JSON omitidos, columnas aplanadas)."
+      ],
+      "discrepancias_y_anomalias": [],
+      "contraste_schemas": {
+        "campos_json_verificados": 8,
+        "campos_json_sin_coincidencia": []
+      },
+      "verificacion": "verificada_visualmente",
+      "requiere_revision_visual_adicional": false,
+      "archivos": {
+        "curado": "auditoria/ocr-recovery/curated/p097.md",
+        "ocr_bruto_psm6": "auditoria/ocr-recovery/raw/p097_tesseract_300dpi_psm6.txt",
+        "ocr_bruto_psm3": "auditoria/ocr-recovery/raw/p097_tesseract_300dpi_psm3.txt"
+      }
+    },
+    {
+      "pagina": 98,
+      "flag_original": "ocr_tabla_o_diagrama_incompleto",
+      "metodo": "tesseract_5.4.0_tessdata_best_spa+eng + transcripcion_visual_verificada",
+      "resolucion_dpi": 300,
+      "psm": 6,
+      "psm_contraste": 3,
+      "preprocesamiento": "render escala de grises PyMuPDF; sin binarización adicional (no mejoró en piloto)",
+      "caracteres_antes_windows_ocr": 2517,
+      "caracteres_tesseract_psm6_bruto": 3928,
+      "caracteres_tesseract_psm3_bruto": 4170,
+      "caracteres_despues_markdown_curado": 2867,
+      "problemas_detectados_ocr": [
+        "Tabla/diagrama incompleto en OCR previo (celdas con texto entrecomillado o nombres JSON omitidos, columnas aplanadas)."
+      ],
+      "discrepancias_y_anomalias": [],
+      "contraste_schemas": {
+        "campos_json_verificados": 6,
+        "campos_json_sin_coincidencia": []
+      },
+      "verificacion": "verificada_visualmente",
+      "requiere_revision_visual_adicional": false,
+      "archivos": {
+        "curado": "auditoria/ocr-recovery/curated/p098.md",
+        "ocr_bruto_psm6": "auditoria/ocr-recovery/raw/p098_tesseract_300dpi_psm6.txt",
+        "ocr_bruto_psm3": "auditoria/ocr-recovery/raw/p098_tesseract_300dpi_psm3.txt"
+      }
+    },
+    {
+      "pagina": 104,
+      "flag_original": "ocr_tabla_o_diagrama_incompleto",
+      "metodo": "tesseract_5.4.0_tessdata_best_spa+eng + transcripcion_visual_verificada",
+      "resolucion_dpi": 300,
+      "psm": 6,
+      "psm_contraste": 3,
+      "preprocesamiento": "render escala de grises PyMuPDF; sin binarización adicional (no mejoró en piloto)",
+      "caracteres_antes_windows_ocr": 3399,
+      "caracteres_tesseract_psm6_bruto": 5012,
+      "caracteres_tesseract_psm3_bruto": 5099,
+      "caracteres_despues_markdown_curado": 3694,
+      "problemas_detectados_ocr": [
+        "Tabla/diagrama incompleto en OCR previo (celdas con texto entrecomillado o nombres JSON omitidos, columnas aplanadas)."
+      ],
+      "discrepancias_y_anomalias": [
+        "Fila 17 regla 4: 'ND y FEXE' tal como está impreso."
+      ],
+      "contraste_schemas": null,
+      "verificacion": "verificada_visualmente",
+      "requiere_revision_visual_adicional": false,
+      "archivos": {
+        "curado": "auditoria/ocr-recovery/curated/p104.md",
+        "ocr_bruto_psm6": "auditoria/ocr-recovery/raw/p104_tesseract_300dpi_psm6.txt",
+        "ocr_bruto_psm3": "auditoria/ocr-recovery/raw/p104_tesseract_300dpi_psm3.txt"
+      }
+    },
+    {
+      "pagina": 106,
+      "flag_original": "ocr_tabla_o_diagrama_incompleto",
+      "metodo": "tesseract_5.4.0_tessdata_best_spa+eng + transcripcion_visual_verificada",
+      "resolucion_dpi": 300,
+      "psm": 6,
+      "psm_contraste": 3,
+      "preprocesamiento": "render escala de grises PyMuPDF; sin binarización adicional (no mejoró en piloto)",
+      "caracteres_antes_windows_ocr": 4340,
+      "caracteres_tesseract_psm6_bruto": 6268,
+      "caracteres_tesseract_psm3_bruto": 6447,
+      "caracteres_despues_markdown_curado": 4651,
+      "problemas_detectados_ocr": [
+        "Tabla/diagrama incompleto en OCR previo (celdas con texto entrecomillado o nombres JSON omitidos, columnas aplanadas)."
+      ],
+      "discrepancias_y_anomalias": [
+        "Fila 43 regla 3: columna DTE 'CD' (sic)."
+      ],
+      "contraste_schemas": null,
+      "verificacion": "verificada_visualmente",
+      "requiere_revision_visual_adicional": false,
+      "archivos": {
+        "curado": "auditoria/ocr-recovery/curated/p106.md",
+        "ocr_bruto_psm6": "auditoria/ocr-recovery/raw/p106_tesseract_300dpi_psm6.txt",
+        "ocr_bruto_psm3": "auditoria/ocr-recovery/raw/p106_tesseract_300dpi_psm3.txt"
+      }
+    },
+    {
+      "pagina": 108,
+      "flag_original": "ocr_tabla_o_diagrama_incompleto",
+      "metodo": "tesseract_5.4.0_tessdata_best_spa+eng + transcripcion_visual_verificada",
+      "resolucion_dpi": 300,
+      "psm": 6,
+      "psm_contraste": 3,
+      "preprocesamiento": "render escala de grises PyMuPDF; sin binarización adicional (no mejoró en piloto)",
+      "caracteres_antes_windows_ocr": 4220,
+      "caracteres_tesseract_psm6_bruto": 6231,
+      "caracteres_tesseract_psm3_bruto": 6541,
+      "caracteres_despues_markdown_curado": 4567,
+      "problemas_detectados_ocr": [
+        "Tabla/diagrama incompleto en OCR previo (celdas con texto entrecomillado o nombres JSON omitidos, columnas aplanadas)."
+      ],
+      "discrepancias_y_anomalias": [],
+      "contraste_schemas": null,
+      "verificacion": "verificada_visualmente",
+      "requiere_revision_visual_adicional": false,
+      "archivos": {
+        "curado": "auditoria/ocr-recovery/curated/p108.md",
+        "ocr_bruto_psm6": "auditoria/ocr-recovery/raw/p108_tesseract_300dpi_psm6.txt",
+        "ocr_bruto_psm3": "auditoria/ocr-recovery/raw/p108_tesseract_300dpi_psm3.txt"
+      }
+    },
+    {
+      "pagina": 114,
+      "flag_original": "ocr_tabla_o_diagrama_incompleto",
+      "metodo": "tesseract_5.4.0_tessdata_best_spa+eng + transcripcion_visual_verificada",
+      "resolucion_dpi": 300,
+      "psm": 6,
+      "psm_contraste": 3,
+      "preprocesamiento": "render escala de grises PyMuPDF; sin binarización adicional (no mejoró en piloto)",
+      "caracteres_antes_windows_ocr": 5067,
+      "caracteres_tesseract_psm6_bruto": 3651,
+      "caracteres_tesseract_psm3_bruto": 5575,
+      "caracteres_despues_markdown_curado": 5426,
+      "problemas_detectados_ocr": [
+        "Tabla/diagrama incompleto en OCR previo (celdas con texto entrecomillado o nombres JSON omitidos, columnas aplanadas)."
+      ],
+      "discrepancias_y_anomalias": [],
+      "contraste_schemas": null,
+      "verificacion": "verificada_visualmente",
+      "requiere_revision_visual_adicional": false,
+      "archivos": {
+        "curado": "auditoria/ocr-recovery/curated/p114.md",
+        "ocr_bruto_psm6": "auditoria/ocr-recovery/raw/p114_tesseract_300dpi_psm6.txt",
+        "ocr_bruto_psm3": "auditoria/ocr-recovery/raw/p114_tesseract_300dpi_psm3.txt"
+      }
+    },
+    {
+      "pagina": 120,
+      "flag_original": "ocr_tabla_o_diagrama_incompleto",
+      "metodo": "tesseract_5.4.0_tessdata_best_spa+eng + transcripcion_visual_verificada",
+      "resolucion_dpi": 300,
+      "psm": 6,
+      "psm_contraste": 3,
+      "preprocesamiento": "render escala de grises PyMuPDF; sin binarización adicional (no mejoró en piloto)",
+      "caracteres_antes_windows_ocr": 4281,
+      "caracteres_tesseract_psm6_bruto": 5976,
+      "caracteres_tesseract_psm3_bruto": 5942,
+      "caracteres_despues_markdown_curado": 4641,
+      "problemas_detectados_ocr": [
+        "Tabla/diagrama incompleto en OCR previo (celdas con texto entrecomillado o nombres JSON omitidos, columnas aplanadas)."
+      ],
+      "discrepancias_y_anomalias": [],
+      "contraste_schemas": null,
+      "verificacion": "verificada_visualmente",
+      "requiere_revision_visual_adicional": false,
+      "archivos": {
+        "curado": "auditoria/ocr-recovery/curated/p120.md",
+        "ocr_bruto_psm6": "auditoria/ocr-recovery/raw/p120_tesseract_300dpi_psm6.txt",
+        "ocr_bruto_psm3": "auditoria/ocr-recovery/raw/p120_tesseract_300dpi_psm3.txt"
+      }
+    },
+    {
+      "pagina": 124,
+      "flag_original": "ocr_tabla_o_diagrama_incompleto",
+      "metodo": "tesseract_5.4.0_tessdata_best_spa+eng + transcripcion_visual_verificada",
+      "resolucion_dpi": 300,
+      "psm": 6,
+      "psm_contraste": 3,
+      "preprocesamiento": "render escala de grises PyMuPDF; sin binarización adicional (no mejoró en piloto)",
+      "caracteres_antes_windows_ocr": 4387,
+      "caracteres_tesseract_psm6_bruto": 3422,
+      "caracteres_tesseract_psm3_bruto": 6136,
+      "caracteres_despues_markdown_curado": 4701,
+      "problemas_detectados_ocr": [
+        "Tabla/diagrama incompleto en OCR previo (celdas con texto entrecomillado o nombres JSON omitidos, columnas aplanadas)."
+      ],
+      "discrepancias_y_anomalias": [
+        "Códigos de actividad 21001, 21008, 46482, 46484, 46491, 47721 confirmados en imagen y en PSM 3 y PSM 6."
+      ],
+      "contraste_schemas": null,
+      "verificacion": "verificada_visualmente",
+      "requiere_revision_visual_adicional": false,
+      "archivos": {
+        "curado": "auditoria/ocr-recovery/curated/p124.md",
+        "ocr_bruto_psm6": "auditoria/ocr-recovery/raw/p124_tesseract_300dpi_psm6.txt",
+        "ocr_bruto_psm3": "auditoria/ocr-recovery/raw/p124_tesseract_300dpi_psm3.txt"
+      }
+    },
+    {
+      "pagina": 126,
+      "flag_original": "ocr_tabla_o_diagrama_incompleto",
+      "metodo": "tesseract_5.4.0_tessdata_best_spa+eng + transcripcion_visual_verificada",
+      "resolucion_dpi": 300,
+      "psm": 6,
+      "psm_contraste": 3,
+      "preprocesamiento": "render escala de grises PyMuPDF; sin binarización adicional (no mejoró en piloto)",
+      "caracteres_antes_windows_ocr": 3476,
+      "caracteres_tesseract_psm6_bruto": 5204,
+      "caracteres_tesseract_psm3_bruto": 5752,
+      "caracteres_despues_markdown_curado": 3732,
+      "problemas_detectados_ocr": [
+        "Tabla/diagrama incompleto en OCR previo (celdas con texto entrecomillado o nombres JSON omitidos, columnas aplanadas)."
+      ],
+      "discrepancias_y_anomalias": [],
+      "contraste_schemas": null,
+      "verificacion": "verificada_visualmente",
+      "requiere_revision_visual_adicional": false,
+      "archivos": {
+        "curado": "auditoria/ocr-recovery/curated/p126.md",
+        "ocr_bruto_psm6": "auditoria/ocr-recovery/raw/p126_tesseract_300dpi_psm6.txt",
+        "ocr_bruto_psm3": "auditoria/ocr-recovery/raw/p126_tesseract_300dpi_psm3.txt"
+      }
+    },
+    {
+      "pagina": 128,
+      "flag_original": "ocr_tabla_o_diagrama_incompleto",
+      "metodo": "tesseract_5.4.0_tessdata_best_spa+eng + transcripcion_visual_verificada",
+      "resolucion_dpi": 300,
+      "psm": 6,
+      "psm_contraste": 3,
+      "preprocesamiento": "render escala de grises PyMuPDF; sin binarización adicional (no mejoró en piloto)",
+      "caracteres_antes_windows_ocr": 3276,
+      "caracteres_tesseract_psm6_bruto": 4314,
+      "caracteres_tesseract_psm3_bruto": 4652,
+      "caracteres_despues_markdown_curado": 3562,
+      "problemas_detectados_ocr": [
+        "Tabla/diagrama incompleto en OCR previo (celdas con texto entrecomillado o nombres JSON omitidos, columnas aplanadas)."
+      ],
+      "discrepancias_y_anomalias": [],
+      "contraste_schemas": null,
+      "verificacion": "verificada_visualmente",
+      "requiere_revision_visual_adicional": false,
+      "archivos": {
+        "curado": "auditoria/ocr-recovery/curated/p128.md",
+        "ocr_bruto_psm6": "auditoria/ocr-recovery/raw/p128_tesseract_300dpi_psm6.txt",
+        "ocr_bruto_psm3": "auditoria/ocr-recovery/raw/p128_tesseract_300dpi_psm3.txt"
+      }
+    },
+    {
+      "pagina": 130,
+      "flag_original": "ocr_tabla_o_diagrama_incompleto",
+      "metodo": "tesseract_5.4.0_tessdata_best_spa+eng + transcripcion_visual_verificada",
+      "resolucion_dpi": 300,
+      "psm": 6,
+      "psm_contraste": 3,
+      "preprocesamiento": "render escala de grises PyMuPDF; sin binarización adicional (no mejoró en piloto)",
+      "caracteres_antes_windows_ocr": 3756,
+      "caracteres_tesseract_psm6_bruto": 5491,
+      "caracteres_tesseract_psm3_bruto": 6136,
+      "caracteres_despues_markdown_curado": 4058,
+      "problemas_detectados_ocr": [
+        "Tabla/diagrama incompleto en OCR previo (celdas con texto entrecomillado o nombres JSON omitidos, columnas aplanadas)."
+      ],
+      "discrepancias_y_anomalias": [],
+      "contraste_schemas": null,
+      "verificacion": "verificada_visualmente",
+      "requiere_revision_visual_adicional": false,
+      "archivos": {
+        "curado": "auditoria/ocr-recovery/curated/p130.md",
+        "ocr_bruto_psm6": "auditoria/ocr-recovery/raw/p130_tesseract_300dpi_psm6.txt",
+        "ocr_bruto_psm3": "auditoria/ocr-recovery/raw/p130_tesseract_300dpi_psm3.txt"
+      }
+    },
+    {
+      "pagina": 131,
+      "flag_original": "ocr_tabla_o_diagrama_incompleto",
+      "metodo": "tesseract_5.4.0_tessdata_best_spa+eng + transcripcion_visual_verificada",
+      "resolucion_dpi": 300,
+      "psm": 6,
+      "psm_contraste": 3,
+      "preprocesamiento": "render escala de grises PyMuPDF; sin binarización adicional (no mejoró en piloto)",
+      "caracteres_antes_windows_ocr": 4520,
+      "caracteres_tesseract_psm6_bruto": 2689,
+      "caracteres_tesseract_psm3_bruto": 6379,
+      "caracteres_despues_markdown_curado": 4932,
+      "problemas_detectados_ocr": [
+        "Tabla/diagrama incompleto en OCR previo (celdas con texto entrecomillado o nombres JSON omitidos, columnas aplanadas)."
+      ],
+      "discrepancias_y_anomalias": [],
+      "contraste_schemas": null,
+      "verificacion": "verificada_visualmente",
+      "requiere_revision_visual_adicional": false,
+      "archivos": {
+        "curado": "auditoria/ocr-recovery/curated/p131.md",
+        "ocr_bruto_psm6": "auditoria/ocr-recovery/raw/p131_tesseract_300dpi_psm6.txt",
+        "ocr_bruto_psm3": "auditoria/ocr-recovery/raw/p131_tesseract_300dpi_psm3.txt"
+      }
+    },
+    {
+      "pagina": 132,
+      "flag_original": "ocr_tabla_o_diagrama_incompleto",
+      "metodo": "tesseract_5.4.0_tessdata_best_spa+eng + transcripcion_visual_verificada",
+      "resolucion_dpi": 300,
+      "psm": 6,
+      "psm_contraste": 3,
+      "preprocesamiento": "render escala de grises PyMuPDF; sin binarización adicional (no mejoró en piloto)",
+      "caracteres_antes_windows_ocr": 3801,
+      "caracteres_tesseract_psm6_bruto": 6625,
+      "caracteres_tesseract_psm3_bruto": 7293,
+      "caracteres_despues_markdown_curado": 4168,
+      "problemas_detectados_ocr": [
+        "Tabla/diagrama incompleto en OCR previo (celdas con texto entrecomillado o nombres JSON omitidos, columnas aplanadas)."
+      ],
+      "discrepancias_y_anomalias": [],
+      "contraste_schemas": null,
+      "verificacion": "verificada_visualmente",
+      "requiere_revision_visual_adicional": false,
+      "archivos": {
+        "curado": "auditoria/ocr-recovery/curated/p132.md",
+        "ocr_bruto_psm6": "auditoria/ocr-recovery/raw/p132_tesseract_300dpi_psm6.txt",
+        "ocr_bruto_psm3": "auditoria/ocr-recovery/raw/p132_tesseract_300dpi_psm3.txt"
+      }
+    },
+    {
+      "pagina": 136,
+      "flag_original": "ocr_tabla_o_diagrama_incompleto",
+      "metodo": "tesseract_5.4.0_tessdata_best_spa+eng + transcripcion_visual_verificada",
+      "resolucion_dpi": 300,
+      "psm": 6,
+      "psm_contraste": 3,
+      "preprocesamiento": "render escala de grises PyMuPDF; sin binarización adicional (no mejoró en piloto)",
+      "caracteres_antes_windows_ocr": 4918,
+      "caracteres_tesseract_psm6_bruto": 5449,
+      "caracteres_tesseract_psm3_bruto": 5491,
+      "caracteres_despues_markdown_curado": 5207,
+      "problemas_detectados_ocr": [
+        "Tabla/diagrama incompleto en OCR previo (celdas con texto entrecomillado o nombres JSON omitidos, columnas aplanadas)."
+      ],
+      "discrepancias_y_anomalias": [],
+      "contraste_schemas": null,
+      "verificacion": "verificada_visualmente",
+      "requiere_revision_visual_adicional": false,
+      "archivos": {
+        "curado": "auditoria/ocr-recovery/curated/p136.md",
+        "ocr_bruto_psm6": "auditoria/ocr-recovery/raw/p136_tesseract_300dpi_psm6.txt",
+        "ocr_bruto_psm3": "auditoria/ocr-recovery/raw/p136_tesseract_300dpi_psm3.txt"
+      }
+    }
+  ],
+  "verificacion_markdown": {
+    "marcadores_137": true,
+    "paginas_intactas_byte_a_byte": 86,
+    "avisos_ocr_deficiente_restantes": [],
+    "copia_extraccion_previa": "auditoria/ocr-recovery/normativa-2.0.pre-fase01.md"
+  }
+}

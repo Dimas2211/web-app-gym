@@ -28,6 +28,8 @@ import { Prisma }                             from "@prisma/client";
 import { getDteMhConfig }                      from "../config/dte-mh.config";
 import { MhInvalidationTransmissionAdapter }  from "../adapters/dte-invalidation-transmission.adapter";
 import { MhAuthAdapter }                       from "../adapters/dte-auth.adapter";
+import { checkDteDocumentSpecCoherence } from "../spec/dte-spec-guard";
+import { mh20ProfileSelect } from "../config/dte-mh20.flags";
 
 // ── Tipos públicos ────────────────────────────────────────────────
 
@@ -90,6 +92,7 @@ export async function transmitInvalidationEvent(
         status:         true,
         signed_jws:     true,
         event_json:     true,
+        ...mh20ProfileSelect(),
         dte_document_id: true,
       },
     });
@@ -114,6 +117,15 @@ export async function transmitInvalidationEvent(
     if (!event.event_json) {
       throw new TransmitInvalidationBusinessError("El evento no tiene event_json.");
     }
+
+    // MH20 (BLOQUE 5C): versión del evento ↔ perfil persistido ↔ schema.
+    const invalidationSpec = checkDteDocumentSpecCoherence({
+      kind:             "INV",
+      jsonDocument:     event.event_json,
+      persistedProfile: event.mh_spec_profile,
+    });
+    if (!invalidationSpec.ok) throw new TransmitInvalidationBusinessError(invalidationSpec.error);
+    const invalidationVersion = invalidationSpec.version;
 
     // 3. Cargar DTE original
     const dteDoc = await db.dteOutgoingDocument.findFirst({
@@ -190,12 +202,14 @@ export async function transmitInvalidationEvent(
     //    que la DteCredential (si existe una por emisor/ambiente) se
     //    resuelva desde la MISMA runtime DB que el documento/evento
     //    (mismo patrón que transmit-dte-document.service.ts, VI-E5B).
+    // MH20 (IMP20-003): body.version = identificacion.version del propio
+    // event_json firmado (antes literal 2 = versión MH_1_2 del registro).
     const adapter = new MhInvalidationTransmissionAdapter(new MhAuthAdapter({ credentialClient: db }));
     const result  = await adapter.transmit({
       environment,
       issuerConfigId: dteDoc.issuer_config_id ?? undefined,
       signedJws:      event.signed_jws,
-      version:        2,
+      version:        invalidationVersion,
     });
 
     // ── Caso: error técnico ───────────────────────────────────────

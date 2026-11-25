@@ -16,6 +16,7 @@ import { Prisma } from "@prisma/client";
 import type { PrismaClient } from "@prisma/client";
 import { prisma } from "@/lib/db/prisma";
 import type { DteMetadata, PurchaseDteImportRecord } from "../types/purchase-dte-import.types";
+import { inspectReceivedDteSpec } from "../utils/inspect-received-dte-spec";
 
 // ── Helpers de extracción seguros ─────────────────────────────────
 
@@ -157,7 +158,8 @@ export async function createPurchaseDteImport(
   db: PrismaClient = prisma,
 ): Promise<CreateDteImportResult> {
   const metadata: DteMetadata = extractDteMetadata(raw_json);
-  const warnings: string[]    = [];
+  // MH20 (IMP20-027) — convivencia 1.2/2.0: solo advertencias, raw_json intacto.
+  const warnings: string[]    = [...inspectReceivedDteSpec(raw_json, metadata.reception_stamp).warnings];
 
   // Detección de duplicado por generation_code — solo advierte, no bloquea
   if (metadata.generation_code) {

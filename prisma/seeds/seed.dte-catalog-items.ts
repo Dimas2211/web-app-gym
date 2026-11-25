@@ -63,7 +63,7 @@ const CATALOG_ITEMS: CatalogRow[] = [
   // TODO: completar con códigos oficiales cuando estén disponibles en fuentes MH.
   // Los siguientes son valores de referencia; verificar contra normativa vigente.
   { catalog_code: "CAT-024", item_code: "1", item_label: "Error en los datos",                    description: "Error en datos del documento",              sort_order: 1 },
-  { catalog_code: "CAT-024", item_code: "2", item_label: "Rechazado por el receptor",             description: "Documento rechazado por el receptor",       sort_order: 2 },
+  { catalog_code: "CAT-024", item_code: "2", item_label: "Rescindir de la operación realizada",             description: "MH20 CAT20-420: etiqueta oficial (código sin cambio)",       sort_order: 2 },
   { catalog_code: "CAT-024", item_code: "3", item_label: "Otro",                                  description: "Otro motivo de invalidación",               sort_order: 3 },
 
   // ── CAT-015, CAT-027, CAT-028, CAT-029, CAT-030, CAT-031 ──────────
@@ -136,7 +136,8 @@ export async function seedDteCatalogItems(prisma: PrismaClient): Promise<void> {
   }
   for (const [catalog_code, validCodes] of fex11CodesByCatalog) {
     const removed = await prisma.dteCatalogItem.deleteMany({
-      where: { catalog_code, item_code: { notIn: [...validCodes] } },
+      // MH20 5.1A: limitado a version "1" — nunca elimina filas 2.0.
+      where: { catalog_code, version: "1", item_code: { notIn: [...validCodes] } },
     });
     if (removed.count > 0) {
       console.log(`  🧹 ${removed.count} fila(s) obsoleta(s) eliminada(s) de ${catalog_code}.`);

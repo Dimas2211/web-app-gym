@@ -50,16 +50,14 @@ export async function POST(req: Request) {
 
   const { controlPlanePrisma } = await import("@/modules/platform/runtime/control-plane-prisma");
   const { createPrismaMhTestRunRepository } = await import("@/modules/platform/dte-onboarding/mh-test-runs/mh-test-run.repository");
-  const { createRuntimeMhTestPort } = await import("@/modules/platform/dte-onboarding/mh-test-runs/mh-test-run.runtime-port");
+  const { createRuntimeMhTestPortForRun } = await import("@/modules/platform/dte-onboarding/mh-test-runs/mh-test-run.runtime-port");
   const { processDueMhTestRuns } = await import("@/modules/platform/dte-onboarding/mh-test-runs/mh-test-run.service");
 
   try {
     const summary = await processDueMhTestRuns({
       repo: createPrismaMhTestRunRepository(controlPlanePrisma),
-      runtime: (run) => createRuntimeMhTestPort({
-        organizationId: run.organization_id, tenantId: run.tenant_id, locationId: run.location_id,
-        issuerConfigId: run.issuer_config_id, userId: run.authorized_by ?? "",
-      }),
+      // MH20 (Fase 9.0): el perfil viene de la fila M4 persistida (null → MH_1_2).
+      runtime: (run, runProfile) => createRuntimeMhTestPortForRun(run, runProfile),
       budgetMs: budgetMs(),
     });
     return NextResponse.json({

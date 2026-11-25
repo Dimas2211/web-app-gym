@@ -900,9 +900,13 @@ describe(CERT_ROOT_SUITE, () => {
       // Ya INVALIDATED → no elegible.
       const again = record(await createSignTransmitInvalidationAction(input(run.docs.fe2)));
       expect(!again.ok && again.error).toMatch(/debe estar en estado ACCEPTED/);
-      // FEX 11 no está habilitado para invalidación (regla vigente: 01/03/05).
-      const fex = record(await createSignTransmitInvalidationAction(input(run.docs.fex)));
-      expect(!fex.ok && fex.error).toMatch(/no está habilitado para invalidación/);
+      // Tipo no habilitado para invalidación. Regla vigente: 01/03/05/11 —
+      // FEX 11 se habilitó deliberadamente en 58a00a8 (2026-11-11, ver
+      // docs/modules/fex11-standard-dte.md y build-invalidation-event-json.fex
+      // .test.ts); esta suite (d9f29de, 2026-10-12) aún afirmaba 01/03/05.
+      // FSE 14 (ACCEPTED en esta suite) sigue fuera de la regla (MH20 5.1G).
+      const fse = record(await createSignTransmitInvalidationAction(input(run.docs.fse)));
+      expect(!fse.ok && fse.error).toMatch(/no está habilitado para invalidación/);
       expect(run.dbA.rows("DteInvalidationEvent")).toHaveLength(eventsBefore);
     });
   });

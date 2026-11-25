@@ -27,6 +27,9 @@ import { validateDteJsonAgainstOfficialSchema } from "../services/validate-dte-j
 import { normalizeNitForDte, normalizeNrcForDte } from "../utils/fiscal-id.utils";
 import { validateDteAddressCodes } from "../utils/dte-territory.resolver";
 import { buildControlNumber } from "../utils/dte-control-number";
+import type { DteBuildProfileOptions } from "../utils/mh20-builder-helpers";
+import type { DteSpecProfile } from "../spec/dte-spec-profile";
+import { previewMhTerritory } from "../utils/mh-territory-combinations";
 
 // ── Catálogo ──────────────────────────────────────────────────────
 
@@ -301,6 +304,8 @@ export async function resolveMhTestBuildContext(
   issuer: MhTestIssuer,
   scenarios: ReadonlySet<MhTestScenarioCode>,
   receptors: MhTestReceptors,
+  // MH20 (Fase 8): perfil de la corrida (default MH_1_2 = comportamiento previo).
+  profile: DteSpecProfile = "MH_1_2",
 ): Promise<{ ok: true; context: MhTestBuildContext } | { ok: false; errors: string[] }> {
   const errors: string[] = [];
   if (issuer.environment !== "TEST") errors.push("El emisor de las pruebas debe ser del ambiente TEST.");
@@ -327,7 +332,7 @@ export async function resolveMhTestBuildContext(
   let emisorFexTerritory: FexLoadedData["emisorFexTerritory"] = null;
   let foreignCountry: { code: string; name: string } | null = null;
   if (needs.has("foreign")) {
-    const projected = await resolveFexEmisorTerritory({ deptCode: issuer.dept_code, municipalityCode: issuer.municipality_code }, db);
+    const projected = await resolveFexEmisorTerritory({ deptCode: issuer.dept_code, municipalityCode: issuer.municipality_code }, db, profile);
     if (!projected.ok) errors.push(projected.error);
     else emisorFexTerritory = projected.territory;
     const code = receptors.foreign?.countryCode?.trim();
@@ -411,7 +416,7 @@ function syntheticSaleCore(index: number, now: Date) {
   };
 }
 
-function buildFe(ctx: MhTestBuildContext, scenario: MhTestScenarioCode, doc: MhTestDocumentIdentity, index: number, now: Date): MhTestBuildResult {
+function buildFe(ctx: MhTestBuildContext, scenario: MhTestScenarioCode, doc: MhTestDocumentIdentity, index: number, now: Date, options: DteBuildProfileOptions): MhTestBuildResult {
   const { core } = syntheticSaleCore(index, now);
   const r = scenario === "FE01_IDENTIFICADO" ? ctx.receptors.identified : null;
   const sale = {
@@ -428,10 +433,10 @@ function buildFe(ctx: MhTestBuildContext, scenario: MhTestScenarioCode, doc: MhT
         }
       : null,
   } as unknown as FeBuildSale;
-  return buildFeJsonFromLoadedData({ dteDoc: doc, sale, issuerConfig: feIssuer(ctx.issuer) }, now);
+  return buildFeJsonFromLoadedData({ dteDoc: doc, sale, issuerConfig: feIssuer(ctx.issuer) }, now, options);
 }
 
-function buildCcfe(ctx: MhTestBuildContext, doc: MhTestDocumentIdentity, index: number, now: Date): MhTestBuildResult {
+function buildCcfe(ctx: MhTestBuildContext, doc: MhTestDocumentIdentity, index: number, now: Date, options: DteBuildProfileOptions): MhTestBuildResult {
   const { core } = syntheticSaleCore(index, now);
   const r = ctx.receptors.taxpayer;
   if (!r) return { ok: false, error: "Falta el perfil del contribuyente receptor." };
@@ -446,7 +451,7 @@ function buildCcfe(ctx: MhTestBuildContext, doc: MhTestDocumentIdentity, index: 
       phone: r.phone ?? null, email: r.email,
     },
   } as unknown as CcfeBuildSale;
-  return buildCcfeJsonFromLoadedData({ dteDoc: doc, sale, issuerConfig: feIssuer(ctx.issuer) }, now);
+  return buildCcfeJsonFromLoadedData({ dteDoc: doc, sale, issuerConfig: feIssuer(ctx.issuer) }, now, options);
 }
 
 function buildFex(ctx: MhTestBuildContext, doc: MhTestDocumentIdentity, index: number): MhTestBuildResult {
@@ -494,7 +499,7 @@ function buildFex(ctx: MhTestBuildContext, doc: MhTestDocumentIdentity, index: n
   return res.ok ? { ok: true, json: res.json as unknown as Record<string, unknown> } : { ok: false, error: res.error };
 }
 
-function buildFse(ctx: MhTestBuildContext, doc: MhTestDocumentIdentity, index: number): MhTestBuildResult {
+function buildFse(ctx: MhTestBuildContext, doc: MhTestDocumentIdentity, index: number, options: DteBuildProfileOptions): MhTestBuildResult {
   const r = ctx.receptors.excludedSubject;
   if (!r) return { ok: false, error: "Falta el perfil del sujeto excluido." };
   const subtotal = mhTestBaseAmount(index) * 10;
@@ -532,7 +537,7 @@ function buildFse(ctx: MhTestBuildContext, doc: MhTestDocumentIdentity, index: n
       environment: ctx.issuer.environment,
     },
   };
-  const res = buildFseJsonFromLoadedData(loaded);
+  const res = buildFseJsonFromLoadedData(loaded, options);
   return res.ok ? { ok: true, json: res.json as unknown as Record<string, unknown> } : { ok: false, error: res.error };
 }
 
@@ -551,20 +556,23 @@ export function buildMhTestScenarioJson(
   doc:      MhTestDocumentIdentity,
   index:    number,
   now:      Date,
+  // MH20: opciones de perfil para los builders puros (default = MH_1_2,
+  // salida histórica byte a byte). FEX v3 es igual en ambos perfiles.
+  options:  DteBuildProfileOptions = {},
 ): MhTestBuildResult {
   try {
     switch (scenario) {
       case "FE01_CONSUMIDOR_FINAL":
       case "FE01_IDENTIFICADO":
       case "CONT01_FE":
-        return buildFe(ctx, scenario, doc, index, now);
+        return buildFe(ctx, scenario, doc, index, now, options);
       case "CCFE03_ESTANDAR":
       case "CONT03_CCFE":
-        return buildCcfe(ctx, doc, index, now);
+        return buildCcfe(ctx, doc, index, now, options);
       case "FEX11_SERVICIOS":
         return buildFex(ctx, doc, index);
       case "FSE14_SERVICIOS":
-        return buildFse(ctx, doc, index);
+        return buildFse(ctx, doc, index, options);
       case "NC05_SOBRE_CCFE":
         return { ok: false, error: "NC 05 se genera sobre el CCFE aceptado (generateNcJsonForDte)." };
     }
@@ -576,6 +584,40 @@ export function buildMhTestScenarioJson(
 
 export const MH_TEST_PLACEHOLDER_GENERATION_CODE = "00000000-0000-4000-8000-000000000000";
 
+/** Escenarios que con MH_2_0 quedan BLOCKED (contingencia 2.0: INC-005 + R20-PEND-01). */
+export const MH20_BLOCKED_SCENARIOS: readonly MhTestScenarioCode[] = ["CONT01_FE", "CONT03_CCFE"];
+
+/**
+ * MH20 (Fase 8) — opciones de builder 2.0 para un escenario: territorios
+ * proyectados con la proyección canónica pura (misma fuente que siembra
+ * Municipality). Perfil 1.2 → {} (salida histórica byte a byte).
+ */
+export function mhTestBuildOptionsForProfile(
+  ctx: MhTestBuildContext,
+  scenario: MhTestScenarioCode,
+  profile: DteSpecProfile,
+): { ok: true; options: DteBuildProfileOptions } | { ok: false; error: string } {
+  if (profile !== "MH_2_0") return { ok: true, options: {} };
+  const project = (role: string, dept: string | null | undefined, mun: string | null | undefined) => {
+    const p = previewMhTerritory({ deptCode: dept, municipalityCode: mun }, "MH_2_0");
+    if (p.status === "OK") return { ok: true as const, territory: p.territory };
+    if (p.status === "NO_ADDRESS") return { ok: true as const, territory: null };
+    return { ok: false as const, error: `${role}: ${p.message}` };
+  };
+  const e = project("Emisor", ctx.issuer.dept_code, ctx.issuer.municipality_code);
+  if (!e.ok) return e;
+  if (!e.territory) return { ok: false, error: "Emisor: sin dirección para MH 2.0." };
+  const kind = MH_TEST_SCENARIOS[scenario].receptor;
+  const r = ctx.receptors;
+  const addr =
+    kind === "identified" ? r.identified :
+    kind === "taxpayer"   ? r.taxpayer :
+    kind === "excluded"   ? r.excludedSubject : null;
+  const rr = addr ? project("Receptor", addr.deptCode, addr.municipalityCode) : { ok: true as const, territory: null };
+  if (!rr.ok) return rr;
+  return { ok: true, options: { profile: "MH_2_0", territories: { emisor: e.territory, receptor: rr.territory } } };
+}
+
 /**
  * Dry-run: arma cada escenario con un número de control/código de
  * marcador y valida contra el schema oficial MH. NO reserva correlativos
@@ -586,11 +628,20 @@ export function dryRunMhTestScenarios(
   scenarios:   ReadonlySet<MhTestScenarioCode>,
   contingency: MhTestContingencySettings | null,
   now:         Date,
+  // MH20 (Fase 8): perfil de la corrida; el schema oficial se elige por la
+  // versión del propio JSON (v1/v3 → 1.2, v2/v4 → 2.0).
+  profile:     DteSpecProfile = "MH_1_2",
 ): string[] {
   const errors: string[] = [];
   for (const scenario of scenarios) {
     const def = MH_TEST_SCENARIOS[scenario];
     if (scenario === "NC05_SOBRE_CCFE") continue;
+    if (profile === "MH_2_0" && MH20_BLOCKED_SCENARIOS.includes(scenario)) {
+      errors.push(`${def.label}: bloqueado con MH 2.0 (INC-005 / R20-PEND-01).`);
+      continue;
+    }
+    const opts = mhTestBuildOptionsForProfile(ctx, scenario, profile);
+    if (!opts.ok) { errors.push(`${def.label}: ${opts.error}`); continue; }
     const doc: MhTestDocumentIdentity = {
       control_number:         buildControlNumber({ dte_type_code: def.dteTypeCode, cod_estable_mh: ctx.issuer.cod_estable_mh, cod_punto_venta_mh: ctx.issuer.cod_punto_venta_mh, sequence: 1 }),
       generation_code:        MH_TEST_PLACEHOLDER_GENERATION_CODE,
@@ -598,7 +649,7 @@ export function dryRunMhTestScenarios(
       contingency_type_code:  def.contingency ? contingency?.contingencyTypeCode ?? null : null,
       contingency_reason:     def.contingency ? contingency?.reason ?? null : null,
     };
-    const built = buildMhTestScenarioJson(ctx, scenario, doc, 0, now);
+    const built = buildMhTestScenarioJson(ctx, scenario, doc, 0, now, opts.options);
     if (!built.ok) {
       errors.push(`${def.label}: ${built.error}`);
       continue;

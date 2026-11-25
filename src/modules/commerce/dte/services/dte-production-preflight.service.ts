@@ -19,6 +19,9 @@ import {
   type DteCredentialStatus,
 } from "./dte-credential.service";
 import { resolveDteMhUrls } from "../config/dte-mh.config";
+import { mh20ProfileSelect } from "../config/dte-mh20.flags";
+import { resolveActiveDteSpecProfile } from "../spec/resolve-active-dte-spec-profile";
+import { MH20_ESTABLISHMENT_SECTION } from "../utils/mh20-builder-helpers";
 import { MhHttpDteSignerAdapter } from "../adapters/dte-signer.adapter";
 
 export type PreflightCheckStatus = "ok" | "warning" | "blocked";
@@ -193,6 +196,7 @@ export async function getDteProductionPreflight(
       establishment_code: true, establishment_type_code: true, point_of_sale_code: true,
       cod_estable_mh: true, cod_punto_venta_mh: true,
       dept_code: true, municipality_code: true,
+      ...mh20ProfileSelect(),
     },
   });
 
@@ -254,6 +258,21 @@ export async function getDteProductionPreflight(
     });
   } else {
     checks.push({ code: "ESTABLISHMENT_CODES", label: "Establecimiento / punto de venta MH", status: "ok" });
+
+    // MH20 (IMP20-011, MH20-003/077): codificación AT de la sección 3 del
+    // numeroControl (M|S|B|P + 3 dígitos, P + 3 dígitos). Bloquea solo con
+    // el perfil MH_2_0 activo; con MH 1.2 es advertencia de preparación.
+    const section = `${config.cod_estable_mh!.trim().toUpperCase()}${config.cod_punto_venta_mh!.trim().toUpperCase()}`;
+    if (!MH20_ESTABLISHMENT_SECTION.test(section)) {
+      const active = resolveActiveDteSpecProfile(config as { mh_spec_profile?: string | null });
+      const is20 = active.ok && active.profile === "MH_2_0";
+      checks.push({
+        code:   "MH20_ESTABLISHMENT_FORMAT",
+        label:  "Codificación de establecimiento / punto de venta (MH 2.0)",
+        status: is20 ? "blocked" : "warning",
+        detail: `"${section}" no usa la codificación asignada por la AT (M|S|B|P + 3 dígitos y P + 3 dígitos), obligatoria en MH 2.0.`,
+      });
+    }
   }
 
   // ── 4. Dirección fiscal (no bloquea — MH la acepta null en TEST) ──

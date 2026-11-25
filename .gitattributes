@@ -1,2 +1,9 @@
 prisma/migrations/20261006000000_harden_supabase_public_data_api/migration.sql text eol=lf
 prisma/migrations/20261020000000_gym_bookings_capacity_check/migration.sql text eol=lf
+prisma/migrations/20261124000000_mh20_spec_profile/migration.sql text eol=lf
+prisma/migrations/20261124010000_mh20_spec_profile_audit/migration.sql text eol=lf
+prisma/migrations/20261124020000_mh20_return_events/migration.sql text eol=lf
+prisma/migrations/20261124030000_mh20_mh_test_run_profiles/migration.sql text eol=lf
+prisma/migrations/20261125000000_cor01_fiscal_year/migration.sql text eol=lf
+prisma/migrations/20261119000000_gym_customer_links/migration.sql text eol=lf
+prisma/migrations/20261125010000_mh20_mh_test_run_profile_org_fk/migration.sql text eol=lf

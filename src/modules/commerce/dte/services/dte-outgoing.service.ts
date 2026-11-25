@@ -28,6 +28,8 @@ import { validateDteTransmissionInput } from "../utils/dte-transmission-validati
 import { FSE_ELIGIBLE_DOCUMENT_TYPES } from "@/modules/commerce/purchases/constants/purchase-document.constants";
 import type { CreatePendingDteResult } from "../types/dte.types";
 import { DTE_MVP_TYPE_CODES } from "../types/dte.types";
+import { resolveIssuerSpecProfileForGeneration } from "../spec/resolve-issuer-spec-profile";
+import { ensureMh20ReadyBeforeReservation, mh20IssuerCodesError } from "./mh20-pre-reservation-guard";
 
 // Error de negocio interno — distinguido de errores técnicos inesperados
 class DteBusinessError extends Error {
@@ -164,12 +166,21 @@ export async function createPendingDteForSale(
         );
       }
 
+      // ── 3b. MH20 (Fase 7, §11) — perfil y códigos AT validados ANTES
+      //     de reservar correlativo. Interruptor OFF → MH_1_2 sin consulta.
+      const mh20Ready = await ensureMh20ReadyBeforeReservation(tx as unknown as PrismaClient, {
+        issuerConfigId: issuerConfig.id, tenantId: tenant_id, locationId: location_id,
+        environment: input.environment, kind: input.dte_type_code as "01" | "03",
+        cod_estable_mh: issuerConfig.cod_estable_mh, cod_punto_venta_mh: issuerConfig.cod_punto_venta_mh,
+      });
+      if (!mh20Ready.ok) throw new DteBusinessError(mh20Ready.error);
+
       // ── 4. Reservar correlativo de forma atómica ─────────────────
       // F3-C24: reserva genérica por dte_type_code — toma el máximo entre
       // el correlativo interno, la mayor secuencia ya usada en
       // DteOutgoingDocument y el baseline externo alineado por un admin
       // (empresa migrando desde otro sistema). Ver dte-correlative.service.ts.
-      const { control_number } = await reserveDteControlNumber(tx, {
+      const { control_number, fiscal_year } = await reserveDteControlNumber(tx, {
         tenant_id,
         location_id,
         issuer_config_id:   issuerConfig.id,
@@ -193,6 +204,7 @@ export async function createPendingDteForSale(
           environment:      input.environment,
           generation_code,
           control_number,
+          fiscal_year,
           transmission_type_code: transmission.data.transmission_type_code,
           contingency_type_code:  transmission.data.contingency_type_code,
           contingency_reason:     transmission.data.contingency_reason,
@@ -262,6 +274,7 @@ export async function createPendingDteForPurchase(
           id:             true,
           status:         true,
           document_type:  true,
+          retention_1pct_applies: true,
           supplier: {
             select: { id: true, taxpayer_type: true },
           },
@@ -331,8 +344,24 @@ export async function createPendingDteForPurchase(
         );
       }
 
+      // ── 3b. MH20 (IMP20-029) — FSE v2 no admite ivaRete1 (retención
+      //     IVA 1 %). Se rechaza ANTES de reservar correlativo. Interruptor
+      //     OFF → MH_1_2 sin consultar columnas M1 (comportamiento previo).
+      const specProfile = await resolveIssuerSpecProfileForGeneration(
+        tx as unknown as PrismaClient, issuerConfig.id, tenant_id, location_id, input.environment, "14",
+      );
+      if (!specProfile.ok) throw new DteBusinessError(specProfile.error);
+      const fseCodesError = mh20IssuerCodesError(specProfile.profile, issuerConfig);
+      if (fseCodesError) throw new DteBusinessError(fseCodesError);
+      if (specProfile.profile === "MH_2_0" && purchase.retention_1pct_applies) {
+        throw new DteBusinessError(
+          "Con la normativa MH 2.0 la Factura de Sujeto Excluido no admite la retención IVA del 1 %. " +
+          "Quite la retención de la compra antes de emitir el FSE.",
+        );
+      }
+
       // ── 4. Reservar correlativo tipo "14" ─────────────────────────
-      const { control_number } = await reserveDteControlNumber(tx, {
+      const { control_number, fiscal_year } = await reserveDteControlNumber(tx, {
         tenant_id,
         location_id,
         issuer_config_id:   issuerConfig.id,
@@ -355,6 +384,7 @@ export async function createPendingDteForPurchase(
           environment:      input.environment,
           generation_code,
           control_number,
+          fiscal_year,
           transmission_type_code: "1",
           dte_status:       "PENDING_GENERATION",
           retry_count:      0,

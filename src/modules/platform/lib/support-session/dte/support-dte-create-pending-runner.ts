@@ -256,7 +256,7 @@ export async function createSupportDtePendingRunner(
       // F3-C24: reserva genérica — mismo camino que producción
       // (dte-correlative.service.ts), considera correlativo local, máximo
       // ya usado en DteOutgoingDocument y baseline externo alineado.
-      const { control_number } = await reserveDteControlNumber(tx, {
+      const { control_number, fiscal_year } = await reserveDteControlNumber(tx, {
         tenant_id:          tenantId,
         location_id:        data.location_id,
         issuer_config_id:   data.issuer_config_id,
@@ -278,6 +278,7 @@ export async function createSupportDtePendingRunner(
           environment:      DTE_ENVIRONMENT,
           generation_code,
           control_number,
+          fiscal_year,
           dte_status:       "PENDING_GENERATION",
           retry_count:      0,
         },
