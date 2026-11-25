@@ -1,0 +1,41 @@
+{
+  "phase": "9.2A",
+  "title": "Integración con main y preparación del despliegue TEST",
+  "date": "2026-11-25",
+  "branch": "feat/mh-normativa-2.0",
+  "verdict": "FASE_9_2A_PASS",
+  "pendingSeparately": "Vercel: autenticación/permisos (CLI ausente; whoami denegado por la política de la sesión). Valores vivos de flags NO verificados.",
+  "git": {
+    "headBefore": "b3d0d6affabe6d1bad3e32241a78350e362dbbc5",
+    "originMain": "79f0b7b02f07fe3aca116a92ecc34db4385e8ba1",
+    "mergeBase": "b682b70abc0ef6e8f2b52dcf073c8b2c7f6f0b6f",
+    "mergeCommit": "9f8e3630d242a5e63d670fb235fb99adb9af94ba",
+    "m5Commit": "ad3596e",
+    "conflicts": 0,
+    "push": false, "pr": false, "mergeToMain": false, "deploy": false
+  },
+  "migrations": {
+    "repo": 72,
+    "new": ["20261125010000_mh20_mh_test_run_profile_org_fk"],
+    "trustmeLocal": { "applied": 70, "pending": ["20261119000000_gym_customer_links", "20261125010000_mh20_mh_test_run_profile_org_fk"], "rehearsal": "PASS" },
+    "controlPlane": { "ref": "nygdq", "applied": 66, "pending": 6 },
+    "sharedRuntime": { "ref": "vkoyw", "applied": 66, "pending": 6, "rows": 113, "duplicateRowsConsistent": true },
+    "missingInRepo": 0, "failed": 0, "contentDivergent": 0,
+    "eolOnlyChecksumDiffs": { "local": 2, "cp": 7, "runtime": 3 },
+    "remoteApplied": false, "migrateResolveUsed": false
+  },
+  "m5": { "status": "DONE", "pgTests": "7/7 new + 28/28 M4" },
+  "cor01Compatibility": "Compatible sin mantenimiento si migrar→desplegar el mismo día y antes de 2026-12-31 18:00 SV; backfill idempotente post-deploy recomendado",
+  "compaws": { "physicalDb": "vkoyw (shared with productive issuers)", "testIssuerActive": true, "correlatives": 0, "documents": 0, "lastSignerVerify": "SUCCESS 2026-11-23", "mhAuthorizationConfirmed": false },
+  "correctionTo91": "DTE_MH_TEST_RUNS_MH20_ORGANIZATIONS debe contener el id (uuid) de la organización, no el código 'compaws'",
+  "tests": {
+    "wide": "2679 pass / 0 fail / 86 skipped", "full": "3707 pass / 0 fail / 675 skipped",
+    "pg": "70/70", "sqlCor01": "PASS", "goldenMh12": "8/8", "internalCertification": "77/77",
+    "mariadbExclusion": "8/8", "onboardingMh20": "90/90", "gymCustomerLinks": "50/50",
+    "tsc": "0", "eslint": "0 errors / 155 warnings", "build": "OK", "cat022": "preexisting failure, untouched"
+  },
+  "restrictions": {
+    "persistentDbModified": false, "remoteDbModified": false, "remoteSeeds": false, "flagsChanged": false,
+    "transmittedToMh": false, "mariadbWrites": false, "credentialsOrSignerChanged": false, "correlativesChanged": false
+  }
+}
