@@ -260,10 +260,11 @@ export async function requireRuntimeOrganizationContext(
   // fallo aquí desconecta el PrismaClient runtime recién abierto antes
   // de propagar — nunca se deja una conexión huérfana.
   let liveRole: string;
+  let locationId = user.location_id;
   try {
     const liveUser = await runtimeDb.user.findUnique({
       where: { id: user.id },
-      select: { status: true, tenant_id: true, role: true },
+      select: { status: true, tenant_id: true, role: true, branch_id: true, location_id: true },
     });
 
     if (!liveUser) {
@@ -286,23 +287,23 @@ export async function requireRuntimeOrganizationContext(
     }
     liveRole = liveUser.role;
 
-    // FASE VI-D3 — ETAPA E: revalidación live de location. `location_id`
-    // null es una identidad tenant-wide legítima (mismo significado que
-    // hoy tiene para PLATFORM_NATIVE super_admin) — no se valida nada en
-    // ese caso, nunca se "inventa" una branch. Cuando SÍ viene informado
-    // (branch_admin/reception/trainer con branch fija en el JWT), debe
-    // existir, pertenecer al tenant efectivo y estar activa — el JWT
-    // puede tener hasta 8h de antigüedad y la branch pudo desactivarse,
-    // eliminarse o reasignarse a otro tenant desde entonces.
-    if (user.location_id) {
+    // Un administrador global puede tener una sesión anterior a la
+    // asignación de su sede. Recuperar solo la sede guardada en su usuario.
+    if (liveRole === "super_admin" && !locationId) {
+      locationId = liveUser.branch_id ?? liveUser.location_id ?? null;
+    }
+
+    // Tanto la sede de sesión como la recuperada deben seguir activas
+    // dentro del tenant efectivo.
+    if (locationId) {
       const branch = await runtimeDb.branch.findFirst({
-        where: { id: user.location_id, tenant_id: organization.tenant_id, status: "active" },
+        where: { id: locationId, tenant_id: organization.tenant_id, status: "active" },
         select: { id: true },
       });
       if (!branch) {
         throw new RuntimeIdentityError(
           "RUNTIME_LOCATION_INVALID",
-          `Location ${user.location_id} no existe, no pertenece al tenant efectivo, o no está activa.`,
+          `Location ${locationId} no existe, no pertenece al tenant efectivo, o no está activa.`,
         );
       }
     }
@@ -315,7 +316,7 @@ export async function requireRuntimeOrganizationContext(
     context: {
       organization: { id: organization.id, name: organization.name, tenantId: organization.tenant_id },
       tenantId: organization.tenant_id,
-      locationId: user.location_id,
+      locationId,
       runtimeDb,
       authScope: "RUNTIME_CLIENT",
       role: liveRole,
