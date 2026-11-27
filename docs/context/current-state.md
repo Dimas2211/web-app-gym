@@ -1,6 +1,6 @@
 # Estado actual — Plataforma Multiindustria
 
-## Panorama general (resumen rápido, 2026-11-09)
+## Panorama general (resumen rápido, actualizado 2026-11-27)
 
 > Lectura de 1 minuto. El detalle por fase sigue más abajo; este bloque no reemplaza
 > "Estado vigente — Runtime…" ni "Estado vigente — DTE".
@@ -16,20 +16,25 @@
 - **Commerce:** todos los módulos cerrados y operativos. **DTE:** FE01, CCFE03, NC05, FSE14, FEX11
   (servicios) e invalidación; certificación interna PASS; NC05 e invalidación post-BUG-1 pendientes
   de recertificación externa MH.
+- **DTE / ventas (PRs #13–#28 en `main`, 2026-11-10 a 2026-11-12):** onboarding fiscal automatizado
+  (firmadores por organización/ambiente + MariaDB opcional) también para runtimes Shared en
+  PRODUCTION; diagnóstico "Probar conexión y firma" por ambiente; continuar DTE guardados
+  (01/03/05/11/14) sin nuevo correlativo; anulación de ventas con DTE rechazado sin sello o pendiente
+  sin generar (`CANCELLED` local); reportes de ventas por movimientos (venta y anulación separadas);
+  clientes extranjeros para FEX; INCOTERMS null en servicios FEX; invalidación de FEX 11. Ver «DTE / ventas — noviembre» en «Estado global».
+- **MH 2.0:** soporte desplegado con la activación general apagada. Certificación en TEST
+  habilitada para la organización autorizada. Ver «Estado vigente — DTE».
 - **Gym:** etapas 2–5D implementadas (motor de reservas, multimodalidad, operación del entrenador,
   seguimiento y analítica de entrenamiento). Ver sección "Estado global".
-- **UI (2026-11-09):** refresh visual al sistema de diseño de getzolvi.com en rama
-  `feat/ui-visual-refresh` — 3 commits publicados en `origin` (`f386e58`, `b9564a7`, `e59aea2`),
-  **sin PR ni merge a `main`**. Solo presentación (sin schema, sin migraciones, sin cambios de permisos
-  ni lógica de negocio). Auditoría pre-producción 2026-11-09 con correcciones en working tree (sin
-  commit): `docs/audits/ui-visual-refresh-production-review.md`. Detalle, antes/después y pendientes:
-  `docs/modules/ui-visual-refresh-summary.md`.
+- **UI:** refresh visual de Zolvi integrado a `main` en el [PR #9](https://github.com/Dimas2211/web-app-gym/pull/9). Incluye
+  las correcciones de la [auditoría previa a producción](../audits/ui-visual-refresh-production-review.md).
+  Ver el [resumen del refresh](../modules/ui-visual-refresh-summary.md).
 - **Entorno local de referencia:** Node ≥ 22.12 (probado v26), PostgreSQL 17 local `zolvi_local`,
   `.env` con `DATABASE_URL` y `DIRECT_URL` locales, seeds `db:seed:demo` → `db:seed:purchases` →
   `npx tsx prisma/seed-sales-demo.ts`. Ojo: `seed.demo` deja `tenant_id` NULL en tablas GYM
   (pantallas GYM vacías en local hasta corregirlo).
-- **Prioridades abiertas:** merge del refresh UI; corregir `seed.demo`; recertificación externa
-  NC05/invalidación; onboarding fiscal Shared; RLS; ver "Próximos pasos" y §10 del doc de UI.
+- **Prioridades abiertas:** continuar certificación MH 2.0 en TEST, instalar el ejecutor VPS
+  y el worker del outbox MariaDB, corregir `seed.demo` y completar RLS. Ver «Próximos pasos».
 
 ## Estado global
 - Plataforma base multiindustria reorganizada.
@@ -61,7 +66,15 @@
   - Cierre técnico (2026-11-10): corregidos el descubrimiento del worker (no pasaba de los primeros 50 DTE), la carrera de API Key en APPLY, READY_TEST/READY_PROD sin VERIFY real y la protección de hostnames de firmadores existentes. Se agregaron plantillas para programar el worker (no instaladas). Ejecutor y worker NO instalados.
 
   Ver docs/modules/dte-fiscal-onboarding-automation.md.
-- commerce/dte + platform — **DTE-MH-TEST-RUNS (2026-11-16): en producción con la función APAGADA (PR #29, merge `2ac97c5`, deploy Vercel READY).** Migración `20261116000000_dte_mh_test_runs` aplicada en runtime `vkoywmzlgygypaddxjtn` y Control Plane `nygdqnlzoalmhrqwijjn` (verify PASS 19/19 en ambas). En la misma ventana se aplicaron las pendientes que `main` ya esperaba: runtime ← `20261021000000_gym_training_executions`, `20261110000000_dte_fiscal_onboarding_automation`, `20261112030000_cancel_pending_sale_dte`; Control Plane ← `20261112030000_cancel_pending_sale_dte`. Ambas bases quedan con las 65 migraciones del repo. Backups previos: `zolvi-backups/dte-mh-test-runs-migration-20261116/` (fuera del repo). Pendiente para habilitar: `DTE_MH_TEST_TICK_SECRET`, `DTE_MH_TEST_RUNS_ENABLED=true` y timer del VPS (no autorizados aún). Base local `TrustmeDB` sin estas migraciones.
+  - PR #27 (`fcc775b`, 2026-11-11): se eliminó el paso `DEDICATED_DB`, que bloqueaba READY_PROD en organizaciones Shared. Shared y Dedicated pueden quedar listas en PRODUCTION; emisor, credenciales MH, firmador efectivo, preflight PROD y atestación MH siguen siendo obligatorios.
+  - PR #28 (`f63853c`, 2026-11-12): "Probar conexión y firma" por ambiente (TEST/PRODUCTION) en `/dashboard/settings/dte` y en el onboarding de Platform Admin. Hace una autenticación MH real y una firma real de un JSON de diagnóstico (no es DTE); no crea documentos, no consume correlativos, no transmite ni activa. Bloqueado en Support Session read-only.
+- commerce/dte + sales — **DTE / ventas — noviembre (PRs #18–#26, 2026-11-11 a 2026-11-12, en `main`):**
+  - Continuar DTE guardados sin nueva venta/compra ni nuevo correlativo: FE01/CCF03/NC05/FEX11 desde el panel fiscal de Ventas, FSE14 desde el detalle de Compras (PRs #21, #26). Ver docs/modules/dte-outgoing-summary.md y fex11-standard-dte.md.
+  - Anulación de ventas confirmadas (`cancelConfirmedSale`): no bloquea con DTE REJECTED sin sello ni INVALIDATED/NOT_REQUIRED (PR #23); un DTE `PENDING_GENERATION` intacto pasa a `CANCELLED` (cancelado localmente, **nunca** invalidación MH) en la misma transacción (PR #25). ACCEPTED/OBSERVED sigue exigiendo invalidación previa. Ver docs/modules/sales-summary.md.
+  - Reportes de ventas por movimientos: la venta suma en `sale_date` y la anulación resta en `cancelled_at` (PR #24).
+  - FEX 11: clientes extranjeros editables en el maestro de customers (PR #19); INCOTERMS null para servicios (rechazo MH 007, PR #20); invalidación de FEX 11 ACCEPTED (PR #22). Ver docs/modules/customers-summary.md.
+  - Guard de la acción de correlativos alineado con su página (PR #18).
+- commerce/dte + platform — **DTE-MH-TEST-RUNS (2026-11-16): publicado con la función apagada inicialmente (PR #29, merge `2ac97c5`, deploy Vercel READY).** Migración `20261116000000_dte_mh_test_runs` aplicada en runtime `vkoywmzlgygypaddxjtn` y Control Plane `nygdqnlzoalmhrqwijjn` (verify PASS 19/19 en ambas). En la misma ventana se aplicaron las pendientes que `main` ya esperaba: runtime ← `20261021000000_gym_training_executions`, `20261110000000_dte_fiscal_onboarding_automation`, `20261112030000_cancel_pending_sale_dte`; Control Plane ← `20261112030000_cancel_pending_sale_dte`. En ese despliegue ambas bases quedaron con 65 migraciones. Backups previos: `zolvi-backups/dte-mh-test-runs-migration-20261116/` (fuera del repo). Ver el estado de certificación TEST en la entrada de MH 2.0.
   - Pruebas de Hacienda TEST desde Onboarding fiscal: FE 01, CCFE 03, NC 05, FEX 11 servicios, FSE 14, invalidación y contingencia 01/03.
   - `purpose = MH_TEST_CERTIFICATION`: separado de ventas, compras, metering y Panel Fiscal; exclusión MariaDB absoluta.
   - Reserva de correlativos en bloque, lease con fencing y sin retransmisión automática con resultado incierto.
@@ -69,6 +82,9 @@
   - La migración debe aplicarse a TODAS las bases antes del deploy (ver doc).
 
   Ver docs/modules/dte-mh-test-runs.md.
+- commerce/dte + platform — **MH 2.0 (2026-11-25): código en `main` y producción** mediante el [PR #36](https://github.com/Dimas2211/web-app-gym/pull/36) (`6c65d3b`). El cierre del despliegue registró 72/72 migraciones aplicadas en Control Plane y el runtime verificado.
+  - Al 2026-11-27, `DTE_MH20_PROFILE_ENABLED` está ausente en la configuración de producción de `web-app-gym`. La certificación MH 2.0 corre en TEST para la organización autorizada. La activación productiva de la nueva versión sigue pendiente.
+  - Ver [la documentación de MH 2.0](../fiscal/mh-normativa-2.0/README.md).
 - platform — **RUNTIME LICENSE ENFORCEMENT (2026-10-13): la licencia comercial SÍ se aplica en runtime.** Política central única `evaluateOrganizationAccess()` (capa técnica `status` + capa comercial `license_status`/fechas date-only inclusivas en el timezone de la organización), aplicada en el login runtime y revalidada en vivo por request en `requireRuntimeOrganizationContext()`. Una licencia bloqueada redirige a `/access-restricted`. PLATFORM/Support Session sin gate comercial. Settings gym/codes editables por RUNTIME_CLIENT super_admin (rol LIVE); Sports/Goals read-only sin counts cross-tenant. Sin migración. Ver docs/modules/platform-runtime-license-enforcement.md.
 - gym/bookings — **Etapas 2A/2B (2026-10-20):** fundación de datos y motor unificado `GymBookingService` certificados y desplegados en producción. La migración `20261020000000_gym_bookings_capacity_check` está **aplicada** en las bases físicas Control Plane (`nygdqnlzoalmhrqwijjn`) y Runtime Shared/TrustMe (`vkoywmzlgygypaddxjtn`), verificada en solo lectura el 2026-10-21 (`finished_at` presente, sin rollback). En ambas existe `scheduled_classes_booked_count_capacity_chk` con `convalidated = false`, según el diseño `NOT VALID`. Sin cambios en `schema.prisma` para 2B. Ver docs/modules/gym-bookings-summary.md §11.
 - gym/bookings — **Etapa 3A (2026-10-20): administración multimodalidad** (clientes e historial, planes, snapshots de venta, entrenador PERSONALIZED, GymSettings, sesiones OPEN/PERSONALIZED/GROUP, ausencias, series y actividades). Implementada y auditada, incluida en el release Etapa 3; sin migraciones ni activación automática de nuevas modalidades. Ver docs/modules/gym-bookings-stage3a.md.
@@ -129,14 +145,18 @@
 - **Operar como cliente**: Platform Admin → Shared Runtime Targets → Organizaciones → organización → Operar como cliente. Support Session `readOnly = true`.
 - **Clientes Shared**: Commerce Pilot (`commerce-pilot-0001`, COMMERCE_ONLY, certificado, aislamiento vs TrustMe PASS) y Metatraining (`meta-training`, primer cliente Shared real; primer Data Onboarding EXECUTE en PRODUCTION: `categories`, created = 1).
 - **CAT-022**: solo `02`, `03`, `13`, `36`, `37`. `00 — Consumidor final` retirado; Consumidor Final es `taxpayer_type = FINAL_CONSUMER`.
-- **DTE Shared**: onboarding fiscal **DEFERRED**. Metatraining sin `DteIssuerConfig`/`DteCredential`/`DteCorrelative`/`DteOutgoingDocument`. No emitir/transmitir DTE desde Support Session (readOnly).
+- **DTE Shared**: el onboarding fiscal está disponible en TEST y PRODUCTION desde FISCAL-ONBOARDING y el PR #27. Las sesiones de soporte de solo lectura bloquean la emisión y transmisión.
 - **Licencia runtime**: enforcement real vigente — `evaluateOrganizationAccess()` en login + revalidación live por request; bloqueo → `/access-restricted`; solo afecta `RUNTIME_CLIENT`. Deuda: `provisioning-validator.ts` aún no delega en la política. Ver `docs/modules/platform-runtime-license-enforcement.md`.
-- **Deuda diferida (no bloqueante)**: onboarding fiscal Shared, credenciales MH por tenant, concurrencia de Data Onboarding (volumen 5K certificado en ONBOARDING-5K), RLS.
+- **Deuda diferida (no bloqueante)**: credenciales MH por tenant, concurrencia de Data Onboarding (volumen 5K certificado en ONBOARDING-5K), RLS.
 
-## Estado vigente — DTE (fuente rápida de verdad, 2026-10-12)
+## Estado vigente — DTE (actualizado 2026-11-27)
 
 > Prevalece sobre afirmaciones DTE de secciones históricas de este archivo
 > y de documentos/PDFs anteriores (que se conservan sin modificar).
+
+- **MH 2.0 en producción:** el código del PR #36 está desplegado con la activación general apagada.
+  Las pruebas MH 2.0 están habilitadas en TEST para la organización autorizada. Los resultados
+  certificados en octubre que se detallan a continuación corresponden a la versión anterior.
 
 - `INTERNAL_DTE_CERTIFICATION = PASS` — `npm run dte:certify` (77/77 casos +
   regresión DTE, tsc y build). Certificación **interna**: acciones/servicios
@@ -1282,7 +1302,7 @@ Auditoría + cierre de gaps puntuales, no construcción desde cero. Ver
 - `DEDICATED_RUNTIME_V1 = CERTIFIED` — pendiente de un "Cliente 3" end-to-end
   real (fase futura, fuera de alcance de VI-E7/E8 por decisión explícita).
 - ~~Runner controlado `SEED_TENANT_BASE`~~ — *SUPERADO*: provisioning controlado desde Platform Admin (Shared/Dedicated, retry-safe, con baseline Commerce). Ver docs/context/shared-pilot-4c-closure.md.
-- Onboarding fiscal DTE de clientes Shared (DteIssuerConfig/DteCredential/DteCorrelative por tenant, credenciales MH reales) — **DEFERRED**, bloque explícito futuro. Metatraining no tiene configuración fiscal.
+- **Onboarding fiscal DTE Shared** implementado en los PRs #13 y #27. Pendientes operativos: instalar el ejecutor VPS y programar el worker del outbox MariaDB.
 - Pruebas de concurrencia real de Data Onboarding (volumen hasta 5,000 registros certificado en ONBOARDING-5K).
 - RLS como capa adicional de aislamiento Shared — deuda arquitectónica futura.
 - Fase futura de operación editable completa desde plataforma (products, customers, suppliers, purchases, sales, inventory, cash, DTE) — solo mencionada como pendiente, no diseñada todavía.
@@ -1291,10 +1311,12 @@ Auditoría + cierre de gaps puntuales, no construcción desde cero. Ver
 - QR URL pública, PDF, entrega por email.
 - Reintentos automáticos de delivery externo.
 - Estrategia del firmador fuera de localhost para producción/Vercel.
-- Anulación de ventas confirmadas (con reversión en caja y opción de nota de crédito).
+- **Anulación de ventas confirmadas** implementada en `cancelConfirmedSale`, con reversión de inventario y reintegro de caja. Los PRs #23 y #25 amplían las reglas DTE. Sigue pendiente la opción de emitir nota de crédito desde la anulación.
 - Acceso rol reception a operaciones de caja (si requerido operativamente).
 
-- **UI (pendientes del refresh visual, 2026-11-09):** merge de `feat/ui-visual-refresh`; acción
+- **Branding por cliente:** el plan inicial del 16 de noviembre cubre el login y el portal del socio.
+  Ver [el resumen de branding](../modules/client-branding-summary.md).
+- **UI (refresh integrado en el PR #9):** siguen pendientes la acción
   principal en la franja de módulo; búsqueda Ctrl+K; estados vacíos; toasts de confirmación;
   tablas como tarjetas en móvil; portal del socio con el nuevo look; badges de estado unificados.
   Ver §10 de `docs/modules/ui-visual-refresh-summary.md`.

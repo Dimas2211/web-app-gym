@@ -225,8 +225,7 @@ Queries, endpoints y permisos de reportes **sin cambios**.
 
 Prioridad sugerida:
 
-1. **Revisión final + PR + merge** de `feat/ui-visual-refresh` (decisión del responsable; ver
-   `docs/audits/ui-visual-refresh-production-review.md`).
+1. ~~**Revisión final + PR + merge** de `feat/ui-visual-refresh`~~ — hecho ([PR #9](https://github.com/Dimas2211/web-app-gym/pull/9)).
 2. **Corregir `seed.demo`** para poblar `tenant_id` en tablas GYM (hoy deja bases locales vacías).
 3. **Datos demo GYM pasados** (clases completadas con asistencia) para que reportes de asistencia,
    clases impartidas y baja adherencia tengan contenido local.
@@ -243,6 +242,8 @@ Prioridad sugerida:
 13. Branch name real en "Mi sesión" (hoy muestra "Asignada" / "— (global)").
 14. Considerar elegir sede por defecto para super_admin en reportes (hoy exige selección manual —
     decisión de producto, no visual).
+15. **Branding por cliente** planificado para login y portal del socio. Ver el
+    [resumen de branding](client-branding-summary.md).
 
 ---
 
