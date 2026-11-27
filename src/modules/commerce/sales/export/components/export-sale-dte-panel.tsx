@@ -207,7 +207,7 @@ export function ExportSaleDtePanel({ initialState, onStateChange }: {
           className={`${btnBase} bg-emerald-700 hover:bg-emerald-600 text-white`}
         >
           {pending && activeAction === "deliver" && <Loader2 className="h-3 w-3 animate-spin" />}
-          Enviar a MariaDB
+          Entregar DTE
         </button>
 
         {state.dte_status === "REJECTED" && (
